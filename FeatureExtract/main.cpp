@@ -60,7 +60,8 @@ void prepare_grad(const Mat & img_in, Mat & grad_x, Mat & grad_y, int rescale = 
 
 	bilateralFilter(img_in(Rect(gvar.clip_l, gvar.clip_u, img_in.cols - gvar.clip_l- gvar.clip_r, img_in.rows -gvar.clip_u-gvar.clip_d)), 
 		filt_mat, bfilt_w, bfilt_csigma, 0);
-	resize(filt_mat, filt_mat, Size(filt_mat.cols / rescale, filt_mat.rows / rescale));
+	if (rescale!=1)
+		resize(filt_mat, filt_mat, Size(filt_mat.cols / rescale, filt_mat.rows / rescale));
     Canny(filt_mat, edge_mask, canny_low_th, canny_high_th, 3);
     dilate(edge_mask, edge_mask, Mat());
 
@@ -462,14 +463,15 @@ void generate_feature_diff()
 
 int main(int argc, char** argv)
 {
-	/*Mat src0 = imread(filename, 0);
-	Mat src1 = imread("F:/chenyu/work/ChipStitch/data/m3/10_49.jpg", 0);
-    if(src0.empty() || src1.empty()) {
-        cout << "can not open " << filename << endl;
+	Mat src1 = imread("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", 0);
+    if(src1.empty()) {
+        cout << "can not open " << endl;
         return -1;
     } else
-        cout << "src row=" << src0.rows << ",col=" << src0.cols << ",depth=" <<src0.depth()<<
-                ",channel=" << src0.channels() << '\n';
+        cout << "src row=" << src1.rows << ",col=" << src1.cols << ",depth=" <<src1.depth()<<
+                ",channel=" << src1.channels() << '\n';
+	return 0;
+	/*
     Mat grad_x0, grad_y0, grad_x1, grad_y1, diff;
     prepare_grad(src0, grad_x0, grad_y0);
 	prepare_grad(src1, grad_x1, grad_y1);

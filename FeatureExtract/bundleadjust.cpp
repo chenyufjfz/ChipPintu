@@ -29,7 +29,7 @@ BundleAdjust::BundleAdjust()
 
 unsigned BundleAdjust::compute_score(Mat_<unsigned char> &diff)
 {
-
+	return 0;
 }
 
 int BundleAdjust::load_edge_diff0(string filename)
@@ -44,6 +44,7 @@ int BundleAdjust::load_edge_diff0(string filename)
 		edge_diff0.push_back(ed);
 	}
 	edge_diff0.sort(EdgeDiffCmp());
+	return 0;
 }
 
 int BundleAdjust::load_config(string filename)

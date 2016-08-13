@@ -45,8 +45,8 @@ public:
 	static int load_config(string filename);
 	static unsigned xy2edge(unsigned short y, unsigned short x);
 protected:
-	vector<Edge> edge;
-	list<EdgeDiff> edge_diff;
+	vector<Edge> edge; //size= n*(m-1) + m*(n-1), size doesn't decrease during merge
+	list<EdgeDiff> edge_diff; //size decrease during merge
 	static list<EdgeDiff> edge_diff0;
 	static LayerInfo l_info;
 };
