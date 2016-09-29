@@ -14,10 +14,10 @@ public:
     explicit ViaWireEditView(QWidget *parent = 0);
     double grid_high, grid_width, offset_y, offset_x;
     int mark_state, mark_type2;
-    int wire_width, via_radius;
+    int wire_width, via_radius, insu_gap;
 
 signals:
-    void mouse_change(QPoint pos);
+	void mouse_change(QPoint pos, QString msg);
 
 public:
     void load_bk_image(QString file_path);
@@ -31,9 +31,11 @@ public:
     void start_train(int _feature, int _iter_num, float _param1,float _param2, float _param3);
     void extract();
 	void set_mark(unsigned mark_mask);
-    void set_para(int _wire_width, int _via_radius) {
+	void show_edge(bool show);
+    void set_para(int _wire_width, int _via_radius, int _insu_gap) {
         wire_width = _wire_width;
         via_radius = _via_radius;
+        insu_gap = _insu_gap;
     }
 
     void set_scale(int _scale);
@@ -42,12 +44,13 @@ public:
 protected:
     std::vector <MarkObj> obj_set;
 	std::string img_name;
+	std::vector<unsigned int> mark_color;
 	QImage bk_img, bk_img_mask;
     bool mouse_press;
 	QPoint mp_point;
     int select_idx, scale;
     MarkObj current_obj;
-	VWExtract vwe;	
+	VWExtract * vwe;	
 
 protected:
     void paintEvent(QPaintEvent *e);

@@ -9,19 +9,23 @@
 using namespace std;
 using namespace cv;
 
-static unsigned int mark_color_table[] = {
-	0xff000000,
-	0xff0000a0,
-	0xff00a000,
-    0xff000030,
-    0xff003000,
-	0xff202020,
-	0xff008080,
-	0xffa00000,
-    0xff300000,
-	0xff202020,
-	0xff0000a0,
-	0xff00a000
+static unsigned int mark_color_table[][2] = {
+		{ 0xff000000, M_UNKNOW},
+		{ 0xff0000a0, M_W },
+		{ 0xff00a000, M_V },
+		{ 0xff000030, M_W_I },
+		{ 0xff003000, M_V_I },
+		{ 0xff202020, M_I },
+		{ 0xff008080, M_W_V },
+		{ 0xffa00000, M_V_I_W },
+		{ 0xff300000, M_V_I_V },
+		{ 0xff800000, M_EDGE},
+		{ 0xff202020, M_NOEDGE },
+		{ 0xff202020, M_INL },
+		{ 0xff0000a0, M_WNL },
+		{ 0xff00a000, M_VNL },
+		{ 0xff000030, M_W_INL },
+		{ 0xff003000, M_V_INL }
 };
 static double distance_p2p(const QPoint & p1, const QPoint & p2)
 {
@@ -115,12 +119,17 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
     offset_y = 0;
     offset_x = 0;
 	wire_width = 10;
+	insu_gap = 6;
 	via_radius = 9;
     scale = 1;
     mark_state = SELECT_OBJ;
     current_obj.type = OBJ_NONE;
 	setMouseTracking(true);
 	mouse_press = false;
+	mark_color.resize(sizeof(mark_color_table) / (sizeof(unsigned) * 2));
+	for (int i = 0; i < mark_color.size(); i++)
+		mark_color[mark_color_table[i][1]] = mark_color_table[i][0];
+	vwe = new VWExtractStat();
 }
 
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
@@ -341,32 +350,31 @@ void ViaWireEditView::erase_all_objects()
 
 void ViaWireEditView::start_train(int _feature, int _iter_num, float _param1,float _param2, float _param3)
 {
-	if (obj_set.empty()) {
-		QMessageBox::warning(this, "Warning", "draw or load wire via first!");
-		return;
-	}
+    vwe->set_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap);
+#if 1
+	if (_feature == FEA_GRADXY_HIST_7x7)
+		_feature = FEA_GRADXY_HIST_9x5;
+#endif
+	vwe->train(img_name, obj_set, FEA_GRADXY_HIST_9x5, LEARN_SVM);
 
-    vwe.set_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3);
-    vwe.train(img_name, obj_set, _feature);
-
-	//vwe.extract(img_name, QRect(900, 600, 1000, 700), obj_sets);
 }
 
 void ViaWireEditView::extract()
 {
     vector<MarkObj> obj_sets;
-    vwe.extract(img_name, QRect(50, 50, 550, 250), obj_sets);
+    vwe->extract(img_name, QRect(60, 60, 900, 900), obj_sets);
 }
 
 void ViaWireEditView::set_mark(unsigned mark_mask)
 {
-	Mat mark = vwe.get_mark();
+	Mat mark = vwe->get_mark();
 	if (bk_img.width() != mark.cols || bk_img.height() != mark.rows) {
 		QMessageBox::warning(this, "Warning", "click train or extract first!");
 		return;
 	}
 	if (mark_mask == 0) {
 		bk_img_mask = bk_img;
+		update();
 		return;
 	}
 	else
@@ -375,8 +383,48 @@ void ViaWireEditView::set_mark(unsigned mark_mask)
 	for (int y = 0; y < mark.rows; y++) {		
 		unsigned char * p_mark = mark.ptr<unsigned char>(y);
 		for (int x = 0; x < mark.cols; x++)
-			if ((mark_mask >> p_mark[x]) & 1)
-				bk_img_mask.setPixel(x, y, mark_color_table[p_mark[x]]);
+			if ((mark_mask >> p_mark[x]) & 1) {
+				QRgb oc = bk_img_mask.pixel(x, y);
+				QRgb bc = mark_color[p_mark[x]];
+				QRgb nc = ((oc & 0xff) * 13 + (bc & 0xff) * 3) / 16;
+				nc += (((oc & 0xff00) * 13 + (bc & 0xff00) * 3) / 16) & 0xff00;
+				nc += (((oc & 0xff0000) * 13 + (bc & 0xff0000) * 3) / 16) & 0xff0000;
+				nc += oc & 0xff000000;
+				bk_img_mask.setPixel(x, y, nc);
+			}				
+	}
+	update();
+}
+
+void ViaWireEditView::show_edge(bool show)
+{
+	Mat mark1 = vwe->get_mark1();
+	Mat mark2 = vwe->get_mark2();
+	if (bk_img.width() != mark1.cols || bk_img.height() != mark1.rows ||
+		bk_img.width() != mark2.cols || bk_img.height() != mark2.rows) {
+		QMessageBox::warning(this, "Warning", "click train or extract first!");
+		return;
+	}
+	if (!show) {
+		bk_img_mask = bk_img;
+		update();
+		return;
+	}
+	else
+		bk_img_mask = bk_img.copy();
+
+	for (int y = 0; y < mark1.rows; y++) {
+		unsigned char * p_mark1 = mark1.ptr<unsigned char>(y);
+		unsigned char * p_mark2 = mark2.ptr<unsigned char>(y);
+		for (int x = 0; x < mark1.cols; x++)
+			if (p_mark1[x] != 0 || p_mark2[x] != 0) {
+				QRgb oc = bk_img_mask.pixel(x, y);
+				QRgb nc = ((oc & 0xff) * 8 + p_mark1[x] * 8) / 16;
+				nc += (((oc & 0xff00) * 8 + (unsigned)p_mark2[x] * 256 * 8) / 16) & 0xff00;
+				nc += ((oc & 0xff0000) * 8 / 16) & 0xff0000;
+				nc += oc & 0xff000000;
+				bk_img_mask.setPixel(x, y, nc);
+			}
 	}
 	update();
 }
@@ -538,7 +586,18 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			update();
         }
     }
-    emit mouse_change(event->pos() / scale);
+	QRgb color = bk_img_mask.pixel(event->pos() / scale);
+	char s[200];
+	int len = 0;
+	vector<float> feature;
+	vwe->get_feature((event->pos()).x() / scale, (event->pos()).y() / scale, feature);
+	if (!feature.empty()) {
+		for (int i = 0; i < feature.size(); i++) {
+			len += sprintf(s + len, "f%d=%f,", i, feature[i]);
+		}
+	}
+	sprintf(s, "%s, c=%x", s, color);
+    emit mouse_change(event->pos() / scale, QString(s));
 }
 
 void ViaWireEditView::keyPressEvent(QKeyEvent *e)

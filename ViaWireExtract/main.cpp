@@ -143,17 +143,25 @@ int main(int argc, char *argv[])
     imshow("grad_x", grad_x1);
     imshow("grad_y", grad_y1);
     waitKey();*/
+	qInstallMessageHandler(myMessageOutput);
 	vector <MarkObj> obj_set; 
 	int wire_width;
 	int via_radius;
 
 	ViaWireEditView::load_objects("C:/chenyu/work/ChipPintu/images/Project_21_45.xml", obj_set, wire_width, via_radius);
-	VWExtract vwe;
-
-	vwe.set_param(wire_width, via_radius, 1000, 1, 0, 0);
-	vwe.train("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", obj_set, 2);
+	VWExtractStat vwe;
+	vwe.set_param(wire_width, via_radius, 10, 0.1, 0, 0.2, 6);
+	vwe.train("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", obj_set, FEA_GRADXY_HIST_9x9, LEARN_SVM);
+	double t0 = getTickCount();
 	vwe.extract("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", QRect(50, 50, 550, 250), obj_set);
-	waitKey();
+	double t1 = getTickCount() - t0;
+	/*VWExtract vwe1;
+	vwe1.set_param(wire_width, via_radius, 1000, 1, 0, 0);
+	vwe1.train("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", obj_set, FEA_GRADXY_HIST_9x5, LEARN_SVM);
+	t0 = getTickCount();
+	vwe1.extract("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", QRect(50, 50, 550, 250), obj_set);
+	double t2 = getTickCount() - t0;*/
+	qDebug("t1=%f, t2=%f", t1, 0);
     return 0;
 }
 #else

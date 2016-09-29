@@ -26,7 +26,7 @@ MainWindow::MainWindow(QWidget *parent) :
     status_label->setMinimumSize(200, 20);
     ui->statusbar->addWidget(status_label);
 
-    connect(vw_view, SIGNAL(mouse_change(QPoint)), this, SLOT(mouse_change(QPoint)));
+    connect(vw_view, SIGNAL(mouse_change(QPoint, QString)), this, SLOT(mouse_change(QPoint, QString)));
 
     QActionGroup* mark_action_group = new QActionGroup(this);
     mark_action_group->addAction(ui->actionMark_Insulator);
@@ -42,10 +42,10 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->actionShow_Wire_Edge->setChecked(false);
     vw_view_mask = 0;
     train_param.feature = 1;
-    train_param.iter_num = 1000;
-    train_param.param1 = 1;
+    train_param.iter_num = 10;
+    train_param.param1 = 0.1f;
     train_param.param2 = 0;
-    train_param.param3 = 0;
+    train_param.param3 = 0.2f;
 }
 
 MainWindow::~MainWindow()
@@ -124,10 +124,10 @@ void MainWindow::on_actionClear_All_triggered()
 	vw_view->erase_all_objects();
 }
 
-void MainWindow::mouse_change(QPoint pos)
+void MainWindow::mouse_change(QPoint pos, QString msg)
 {
-    char s[100];
-    sprintf(s, "x:%d,y:%d", pos.x(), pos.y());
+    char s[200];
+    sprintf(s, "x:%d,y:%d, %s", pos.x(), pos.y(), msg.toStdString().c_str());
     status_label->setText(s);
 }
 
@@ -148,11 +148,7 @@ void MainWindow::on_actionStart_Train_triggered()
 
 void MainWindow::on_actionShow_Wire_triggered(bool checked)
 {
-    if (checked)
-        vw_view_mask |= (1<<M_W);
-    else
-        vw_view_mask &= ~(1<<M_W);
-    vw_view->set_mark(vw_view_mask);
+	vw_view->show_edge(checked);
 }
 
 void MainWindow::on_actionShow_Via_triggered(bool checked)
@@ -167,9 +163,9 @@ void MainWindow::on_actionShow_Via_triggered(bool checked)
 void MainWindow::on_actionShow_Wire_Edge_triggered(bool checked)
 {
     if (checked)
-        vw_view_mask |= (1<<M_W_I);
+        vw_view_mask |= (1<<M_EDGE);
     else
-        vw_view_mask &= ~(1<<M_W_I);
+        vw_view_mask &= ~(1<<M_EDGE);
     vw_view->set_mark(vw_view_mask);
 }
 
@@ -225,9 +221,9 @@ void MainWindow::on_actionZoom_out_triggered()
 
 void MainWindow::on_actionSet_Param_triggered()
 {
-    WireViaParamDialog wv_dlg(this, vw_view->wire_width, vw_view->via_radius);
+    WireViaParamDialog wv_dlg(this, vw_view->wire_width, vw_view->via_radius, vw_view->insu_gap);
     if (wv_dlg.exec() == QDialog::Accepted)
-        vw_view->set_para(wv_dlg.wire_width, wv_dlg.via_radius);
+        vw_view->set_para(wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.insu_gap);
 
 }
 

@@ -3,4 +3,5 @@ TEMPLATE = subdirs
 SUBDIRS += \
     StitchView \
     FeatureExtract \
-    ViaWireExtract
+    ViaWireExtract \
+    Try

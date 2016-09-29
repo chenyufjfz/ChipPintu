@@ -45,7 +45,8 @@ private slots:
 
     void on_actionClear_All_triggered();
 
-    void mouse_change(QPoint pos);
+    void mouse_change(QPoint pos, QString msg);
+
     void on_actionStart_Train_triggered();
 
     void on_actionShow_Wire_triggered(bool checked);
