@@ -120,6 +120,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
     offset_x = 0;
 	wire_width = 10;
 	insu_gap = 6;
+    grid_size = 16;
 	via_radius = 9;
     scale = 1;
     mark_state = SELECT_OBJ;
@@ -350,7 +351,7 @@ void ViaWireEditView::erase_all_objects()
 
 void ViaWireEditView::start_train(int _feature, int _iter_num, float _param1,float _param2, float _param3)
 {
-    vwe->set_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap);
+    vwe->set_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap, grid_size);
 #if 1
 	if (_feature == FEA_GRADXY_HIST_7x7)
 		_feature = FEA_GRADXY_HIST_9x5;
@@ -361,8 +362,11 @@ void ViaWireEditView::start_train(int _feature, int _iter_num, float _param1,flo
 
 void ViaWireEditView::extract()
 {
-    vector<MarkObj> obj_sets;
-    vwe->extract(img_name, QRect(60, 60, 900, 900), obj_sets);
+    obj_set.clear();
+    current_obj.type = OBJ_NONE;
+
+    vwe->extract(img_name, QRect(60, 60, 900, 900), obj_set);
+    update();
 }
 
 void ViaWireEditView::set_mark(unsigned mark_mask)
@@ -500,7 +504,7 @@ void ViaWireEditView::mouseReleaseEvent(QMouseEvent *event)
 }
 
 void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
-{
+{	
     if (mouse_press) {
 		if (mark_state == SELECT_OBJ) {
 			if (current_obj.select_state == 1 || current_obj.select_state == 3)
@@ -586,6 +590,8 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			update();
         }
     }
+	if (!bk_img_mask.valid(event->pos() / scale))
+		return;
 	QRgb color = bk_img_mask.pixel(event->pos() / scale);
 	char s[200];
 	int len = 0;

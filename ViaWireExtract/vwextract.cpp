@@ -68,6 +68,25 @@ void fill_circle_check(Mat & mark, int x0, int y0, int r, unsigned char v, QRect
 	}
 }
 
+void fill_rect(Mat & mark, QPoint lt, QPoint rb, unsigned char v, int eu, int ed, int el, int er, QRect & rect)
+{
+	for (int y = max(rect.top(), lt.y() - eu); y <= min(rect.bottom(), rb.y() + ed); y++) {
+		unsigned char * p_mark = mark.ptr<unsigned char>(y);
+		for (int x = max(rect.left(), lt.x() - el); x <= min(rect.right(), rb.x() + er); x++)
+			p_mark[x] = v;
+	}
+}
+
+void fill_rect_check(Mat & mark, QPoint lt, QPoint rb, unsigned char v, int eu, int ed, int el, int er, 
+	QRect & rect, unsigned long long forbid_mark)
+{
+	for (int y = max(rect.top(), lt.y() - eu); y <= min(rect.bottom(), rb.y() + ed); y++) {
+		unsigned char * p_mark = mark.ptr<unsigned char>(y);
+		for (int x = max(rect.left(), lt.x() - el); x <= min(rect.right(), rb.x() + er); x++)
+			if (!((forbid_mark >> p_mark[x]) & 1))
+				p_mark[x] = v;
+	}
+}
 void feature_extract_6x6(unsigned char * a, int lsize, float * feature)
 {
 #define HEAP_NUM 64
@@ -336,15 +355,20 @@ void feature_extract_9x5(unsigned char * a, int lsize, float * feature)
 #undef HEAP_NUM
 #undef HEAP_SHIFT
 }
-
-Vec<float, 5> feature_extract_5(unsigned char * a, int lsize, int w1, int w2, int r, vector<int> dx)
+#if 1
+/*
+Return Vec[0], Vec[1] is up down grad
+		Vec[2], Vec[3] is left right grad
+		Vec[4] is via grad
+*/
+Vec<float, 5> feature_extract_5(const unsigned char * a, int lsize, int w1, int w2, int r, vector<int> dx)
 {
 	int s[6] = { 0 };
 	int mmin[4] = { 0xfffffff };
 	int mmax[4] = { 0 };
 
 	CV_Assert(w1 >= w2);
-	unsigned char * b;
+	const unsigned char * b;
 	for (int y = 0, i = 0; y < 4; y++) {
 		int w = (y == 0 || y == 3) ? w2 : w1;
 		b = a + lsize * (y - 1) - w / 2;
@@ -401,6 +425,104 @@ Vec<float, 5> feature_extract_5(unsigned char * a, int lsize, int w1, int w2, in
 		s[4] / (s[4] + 2 * (s[5] - s[4]) + 0.001f));
 }
 
+#else
+/*
+Return Vec[0], Vec[1] is up down grad
+Vec[2], Vec[3] is left right grad
+Vec[4] is via grad
+*/
+Vec<float, 5> feature_extract_5(unsigned char * a, int lsize, int w1, int w2, int r, vector<int> dx)
+{
+	int s[10] = { 0 };
+	int mmin[8] = { 0xfffffff };
+	int mmax[8] = { 0 };
+
+	unsigned char * b, * c;
+	for (int y = 0, i = 0; y < 4; y++) {
+		int w = (y == 0 || y == 3) ? w2 : w1;
+		b = a + lsize * (y - 1) - w;
+		if (y == 2)
+			i++;
+		for (int x = 1; x <= w; x++) {
+			s[i] += b[x];
+			mmin[i] = min(mmin[i], (int)b[x]);
+			mmax[i] = max(mmax[i], (int)b[x]);
+		}
+		for (int x = w; x < w * 2; x++) {
+			s[i + 2] += b[x];
+			mmin[i + 2] = min(mmin[i + 2], (int)b[x]);
+			mmax[i + 2] = max(mmax[i + 2], (int)b[x]);
+		}
+	}
+
+	b = a;
+	c = a;
+	for (int y = 0; y < w1; y++, b -= lsize, c += lsize) {
+		s[4] += b[0];
+		mmin[4] = min(mmin[4], (int)b[0]);
+		mmax[4] = max(mmax[4], (int)b[0]);
+
+		s[5] += b[1];
+		mmin[5] = min(mmin[5], (int)b[1]);
+		mmax[5] = max(mmax[5], (int)b[1]);
+
+		s[6] += c[0];
+		mmin[6] = min(mmin[6], (int)c[0]);
+		mmax[6] = max(mmax[6], (int)c[0]);
+
+		s[7] += c[1];
+		mmin[7] = min(mmin[7], (int)c[1]);
+		mmax[7] = max(mmax[7], (int)c[1]);
+	}
+
+	b = a - 1;
+	c = a - 1;
+	for (int y = 0; y < w2; y++, b -= lsize, c += lsize) {
+		s[4] += b[0];
+		mmin[4] = min(mmin[4], (int)b[0]);
+		mmax[4] = max(mmax[4], (int)b[0]);
+
+		s[5] += b[3];
+		mmin[5] = min(mmin[5], (int)b[3]);
+		mmax[5] = max(mmax[5], (int)b[3]);
+
+		s[6] += c[0];
+		mmin[6] = min(mmin[6], (int)c[0]);
+		mmax[6] = max(mmax[6], (int)c[0]);
+
+		s[7] += c[3];
+		mmin[7] = min(mmin[7], (int)c[3]);
+		mmax[7] = max(mmax[7], (int)c[3]);
+	}
+	for (int y = -r, i = 0; y <= r; y++, i++) {
+		//int dx = (int)sqrt((float)r*r - y *y);
+		b = a + lsize * y;
+		for (int x = -dx[i]; x <= dx[i]; x++)
+			s[8] += b[x];
+	}
+
+	for (int y = -r - 1; y <= r + 1; y++) {
+		b = a + lsize * y;
+		for (int x = -r - 1; x <= r + 1; x++)
+			s[9] += b[x];
+	}
+
+	for (int i = 0; i < 8; i++)
+		s[i] = s[i] - mmin[i] - mmax[i];
+
+	int choose_ud = 0;
+	if (abs(s[3] - s[2]) > abs(s[1] - s[0]))
+		choose_ud = 2;
+	int choose_lr = 4;
+	if (abs(s[7] - s[6]) > abs(s[5] - s[4]))
+		choose_lr = 6;
+	return Vec<float, 5>((float)log((s[choose_ud + 1] + 0.001f) / (s[choose_ud] + 0.001f)) * 10,
+		s[choose_ud + 1] - s[choose_ud],
+		(float)log((s[choose_lr + 1] + 0.001f) / (s[choose_lr] + 0.001f)) * 10,
+		s[choose_lr + 1] - s[choose_lr],
+		s[8] / (s[8] + 2 * (s[9] - s[8]) + 0.001f));
+}
+#endif
 /*
 Four suppose condition
 1 Insulator area's grad is lower than g0
@@ -622,24 +744,29 @@ in: ew, channel 0 is for right | grad, channel is for bottom _ grad
 inout: mark, input idicate metal is 1, insulator is -1, via is 2, other is 0
 output indicate probability for metal and insulator, more near to 1 means more like metal, more near to -1 means more like insu
 */
-void spath_compute_pblty(const Mat & ew_, Mat & mark, float g0, float g1, float g2, float tp0, float tp2)
+void spath_compute_pblty(const Mat & ew_, Mat & mark, const float g0[], const float g1[], const float g2[], float tp0, float tp2)
 {
 	CV_Assert(mark.type() == CV_32FC1 && ew_.type() == CV_32FC2);
 	CV_Assert(mark.rows == ew_.rows && mark.cols == ew_.cols);
 
-	double a = 1 / ((double)g1 * g1);
+	double a[2];
+	a[0] = 1 / ((double)g1[0] * g1[0]);
+	a[1] = 1 / ((double)g1[1] * g1[1]);
 
 	Mat ew(mark.rows, mark.cols, CV_32FC2);
 	for (int y = 0; y < mark.rows; y++) {
 		float * p_ew = ew.ptr<float>(y);
 		const float * p_ew_ = ew_.ptr<float>(y);
-		for (int x = 0; x < mark.cols * 2; x++)
-			p_ew[x] = adjust2((double) p_ew_[x], a, g1, g2, tp2);
+		for (int x = 0; x < mark.cols * 2; x += 2) {
+			p_ew[x] = adjust2((double)p_ew_[x], a[0], g1[0], g2[0], tp2); //adjust left right grad
+			p_ew[x + 1] = adjust2((double)p_ew_[x + 1], a[1], g1[1], g2[1], tp2); //adjust up down grad
+		}			
 	}
 
-	float pntfat = a * g0 * g0 * tp0;
+	float pntfat = (a[0] * g0[0] * g0[0] + a[1] * g0[1] * g0[1]) * tp0 /2;
 	if (pntfat < 0.000005f)
 		pntfat = 0.000005f;
+	qDebug("penelty factor=%f", pntfat);
 
 	struct PixelPblty {		
 		float ewsum;
@@ -749,17 +876,17 @@ inout: ew, input channel 0 is for right | grad, channel is for bottom _ grad
 in: g0, g1, g2, l0, l1 is same meaning as find_obvious_edge
 in: tp0, tp2 is for adjust, seperate line nihe
 in: wire_up_down, 0 scan row first, 1 scan column first
-inout: mark, input via is 2,
-			 output more near to 1 means more like metal, more near to -1 means more like insu
+out: mark more near to 1 means more like metal, more near to -1 means more like insu
 */
-void estimate_metal_pblty(Mat & ew, float g0, float g1, float g2, float tp0, float tp2, int l0, int l1, int wire_up_down, Mat & mark, int iter_num)
+void estimate_metal_pblty(Mat & ew, const float g0[], const float g1[], const float g2[], 
+	float tp0, float tp2, int l0, int l1, int wire_up_down, Mat & mark, int iter_num)
 {
 	CV_Assert(wire_up_down < 2 && tp0<1 && tp2>1);
-	CV_Assert(mark.rows == ew.rows && mark.cols == ew.cols && ew.type() == CV_32FC2);
+	CV_Assert(mark.rows == ew.rows && mark.cols == ew.cols && ew.type() == CV_32FC2 && mark.type() == CV_32FC1);
 
 	for (int scan = 0; scan < 2; scan++) {
 		if (scan == wire_up_down) {
-			//scan row, from left to right
+			//scan row, from left to right, detect up-down wire (shu xian)
 			vector<float> row_weight(ew.cols);
 			vector<float> row_mark(ew.cols);
 			for (int y = 0; y < mark.rows; y++) {
@@ -769,13 +896,13 @@ void estimate_metal_pblty(Mat & ew, float g0, float g1, float g2, float tp0, flo
 					row_weight[x] = p_ew[2 * x];
 					row_mark[x] = p_mark[x];
 				}
-				find_obvious_edge(row_weight, g0, g1, g2, l0, l1, row_mark);
+				find_obvious_edge(row_weight, g0[scan], g1[scan], g2[scan], l0, l1, row_mark);
 				for (int x = 0; x < mark.cols; x++)
 					p_mark[x] = row_mark[x];
 			}
 		}
 		else {
-			//scan column, from up to down
+			//scan column, from up to down, detect left-right wire (heng xian)
 			vector<float> col_weight(ew.rows);
 			vector<float> col_mark(ew.rows);
 			for (int x = 0; x < mark.cols; x++) {
@@ -783,7 +910,7 @@ void estimate_metal_pblty(Mat & ew, float g0, float g1, float g2, float tp0, flo
 					col_weight[y] = ew.at<float>(y, 2 * x + 1);
 					col_mark[y] = mark.at<float>(y, x);
 				}
-				find_obvious_edge(col_weight, g0, g1, g2, l0, l1, col_mark);
+				find_obvious_edge(col_weight, g0[scan], g1[scan], g2[scan], l0, l1, col_mark);
 				for (int y = 0; y < mark.rows; y++)
 					mark.at<float>(y, x) = col_mark[y];
 			}
@@ -791,7 +918,8 @@ void estimate_metal_pblty(Mat & ew, float g0, float g1, float g2, float tp0, flo
 	}
 
 	//iter_compute_pblty(ew, mark, g0, g1, g2, tp0, tp2, iter_num);
-	spath_compute_pblty(ew, mark, g0, g1, g2, tp0, tp2);
+	if (tp0>0)
+		spath_compute_pblty(ew, mark, g0, g1, g2, tp0, tp2);
 }
 
 /*
@@ -843,7 +971,7 @@ void remove_via_line(const vector<unsigned char> & mark, vector<unsigned char> &
 input mark, via is 2 others is 0
 inout img, input: image raw data
 		   output: image data which remove via
-in wire_up_down
+in wire_up_down, 0 is shuxian rule, 1 is hengxian rule.
 */
 void remove_via(const Mat & mark, Mat & img, int wire_up_down, int w)
 {
@@ -880,7 +1008,7 @@ void remove_via(const Mat & mark, Mat & img, int wire_up_down, int w)
 	}
 }
 
-void feature_extract_via(unsigned char * a, int lsize, int r, float * feature)
+void feature_extract_via(const unsigned char * a, int lsize, int r, float * feature)
 {
 	for (int i = 0; i < 4; i++) {
 		int x0, y0, x1, y1, s0 = 0, s1 = 0;
@@ -911,7 +1039,7 @@ void feature_extract_via(unsigned char * a, int lsize, int r, float * feature)
 			break;
 		}
 		for (int y = y0; y <= y1; y++) {
-			unsigned char * b = a + lsize * y;
+			const unsigned char * b = a + lsize * y;
 			for (int x = x0; x <= x1; x++) {
 				s0 += b[x];
 				if ((i == 0) && (y + x > y1 + x0) || (i == 2) && (y + x < y1 + x0) ||
@@ -922,6 +1050,360 @@ void feature_extract_via(unsigned char * a, int lsize, int r, float * feature)
 		feature[i] = (float)s1 / s0;
 	}
 	
+}
+
+/*
+in: mark_f, more near to 1 means more like metal, more near to -1 means more like insu
+in: via via coordinate
+in: av via's weight for compute grid_line
+in: w wire width
+in: grid, grid width, grid don't need to be big than wire width
+in: row 0 is wire up down, 1 is wire left right
+out: grid_line
+*/
+void find_grid_line(const Mat & mark_f, const vector<QPoint> & via, float av, int w, int grid, int row, vector<int> & grid_line)
+{
+#define WEIGHT_FB 3
+	CV_Assert(mark_f.type() == CV_32FC1 && grid > WEIGHT_FB + 1 && mark_f.rows > grid * 5 && mark_f.cols > grid * 5);
+	vector<double> weight;
+
+	if (row == 0) {
+		weight.resize(mark_f.cols - w + 1, 0);
+		vector<float> lweight(mark_f.cols);
+		for (int y = 0; y < mark_f.rows; y++) {
+			const float * p_mark_f = mark_f.ptr<float>(y);
+			lweight[0] = p_mark_f[0];
+			for (int x = 1; x < w; x++)
+				lweight[x] = lweight[x - 1] + p_mark_f[x];
+			for (int x = w; x < mark_f.cols; x++) {
+				lweight[x] = lweight[x - 1] + p_mark_f[x] - p_mark_f[x - w];
+				weight[x - w] += lweight[x - 1];
+			}
+			weight[mark_f.cols - w] += lweight[mark_f.cols - 1];
+		}
+		for (int i = 0; i < via.size(); i++) {
+			if (via[i].x() >= w / 2 && via[i].x() < weight.size() + w / 2)
+				weight[via[i].x() - w / 2] += w*av;
+			if (via[i].x() >= w / 2 + 1 && via[i].x() < weight.size() + w / 2 + 1)
+				weight[via[i].x() - w / 2 - 1] += w*av*0.7;
+			if (via[i].x() >= w / 2 + 2 && via[i].x() < weight.size() + w / 2 + 2)
+				weight[via[i].x() - w / 2 - 2] += w*av*0.3;
+			if (via[i].x() >= w / 2 - 1 && via[i].x() < weight.size() + w / 2 - 1)
+				weight[via[i].x() - w / 2 + 1] += w*av*0.7;
+			if (via[i].x() >= w / 2 - 2 && via[i].x() < weight.size() + w / 2 - 2)
+				weight[via[i].x() - w / 2 + 2] += w*av*0.3;
+		}	
+	}
+	else {
+		weight.resize(mark_f.rows - w + 1, 0);
+		vector<float> lweight(mark_f.rows);
+		for (int x = 0; x < mark_f.cols; x++) {
+			lweight[0] = mark_f.at<float>(0, x);
+			for (int y = 1; y < w; y++)
+				lweight[y] = lweight[y - 1] + mark_f.at<float>(y, x);
+			for (int y = w; y < mark_f.rows; y++) {
+				lweight[y] = lweight[y - 1] + mark_f.at<float>(y, x) - mark_f.at<float>(y - w, x);
+				weight[y - w] += lweight[y - 1];
+			}
+			weight[mark_f.rows - w] += lweight[mark_f.rows - 1];
+		}
+		for (int i = 0; i < via.size(); i++) {
+			if (via[i].y() >= w / 2 && via[i].y() < weight.size() + w / 2)
+				weight[via[i].y() - w / 2] += w*av;
+			if (via[i].y() >= w / 2 + 1 && via[i].y() < weight.size() + w / 2 + 1)
+				weight[via[i].y() - w / 2 - 1] += w*av*0.7;
+			if (via[i].y() >= w / 2 + 2 && via[i].y() < weight.size() + w / 2 + 2)
+				weight[via[i].y() - w / 2 - 2] += w*av*0.3;
+			if (via[i].y() >= w / 2 - 1 && via[i].y() < weight.size() + w / 2 - 1)
+				weight[via[i].y() - w / 2 + 1] += w*av*0.7;
+			if (via[i].y() >= w / 2 - 2 && via[i].y() < weight.size() + w / 2 - 2)
+				weight[via[i].y() - w / 2 + 2] += w*av*0.3;
+		}
+	}
+	vector<double> weight_f[WEIGHT_FB], weight_b[WEIGHT_FB];
+
+	for (int i = 0; i < WEIGHT_FB; i++) {
+		weight_f[i].resize(weight.size());
+		weight_b[i].resize(weight.size());
+		for (int j = 0; j < weight.size(); j++) {
+			int jf0 = min((int)weight.size() - 1, j + grid);
+			int jf1 = min((int)weight.size() - 1, j + grid + 1);
+			int jb0 = max(0, j - grid);
+			int jb1 = max(0, j - grid - 1);
+			if (i == 0) {
+				weight_f[0][j] = weight[j] + max(weight[jf0], weight[jf1]);
+				weight_b[0][j] = weight[j] + max(weight[jb0], weight[jb1]);
+			}
+			else {
+				weight_f[i][j] = weight[j] + max(weight_f[i - 1][jf0], weight_f[i - 1][jf1]);
+				weight_b[i][j] = weight[j] + max(weight_b[i - 1][jb0], weight_b[i - 1][jb1]);
+			}
+		}					
+	}
+	
+	int base_line;
+	double max_base = -100000000;
+	for (int i = grid * 2; i < weight.size() - grid * 2; i++)
+		if (max_base < weight_f[WEIGHT_FB - 1][i] + weight_b[WEIGHT_FB - 1][i] - weight[i]) {
+			max_base = weight_f[WEIGHT_FB - 1][i] + weight_b[WEIGHT_FB - 1][i] - weight[i];
+			base_line = i;
+		}
+	grid_line.push_back(base_line + w / 2);
+    qDebug("base%d=%d",row, base_line + w / 2);
+	for (int i = base_line; i > 0;) {
+		int ib0 = max(0, i - grid);
+		int ib1 = max(0, i - grid - 1);
+		i = (weight_b[WEIGHT_FB - 1][ib0] > weight_b[WEIGHT_FB - 1][ib1]) ? ib0 : ib1;
+		if (i != 0)
+			grid_line.push_back(i + w / 2);
+	}
+	reverse(grid_line.begin(), grid_line.end());
+	for (int i = base_line; i < (int)weight.size() - 1;) {
+		int if0 = min((int)weight.size() - 1, i + grid);
+		int if1 = min((int)weight.size() - 1, i + grid + 1);
+		i = (weight_f[WEIGHT_FB - 1][if0] > weight_f[WEIGHT_FB - 1][if1]) ? if0 : if1;
+		if (i < (int)weight.size() - 1)
+			grid_line.push_back(i + w / 2);
+	}	
+}
+
+/*
+in: mark_f, more near to 1 means more like metal, more near to -1 means more like insu
+in: w wire width
+in: gl_x, grid line x
+in: gl_y, grid line y
+in: alpha<=0.1, mark_f prize parameter, more big more prize
+out: grid_prob more near to 1 means more like metal, more near to -1 means more like insu
+*/
+void compute_grid_prob(const Mat & mark_f, int w, const vector<int> & gl_x, const vector<int> & gl_y, float alpha, Mat & grid_prob)
+{
+	CV_Assert(mark_f.type() == CV_32FC1 && alpha < 0.1);
+	grid_prob.create(gl_y.size(), gl_x.size(), CV_32FC1);
+
+	for (int i = 0; i < grid_prob.rows; i++)
+		for (int j = 0; j < grid_prob.cols; j++) {
+			int y0 = gl_y[i], x0 = gl_x[j];
+			float weng = 0, ieng = 0;
+			for (int y = max(0, y0 - w / 2); y < min(y0 + w - w / 2, mark_f.rows); y++) {
+				const float * p_mark_f = mark_f.ptr<float>(y);
+				for (int x = max(0, x0 - w / 2); x < min(x0 + w - w / 2, mark_f.cols); x++) {
+                    if (p_mark_f[x] >= 0.5f)
+						weng += 1;
+					else
+                        if (p_mark_f[x] <= -0.5f)
+							ieng += 1;
+						else {
+							float t = p_mark_f[x];
+							if (t > 0 && t < alpha)
+								t = alpha;
+							if (t < 0 && t >-alpha)
+								t = -alpha;
+							weng += 0.5f + t;
+							ieng += 0.5f - t;
+						}
+				}					
+			}
+			if (weng + ieng != 0)
+				grid_prob.at<float>(i, j) = (float)(weng) / (float)(weng + ieng);
+			else
+				grid_prob.at<float>(i, j) = 0.5f;
+		}
+}
+
+/*
+in: alpha better<=0.5, grid_prob prize parameter, more big, more prize
+inout: grid_prob more near to 1 means more like metal, more near to -1 means more like insu
+*/
+void post_process_grid_prob(float alpha, Mat & grid_prob)
+{
+	CV_Assert(grid_prob.type() == CV_32FC1 && grid_prob.cols % 2 == 1 && grid_prob.rows % 2 == 1 && alpha <= 0.7f);
+
+#define PUSH_T_MAX(t, m, s) { if (m < t) { s = m; m = t; } else	if (s < t) s = t; }
+
+    for (int y = 0; y < grid_prob.rows; y += 2) {
+        float * p_grid_prob = grid_prob.ptr<float>(y);
+        for (int x = 0; x < grid_prob.cols; x += 2) {
+            float mmax = -10000000;
+            float submax = -10000000;
+            float t;
+
+            if (x>0)
+                mmax = min(p_grid_prob[x - 2], p_grid_prob[x - 1]);
+            if (x + 2 < grid_prob.cols) {
+                t = min(p_grid_prob[x + 2], p_grid_prob[x + 1]);
+                PUSH_T_MAX(t, mmax, submax);
+            }
+            if (y > 0) {
+                t = min(grid_prob.at<float>(y - 2, x), grid_prob.at<float>(y - 1, x));
+                PUSH_T_MAX(t, mmax, submax);
+            }
+            if (y + 2 < grid_prob.rows) {
+                t = min(grid_prob.at<float>(y + 2, x), grid_prob.at<float>(y + 1, x));
+                PUSH_T_MAX(t, mmax, submax);
+            }
+            if (mmax + submax > 2 * p_grid_prob[x] && mmax + submax > 1.2f) //feed forward p_grid_prob[x]
+                p_grid_prob[x] = p_grid_prob[x] * (1 - alpha) + alpha * (mmax + submax) / 2;
+
+        }
+    }
+
+#undef PUSH_T_MAX
+}
+
+/*
+in: grid_prob, more near to 1 means more like metal, more near to -1 means more like insu
+in: rule
+out: connet, each grid metal connection, up 1, right 2, down 4, left 8
+*/
+void assemble_grid(const Mat & grid_prob, unsigned long long rule, Mat & conet)
+{
+	CV_Assert(grid_prob.type() == CV_32FC1 && grid_prob.cols % 2 == 1 && grid_prob.rows % 2 == 1);
+	conet.create(grid_prob.rows / 2 + 1, grid_prob.cols / 2 + 1, CV_32SC1);
+	conet = 0;
+
+	vector <unsigned long long> edge;
+
+	for (int y = 0; y < grid_prob.rows; y++) {
+		const float * p_grid_prob_1 = grid_prob.ptr<float>(y - 1);
+		const float * p_grid_prob = grid_prob.ptr<float>(y);
+		const float * p_grid_prob_a1 = grid_prob.ptr<float>(y + 1);
+        for (int x = (y + 1) & 1; x < grid_prob.cols; x += 2) {
+			float t;
+            if (y & 1) {
+				t = min(p_grid_prob[x], p_grid_prob_1[x]);
+				t = min(p_grid_prob_a1[x], t);
+				CV_Assert(t <= 1);
+				if (t > 0.5f) {
+					unsigned long long ti = t * 1000000;
+					ti = (ti << 32) | (y << 16) | x;
+					edge.push_back(ti);
+				}
+			}
+			else {
+				t = min(p_grid_prob[x], p_grid_prob[x - 1]);
+				t = min(p_grid_prob[x + 1], t);
+				CV_Assert(t <= 1);
+				if (t > 0.5f) {
+					unsigned long long ti = t * 1000000;
+					ti = (ti << 32) | (y << 16) | x;
+					edge.push_back(ti);
+				}					
+			}
+		}
+	}
+	sort(edge.begin(), edge.end(), greater<unsigned long long>());
+
+	Mat belong(grid_prob.rows / 2 + 1, grid_prob.cols / 2 + 1, CV_32SC1);
+	vector<int> path;
+	if (rule & RULE_TREE)
+		for (int y = 0; y < belong.rows; y++)
+			for (int x = 0; x < belong.cols; x++)
+				belong.at<int>(y, x) = (y << 16) | x;
+
+	for (int i = 0; i < edge.size(); i++) {
+		int y = (edge[i] >> 16) & 0x7fff;
+		int x = edge[i] & 0x7fff;		
+		int y0 = y / 2;
+        int y1 = (y & 1) ? y / 2 + 1 : y / 2;
+		int x0 = x / 2;
+        int x1 = (x & 1) ? x / 2 + 1 : x / 2;
+        int a0 = (y & 1) ? 4 : 2;
+        int a1 = (y & 1) ? 1 : 8;
+		int e0 = conet.at<int>(y0, x0);
+		int e1 = conet.at<int>(y1, x1);
+
+        CV_Assert((y & 1) != (x & 1) && (e0 & a0)==0 && (e1 & a1)==0);
+
+		if ((rule & RULE_TREE) && belong.at<int>(y0, x0) == belong.at<int>(y1, x1))
+			continue;
+		if ((rule & RULE_NO_4CONN) && (e0 + a0 == 15 || e1 + a1 == 15))
+			continue;
+		if ((rule & RULE_NO_3CONN_PAIR) && (e0 == 5 && e1 == 5 || e0 == 10 && e1 == 10))
+			continue;
+
+        if (rule & RULE_TREE) {
+			int t;
+			if (belong.at<int>(y0, x0) < belong.at<int>(y1, x1)) {
+				t = belong.at<int>(y0, x0);
+				path.push_back((y1 << 16) | x1);
+			}
+			else {
+				t = belong.at<int>(y1, x1);
+				path.push_back((y0 << 16) | x0);
+			}
+			while (!path.empty()) {
+				int yy = path.back() >> 16;
+				int xx = path.back() & 0x7fff;
+				int e = conet.at<int>(yy, xx);
+				path.pop_back();
+				belong.at<int>(yy, xx) = t;
+				if ((e & 1) && belong.at<int>(yy - 1, xx) != t)
+					path.push_back(((yy - 1) << 16) | xx);
+				if ((e & 2) && belong.at<int>(yy, xx + 1) != t)
+					path.push_back((yy << 16) | (xx + 1));
+				if ((e & 4) && belong.at<int>(yy + 1, xx) != t)
+					path.push_back(((yy + 1) << 16) | xx);
+				if ((e & 8) && belong.at<int>(yy, xx - 1) != t)
+					path.push_back((yy << 16) | (xx - 1));
+			}
+		}
+
+		conet.at<int>(y0, x0) = e0 + a0;
+		conet.at<int>(y1, x1) = e1 + a1;
+	}
+}
+
+/*
+in: connet, each grid metal connection, up 1, right 2, down 4, left 8
+in: gl_x, grid line x
+in: gl_y, grid line y
+out: obj_sets
+*/
+void grid2_wire_obj(const Mat & conet, const vector<int> & gl_x, const vector<int> & gl_y, vector<MarkObj> & obj_sets)
+{
+	CV_Assert(conet.rows == gl_y.size() && conet.cols == gl_x.size() && conet.type()==CV_32SC1);
+	MarkObj wire;
+	wire.type = OBJ_WIRE;
+	wire.type2 = 0;
+	wire.select_state = 0;
+
+	for (int y = 0; y < conet.rows; y++) {
+		int state = 0;
+		wire.p0.setY(gl_y[y]);
+		wire.p1.setY(gl_y[y]);
+		const int * p_conet = conet.ptr<int>(y);
+		for (int x = 0; x < conet.cols; x++) 
+			if (p_conet[x] & 2) {
+				if (state == 0) 
+					wire.p0.setX(gl_x[x]);
+				state = 1;
+			}
+			else {
+				if (state == 1) {
+					wire.p1.setX(gl_x[x]);
+					obj_sets.push_back(wire);
+				}
+				state = 0;
+			}		
+	}
+	for (int x = 0; x < conet.cols; x++) {
+		int state = 0;
+		wire.p0.setX(gl_x[x]);
+		wire.p1.setX(gl_x[x]);
+		for (int y = 0; y < conet.rows; y++)
+			if (conet.at<int>(y, x) & 4) {
+				if (state == 0)
+					wire.p0.setY(gl_y[y]);
+				state = 1;
+			}
+			else {
+				if (state == 1) {
+					wire.p1.setY(gl_y[y]);
+					obj_sets.push_back(wire);
+				}
+				state = 0;
+			}
+	}
 }
 
 VWExtract::VWExtract()
@@ -1239,7 +1721,7 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 	}
 
 	vector<float> wire_th, via_th;
-	vector<float> edge_grad_r, edge_grads_r, insu_grad_r, edge_grad_d, edge_grads_d, insu_grad_d;
+	vector<float> edge_grad_r[2], edge_grads_r[2], insu_grad_r[2], edge_grad_d[2], edge_grads_d[2], insu_grad_d[2];
 	for (unsigned la = 0; la < l_areas.size(); la++) {
 		//collect feature sample for via
 		QRect rect = l_areas[la].learn_rect;
@@ -1249,7 +1731,7 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 			feature_extract_via(img.ptr<unsigned char>(l_areas[la].vias[v].y()) + l_areas[la].vias[v].x(), (int)img.step[0],
 				via_rd, feature);
 			fill_circle(mark, l_areas[la].vias[v].x(), l_areas[la].vias[v].y(), via_rd + 4, M_V_I, rect);
-			fill_circle(mark, l_areas[la].vias[v].x(), l_areas[la].vias[v].y(), via_rd, M_V, rect);
+			fill_circle(mark, l_areas[la].vias[v].x(), l_areas[la].vias[v].y(), via_rd, M_V, rect); // fill via mark
 			float th = 0;
 			for (int j = 0; j < 4; j++)
 				th += feature[j];
@@ -1261,6 +1743,8 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 			QPoint rb = l_areas[la].wires[w].bottomRight();
 			QPoint d = (lt.x() >= rb.x()) ? QPoint(0, 3) : QPoint(3, 0);
 			int len = (lt.x() >= rb.x()) ? rb.y() - lt.y() : rb.x() - lt.x();
+			fill_rect_check(mark, lt, rb, M_W, wire_wd / 2, wire_wd - wire_wd / 2 - 1, wire_wd / 2, wire_wd - wire_wd / 2 - 1,
+				rect, (1 << M_V) | (1 << M_V_I)); // fill wire mark for wire feature sample extract
 			for (int i = 0; i < len / 3; i++) {
 				lt += d;
 				if (mark.at<unsigned char>(lt.y(), lt.x()) == M_V)
@@ -1280,20 +1764,20 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 			QPoint rb = l_areas[la].wires[w].bottomRight();
 			QPoint d, d1, d2;
 			int len;
-			bool grad_col;
+			int grad_row;
 			if (lt.x() >= rb.x()) {
 				d = QPoint(0, 2);
 				len = rb.y() - lt.y();
 				d1 = QPoint(-wire_wd / 2 - insu_wd / 2 - 1, 0);
 				d2 = QPoint(1, 0);
-				grad_col = true;
+				grad_row = 0;
 			}
 			else {
 				d = QPoint(2, 0);
 				len = rb.x() - lt.x();
 				d1 = QPoint(0, -wire_wd / 2 - insu_wd / 2 - 1);
 				d2 = QPoint(0, 1);
-				grad_col = false;
+				grad_row = 1;
 			}
 
 			for (int i = 0; i < len / 2; i++) {
@@ -1303,26 +1787,29 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 				QPoint p1 = lt + d1;
 				Vec<float, 5> feature_vec;
 				vector<float> grad_r, grad_d;
-				bool no_via = true;
+				bool valid_wire = true;
 
 				for (int j = 0; j < wire_wd + insu_wd + 2; j++, p1 += d2) {
-					if (mark.at<unsigned char>(p1.y(), p1.x()) == M_V || mark.at<unsigned char>(p1.y(), p1.x()) == M_V_I) 
-						no_via = false;						
-					if (!no_via)
-						continue;
+					unsigned char mark_at = mark.at<unsigned char>(p1.y(), p1.x());
+					if (mark_at == M_V || mark_at == M_V_I)
+						valid_wire = false;
+					if ((j < insu_wd / 2 || j > wire_wd + insu_wd / 2 + 2) && mark_at == M_W)
+						valid_wire = false;
+					if (!valid_wire)
+						break;
 
 					feature_vec = feature_extract_5(img.ptr<unsigned char>(p1.y()) + p1.x(), (int)img.step[0],
 						wire_wd + 2, wire_wd - 2, via_rd, dx);
-					if (grad_col) {
-						grad_r.push_back(feature_vec[2]);
+					if (!grad_row) {
+						grad_r.push_back(feature_vec[2]); //left right grad
 						grad_d.push_back(feature_vec[3]);
 					}
 					else {
-						grad_r.push_back(feature_vec[0]);
+						grad_r.push_back(feature_vec[0]); //up down grad
 						grad_d.push_back(feature_vec[1]);
 					}
 				}
-				if (!no_via)
+				if (!valid_wire)
 					continue;
 				int max_idx;
 				float grad_max = -100000;
@@ -1336,13 +1823,13 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 					continue;
 				}
 
-				edge_grads_r.push_back(grad_max);
-				edge_grad_r.push_back(fabs(grad_r[max_idx]));
-				edge_grad_r.push_back(fabs(grad_r[max_idx + wire_wd]));
+				edge_grads_r[grad_row].push_back(grad_max);
+				edge_grad_r[grad_row].push_back(fabs(grad_r[max_idx]));
+				edge_grad_r[grad_row].push_back(fabs(grad_r[max_idx + wire_wd]));
 				for (int j = 0; j < max_idx - 1; j++)
-					insu_grad_r.push_back(fabs(grad_r[j]));
+					insu_grad_r[grad_row].push_back(fabs(grad_r[j]));
 				for (int j = max_idx + wire_wd + 2; j < grad_r.size(); j++)
-					insu_grad_r.push_back(fabs(grad_r[j]));
+					insu_grad_r[grad_row].push_back(fabs(grad_r[j]));
 
 				//do same step for grad_d
 				grad_max = -1000000;
@@ -1351,13 +1838,13 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 						grad_max = grad_d[j] - grad_d[j + wire_wd];
 						max_idx = j;
 					}
-				edge_grads_d.push_back(grad_max);
-				edge_grad_d.push_back(fabs(grad_d[max_idx]));
-				edge_grad_d.push_back(fabs(grad_d[max_idx + wire_wd]));
+				edge_grads_d[grad_row].push_back(grad_max);
+				edge_grad_d[grad_row].push_back(fabs(grad_d[max_idx]));
+				edge_grad_d[grad_row].push_back(fabs(grad_d[max_idx + wire_wd]));
 				for (int j = 0; j < max_idx - 1; j++)
-					insu_grad_d.push_back(fabs(grad_d[j]));
+					insu_grad_d[grad_row].push_back(fabs(grad_d[j]));
 				for (int j = max_idx + wire_wd + 2; j < grad_d.size(); j++)
-					insu_grad_d.push_back(fabs(grad_d[j]));
+					insu_grad_d[grad_row].push_back(fabs(grad_d[j]));
 			}
 		}
 	}
@@ -1397,51 +1884,60 @@ void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_set
 		param1 = 0.07f;
 	if (param1 > 0.39f)
 		param1 = 0.39f;
-	float g0, g1, g2, insu_avg_grad, edge_avg_grad, energy_gap;
+	for (int row_col = 0; row_col < 2; row_col++) {
+		float g0, g1, g2, insu_avg_grad, edge_avg_grad, energy_gap;
+		if (edge_grads_r[row_col].size() < 50)
+			continue;
+		sort(edge_grad_r[row_col].begin(), edge_grad_r[row_col].end(), less<float>());
+		sort(edge_grads_r[row_col].begin(), edge_grads_r[row_col].end(), less<float>());
+		sort(insu_grad_r[row_col].begin(), insu_grad_r[row_col].end(), greater<float>());
+		insu_avg_grad = insu_grad_r[row_col][insu_grad_r[row_col].size() / 2];
+		edge_avg_grad = edge_grad_r[row_col][edge_grad_r[row_col].size() / 2];
+		do {
+			g0 = insu_grad_r[row_col][insu_grad_r[row_col].size()*param1];
+			g1 = edge_grad_r[row_col][edge_grad_r[row_col].size()*param1];
+			if (g1 - g0 < (edge_avg_grad - insu_avg_grad) / 10)
+				param1 += 0.01f;
+			else
+				break;
+		} while (1);
+		g2 = edge_grads_r[row_col][edge_grads_r[row_col].size()*param1];
+		energy_gap = (g1 - g0) / (edge_avg_grad - insu_avg_grad);
+		insu_feature_th[row_col] = g0 *0.65f + g1 * 0.35f;
+		edge_feature_th1[row_col] = g1 *0.65f + g0 *0.35f;
+		edge_feature_th2[row_col] = g2;
+		qDebug("ratio=%f, g0=%f, g1=%f, g2=%f, insu_avg=%f, edge_avg=%f, energy_gap=%f",
+			param1, g0, g1, g2, insu_avg_grad, edge_avg_grad, energy_gap);
 
-	sort(edge_grad_r.begin(), edge_grad_r.end(), less<float>());
-	sort(edge_grads_r.begin(), edge_grads_r.end(), less<float>());
-	sort(insu_grad_r.begin(), insu_grad_r.end(), greater<float>());
-	insu_avg_grad = insu_grad_r[insu_grad_r.size() / 2];
-	edge_avg_grad = edge_grad_r[edge_grad_r.size() / 2];	
-	do {
-		g0 = insu_grad_r[insu_grad_r.size()*param1];
-		g1 = edge_grad_r[edge_grad_r.size()*param1];
-		if (g1 - g0 < (edge_avg_grad - insu_avg_grad) / 10)
-			param1 += 0.01f;
-		else
-			break;
-	} while (1);
-	g2 = edge_grads_r[edge_grads_r.size()*param1];
-	energy_gap = (g1 - g0) / (edge_avg_grad - insu_avg_grad);
-	insu_feature_th = g0 *0.65f + g1 * 0.35f;
-	edge_feature_th1 = g1 *0.65f + g0 *0.35f;
-	edge_feature_th2 = g2;	
-	qDebug("ratio=%f, g0=%f, g1=%f, g2=%f, insu_avg=%f, edge_avg=%f, energy_gap=%f",
-		param1, g0, g1, g2, insu_avg_grad, edge_avg_grad, energy_gap);
+		sort(edge_grad_d[row_col].begin(), edge_grad_d[row_col].end(), less<float>());
+		sort(edge_grads_d[row_col].begin(), edge_grads_d[row_col].end(), less<float>());
+		sort(insu_grad_d[row_col].begin(), insu_grad_d[row_col].end(), greater<float>());
+		insu_avg_grad = insu_grad_d[row_col][insu_grad_d[row_col].size() / 2];
+		edge_avg_grad = edge_grad_d[row_col][edge_grad_d[row_col].size() / 2];
+		g0 = insu_grad_d[row_col][insu_grad_d[row_col].size()*param1];
+		g1 = edge_grad_d[row_col][edge_grad_d[row_col].size()*param1];
+		g2 = edge_grads_d[row_col][edge_grads_d[row_col].size()*param1];
+		qDebug("%d: ratio=%f, g0=%f, g1=%f, g2=%f, insu_avg=%f, edge_avg=%f, energy_gap=%f", row_col,
+			param1, g0, g1, g2, insu_avg_grad, edge_avg_grad, (g1 - g0) / (edge_avg_grad - insu_avg_grad));
 
-	sort(edge_grad_d.begin(), edge_grad_d.end(), less<float>());
-	sort(edge_grads_d.begin(), edge_grads_d.end(), less<float>());
-	sort(insu_grad_d.begin(), insu_grad_d.end(), greater<float>());
-	insu_avg_grad = insu_grad_d[insu_grad_d.size() / 2];
-	edge_avg_grad = edge_grad_d[edge_grad_d.size() / 2];
-	g0 = insu_grad_d[insu_grad_d.size()*param1];
-	g1 = edge_grad_d[edge_grad_d.size()*param1];
-	g2 = edge_grads_d[edge_grads_d.size()*param1];
-	qDebug("ratio=%f, g0=%f, g1=%f, g2=%f, insu_avg=%f, edge_avg=%f, energy_gap=%f",
-		param1, g0, g1, g2, insu_avg_grad, edge_avg_grad, (g1 - g0) / (edge_avg_grad - insu_avg_grad));
-#if 0
-	if (energy_gap > (g1 - g0) / (edge_avg_grad - insu_avg_grad))
-		use_ratio = true;
-	else {
-		use_ratio = false;
-		insu_feature_th = g0 *0.65f + g1 * 0.35f;
-		edge_feature_th1 = g1 *0.65f + g0 *0.35f;
-		edge_feature_th2 = g2;
+		if (energy_gap > (g1 - g0) / (edge_avg_grad - insu_avg_grad))
+			use_ratio[row_col] = true;
+		else {
+			use_ratio[row_col] = false;
+			insu_feature_th[row_col] = g0 *0.65f + g1 * 0.35f;
+			edge_feature_th1[row_col] = g1 *0.65f + g0 *0.35f;
+			edge_feature_th2[row_col] = g2;
+		}
 	}
-#else
-	use_ratio = true;
-#endif
+
+	for (int row_col = 0; row_col < 2; row_col++) 
+		if (edge_grads_r[row_col].size() < 50) {
+			qDebug("%d sample number %d, too low, use %d threshold", row_col, edge_grads_r[row_col].size(), 1 - row_col);
+			insu_feature_th[row_col] = insu_feature_th[1 - row_col];
+			edge_feature_th1[row_col] = edge_feature_th1[1 - row_col];
+			edge_feature_th2[row_col] = edge_feature_th2[1 - row_col];
+			use_ratio[row_col] = use_ratio[1 - row_col];
+		}
 }
 
 void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets)
@@ -1469,14 +1965,8 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 		for (int x = rect.x(), xx=0; x < rect.x() + rect.width(); x++, xx++) {			
 			feature_vec = feature_extract_5(img.ptr<unsigned char>(y) + x, (int)img.step[0],
 				wire_wd + 2, wire_wd - 2, via_rd, xlimit);
-			if (use_ratio) {
-				p_ew[xx * 2] = feature_vec[2];
-				p_ew[xx * 2 + 1] = feature_vec[0];
-			}
-			else {
-				p_ew[xx * 2] = feature_vec[3];
-				p_ew[xx * 2 + 1] = feature_vec[1];
-			}
+			p_ew[xx * 2] = (use_ratio[0]) ? feature_vec[2] : feature_vec[3]; //left right grad
+			p_ew[xx * 2 + 1] = (use_ratio[1]) ? feature_vec[0] : feature_vec[1]; // up down grad
 			int idx = 1000 * feature_vec[4];
 			link.at<int>(y, x) = link_head[idx];
 			link_head[idx] = (y << 16) | x;
@@ -1484,6 +1974,11 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 	}
 
 	//find via	
+	vector<QPoint> vias;
+	MarkObj via;
+	via.type = OBJ_VIA;
+	via.type2 = 0;
+	via.select_state = 0;
 	for (int i = (int) link_head.size() - 1; i >= 0; i--) {
 		int yx = link_head[i];
 		int y, x;
@@ -1497,6 +1992,11 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 				for (int j = 0; j < 4; j++)
 					th += feature[j];
 				if (th > via_feature_th) {
+                    QPoint via_center(x - rect.x(), y - rect.y());
+                    vias.push_back(via_center);
+					via.p0 = via_center;
+					via.p1 = via_center;
+					obj_sets.push_back(via);
 					fill_circle(mark, x, y, via_rd / 2, M_V, rect);
 					fill_circle_check(mark, x, y, via_rd + 2, M_VNL, rect, 1 << M_V); 
 					fill_circle_check(mark, x, y, via_rd + 4, M_V_INL, rect, (1 << M_VNL) | (1 << M_V));
@@ -1528,20 +2028,42 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 			if (p_mark[x] == M_V || p_mark[x] == M_VNL || p_mark[x] == M_V_INL) { //M_V, M_VNL, M_V_INL needs recompute
 				feature_vec = feature_extract_5(img.ptr<unsigned char>(y) +x, (int)img.step[0],
 					wire_wd + 2, wire_wd - 2, via_rd, xlimit);
-				if (use_ratio) {
-					p_ew[xx * 2] = feature_vec[2];
-					p_ew[xx * 2 + 1] = feature_vec[0];
-				}
-				else {
-					p_ew[xx * 2] = feature_vec[3];
-					p_ew[xx * 2 + 1] = feature_vec[1];
-				}
+				p_ew[xx * 2] = (use_ratio[0]) ? feature_vec[2] : feature_vec[3]; //left right grad
+				p_ew[xx * 2 + 1] = (use_ratio[1]) ? feature_vec[0] : feature_vec[1]; // up down grad
 			}
 	}
 
 	estimate_metal_pblty(ew, insu_feature_th, edge_feature_th1, edge_feature_th2, param3, 2.5f,
 		insu_wd - 1, wire_wd, (int)param2, mark_f, iter_num);
+	vector<int> gl_x, gl_y, gl_x2, gl_y2;
+	Mat grid_prob, conet;
+	find_grid_line(mark_f, vias, 10, wire_wd, grid_wd, 0, gl_x);
+	find_grid_line(mark_f, vias, 10, wire_wd, grid_wd, 1, gl_y);
 
+	gl_x2.resize(gl_x.size() * 2 - 1);
+	gl_y2.resize(gl_y.size() * 2 - 1);
+	gl_x2[0] = gl_x[0];
+	for (int i = 0; i + 1 < gl_x.size(); i++) {
+		gl_x2[i * 2 + 2] = gl_x[i + 1];
+		gl_x2[i * 2 + 1] = (gl_x[i] + gl_x[i + 1]) / 2;
+	}
+	gl_y2[0] = gl_y[0];
+	for (int i = 0; i + 1 < gl_y.size(); i++) {
+		gl_y2[i * 2 + 2] = gl_y[i + 1];
+		gl_y2[i * 2 + 1] = (gl_y[i] + gl_y[i + 1]) / 2;
+	}
+	compute_grid_prob(mark_f, wire_wd, gl_x2, gl_y2, 0.08f, grid_prob);
+	post_process_grid_prob(0.5, grid_prob);
+
+    assemble_grid(grid_prob, RULE_TREE | RULE_NO_4CONN | RULE_NO_3CONN_PAIR, conet);
+
+	grid2_wire_obj(conet, gl_x, gl_y, obj_sets);
+    for (int i=0; i < obj_sets.size(); i++) {
+        obj_sets[i].p0.setX(obj_sets[i].p0.x() + rect.x());
+        obj_sets[i].p0.setY(obj_sets[i].p0.y() + rect.y());
+        obj_sets[i].p1.setX(obj_sets[i].p1.x() + rect.x());
+        obj_sets[i].p1.setY(obj_sets[i].p1.y() + rect.y());
+    }
 	for (int y = rect.y(); y < rect.y() + rect.height(); y++) {
 		unsigned char * p_mark = mark.ptr<unsigned char>(y);		
 		float * p_mark_f = mark_f.ptr<float>(y - rect.y());
@@ -1559,7 +2081,6 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 
 	mark1 = 0;
 	mark2 = 0;
-
 	for (int y = rect.y(); y < rect.y() + rect.height(); y++) {
 		unsigned char * p_mark1 = mark1.ptr<unsigned char>(y);
 		unsigned char * p_mark2 = mark2.ptr<unsigned char>(y);
@@ -1571,8 +2092,6 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 			p_mark2[x] = (c > 255) ? 255 : c;
 		}
 	}
-
-	return;
 }
 
 void VWExtractStat::get_feature(int x, int y, vector<float> & feature)

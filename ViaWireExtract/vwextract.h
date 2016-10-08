@@ -62,6 +62,11 @@ enum {
 	LEARN_BAYES
 };
 
+#define RULE_TREE				1
+#define RULE_NO_4CONN			2
+#define RULE_NO_3CONN_PAIR		4
+#define RULE_MINIMUM_LEN		8
+
 struct LearnContainer {
 	QRect learn_rect;
 	vector<QRect> wires;
@@ -75,9 +80,10 @@ struct LearnContainer {
 class VWExtract
 {
 protected:
-	int insu_wd;
-    int wire_wd;
-    int via_rd;
+	int insu_wd; //insulator width
+    int wire_wd; //wire width
+    int via_rd; //via radius
+	int grid_wd; //grid width
 	int feature_method;
 	int learn_method;
     Mat img;
@@ -86,7 +92,7 @@ protected:
     float param1, param2, param3;
 public:
 	VWExtract();
-    virtual void set_param(int width, int r, int _iter_num, float _param1, float _param2, float _param3, int insu_width) {
+    virtual void set_param(int width, int r, int _iter_num, float _param1, float _param2, float _param3, int insu_width, int grid_width) {
         wire_wd = width;
         via_rd = r;
         iter_num = _iter_num;
@@ -94,6 +100,7 @@ public:
         param2 = _param2;
         param3 = _param3;
 		insu_wd = insu_width;
+		grid_wd = grid_width;
     }
 
 	virtual void train(string file_name, const std::vector<MarkObj> & obj_sets, 
@@ -131,8 +138,8 @@ public:
 class VWExtractStat : public VWExtract {
 protected:
 	vector<LearnContainer> l_areas;
-	float via_feature_th, edge_feature_th1, edge_feature_th2, insu_feature_th;
-	bool use_ratio;
+	float via_feature_th, edge_feature_th1[2], edge_feature_th2[2], insu_feature_th[2];
+	bool use_ratio[2];
 public:
 	void train(string file_name, const std::vector<MarkObj> & obj_sets,
 		int _feature_method, int _learn_method);

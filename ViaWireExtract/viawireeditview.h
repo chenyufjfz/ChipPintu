@@ -14,7 +14,7 @@ public:
     explicit ViaWireEditView(QWidget *parent = 0);
     double grid_high, grid_width, offset_y, offset_x;
     int mark_state, mark_type2;
-    int wire_width, via_radius, insu_gap;
+    int wire_width, via_radius, insu_gap, grid_size;
 
 signals:
 	void mouse_change(QPoint pos, QString msg);
@@ -32,10 +32,11 @@ public:
     void extract();
 	void set_mark(unsigned mark_mask);
 	void show_edge(bool show);
-    void set_para(int _wire_width, int _via_radius, int _insu_gap) {
+    void set_para(int _wire_width, int _via_radius, int _insu_gap, int _grid_size) {
         wire_width = _wire_width;
         via_radius = _via_radius;
         insu_gap = _insu_gap;
+        grid_size = _grid_size;
     }
 
     void set_scale(int _scale);

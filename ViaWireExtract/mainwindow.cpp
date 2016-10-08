@@ -221,9 +221,9 @@ void MainWindow::on_actionZoom_out_triggered()
 
 void MainWindow::on_actionSet_Param_triggered()
 {
-    WireViaParamDialog wv_dlg(this, vw_view->wire_width, vw_view->via_radius, vw_view->insu_gap);
+    WireViaParamDialog wv_dlg(this, vw_view->wire_width, vw_view->via_radius, vw_view->insu_gap, vw_view->grid_size);
     if (wv_dlg.exec() == QDialog::Accepted)
-        vw_view->set_para(wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.insu_gap);
+        vw_view->set_para(wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.insu_gap, wv_dlg.grid_size);
 
 }
 
