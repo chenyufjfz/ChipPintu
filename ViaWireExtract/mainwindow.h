@@ -11,6 +11,7 @@ class MainWindow;
 }
 
 struct TrainParam {
+	int train_what;
     int feature;
     int iter_num;
     float param1;
@@ -68,6 +69,8 @@ private slots:
     void on_actionSet_Param_triggered();
 
     void on_actionExtract_triggered();
+
+    void on_actionMark_Cell_triggered();
 
 private:
     QLabel *status_label;

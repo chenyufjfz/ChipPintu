@@ -39,13 +39,15 @@
     <addaction name="separator"/>
     <addaction name="actionMark_Wire"/>
     <addaction name="actionMark_Via"/>
+    <addaction name="actionMark_Cell"/>
     <addaction name="actionMark_Insulator"/>
     <addaction name="actionSelect"/>
     <addaction name="actionClear_All"/>
-    <addaction name="actionSet_Param"/>
     <addaction name="separator"/>
+    <addaction name="actionSet_Param"/>
     <addaction name="actionStart_Train"/>
     <addaction name="actionExtract"/>
+    <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -191,6 +193,11 @@
   <action name="actionExtract">
    <property name="text">
     <string>Extract</string>
+   </property>
+  </action>
+  <action name="actionMark_Cell">
+   <property name="text">
+    <string>Mark Cell</string>
    </property>
   </action>
  </widget>

@@ -1,34 +1,8 @@
 #ifndef VWEXTRACT_H
 #define VWEXTRACT_H
-#include <vector>
-#include <QRect>
-#include <QLine>
-#include <QPoint>
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/ml/ml.hpp"
+#include "objextract.h"
 using namespace cv;
-
-struct MarkObj {
-    int type;
-	int type2;
-    int select_state;
-    QPoint p0, p1;
-};
-
-
-enum {
-    OBJ_NONE=0,
-    OBJ_AREA,
-    OBJ_WIRE,
-    OBJ_VIA,
-    SELECT_OBJ
-};
-
-enum {
-	AREA_LEARN=0,
-	AREA_METAL,
-};
 
 enum {
 	M_UNKNOW=0,	
@@ -77,7 +51,7 @@ struct LearnContainer {
 };
 
 
-class VWExtract
+class VWExtract : public ObjExtract
 {
 protected:
 	int insu_wd; //insulator width
@@ -87,7 +61,7 @@ protected:
 	int feature_method;
 	int learn_method;
     Mat img;
-	Mat mark, mark1, mark2;
+	Mat mark, mark1, mark2, mark3;
     int iter_num;
     float param1, param2, param3;
 public:
@@ -103,10 +77,6 @@ public:
 		grid_wd = grid_width;
     }
 
-	virtual void train(string file_name, const std::vector<MarkObj> & obj_sets, 
-		int _feature_method, int _learn_method) = 0;
-    virtual void extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets) = 0;
-	virtual void get_feature(int x, int y, vector<float> & feature) = 0;
 	Mat get_mark() {
 		return mark;
 	}
@@ -115,6 +85,9 @@ public:
 	}
 	Mat get_mark2() {
 		return mark2;
+	}
+	Mat get_mark3() {
+		return mark3;
 	}
 	virtual ~VWExtract() {
 

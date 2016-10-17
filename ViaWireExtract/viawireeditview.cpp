@@ -131,6 +131,8 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	for (int i = 0; i < mark_color.size(); i++)
 		mark_color[mark_color_table[i][1]] = mark_color_table[i][0];
 	vwe = new VWExtractStat();
+	cele = new CellExtract();
+	current_train = NULL;
 }
 
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
@@ -148,8 +150,11 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 				if (obj.type2 == AREA_LEARN)
 					painter.setPen(QPen(Qt::white, 1));
 				else
-					painter.setPen(QPen(Qt::blue, 1));
-			if (obj.type2 == AREA_LEARN)
+                    if (obj.type2 == AREA_CELL)
+                        painter.setPen(QPen(Qt::yellow, 2));
+                    else
+                        painter.setPen(QPen(Qt::blue, 1));
+            if (obj.type2 == AREA_LEARN || obj.type2 == AREA_CELL)
 				painter.setBrush(QBrush(Qt::NoBrush));
 			else
 				painter.setBrush(QBrush(Qt::blue));
@@ -349,29 +354,39 @@ void ViaWireEditView::erase_all_objects()
 	update();
 }
 
-void ViaWireEditView::start_train(int _feature, int _iter_num, float _param1,float _param2, float _param3)
+void ViaWireEditView::start_train(int train_what, int _feature, int _iter_num, float _param1, float _param2, float _param3)
 {
-    vwe->set_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap, grid_size);
-#if 1
-	if (_feature == FEA_GRADXY_HIST_7x7)
-		_feature = FEA_GRADXY_HIST_9x5;
-#endif
-	vwe->train(img_name, obj_set, FEA_GRADXY_HIST_9x5, LEARN_SVM);
+	if (train_what == 0) {
+		vwe->set_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap, grid_size);
+		vwe->train(img_name, obj_set, FEA_GRADXY_HIST_9x5, LEARN_SVM);
+		current_train = vwe;
+	}
+	else {
+		cele->set_param(0, 0, 0, _param1, _param2, _param3, 0, 0);
+		cele->train(img_name, obj_set, _feature, 0);
+		current_train = cele;
+	}
 
 }
 
 void ViaWireEditView::extract()
 {
+	if (current_train == NULL)
+		return;
     obj_set.clear();
     current_obj.type = OBJ_NONE;
-
-    vwe->extract(img_name, QRect(60, 60, 900, 900), obj_set);
+	if (current_train == vwe)
+		current_train->extract(img_name, QRect(60, 60, 900, 900), obj_set);
+	else
+		current_train->extract(img_name, QRect(0, 0, 1020, 1020), obj_set);
     update();
 }
 
 void ViaWireEditView::set_mark(unsigned mark_mask)
 {
-	Mat mark = vwe->get_mark();
+	if (current_train == NULL)
+		return;
+	Mat mark = current_train->get_mark();
 	if (bk_img.width() != mark.cols || bk_img.height() != mark.rows) {
 		QMessageBox::warning(this, "Warning", "click train or extract first!");
 		return;
@@ -402,8 +417,11 @@ void ViaWireEditView::set_mark(unsigned mark_mask)
 
 void ViaWireEditView::show_edge(bool show)
 {
-	Mat mark1 = vwe->get_mark1();
-	Mat mark2 = vwe->get_mark2();
+	if (current_train == NULL)
+		return;
+	Mat mark1 = current_train->get_mark1();
+	Mat mark2 = current_train->get_mark2();
+	Mat mark3 = current_train->get_mark3();
 	if (bk_img.width() != mark1.cols || bk_img.height() != mark1.rows ||
 		bk_img.width() != mark2.cols || bk_img.height() != mark2.rows) {
 		QMessageBox::warning(this, "Warning", "click train or extract first!");
@@ -420,12 +438,13 @@ void ViaWireEditView::show_edge(bool show)
 	for (int y = 0; y < mark1.rows; y++) {
 		unsigned char * p_mark1 = mark1.ptr<unsigned char>(y);
 		unsigned char * p_mark2 = mark2.ptr<unsigned char>(y);
+		unsigned char * p_mark3 = mark3.ptr<unsigned char>(y);
 		for (int x = 0; x < mark1.cols; x++)
 			if (p_mark1[x] != 0 || p_mark2[x] != 0) {
 				QRgb oc = bk_img_mask.pixel(x, y);
 				QRgb nc = ((oc & 0xff) * 8 + p_mark1[x] * 8) / 16;
 				nc += (((oc & 0xff00) * 8 + (unsigned)p_mark2[x] * 256 * 8) / 16) & 0xff00;
-				nc += ((oc & 0xff0000) * 8 / 16) & 0xff0000;
+				nc += (((oc & 0xff0000) * 8 + (unsigned)p_mark3[x] * 65536 * 8) / 16) & 0xff0000;
 				nc += oc & 0xff000000;
 				bk_img_mask.setPixel(x, y, nc);
 			}
@@ -590,19 +609,34 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			update();
         }
     }
-	if (!bk_img_mask.valid(event->pos() / scale))
+	if (!bk_img.valid(event->pos() / scale))
 		return;
-	QRgb color = bk_img_mask.pixel(event->pos() / scale);
+	QRgb color = bk_img.pixel(event->pos() / scale);
 	char s[200];
-	int len = 0;
-	vector<float> feature;
-	vwe->get_feature((event->pos()).x() / scale, (event->pos()).y() / scale, feature);
-	if (!feature.empty()) {
-		for (int i = 0; i < feature.size(); i++) {
-			len += sprintf(s + len, "f%d=%f,", i, feature[i]);
+	if (current_train == NULL) 
+		sprintf(s, "c=%x", color);	
+	else {		
+		int len = 0;
+		vector<float> feature;
+		current_train->get_feature((event->pos()).x() / scale, (event->pos()).y() / scale, feature);
+		if (!feature.empty()) {
+			for (int i = 0; i < feature.size(); i++) {
+				len += sprintf(s + len, "f%d=%f,", i, feature[i]);
+			}
 		}
+		unsigned m;
+		int y = (event->pos()).y() / scale;
+		int x = (event->pos()).x() / scale;
+		Mat mark1 = current_train->get_mark1();
+		Mat mark2 = current_train->get_mark2();
+		Mat mark3 = current_train->get_mark3();
+		if (!mark1.empty() && !mark2.empty() && !mark3.empty()) {
+			m = mark1.at<unsigned char>(y, x);
+			m = (mark2.at<unsigned char>(y, x) << 8) + m;
+			m = (mark3.at<unsigned char>(y, x) << 16) + m;
+		}
+		sprintf(s, "%s, c=%x, m=%x", s, color, m);
 	}
-	sprintf(s, "%s, c=%x", s, color);
     emit mouse_change(event->pos() / scale, QString(s));
 }
 

@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <string>
 #include "vwextract.h"
+#include "cellextract.h"
 
 class ViaWireEditView : public QWidget
 {
@@ -28,7 +29,7 @@ public:
     void load_objects(QString file_path);
 	static bool load_objects(QString file_path, std::vector <MarkObj> & obj_set, int & wire_width, int & via_radius);
 	void erase_all_objects();
-    void start_train(int _feature, int _iter_num, float _param1,float _param2, float _param3);
+    void start_train(int train_what, int _feature, int _iter_num, float _param1,float _param2, float _param3);
     void extract();
 	void set_mark(unsigned mark_mask);
 	void show_edge(bool show);
@@ -52,6 +53,8 @@ protected:
     int select_idx, scale;
     MarkObj current_obj;
 	VWExtract * vwe;	
+	CellExtract * cele;
+	ObjExtract * current_train;
 
 protected:
     void paintEvent(QPaintEvent *e);

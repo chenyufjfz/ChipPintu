@@ -417,12 +417,24 @@ Vec<float, 5> feature_extract_5(const unsigned char * a, int lsize, int w1, int 
 
 	for (int i = 0; i < 4; i++)
 		s[i] = s[i] - mmin[i] - mmax[i];
-
+#if 0	
 	return Vec<float, 5>((float) log((s[1] + 0.001f) / (s[0] + 0.001f)) * 10,
 		s[1] - s[0],
 		(float) log((s[3] + 0.001f) / (s[2] + 0.001f)) * 10,
 		s[3] - s[2],
 		s[4] / (s[4] + 2 * (s[5] - s[4]) + 0.001f));
+#else
+	float d10 = s[1] - s[0];
+	float d32 = s[3] - s[2];
+	float r10 = log((s[1] + 0.001f) / (s[0] + 0.001f)) * 10;
+	float r32 = log((s[3] + 0.001f) / (s[2] + 0.001f)) * 10;
+
+	return Vec<float, 5>(r10 + SGN(r10) * fabs(r32) / 2,
+		d10 + SGN(d10) * fabs(d32) / 2,
+		r32 + SGN(r32) * fabs(r10) / 2,
+		d32 + SGN(d32) * fabs(d10) / 2,
+		s[4] / (s[4] + 2 * (s[5] - s[4]) + 0.001f));
+#endif
 }
 
 #else
@@ -1178,7 +1190,7 @@ out: grid_prob more near to 1 means more like metal, more near to -1 means more 
 void compute_grid_prob(const Mat & mark_f, int w, const vector<int> & gl_x, const vector<int> & gl_y, float alpha, Mat & grid_prob)
 {
 	CV_Assert(mark_f.type() == CV_32FC1 && alpha < 0.1);
-	grid_prob.create(gl_y.size(), gl_x.size(), CV_32FC1);
+    grid_prob.create((int) gl_y.size(), (int) gl_x.size(), CV_32FC1);
 
 	for (int i = 0; i < grid_prob.rows; i++)
 		for (int j = 0; j < grid_prob.cols; j++) {
@@ -1241,7 +1253,7 @@ void post_process_grid_prob(float alpha, Mat & grid_prob)
                 t = min(grid_prob.at<float>(y + 2, x), grid_prob.at<float>(y + 1, x));
                 PUSH_T_MAX(t, mmax, submax);
             }
-            if (mmax + submax > 2 * p_grid_prob[x] && mmax + submax > 1.2f) //feed forward p_grid_prob[x]
+            if (mmax + submax > 2 * p_grid_prob[x] && submax > 0.6f) //feed forward p_grid_prob[x]
                 p_grid_prob[x] = p_grid_prob[x] * (1 - alpha) + alpha * (mmax + submax) / 2;
 
         }
@@ -1949,6 +1961,7 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 	mark.create(img.rows, img.cols, CV_8UC1);
 	mark1.create(img.rows, img.cols, CV_8UC1);
 	mark2.create(img.rows, img.cols, CV_8UC1);
+	mark3.create(img.rows, img.cols, CV_8UC1);
 	mark = M_UNKNOW;
 	Mat mark_f(rect.height(), rect.width(), CV_32FC1);
 	mark_f = 0;
@@ -2081,15 +2094,24 @@ void VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> &
 
 	mark1 = 0;
 	mark2 = 0;
-	for (int y = rect.y(); y < rect.y() + rect.height(); y++) {
+    mark3 = 0;
+	for (int y = rect.y(), yy=0, igy = 0; y < rect.y() + rect.height(); y++, yy++) {
 		unsigned char * p_mark1 = mark1.ptr<unsigned char>(y);
 		unsigned char * p_mark2 = mark2.ptr<unsigned char>(y);
-		float * p_ew = ew.ptr<float>(y - rect.y());
-		for (int x = rect.x(), xx = 0; x < rect.x() + rect.width(); x++, xx++) {
-			int c = (int) (fabs(p_ew[xx * 2]) * 100);
+		unsigned char * p_mark3 = mark3.ptr<unsigned char>(y);
+		if (igy + 1<gl_y2.size())
+			if (yy > (gl_y2[igy] + gl_y2[igy + 1]) / 2)
+				igy++;
+		float * p_ew = ew.ptr<float>(yy);
+		for (int x = rect.x(), xx = 0, igx = 0; x < rect.x() + rect.width(); x++, xx++) {
+            int c = (int) (fabs(use_ratio[0] ? p_ew[xx * 2] * 100 : p_ew[xx * 2]));
 			p_mark1[x] = (c > 255) ? 255 : c;
-			c = (int)(fabs(p_ew[xx * 2 + 1]) * 100);
+            c = (int)(fabs(use_ratio[1] ? p_ew[xx * 2 + 1] * 100 : p_ew[xx * 2 + 1]));
 			p_mark2[x] = (c > 255) ? 255 : c;
+			if (igx + 1 < gl_x2.size())
+				if (xx > (gl_x2[igx] + gl_x2[igx + 1]) / 2)
+					igx++;
+            p_mark3[x] = (unsigned char) (grid_prob.at<float>(igy, igx) * 255);
 		}
 	}
 }

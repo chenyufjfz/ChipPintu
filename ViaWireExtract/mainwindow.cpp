@@ -46,6 +46,7 @@ MainWindow::MainWindow(QWidget *parent) :
     train_param.param1 = 0.1f;
     train_param.param2 = 0;
     train_param.param3 = 0.2f;
+	train_param.train_what = 0;
 }
 
 MainWindow::~MainWindow()
@@ -91,6 +92,11 @@ void MainWindow::on_actionMark_Wire_triggered()
 	vw_view->set_mark(OBJ_WIRE, 0);
 }
 
+void MainWindow::on_actionMark_Cell_triggered()
+{
+    vw_view->set_mark(OBJ_AREA, AREA_CELL);
+}
+
 void MainWindow::on_actionMark_Via_triggered()
 {
 	vw_view->set_mark(OBJ_VIA, 0);
@@ -133,7 +139,7 @@ void MainWindow::mouse_change(QPoint pos, QString msg)
 
 void MainWindow::on_actionStart_Train_triggered()
 {
-    TrainDialog train_dlg(this, train_param.feature, train_param.iter_num,
+	TrainDialog train_dlg(this, train_param.train_what, train_param.feature, train_param.iter_num,
                           train_param.param1, train_param.param2, train_param.param3);
     if (train_dlg.exec() == QDialog::Accepted) {
         train_param.feature = train_dlg.feature;
@@ -141,7 +147,8 @@ void MainWindow::on_actionStart_Train_triggered()
         train_param.param1 = train_dlg.param1;
         train_param.param2 = train_dlg.param2;
         train_param.param3 = train_dlg.param3;
-        vw_view->start_train(train_param.feature, train_param.iter_num,
+		train_param.train_what = train_dlg.train_what;
+		vw_view->start_train(train_param.train_what, train_param.feature, train_param.iter_num,
                              train_param.param1, train_param.param2, train_param.param3);
     }
 }
@@ -231,3 +238,4 @@ void MainWindow::on_actionExtract_triggered()
 {
     vw_view->extract();
 }
+

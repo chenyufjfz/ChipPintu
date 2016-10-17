@@ -85,9 +85,9 @@
     </rect>
    </property>
    <property name="title">
-    <string>feature select</string>
+    <string>Select Obj</string>
    </property>
-   <widget class="QRadioButton" name="feature1">
+   <widget class="QRadioButton" name="via_wire">
     <property name="geometry">
      <rect>
       <x>10</x>
@@ -97,10 +97,10 @@
      </rect>
     </property>
     <property name="text">
-     <string>Grad 7</string>
+     <string>Wire via</string>
     </property>
    </widget>
-   <widget class="QRadioButton" name="feature2">
+   <widget class="QRadioButton" name="cell">
     <property name="geometry">
      <rect>
       <x>10</x>
@@ -110,7 +110,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Grad 9</string>
+     <string>Cell</string>
     </property>
    </widget>
   </widget>
