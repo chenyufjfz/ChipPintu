@@ -131,7 +131,7 @@ void prepare_grad(const Mat & img_in, Mat & grad_x, Mat & grad_y, Mat & edge_mas
     Sobel(filt_mat, grad_y, CV_16S, 0, 1, sobel_w);
     edge_mixer(grad_y, edge_mask, grad_y);
 }
-#if 0
+#if 1
 int main(int argc, char *argv[])
 {
 	/*
@@ -148,20 +148,35 @@ int main(int argc, char *argv[])
 	int wire_width;
 	int via_radius;
 
+#if 0
 	ViaWireEditView::load_objects("C:/chenyu/work/ChipPintu/images/Project_21_45.xml", obj_set, wire_width, via_radius);
 	VWExtractStat vwe;
-	vwe.set_param(wire_width, via_radius, 10, 0.1, 0, 0.2, 6);
-	vwe.train("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", obj_set, FEA_GRADXY_HIST_9x9, LEARN_SVM);
+	vwe.set_train_param(wire_width, via_radius, 10, 0.1, 0, 0.2, 6, 16);
+	vwe.train("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", obj_set);
 	double t0 = getTickCount();
 	vwe.extract("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", QRect(50, 50, 550, 250), obj_set);
 	double t1 = getTickCount() - t0;
-	/*VWExtract vwe1;
-	vwe1.set_param(wire_width, via_radius, 1000, 1, 0, 0);
-	vwe1.train("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", obj_set, FEA_GRADXY_HIST_9x5, LEARN_SVM);
-	t0 = getTickCount();
-	vwe1.extract("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", QRect(50, 50, 550, 250), obj_set);
-	double t2 = getTickCount() - t0;*/
 	qDebug("t1=%f, t2=%f", t1, 0);
+#else
+	CellExtract ce;
+	ICLayerWr ic("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", true);
+	
+	ce.set_train_param(0, 0, 0, 0.1, 3, 0.5, 0, 0);
+	MarkObj obj;
+	vector<MarkObj> objs;
+	obj.type = OBJ_AREA;
+	obj.type2 = AREA_CELL;
+	obj.type3 = POWER_UP;
+	obj.p0 = QPoint(295936, 236864);
+	obj.p1 = QPoint(304768, 241088);
+	obj.select_state = 0;
+	objs.push_back(obj);
+	ce.train(&ic, objs);
+	QRect r(163840, 163840, 163840, 163840);
+	vector<SearchArea> search;
+	search.push_back(SearchArea(r, POWER_UP | POWER_DOWN));
+	ce.extract(&ic, search, objs);
+#endif
     return 0;
 }
 #else

@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
 	qInstallMessageHandler(myMessageOutput);
 	qDebug("generate new database");
 	ICLayerWr new_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", false);
-	new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/M1/Project_", 1, 11, 1, 11);
+    new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/M1/Project_", 10, 20, 40, 50);
 	qDebug("read new database");
 	ICLayerWr read_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", true);
 

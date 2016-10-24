@@ -14,7 +14,8 @@ SOURCES += main.cpp \
     showmaskdialog.cpp \
     traindialog.cpp \
     wireviaparamdialog.cpp \
-    cellextract.cpp
+    cellextract.cpp \
+    iclayer.cpp
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 
@@ -48,4 +49,5 @@ HEADERS += \
     traindialog.h \
     wireviaparamdialog.h \
     objextract.h \
-    cellextract.h
+    cellextract.h \
+    iclayer.h

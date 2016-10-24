@@ -1575,13 +1575,13 @@ int VWExtractClasic::fill_mark(const std::vector<MarkObj> & obj_sets)
 	return learn_point_num;
 }
 
-void VWExtractClasic::train(string file_name, const vector<MarkObj> & obj_sets, int _feature_method, int _learn_method)
+void VWExtractClasic::train(string file_name, const vector<MarkObj> & obj_sets)
 {		
 	img = imread(file_name, 0);
 	CV_Assert(img.type() == CV_8UC1);
 
-	feature_method = _feature_method;
-	learn_method = _learn_method;
+	feature_method = FEA_GRADXY_HIST_9x5;
+	learn_method = LEARN_SVM;
 	
 	if (obj_sets.empty()) 
 		return;
@@ -1696,7 +1696,7 @@ void VWExtractClasic::get_feature(int x, int y, vector<float> & feature)
 {
 }
 
-void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_sets, int _feature_method, int _learn_method)
+void VWExtractStat::train(string file_name, const std::vector<MarkObj> & obj_sets)
 {
 	img = imread(file_name, 0);
 	CV_Assert(img.type() == CV_8UC1);

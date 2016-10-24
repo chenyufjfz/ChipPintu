@@ -2,6 +2,8 @@
 #define VWEXTRACT_H
 #include "opencv2/ml/ml.hpp"
 #include "objextract.h"
+
+using namespace std;
 using namespace cv;
 
 enum {
@@ -66,7 +68,7 @@ protected:
     float param1, param2, param3;
 public:
 	VWExtract();
-    virtual void set_param(int width, int r, int _iter_num, float _param1, float _param2, float _param3, int insu_width, int grid_width) {
+    virtual void set_train_param(int width, int r, int _iter_num, float _param1, float _param2, float _param3, int insu_width, int grid_width) {
         wire_wd = width;
         via_rd = r;
         iter_num = _iter_num;
@@ -75,7 +77,7 @@ public:
         param3 = _param3;
 		insu_wd = insu_width;
 		grid_wd = grid_width;
-    }
+    }	
 
 	Mat get_mark() {
 		return mark;
@@ -102,9 +104,11 @@ protected:
 	CvNormalBayesClassifier bayes;
 	int fill_mark(const std::vector<MarkObj> & obj_sets);
 public:
-	void train(string file_name, const std::vector<MarkObj> & obj_sets,
-		int _feature_method, int _learn_method);
+	void train(string file_name, const std::vector<MarkObj> & obj_sets);
 	void extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
+	void set_extract_param(int, int, int, float, float, float, float) {}
+	void train(ICLayerWr *ic_layer, const std::vector<MarkObj> & obj_sets) {}
+	void extract(ICLayerWr * ic_layer, const std::vector<SearchArea> & area_, std::vector<MarkObj> & obj_sets) {}
 	void get_feature(int x, int y, vector<float> & feature);
 };
 
@@ -114,9 +118,11 @@ protected:
 	float via_feature_th, edge_feature_th1[2], edge_feature_th2[2], insu_feature_th[2];
 	bool use_ratio[2];
 public:
-	void train(string file_name, const std::vector<MarkObj> & obj_sets,
-		int _feature_method, int _learn_method);
+	void train(string file_name, const std::vector<MarkObj> & obj_sets);
 	void extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
+	void set_extract_param(int, int, int, float, float, float, float) {}
+	void train(ICLayerWr *ic_layer, const std::vector<MarkObj> & obj_sets) {}
+	void extract(ICLayerWr * ic_layer, const std::vector<SearchArea> & area_, std::vector<MarkObj> & obj_sets) {}
 	void get_feature(int x, int y, vector<float> & feature);
 };
 #endif // VWEXTRACT_H

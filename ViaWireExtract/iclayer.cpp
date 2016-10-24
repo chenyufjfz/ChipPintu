@@ -235,7 +235,7 @@ void ICLayerWr::generateDatabase(string path, int from_row, int to_row, int from
 				bkimg.loadFromData((uchar*)&buff[0], len);
 				layer_->putBlockNumWidth(to_col - from_col + 1, to_row - from_row + 1, bkimg.width());
 			}
-            layer_->addRawImg(buff, x - from_col, y - from_row, -1);
+			layer_->addRawImg(buff, x - from_col, y - from_row, -1);
 		}
 	
 }

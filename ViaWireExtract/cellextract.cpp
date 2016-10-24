@@ -1,5 +1,23 @@
 #include "cellextract.h"
 
+#define FEATURE0_SIZE 27
+#define FEATURE1_SIZE 16
+
+int cal_bins(Mat &img, QRect rect, vector<unsigned> &bins, int step=1)
+{
+	CV_Assert(img.type() == CV_8UC1 && step>=1);
+	int total = 0;
+	bins.assign(256, 0);
+	for (int y = rect.y(); y < rect.y() + rect.height(); y+=step) {
+		unsigned char * p_img = img.ptr<unsigned char>(y);
+		for (int x = rect.x(); x < rect.x() + rect.width(); x += step) {
+			bins[p_img[x]]++;
+			total++;
+		}			
+	}
+	return total;
+}
+
 void cal_threshold(vector<unsigned> bins, unsigned init_num, vector<unsigned> & th)
 {
 	unsigned total1=0, sep, total2, old_sep=0xffffffff;
@@ -99,7 +117,7 @@ int CellFeature::cmp_vector(const vector<int> & tn0, const vector<int> & tn1, in
 	return diff;
 }
 
-void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int _wunit, int _hunit)
+void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int _wunit, int _hunit, int dir)
 {
 	int sy, sx;
 	
@@ -131,8 +149,33 @@ void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int 
 	}
 	sx = width / wunit - width % wunit;
 
-	for (int i = 0; i < 4; i++)
-		tn[i].clear();
+	for (int i = 0; i < 8; i++)
+		tn[i].resize((height / hunit) * (width / wunit));
+	int d0, d1, d2, d3, d4, d5, d6, d7;
+	switch (dir) {
+	case POWER_UP:
+		d0 = 0; d1 = 1; d2 = 2; d3 = 3;
+		d4 = 4; d5 = 5; d6 = 6; d7 = 7;
+		break;
+	case POWER_DOWN:
+		d0 = 2; d1 = 3; d2 = 0; d3 = 1;
+		d4 = 6; d5 = 7; d6 = 4; d7 = 5;
+		break;
+	case POWER_LEFT:
+		d0 = 4; d1 = 6; d2 = 5; d3 = 7;
+		d4 = 0; d5 = 2; d6 = 1; d7 = 3;
+		break;
+	case POWER_RIGHT:
+		d0 = 6; d1 = 4; d2 = 7; d3 = 5;
+		d4 = 2; d5 = 0; d6 = 3; d7 = 1;
+		break;
+	default:
+		CV_Assert(0);
+	}
+	tn[d0].clear();
+	tn[d1].clear();
+	tn[d2].clear();
+	tn[d3].clear();
 	int y, yy, h = hunit;
 	for (y = 0, yy = 0; y < height; yy++, y += h) {
 		if (yy >= sy)
@@ -142,8 +185,10 @@ void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int 
 			if (xx >= sx)
 				w = wunit + 1;
 			//calculate (x,y) (x+w, y+h)
-			tn[0].push_back(ig[y*lsize + x] + ig[(y + h)*lsize + x + w]
-				- ig[y*lsize + x + w] - ig[(y + h)*lsize + x]);
+			int block_sum = ig[y*lsize + x] + ig[(y + h)*lsize + x + w]
+				- ig[y*lsize + x + w] - ig[(y + h)*lsize + x];
+			tn[d0].push_back(block_sum);
+			tn[d4][xx * (height / hunit) + yy] = block_sum;
 		}
 		CV_Assert(x == width);
 
@@ -152,13 +197,15 @@ void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int 
 			if (xx >= sx)
 				w = wunit + 1;
 			//calculate (x-w, y) (x, y+h)
-			tn[1].push_back(ig[y*lsize + x - w] + ig[(y + h)*lsize + x]
-				- ig[y*lsize + x] - ig[(y + h)*lsize + x - w]);
+			int block_sum = ig[y*lsize + x - w] + ig[(y + h)*lsize + x]
+				- ig[y*lsize + x] - ig[(y + h)*lsize + x - w];
+			tn[d1].push_back(block_sum);
+			tn[d5][xx * (height / hunit) + yy] = block_sum;
 		}
 		CV_Assert(x == 0);
 	}
-	CV_Assert(y == height && tn[0].size() == (height / hunit) * (width / wunit)
-		&& tn[1].size() == (height / hunit) * (width / wunit));
+	CV_Assert(y == height && tn[d0].size() == (height / hunit) * (width / wunit)
+		&& tn[d1].size() == (height / hunit) * (width / wunit));
 
 	h = hunit;
 	for (y = height, yy = 0; y > 0; yy++, y -= h) {
@@ -169,8 +216,10 @@ void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int 
 			if (xx >= sx)
 				w = wunit + 1;
 			//calculate (x,y-h) (x+w, y)
-			tn[2].push_back(ig[(y - h)*lsize + x] + ig[y *lsize + x + w]
-				- ig[(y - h)*lsize + x + w] - ig[y*lsize + x]);
+			int block_sum = ig[(y - h)*lsize + x] + ig[y *lsize + x + w]
+				- ig[(y - h)*lsize + x + w] - ig[y*lsize + x];
+			tn[d2].push_back(block_sum);
+			tn[d6][xx * (height / hunit) + yy] = block_sum;
 		}
 		CV_Assert(x == width);
 
@@ -179,18 +228,28 @@ void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int 
 			if (xx >= sx)
 				w = wunit + 1;
 			//calculate (x-w, y-h) (x, y)
-			tn[3].push_back(ig[(y - h)*lsize + x - w] + ig[y *lsize + x]
-				- ig[y*lsize + x - w] - ig[(y - h)*lsize + x]);
+			int block_sum = ig[(y - h)*lsize + x - w] + ig[y *lsize + x]
+				- ig[y*lsize + x - w] - ig[(y - h)*lsize + x];
+			tn[d3].push_back(block_sum);
+			tn[d7][xx * (height / hunit) + yy] = block_sum;
 		}
 		CV_Assert(x == 0);
 	}
-	CV_Assert(y == 0 && tn[2].size() == (height / hunit) * (width / wunit)
-		&& tn[3].size() == (height / hunit) * (width / wunit));
+	CV_Assert(y == 0 && tn[d2].size() == (height / hunit) * (width / wunit)
+		&& tn[d3].size() == (height / hunit) * (width / wunit));
 
 	valid_area = ig[height*lsize + width] + ig[0] - ig[width] - ig[height*lsize];
 	if (valid_area > height*width / 2)
 		valid_area = height*width - valid_area;
 	CV_Assert(valid_area > 0);
+
+	if (dir == POWER_LEFT || dir == POWER_RIGHT) {
+		width = _height;
+		height = _width;
+		int temp = wunit;
+		wunit = hunit;
+		hunit = temp;
+	}
 }
 
 float CellFeature::cmp(int *ig, int lsize, int & dir, float & m_score)
@@ -199,49 +258,56 @@ float CellFeature::cmp(int *ig, int lsize, int & dir, float & m_score)
 	int sx = width / wunit - width % wunit;
 	vector<int> tno;
 
-	CV_Assert(sy >= 0 && sx >= 0);
-	int y, yy, h = hunit;
-	for (y = 0, yy = 0; y < height; yy++, y += h) {
-		if (yy >= sy)
-			h = hunit + 1;
+	CV_Assert(dir > 0 && dir < 256 && (dir <= 15 || (dir & 0xf) == 0));
+	CV_Assert(sy >= 0 && sx >= 0);	
+	if (dir <= 15) {
+		int y, yy, h = hunit;
+		for (y = 0, yy = 0; y < height; yy++, y += h) {
+			if (yy >= sy)
+				h = hunit + 1;
+			int w = wunit, x, xx;
+			for (x = 0, xx = 0; x < width; xx++, x += w) {
+				if (xx >= sx)
+					w = wunit + 1;
+				//calculate (x,y) (x+w, y+h)
+				tno.push_back(ig[y*lsize + x] + ig[(y + h)*lsize + x + w]
+					- ig[y*lsize + x + w] - ig[(y + h)*lsize + x]);
+			}
+		}
+	}
+	else {
 		int w = wunit, x, xx;
 		for (x = 0, xx = 0; x < width; xx++, x += w) {
 			if (xx >= sx)
 				w = wunit + 1;
-			//calculate (x,y) (x+w, y+h)
-			tno.push_back(ig[y*lsize + x] + ig[(y + h)*lsize + x + w]
-				- ig[y*lsize + x + w] - ig[(y + h)*lsize + x]);
+			int y, yy, h = hunit;
+			for (y = 0, yy = 0; y < height; yy++, y += h) {
+				if (yy >= sy)
+					h = hunit + 1;
+				//calculate (y,x) (y+h, x+w)
+				tno.push_back(ig[x*lsize + y] + ig[(x + w)*lsize + y + h]
+					- ig[x*lsize + y + h] - ig[(x + w)*lsize + y]);
+			}
 		}
-	}
+	}	
 
-	if (dir == -1) {
-		int min_d=100000000, max_score;
-		for (int i = 0; i < 4; i++) {
+	int min_d = 100000000, max_score, dbit=0;
+	for (int i = 0; i < 8; i++) 
+		if ((dir >>i) & 1) {
 			int m;
 			int d = cmp_vector(tno, tn[i], m);
 			if (min_d > d) {
 				min_d = d;
 				max_score = m;
-				dir = i;
-			}			
+				dbit = i;
+			}
 		}
-		m_score = (float)max_score / valid_area;
-		return (float)min_d / valid_area;
-	}
-	else {
-		int m;
-		float d = cmp_vector(tno, tn[dir], m);
-		m_score = (float)m / valid_area;
-		return d / valid_area;
-	}
+	dir = 1 << dbit;
+	m_score = (float)max_score / (width * height);
+	return (float)min_d / valid_area;
 }
 
-CellExtract::CellExtract()
-{
-
-}
-
-void CellExtract::train(string file_name, const vector<MarkObj> & obj_sets, int _feature_method, int _learn_method)
+void CellExtract::train(string file_name, const vector<MarkObj> & obj_sets)
 {
 	img = imread(file_name, 0);
 	CV_Assert(img.type() == CV_8UC1);
@@ -253,36 +319,23 @@ void CellExtract::train(string file_name, const vector<MarkObj> & obj_sets, int 
 	vector<unsigned> bins, th;
 	for (unsigned i = 0; i < obj_sets.size(); i++) {		
 		if (obj_sets[i].type == OBJ_AREA && obj_sets[i].type2 == AREA_CELL) {
+			if (obj_sets[i].type3 != POWER_UP || obj_sets[i].type3 != POWER_DOWN ||
+				obj_sets[i].type3 != POWER_LEFT || obj_sets[i].type3 != POWER_RIGHT) {
+				qWarning("cell direction %d is wrong!", obj_sets[i].type3);
+			}				
 			Mat ig;
-			bins.resize(256, 0);
+			CellFeatures cf;
 			QRect rect(obj_sets[i].p0, obj_sets[i].p1);
-			
-			for (int y = rect.y(); y < rect.y() + rect.height(); y++) {
-				unsigned char * p_img = img.ptr<unsigned char>(y);				
-				for (int x = rect.x(); x < rect.x() + rect.width(); x++) 
-					bins[p_img[x]]++;
-			}			
-			cal_threshold(bins, rect.height() * rect.width() / 2, th);	
+			int total=cal_bins(img, rect, bins, 1);
+			cal_threshold(bins, total / 2, th);	
 			qDebug("train, th0=%d, th1=%d, th2=%d", th[0], th[1], th[2]);
 			threshold(img, mark, th[1], 1, THRESH_BINARY);
 			integral(mark, ig, CV_32S);
-			feature[0].cal_feature(ig.ptr<int>(rect.y()) + rect.x(),
-				ig.cols, rect.width(), rect.height(), 27, 27);
-			feature[1].cal_feature(ig.ptr<int>(rect.y()) + rect.x(),
-				ig.cols, rect.width(), rect.height(), 13, 13);
-			feature[2].cal_feature(ig.ptr<int>(rect.y()) + rect.x(),
-				ig.cols, rect.width(), rect.height(), 6, 6);
-#if 1
-			int sum = 0;
-			for (int y = rect.y(); y < rect.y() + rect.height(); y++) {
-				unsigned char * p_img = mark.ptr<unsigned char>(y);
-				for (int x = rect.x(); x < rect.x() + rect.width(); x++)
-					sum += p_img[x];
-			}
-			if (sum > rect.height() * rect.width() / 2)
-				sum = rect.height() * rect.width() - sum;
-			CV_Assert(feature[0].valid_area == sum && feature[1].valid_area == sum && feature[2].valid_area == sum);
-#endif
+			cf.feature[0].cal_feature(ig.ptr<int>(rect.y()) + rect.x(),
+				ig.cols, rect.width(), rect.height(), FEATURE0_SIZE, FEATURE0_SIZE, obj_sets[i].type3);
+			cf.feature[1].cal_feature(ig.ptr<int>(rect.y()) + rect.x(),
+				ig.cols, rect.width(), rect.height(), FEATURE1_SIZE, FEATURE1_SIZE, obj_sets[i].type3);
+			cell.push_back(cf);
 			/*vector<vector<Point> > contours;
 			vector<Vec4i> hierarchy;
 			vector<Mat> bgr;
@@ -304,6 +357,7 @@ void CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_se
 	CV_Assert(img.type() == CV_8UC1);
 	Mat sml = Mat::zeros(rect.height(), rect.width(), CV_32FC3);
 	Mat ig;
+	int stepy = 2, stepx = 3;
 
 	vector<unsigned> bins, th;
 	bins.resize(256, 0);
@@ -317,40 +371,375 @@ void CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_se
 	threshold(img, mark, th[1], 1, THRESH_BINARY);
 	integral(mark, ig, CV_32S);
 
-	for (int y = rect.y(); y < rect.y() + rect.height() - feature[0].height; y+=2) {
+	int height = cell[0].feature[0].height;
+	int width = cell[0].feature[0].width;
+	for (int y = rect.y(); y < rect.y() + rect.height() - height; y += stepy) {
 		Vec3f * p_sml = sml.ptr<Vec3f>(y);
-		for (int x = rect.x(); x < rect.x() + rect.width() - feature[0].width; x += 2) {
+		for (int x = rect.x(); x < rect.x() + rect.width() - width; x += stepx) {
+			int sum = ig.at<int>(y, x) + ig.at<int>(y + height, x + width)
+				- ig.at<int>(y, x + width) - ig.at<int>(y + height, x);
+			if (sum > height * width / 2)
+				sum = height * width - sum;
+			if ((float)abs(sum - cell[0].feature[0].valid_area) / cell[0].feature[0].valid_area > param1) {
+				p_sml[x][0] = 100000;
+				p_sml[x][1] = 100000;
+				p_sml[x][2] = 0;
+				continue;
+			}				
 			float diff, m;
-			int dir = -1;
-			diff = feature[0].cmp(ig.ptr<int>(y)+x, ig.cols, dir, m);
+			int dir = 15;
+			diff = cell[0].feature[0].cmp(ig.ptr<int>(y)+x, ig.cols, dir, m);
 			p_sml[x][0] = diff;
 			p_sml[x][1] = m;
 			p_sml[x][2] = dir;
 		}
 	}
 
-	for (int y = rect.y(); y < rect.y() + rect.height() - feature[0].height; y += 2) {
+	for (int y = rect.y(); y < rect.y() + rect.height() - height; y += stepy) {
 		Vec3f * p_sml = sml.ptr<Vec3f>(y);
-		for (int x = rect.x(); x < rect.x() + rect.width() - feature[0].width; x += 2)
-			if (p_sml[x][0] < param1 * 1.3f && p_sml[x][1] < param2 * 1.3f) {
+		for (int x = rect.x(); x < rect.x() + rect.width() - width; x += stepx)
+			if (p_sml[x][0] < param1 * 1.1f && p_sml[x][1] < param2 * 1.1f) {
 				bool is_mmin = true;
-				for (int dy = -6; dy < 7; dy += 2)
-					for (int dx = -6; dx < 7; dx += 2)
-						if (y + dy >= rect.y() && y + dy < rect.y() + rect.height() - feature[0].height &&
-							x + dx >= rect.x() && x + dx < rect.x() + rect.width() - feature[0].width)
+				for (int dy = -stepy * 3; dy <= stepy * 3; dy += stepy)
+					for (int dx = -stepx * 3; dx <= stepx * 3; dx += stepx)
+						if (y + dy >= rect.y() && y + dy < rect.y() + rect.height() - height &&
+							x + dx >= rect.x() && x + dx < rect.x() + rect.width() - width)
 							if (sml.at<Vec3f>(y + dy, x + dx)[0] < p_sml[x][0]) {
 								is_mmin = false;
 								break;
 							}
 				if (is_mmin) {
-					MarkObj new_cell;
-					new_cell.type = OBJ_AREA;
-					new_cell.type2 = AREA_CELL;
-					new_cell.select_state = 0;
-					new_cell.p0 = QPoint(x, y);
-					new_cell.p1 = QPoint(x + feature[0].width, y + feature[0].height);
-					obj_sets.push_back(new_cell);
+					int my, mx;
+					float mmin = 100000;
+					for (int dy = -stepy; dy <= stepy; dy++)
+						for (int dx = -stepx; dx <= stepx; dx++)
+							if (y + dy >= rect.y() && y + dy < rect.y() + rect.height() - height &&
+								x + dx >= rect.x() && x + dx < rect.x() + rect.width() - width) {
+								float diff, m;
+								int dir = p_sml[x][2];
+								diff = cell[0].feature[1].cmp(ig.ptr<int>(y + dy) + x + dx, ig.cols, dir, m);
+								if (mmin > diff) {
+									mmin = diff;
+									my = y + dy;
+									mx = x + dx;
+								}
+							}
+					if (mmin < param1) {
+						float m;
+						int dir = p_sml[x][2];
+						cell[0].feature[0].cmp(ig.ptr<int>(my) +mx, ig.cols, dir, m);
+						if (m < param2) {
+							MarkObj new_cell;
+							new_cell.type = OBJ_AREA;
+							new_cell.type2 = AREA_CELL;
+							new_cell.type3 = (dir < POWER_UP) ? POWER_UP :
+								((dir < POWER_DOWN) ? POWER_DOWN :
+								((dir < POWER_LEFT) ? POWER_LEFT : POWER_RIGHT));
+							new_cell.select_state = 0;
+							new_cell.p0 = QPoint(mx, my);
+							new_cell.p1 = QPoint(mx + width, my + height);
+							obj_sets.push_back(new_cell);
+							qDebug("Find new, x=%d, y=%d, dir=%d, d=%f, m=%f", mx, my, dir, mmin, m);
+						}
+					}					
 				}
 			}
+	}
+}
+
+typedef unsigned long long MapID;
+
+static MapID sxy2mapid(unsigned char layer, unsigned char scale, unsigned short x, unsigned short y) {
+	MapID ret;
+	ret = layer;
+	ret = ret << 8;
+	ret |= scale;
+	ret = ret << 16;
+	ret |= x;
+	ret = ret << 16;
+	ret |= y;
+	return ret;
+}
+
+static void mapid2sxy(MapID m, unsigned char &layer, unsigned char & scale, unsigned short & x, unsigned short &y)
+{
+	layer = (m >> 40) & 0xff;
+	scale = (m >> 32) & 0xff;
+	x = (m >> 16) & 0xffff;
+	y = m & 0xffff;
+}
+
+void CellExtract::train(ICLayerWr *ic_layer, const std::vector<MarkObj> & obj_sets)
+{
+	vector<unsigned> bins, th;
+
+	for (unsigned i = 0; i < obj_sets.size(); i++) 
+		if (obj_sets[i].type == OBJ_AREA && obj_sets[i].type2 == AREA_CELL) {
+			QRect rect(obj_sets[i].p0, obj_sets[i].p1);
+			int scale = 32768 / ic_layer->getBlockWidth();
+			img.create(rect.height() / scale, rect.width() / scale, CV_8UC1);
+			for (int yy = rect.y() >> 15; yy <= (rect.y() + rect.height()) >> 15; yy++)
+				for (int xx = rect.x() >> 15; xx <= (rect.x() + rect.width()) >> 15; xx++) {				
+					vector<uchar> encode_img;
+					ic_layer->getRawImgByIdx(encode_img, xx, yy, 0, 0);
+					Mat image = imdecode(Mat(encode_img), 0);
+					int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
+					cal_threshold(bins, total / 2, th);
+					threshold(image, mark, th[1], 1, THRESH_BINARY);
+
+					QRect cr(xx << 15, yy << 15, 32768, 32768);
+					QRect ir = cr & rect;					
+					QPoint lt = (ir.topLeft() - cr.topLeft()) / scale;
+					QPoint mlt = (ir.topLeft() - rect.topLeft()) / scale;
+					QSize size(ir.width() / scale, ir.height() / scale);
+					qInfo("CellTrain copy from img%d_%d (%d,%d) to (%d,%d), w=%d, h=%d", yy, xx,
+						lt.x(), lt.y(), mlt.x(), mlt.y(), size.width(), size.height());
+					mark(Rect(lt.x(), lt.y(), size.width(), size.height())).copyTo(
+						img(Rect(mlt.x(), mlt.y(), size.width(), size.height())));
+				}
+			Mat ig;
+			CellFeatures cf;
+			integral(img, ig, CV_32S);
+			cf.feature[0].cal_feature(ig.ptr<int>(0), ig.cols, img.cols, img.rows, FEATURE0_SIZE, FEATURE0_SIZE, obj_sets[i].type3);
+			cf.feature[1].cal_feature(ig.ptr<int>(0), ig.cols, img.cols, img.rows, FEATURE1_SIZE, FEATURE1_SIZE, obj_sets[i].type3);
+			cf.cell_type = obj_sets[i].type3;
+			cell.push_back(cf);
+		}
+}
+
+bool comp_y(const SearchArea &a, const SearchArea &b)
+{
+	if (a.rect.y() < b.rect.y())
+		return true;
+	else if (a.rect.y() == b.rect.y())
+			return a.rect.x() < b.rect.x();	
+	return false;
+}
+
+bool comp_x(const SearchArea &a, const SearchArea &b)
+{
+	if (a.rect.x() < b.rect.x())
+		return true;
+	else if (a.rect.x() == b.rect.x())
+			return a.rect.y() < b.rect.y();	
+	return false;
+}
+
+struct SearchResult {
+	int x, y, dir;
+	float diff;
+	SearchResult(int x_, int y_, int dir_, float diff_) {
+		x = x_;
+		y = y_;
+		dir = dir_;
+		diff = diff_;
+	}
+	bool operator< (const SearchResult& b) const {
+		return diff < b.diff;
+	}
+};
+
+void CellExtract::extract(ICLayerWr * ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
+{
+	list<SearchArea> area;
+	int scale = 32768 / ic_layer->getBlockWidth();
+	int block_x, block_y;
+	ic_layer->getBlockNum(block_x, block_y);
+	int chigh = cell[0].feature[0].height;
+	int cwide = cell[0].feature[0].width;
+	int stepy = 2;
+	int stepx = 3;
+	obj_sets.clear();
+
+	if (area_[0].option & (POWER_UP | POWER_DOWN)) {
+		for (int i = 0; i < area_.size(); i++) {
+			if (area_[i].rect.width() < cwide * scale || area_[i].rect.height() < chigh *scale)
+				qWarning("Rect(%d,%d) can't contain object (%d,%d)", area_[i].rect.width(), area_[i].rect.height(),
+				cwide, chigh);
+			else
+				if (area_[i].rect.right() >> 15 > block_x || area_[i].rect.height() >> 15 > block_y)
+					qWarning("Rect bottom right (%d,%d) exceed (%d,%d)", area_[i].rect.right(), area_[i].rect.height(),
+					block_x << 15, block_y << 15);
+				else
+					area.push_back(area_[i]);
+		}
+		area.sort(comp_y);
+	}
+	else {
+		for (int i = 0; i < area_.size(); i++) {
+			if (area_[i].rect.width() < chigh * scale || area_[i].rect.height() < cwide * scale) 
+				qWarning("Rect(%d,%d) can't contain object (%d,%d)", area_[i].rect.width(), area_[i].rect.height(),
+					chigh, cwide);
+			else
+				if (area_[i].rect.right() >> 15 > block_x || area_[i].rect.height() >> 15 > block_y)
+					qWarning("Rect bottom right (%d,%d) exceed (%d,%d)", area_[i].rect.right(), area_[i].rect.height(),
+					block_x << 15, block_y << 15);
+				else
+			/*QRect search_rect(area_[i].rect.x(), area_[i].rect.y(),
+				area_[i].rect.width() - cell[0].feature[0].height + 1, area_[i].rect.height() - cell[0].feature[0].width + 1);*/
+					area.push_back(area_[i]);		
+		}
+		area.sort(comp_x);
+	}
+		
+	vector<SearchArea> nsech;
+	list<SearchResult> result;
+	vector<unsigned> bins, th;
+	while (!area.empty()) {	
+		nsech.clear();
+		result.clear();
+		QRect cr = area.front().rect;
+		QRect srect(area.front().rect.x() / scale, area.front().rect.y() / scale,
+			area.front().rect.width() / scale - cwide + 1,
+			area.front().rect.height() / scale - chigh + 1);
+		nsech.push_back(SearchArea(srect, area.front().option));
+		area.pop_front();
+
+		//merge search area and select new search area
+#define OCCUPY(r) (((r.right() >>15) - (r.x() >>15) + 1) * ((r.bottom() >>15) - (r.y() >> 15) + 1))
+		for (int i = 0; i < 2; i++)
+		for (list<SearchArea>::iterator pa = area.begin(); pa != area.end();) {
+			QRect r = pa->rect;
+			QRect ur = r.united(cr);
+			if ((ur.bottom() >> 15) - (ur.y() >> 15) > 3)
+				break;
+			if (OCCUPY(r) + OCCUPY(cr) > OCCUPY(ur)) {
+				cr = ur;
+				QRect srect(pa->rect.x() / scale, pa->rect.y() / scale,
+					pa->rect.width() / scale - cwide + 1,
+					pa->rect.height() / scale - chigh + 1);
+				nsech.push_back(SearchArea(srect, pa->option));
+				pa = area.erase(pa);
+			}
+			else
+				pa++;
+		}
+		
+		//prepare initial ig
+		int fb_y = (cr.bottom() >> 15) - (cr.y() >> 15) + 1;
+		int fb_x = min(cell[0].feature[0].width / ic_layer->getBlockWidth() + 2, 
+			(cr.right() >> 15) - (cr.x() >> 15) +1);
+		Mat img(fb_y * ic_layer->getBlockWidth(), fb_x * ic_layer->getBlockWidth(), CV_8UC1);
+		qDebug("load image, img(%d,%d),(w=%d,h=%d)", cr.y() >> 15, cr.x() >> 15, fb_x, fb_y);
+		for (int yy = cr.y() >> 15, y = 0; yy < (cr.y() >> 15) + fb_y; yy++, y += ic_layer->getBlockWidth())
+			for (int xx = cr.x() >> 15, x = 0; xx < (cr.x() >> 15) + fb_x; xx++, x += ic_layer->getBlockWidth()) {
+				vector<uchar> encode_img;
+				ic_layer->getRawImgByIdx(encode_img, xx, yy, 0, 0);
+				Mat image = imdecode(Mat(encode_img), 0);
+				CV_Assert(ic_layer->getBlockWidth() == image.cols && image.cols == image.rows);
+				int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);				
+				cal_threshold(bins, total / 2, th);
+				threshold(image, mark, th[1], 1, THRESH_BINARY);
+				CV_Assert(mark.cols == image.cols && mark.rows == image.rows);
+				mark.copyTo(img(Rect(x, y, image.cols, image.rows)));
+			}
+		Mat ig;
+		integral(img, ig, CV_32S);
+		img.create(fb_y * ic_layer->getBlockWidth(), ic_layer->getBlockWidth(), CV_8UC1);
+
+		for (int xx = cr.x() >> 15; xx <= cr.right() >> 15; xx++) {
+			qDebug("search image, img(%d,%d),(w=%d,h=%d)", cr.y() >> 15, xx, 1, fb_y);
+			QRect rr(xx*ic_layer->getBlockWidth(), (cr.y() >> 15) * ic_layer->getBlockWidth(),
+				ic_layer->getBlockWidth(), fb_y * ic_layer->getBlockWidth());
+			
+			//search current ig
+			for (int i = 0; i < nsech.size(); i++) {
+				QRect ir = rr.intersected(nsech[i].rect);
+				for (int y = ir.y(); y < ir.y() + ir.height(); y+=stepy) {
+					int iy = y - rr.top();					
+					for (int x = ir.x(); x < ir.x() + ir.width(); x+=stepx) {
+						int ix = x - rr.left();
+						CV_Assert(iy + chigh<ig.rows && ix + cwide < ig.cols);
+						int sum = ig.at<int>(iy, ix) + ig.at<int>(iy + chigh, ix + cwide)
+							- ig.at<int>(iy, ix + cwide) - ig.at<int>(iy + chigh, ix);
+						if (sum > chigh * cwide / 2)
+							sum = chigh * cwide - sum;
+						if ((float)abs(sum - cell[0].feature[0].valid_area) / cell[0].feature[0].valid_area > param1)
+							continue;
+						//coarse search
+						float diff, m;
+						int dir = nsech[i].option;						
+						diff = cell[0].feature[0].cmp(ig.ptr<int>(iy)+ix, ig.cols, dir, m);
+						if (diff < param1 * 1.1f && m < param2 * 1.1f) {	
+							//fine search
+							int my, mx;
+							float mmin = 100000;
+							for (int dy = 0; dy < stepy; dy++)
+								for (int dx = 0; dx < stepx; dx++)
+									if (y + dy < ir.y() + ir.height() && x + dx < ir.x() + ir.width()) {
+										diff = cell[0].feature[1].cmp(ig.ptr<int>(iy + dy) + ix + dx, ig.cols, dir, m);
+										if (mmin > diff) {
+											mmin = diff;
+											my = dy;
+											mx = dx;
+										}
+									}
+							if (mmin < param1) {
+								float m;
+								cell[0].feature[0].cmp(ig.ptr<int>(iy + my) + ix + mx, ig.cols, dir, m);
+								if (m < param2) 
+									result.push_back(SearchResult(x + mx, y + my, dir, mmin));
+							}							
+						}
+					}
+				}
+			}
+
+			//Shift ig left
+			for (int y = 0; y < ig.rows; y++) {
+				int * p_ig = ig.ptr<int>(y);
+				for (int x = ic_layer->getBlockWidth(); x < ig.cols; x++)
+					p_ig[x - ic_layer->getBlockWidth()] = p_ig[x];
+			}
+
+			//fill new ig			
+			if (xx + fb_x <= cr.right() >> 15) {
+				qDebug("load image, img(%d,%d),(w=%d,h=%d)", cr.y() >> 15, xx + fb_x, 1, fb_y);
+				for (int yy = cr.y() >> 15, y = 0; yy < (cr.y() >> 15) + fb_y; yy++, y += ic_layer->getBlockWidth()) {
+					vector<uchar> encode_img;
+					ic_layer->getRawImgByIdx(encode_img, xx + fb_x, yy, 0, 0);
+					Mat image = imdecode(Mat(encode_img), 0);
+					CV_Assert(ic_layer->getBlockWidth() == image.cols && image.cols == image.rows);
+					int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
+					cal_threshold(bins, total / 2, th);
+					threshold(image, mark, th[1], 1, THRESH_BINARY);
+					mark.copyTo(img(Rect(0, y, image.cols, image.rows)));
+				}
+				Mat ign;
+				integral(img, ign, CV_32S);
+				for (int y = 0; y < ig.rows; y++) {
+					int * p_ig = ig.ptr<int>(y);
+					int * p_ign = ign.ptr<int>(y);
+					int x0 = ig.cols - ic_layer->getBlockWidth();
+					for (int x = x0, xn = 1; x < ig.cols; x++, xn++)
+						p_ig[x] = p_ign[xn] + p_ig[x0 - 1];
+				}
+			}
+		}
+
+		//pick best solution from search result
+		result.sort();
+		for (list<SearchResult>::iterator pr = result.begin(); pr != result.end(); pr++) {
+			list<SearchResult>::iterator pr1 = pr;
+			for (pr1++; pr1 != result.end();) {
+				if (abs(pr->x - pr1->x) < param3 * cwide && abs(pr->y - pr1->y) < param3 * chigh)
+					pr1 = result.erase(pr1);
+				else
+					pr1++;
+			}
+			MarkObj new_cell;
+			new_cell.type = OBJ_AREA;
+			new_cell.type2 = AREA_CELL;
+			new_cell.type3 = (pr->dir < POWER_UP) ? POWER_UP :
+				((pr->dir < POWER_DOWN) ? POWER_DOWN :
+				((pr->dir < POWER_LEFT) ? POWER_LEFT : POWER_RIGHT));
+			new_cell.select_state = 0;
+			new_cell.p0 = QPoint(pr->x * scale, pr->y * scale);
+			new_cell.p1 = QPoint((pr->x + cwide) * scale, (pr->y + chigh) * scale);
+			obj_sets.push_back(new_cell);
+			qDebug("Find new, img(%d,%d) (x=%d,y=%d) dir=%d, d=%f", 
+				pr->y / ic_layer->getBlockWidth(), pr->x / ic_layer->getBlockWidth(),
+				pr->x % ic_layer->getBlockWidth(), pr->y %ic_layer->getBlockWidth(), pr->dir, pr->diff);
+		}
 	}
 }

@@ -93,7 +93,8 @@ bool ViaWireEditView::load_objects(QString file_path, std::vector <MarkObj> & ob
 				obj_set[i].select_state = 0;
 				sprintf(sh, "t%d", i);
 				fs[sh] >> obj_set[i].type;
-				obj_set[i].type2 = obj_set[i].type >> 16;
+				obj_set[i].type3 = obj_set[i].type >> 24;
+				obj_set[i].type2 = (obj_set[i].type >> 16) & 0xff;
 				obj_set[i].type = obj_set[i].type & 0xffff;
 				sprintf(sh, "p0_%d", i);
 				fs[sh] >> p;
@@ -331,7 +332,7 @@ void ViaWireEditView::save_objects(QString file_path)
 		Point p1(obj_set[i].p1.x(), obj_set[i].p1.y());
 
 		sprintf(sh, "t%d", i);
-		fs << sh << (obj_set[i].type | (obj_set[i].type2<<16));
+		fs << sh << (obj_set[i].type | (obj_set[i].type2<<16) | (obj_set[i].type3<<24));
 		sprintf(sh, "p0_%d", i);
 		fs << sh << p0;
 		sprintf(sh, "p1_%d", i);
@@ -357,13 +358,16 @@ void ViaWireEditView::erase_all_objects()
 void ViaWireEditView::start_train(int train_what, int _feature, int _iter_num, float _param1, float _param2, float _param3)
 {
 	if (train_what == 0) {
-		vwe->set_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap, grid_size);
-		vwe->train(img_name, obj_set, FEA_GRADXY_HIST_9x5, LEARN_SVM);
+		vwe->set_train_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap, grid_size);
+		vwe->train(img_name, obj_set);
 		current_train = vwe;
 	}
 	else {
-		cele->set_param(0, 0, 0, _param1, _param2, _param3, 0, 0);
-		cele->train(img_name, obj_set, _feature, 0);
+		cele->set_train_param(0, 0, 0, _param1, _param2, _param3, 0, 0);
+		for (int i = 0; i < obj_set.size(); i++)
+			if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA)
+				obj_set[i].type3 = POWER_UP;
+		cele->train(img_name, obj_set);
 		current_train = cele;
 	}
 
@@ -467,6 +471,8 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 			mouse_press = true;
 			current_obj.type = mark_state;
 			current_obj.type2 = mark_type2;
+			if (mark_type2 == AREA_CELL)
+				current_obj.type3 = POWER_UP;
 			current_obj.select_state = 0;
             current_obj.p0 = event->pos() / scale;
             current_obj.p1 = event->pos() / scale;
