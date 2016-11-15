@@ -90,12 +90,13 @@ bool ViaWireEditView::load_objects(QString file_path, std::vector <MarkObj> & ob
 			for (unsigned i = 0; i < obj_set.size(); i++) {
 				char sh[30];
 				Point p;
-				obj_set[i].select_state = 0;
+                obj_set[i].state = 0;
 				sprintf(sh, "t%d", i);
-				fs[sh] >> obj_set[i].type;
-				obj_set[i].type3 = obj_set[i].type >> 24;
-				obj_set[i].type2 = (obj_set[i].type >> 16) & 0xff;
-				obj_set[i].type = obj_set[i].type & 0xffff;
+                int type;
+                fs[sh] >> type;
+                obj_set[i].type3 = (type >> 24) & 0xff;
+                obj_set[i].type2 = (type >> 16) & 0xff;
+                obj_set[i].type = type & 0xffff;
 				sprintf(sh, "p0_%d", i);
 				fs[sh] >> p;
 				obj_set[i].p0.setX(p.x);
@@ -142,10 +143,10 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
     case OBJ_NONE:
         break;
     case OBJ_AREA:
-		if (obj.select_state != 4) {
+		if (obj.state != 4) {
 			QPoint top_left(min(obj.p0.x(), obj.p1.x()), min(obj.p0.y(), obj.p1.y()));
 			QPoint bot_right(max(obj.p0.x(), obj.p1.x()), max(obj.p0.y(), obj.p1.y()));
-			if (obj.select_state == 3)
+			if (obj.state == 3)
 				painter.setPen(QPen(Qt::red, 1));
 			else
 				if (obj.type2 == AREA_LEARN)
@@ -160,18 +161,18 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 			else
 				painter.setBrush(QBrush(Qt::blue));
 			painter.drawRect(QRect(top_left, bot_right));
-			if (obj.select_state != 0) {
+			if (obj.state != 0) {
 				painter.setPen(QPen(Qt::red, 1));
 				painter.setBrush(QBrush(Qt::red));
 				QPoint top_right(obj.p1.x(), obj.p0.y());
 				QPoint bot_left(obj.p0.x(), obj.p1.y());
-				if (obj.select_state == 1)
+				if (obj.state == 1)
 					painter.drawEllipse(obj.p0, 2, 2);
-				if (obj.select_state == 2)
+				if (obj.state == 2)
 					painter.drawEllipse(obj.p1, 2, 2);
-				if (obj.select_state == 5)
+				if (obj.state == 5)
 					painter.drawEllipse(top_right, 2, 2);
-				if (obj.select_state == 6)
+				if (obj.state == 6)
 					painter.drawEllipse(bot_left, 2, 2);				
 			}
 			//draw metal rect
@@ -185,20 +186,20 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 			}
 		}
         break;
-    case OBJ_WIRE:
-		if (obj.select_state != 4) {
-			if (obj.select_state == 3)
+    case OBJ_LINE:
+		if (obj.state != 4) {
+			if (obj.state == 3)
 				painter.setPen(QPen(Qt::red, 1));
 			else
 				painter.setPen(QPen(Qt::blue, 1));
 
 			painter.drawLine(QLine(obj.p0, obj.p1));
-			if (obj.select_state != 0) {
+			if (obj.state != 0) {
 				painter.setPen(QPen(Qt::red, 1));
 				painter.setBrush(QBrush(Qt::red));
-				if (obj.select_state == 1)
+				if (obj.state == 1)
 					painter.drawEllipse(obj.p0, 2, 2);
-				if (obj.select_state == 2)
+				if (obj.state == 2)
 					painter.drawEllipse(obj.p1, 2, 2);
 			}
 			//draw metal rect			
@@ -211,9 +212,9 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 			
 		}
         break;
-    case OBJ_VIA:
-        if (obj.select_state !=4) {
-            if (obj.select_state == 0) {
+    case OBJ_POINT:
+        if (obj.state !=4) {
+            if (obj.state == 0) {
                 painter.setPen(QPen(Qt::green, 1));
                 painter.setBrush(QBrush(Qt::green));
             } else {
@@ -332,7 +333,7 @@ void ViaWireEditView::save_objects(QString file_path)
 		Point p1(obj_set[i].p1.x(), obj_set[i].p1.y());
 
 		sprintf(sh, "t%d", i);
-		fs << sh << (obj_set[i].type | (obj_set[i].type2<<16) | (obj_set[i].type3<<24));
+        fs << sh << ((int) obj_set[i].type | ((int) obj_set[i].type2<<16) | ((int) obj_set[i].type3<<24));
 		sprintf(sh, "p0_%d", i);
 		fs << sh << p0;
 		sprintf(sh, "p1_%d", i);
@@ -358,12 +359,12 @@ void ViaWireEditView::erase_all_objects()
 void ViaWireEditView::start_train(int train_what, int _feature, int _iter_num, float _param1, float _param2, float _param3)
 {
 	if (train_what == 0) {
-		vwe->set_train_param(wire_width, via_radius, _iter_num, _param1, _param2, _param3, insu_gap, grid_size);
+		vwe->set_train_param(wire_width, via_radius, _iter_num, insu_gap, grid_size, _param1, _param2, _param3);
 		vwe->train(img_name, obj_set);
 		current_train = vwe;
 	}
 	else {
-		cele->set_train_param(0, 0, 0, _param1, _param2, _param3, 0, 0);
+		cele->set_train_param(0, 0, 0, 0, 0, _param1, _param2, _param3);
 		for (int i = 0; i < obj_set.size(); i++)
 			if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA)
 				obj_set[i].type3 = POWER_UP;
@@ -379,8 +380,8 @@ void ViaWireEditView::extract()
 		return;
     obj_set.clear();
     current_obj.type = OBJ_NONE;
-	if (current_train == vwe)
-		current_train->extract(img_name, QRect(60, 60, 900, 900), obj_set);
+	if (current_train == vwe) 
+		current_train->extract(img_name, QRect(60, 60, 900, 900), obj_set);	
 	else
 		current_train->extract(img_name, QRect(0, 0, 1020, 1020), obj_set);
     update();
@@ -444,7 +445,7 @@ void ViaWireEditView::show_edge(bool show)
 		unsigned char * p_mark2 = mark2.ptr<unsigned char>(y);
 		unsigned char * p_mark3 = mark3.ptr<unsigned char>(y);
 		for (int x = 0; x < mark1.cols; x++)
-			if (p_mark1[x] != 0 || p_mark2[x] != 0) {
+			if (p_mark1[x] != 0 || p_mark2[x] != 0 || p_mark3[x] !=0) {
 				QRgb oc = bk_img_mask.pixel(x, y);
 				QRgb nc = ((oc & 0xff) * 8 + p_mark1[x] * 8) / 16;
 				nc += (((oc & 0xff00) * 8 + (unsigned)p_mark2[x] * 256 * 8) / 16) & 0xff00;
@@ -464,7 +465,7 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 			if (select_idx != -1) {
 				mouse_press = true;
 				current_obj = obj_set[select_idx];
-				obj_set[select_idx].select_state = 4;
+                obj_set[select_idx].state = 4;
 			}
 		}
 		else {
@@ -473,7 +474,7 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 			current_obj.type2 = mark_type2;
 			if (mark_type2 == AREA_CELL)
 				current_obj.type3 = POWER_UP;
-			current_obj.select_state = 0;
+			current_obj.state = 0;
             current_obj.p0 = event->pos() / scale;
             current_obj.p1 = event->pos() / scale;
 		}        
@@ -495,14 +496,14 @@ void ViaWireEditView::mouseReleaseEvent(QMouseEvent *event)
 			if (current_obj.select_state == 2)
 				adjust_wire_point(current_obj.p0, current_obj.p1);
 #endif
-			current_obj.select_state = 0;
+			current_obj.state = 0;
 			obj_set[select_idx] = current_obj;
 			current_obj.type = OBJ_NONE;
 		}
 		else {
             current_obj.p1 = event->pos() /scale;
 			
-			if (mark_state == OBJ_WIRE) {
+			if (mark_state == OBJ_LINE) {
 				adjust_wire_point(current_obj.p0, current_obj.p1);
 				QPoint p2;
 				if (current_obj.p0.x() > current_obj.p1.x() || current_obj.p0.y() > current_obj.p1.y()) {
@@ -511,7 +512,7 @@ void ViaWireEditView::mouseReleaseEvent(QMouseEvent *event)
 					current_obj.p1 = p2;
 				}
 			}				
-			if (mark_state == OBJ_VIA)
+			if (mark_state == OBJ_POINT)
 				current_obj.p0 = current_obj.p1;
 			if (mark_state == OBJ_AREA) {
 				QPoint top_left(min(current_obj.p0.x(), current_obj.p1.x()), min(current_obj.p0.y(), current_obj.p1.y()));
@@ -532,23 +533,23 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 {	
     if (mouse_press) {
 		if (mark_state == SELECT_OBJ) {
-			if (current_obj.select_state == 1 || current_obj.select_state == 3)
+			if (current_obj.state == 1 || current_obj.state == 3)
                 current_obj.p0 = obj_set[select_idx].p0 + event->pos() / scale - mp_point;
-			if (current_obj.select_state == 2 || current_obj.select_state == 3)
+			if (current_obj.state == 2 || current_obj.state == 3)
                 current_obj.p1 = obj_set[select_idx].p1 + event->pos() / scale - mp_point;
-			if (current_obj.type == OBJ_WIRE) {
-				if (current_obj.select_state == 1)
+			if (current_obj.type == OBJ_LINE) {
+				if (current_obj.state == 1)
 					adjust_wire_point(current_obj.p1, current_obj.p0);
-				if (current_obj.select_state == 2)
+				if (current_obj.state == 2)
 					adjust_wire_point(current_obj.p0, current_obj.p1);
 			}
 			if (current_obj.type == OBJ_AREA) {
                 QPoint offset = event->pos() / scale - mp_point;
-				if (current_obj.select_state == 5) {
+				if (current_obj.state == 5) {
 					current_obj.p0.setY(obj_set[select_idx].p0.y() + offset.y());
 					current_obj.p1.setX(obj_set[select_idx].p1.x() + offset.x());
 				}
-				if (current_obj.select_state == 6) {
+				if (current_obj.state == 6) {
 					current_obj.p0.setX(obj_set[select_idx].p0.x() + offset.x());
 					current_obj.p1.setY(obj_set[select_idx].p1.y() + offset.y());
 				}
@@ -556,9 +557,9 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 		}
 		else {
             current_obj.p1 = event->pos() / scale;
-			if (mark_state == OBJ_WIRE)
+			if (mark_state == OBJ_LINE)
 				adjust_wire_point(current_obj.p0, current_obj.p1);
-			if (mark_state == OBJ_VIA)
+			if (mark_state == OBJ_POINT)
 				current_obj.p0 = current_obj.p1;
 		}			
         update();
@@ -569,8 +570,8 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
             for (int i=0; i<obj_set.size(); i++) {
                 int wp;
 				double dis;
-                obj_set[i].select_state = 0;
-				if (obj_set[i].type == OBJ_WIRE || obj_set[i].type == OBJ_VIA) {
+                obj_set[i].state = 0;
+				if (obj_set[i].type == OBJ_LINE || obj_set[i].type == OBJ_POINT) {
                     dis = distance_p2l(obj_set[i].p0, obj_set[i].p1, event->pos() / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
@@ -609,7 +610,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
             }
 
 			if (min_dis < 9.1)
-				obj_set[select_idx].select_state = min_wp;
+                obj_set[select_idx].state = min_wp;
 			else
 				select_idx = -1;
 			update();
@@ -659,26 +660,26 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		case Qt::Key_Up:
 		case Qt::Key_Down:
 			d = (e->key() == Qt::Key_Up) ? -1 : 1;
-			if (select_obj.select_state == 1 || select_obj.select_state == 3)
+			if (select_obj.state == 1 || select_obj.state == 3)
 				select_obj.p0.setY(select_obj.p0.y() + d);
-			if (select_obj.select_state == 2 || select_obj.select_state == 3)
+			if (select_obj.state == 2 || select_obj.state == 3)
 				select_obj.p1.setY(select_obj.p1.y() + d);
-			if (select_obj.select_state == 1)
+			if (select_obj.state == 1)
 				adjust_wire_point(select_obj.p1, select_obj.p0);
-			if (select_obj.select_state == 2)
+			if (select_obj.state == 2)
 				adjust_wire_point(select_obj.p0, select_obj.p1);
 			obj_set[select_idx] = select_obj;
 			break;	
 		case Qt::Key_Left:
 		case Qt::Key_Right:
 			d = (e->key() == Qt::Key_Left) ? -1 : 1;
-			if (select_obj.select_state == 1 || select_obj.select_state == 3)
+			if (select_obj.state == 1 || select_obj.state == 3)
 				select_obj.p0.setX(select_obj.p0.x() + d);
-			if (select_obj.select_state == 2 || select_obj.select_state == 3)
+			if (select_obj.state == 2 || select_obj.state == 3)
 				select_obj.p1.setX(select_obj.p1.x() + d);
-			if (select_obj.select_state == 1)
+			if (select_obj.state == 1)
 				adjust_wire_point(select_obj.p1, select_obj.p0);
-			if (select_obj.select_state == 2)
+			if (select_obj.state == 2)
 				adjust_wire_point(select_obj.p0, select_obj.p1);
 			obj_set[select_idx] = select_obj;
 			break;        

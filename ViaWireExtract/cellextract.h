@@ -5,13 +5,6 @@
 using namespace std;
 using namespace cv;
 
-
-#define	POWER_UP		3
-#define POWER_DOWN		12
-#define	POWER_LEFT		48
-#define	POWER_RIGHT		192
-
-
 class CellFeature {
 protected:
 	int cmp_vector(const vector<int> & tn0, const vector<int> & tn1, int & max_score);
@@ -38,24 +31,35 @@ protected:
 	vector<CellFeatures> cell;
 public:
 	CellExtract() {
-		param1 = 0.1;
+		param1 = 0.1f;
 		param2 = 2;	
-		param3 = 0.5;
+		param3 = 0.5f;
 	}
-	void set_train_param(int, int, int, float param1_, float param2_, float param3_, int, int) {
+	int set_train_param(int, int, int, int, int, float param1_, float param2_, float param3_) {
 		if (param1_ < 0 || param1_ >= 0.5 || param3_ >= 1 || param2_>4) {
 			qWarning("CellExtract invalid param %f, %f, %f", param1_, param2_, param3_);
-			return;
+            return -1;
 		}			
 		param1 = param1_;
 		param2 = param2_;
 		param3 = param3_;
+        return 0;
 	}
-	void train(string file_name, const vector<MarkObj> & obj_sets);
-	void extract(string file_name, QRect rect, vector<MarkObj> & obj_sets);
-	void set_extract_param(int, int, int, float, float, float, float) {}
-	void train(ICLayerWr *ic_layer, const vector<MarkObj> & obj_sets);
-	void extract(ICLayerWr * ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
+	int train(string file_name, const vector<MarkObj> & obj_sets);
+	int extract(string file_name, QRect rect, vector<MarkObj> & obj_sets);
+    int set_extract_param(int, int, int, int, int, float param1_, float param2_, float param3_, float)
+    {
+        if (param1_ < 0 || param1_ >= 0.5 || param3_ >= 1 || param2_>4) {
+            qWarning("CellExtract invalid param %f, %f, %f", param1_, param2_, param3_);
+            return -1;
+        }
+        param1 = param1_;
+        param2 = param2_;
+        param3 = param3_;
+        return 0;
+    }
+	int train(ICLayerWr *ic_layer, const vector<MarkObj> & obj_sets);
+	int extract(ICLayerWr * ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
 	void get_feature(int , int , vector<float> & ) {}
 	Mat get_mark() {
 		return mark;

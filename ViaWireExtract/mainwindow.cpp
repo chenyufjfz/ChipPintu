@@ -43,9 +43,9 @@ MainWindow::MainWindow(QWidget *parent) :
     vw_view_mask = 0;
     train_param.feature = 1;
     train_param.iter_num = 10;
-    train_param.param1 = 0.1f;
-    train_param.param2 = 0;
-    train_param.param3 = 0.2f;
+    train_param.param1 = 0.5f;
+    train_param.param2 = 0.5f;
+    train_param.param3 = 0.5f;
 	train_param.train_what = 0;
 }
 
@@ -89,7 +89,7 @@ void MainWindow::on_actionMark_Insulator_triggered()
 
 void MainWindow::on_actionMark_Wire_triggered()
 {
-	vw_view->set_mark(OBJ_WIRE, 0);
+	vw_view->set_mark(OBJ_LINE, LINE_NORMAL_WIRE0);
 }
 
 void MainWindow::on_actionMark_Cell_triggered()
@@ -99,7 +99,7 @@ void MainWindow::on_actionMark_Cell_triggered()
 
 void MainWindow::on_actionMark_Via_triggered()
 {
-	vw_view->set_mark(OBJ_VIA, 0);
+    vw_view->set_mark(OBJ_POINT, POINT_NORMAL_VIA0);
 }
 
 void MainWindow::on_actionSelect_triggered()
@@ -170,9 +170,9 @@ void MainWindow::on_actionShow_Via_triggered(bool checked)
 void MainWindow::on_actionShow_Wire_Edge_triggered(bool checked)
 {
     if (checked)
-        vw_view_mask |= (1<<M_EDGE);
+        vw_view_mask |= (1<<M_W);
     else
-        vw_view_mask &= ~(1<<M_EDGE);
+        vw_view_mask &= ~(1<<M_W);
     vw_view->set_mark(vw_view_mask);
 }
 

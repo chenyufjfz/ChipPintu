@@ -15,7 +15,8 @@ protected:
     string file_;
     ifstream fin;
 	ofstream fout;
-	int num_block_x, num_block_y, block_w;
+    int num_block_x, num_block_y; //image num in row and col
+    int block_w; //image width and height
 public:
     ICLayer(string& file, bool read);
 	~ICLayer();

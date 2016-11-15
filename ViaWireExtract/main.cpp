@@ -131,7 +131,7 @@ void prepare_grad(const Mat & img_in, Mat & grad_x, Mat & grad_y, Mat & edge_mas
     Sobel(filt_mat, grad_y, CV_16S, 0, 1, sobel_w);
     edge_mixer(grad_y, edge_mask, grad_y);
 }
-#if 1
+#if 0
 int main(int argc, char *argv[])
 {
 	/*
@@ -166,10 +166,10 @@ int main(int argc, char *argv[])
 	vector<MarkObj> objs;
 	obj.type = OBJ_AREA;
 	obj.type2 = AREA_CELL;
-	obj.type3 = POWER_UP;
+	obj.type3 = POWER_UP_L;
 	obj.p0 = QPoint(295936, 236864);
 	obj.p1 = QPoint(304768, 241088);
-	obj.select_state = 0;
+	obj.state = 0;
 	objs.push_back(obj);
 	ce.train(&ic, objs);
 	QRect r(163840, 163840, 163840, 163840);

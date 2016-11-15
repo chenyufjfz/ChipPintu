@@ -50,4 +50,5 @@ HEADERS += \
     wireviaparamdialog.h \
     objextract.h \
     cellextract.h \
-    iclayer.h
+    iclayer.h \
+    markobj.h
