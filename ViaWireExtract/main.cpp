@@ -161,7 +161,7 @@ int main(int argc, char *argv[])
 	CellExtract ce;
 	ICLayerWr ic("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", true);
 	
-	ce.set_train_param(0, 0, 0, 0.1, 3, 0.5, 0, 0);
+	ce.set_train_param(0, 0, 0, 0, 0, 0.1, 3, 0.5);
 	MarkObj obj;
 	vector<MarkObj> objs;
 	obj.type = OBJ_AREA;
@@ -172,7 +172,7 @@ int main(int argc, char *argv[])
 	obj.state = 0;
 	objs.push_back(obj);
 	ce.train(&ic, objs);
-	QRect r(163840, 163840, 163840, 163840);
+	QRect r(0, 0, 327680, 327680);
 	vector<SearchArea> search;
 	search.push_back(SearchArea(r, POWER_UP | POWER_DOWN));
 	ce.extract(&ic, search, objs);

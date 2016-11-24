@@ -9,7 +9,8 @@ class CellFeature {
 protected:
 	int cmp_vector(const vector<int> & tn0, const vector<int> & tn1, int & max_score);
 public:
-	int wunit, hunit, width, height;
+	int wunit, hunit;  //thumb size in pixel
+	int width, height; //cell width and height in pixel
 	vector<int> tn[8]; //0,1 for power up. 2,3 for power down. 4,5 for power left. 6, 7 for power right
 	int valid_area;
 	CellFeature();

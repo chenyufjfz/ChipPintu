@@ -38,10 +38,18 @@ enum {
 	LEARN_BAYES
 };
 
-#define RULE_TREE				1
-#define RULE_NO_4CONN			2
-#define RULE_NO_3CONN_PAIR		4
-#define RULE_MINIMUM_LEN		8
+#define RULE_NO_LOOP			1
+#define RULE_NO_UCONN			2
+#define RULE_NO_hCONN			4
+#define RULE_NO_HCONN			8
+#define RULE_NO_FCONN			0x10
+#define RULE_NO_fCONN			0x20
+#define RULE_NO_TT_CONN			0x40
+#define RULE_NO_XT_CONN			0x80
+#define RULE_NO_XX_CONN			0x100
+#define RULE_NO_X_POINT			0x200
+#define RULE_NO_T_POINT			0x400
+#define RULE_MINIUM_3_POINT		0x800
 
 struct LearnContainer {
 	QRect learn_rect;
@@ -63,20 +71,33 @@ protected:
 	int learn_method;
     Mat img;
 	Mat mark, mark1, mark2, mark3;
-    int iter_num;
+	unsigned long long rule;
     float param1, param2, param3;
+	
 public:
 	VWExtract();
-	virtual int set_train_param(int width, int r, int _iter_num, int , int grid_width, float _param1, float _param2, float _param3) {
+	virtual int set_train_param(int width, int r, int rule_low, int rule_high, int grid_width, float _param1, float _param2, float _param3) {
         wire_wd = width;
         via_rd = r;
-        iter_num = _iter_num;
+		rule = rule_high;
+		rule = rule << 32 | rule_low;
         param1 = _param1;
         param2 = _param2;
         param3 = _param3;
 		grid_wd = grid_width;
 		return 0;
     }	
+	virtual int set_extract_param(int width, int r, int rule_low, int rule_high, int grid_width, float _param1, float _param2, float _param3, float) {
+		wire_wd = width;
+		via_rd = r;
+		rule = rule_high;
+		rule = rule << 32 | rule_low;
+		param1 = _param1;
+		param2 = _param2;
+		param3 = _param3;
+		grid_wd = grid_width;
+		return 0;
+	}
 
 	Mat get_mark() {
 		return mark;
@@ -96,19 +117,13 @@ public:
 };
 
 class VWExtractStat : public VWExtract {
+protected:
+	unsigned long long bfm[64][4]; //brick fit mask
+	unsigned long long config_fit_mask(unsigned long long rule);
+
 public:
 	int train(string, const std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
-	int set_extract_param(int width, int r, int _iter_num, int , int grid_width, float _param1, float _param2, float _param3, float) {
-		wire_wd = width;
-		via_rd = r;
-		iter_num = _iter_num;
-		param1 = _param1;
-		param2 = _param2;
-		param3 = _param3;
-		grid_wd = grid_width;
-		return 0; 
-	}
 	int train(ICLayerWr *, const std::vector<MarkObj> & ) { return 0; }
 	int extract(ICLayerWr * ic_layer, const std::vector<SearchArea> & area_, std::vector<MarkObj> & obj_sets) {
 		return 0;

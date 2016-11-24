@@ -359,7 +359,7 @@ void ViaWireEditView::erase_all_objects()
 void ViaWireEditView::start_train(int train_what, int _feature, int _iter_num, float _param1, float _param2, float _param3)
 {
 	if (train_what == 0) {
-		vwe->set_train_param(wire_width, via_radius, _iter_num, insu_gap, grid_size, _param1, _param2, _param3);
+		vwe->set_train_param(wire_width, via_radius, 0xffffffff, 0xffffffff, grid_size, _param1, _param2, _param3);
 		vwe->train(img_name, obj_set);
 		current_train = vwe;
 	}
