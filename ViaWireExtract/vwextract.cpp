@@ -412,10 +412,14 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 
 	//1 compute each grid average gray
 	vector<int> glx_edge, gly_edge;
-	vector<unsigned> bins(512, 0);
+	vector<unsigned> bins(512, 0);	
 	compute_grid_edge(gl_x, wire_wd, glx_edge);
 	compute_grid_edge(gl_y, wire_wd, gly_edge);	
 	Mat gray((int) gl_y.size() * 2 - 1, (int) gl_x.size() * 2 - 1, CV_32FC1);
+#if 0
+	Mat edge_gray((int)gl_y.size() * 2 - 1, (int)gl_x.size() * 2 - 1, CV_32FC4);
+	vector<unsigned> grad_bins(512, 0);
+#endif
 	for (int y = 0; y < gray.rows; y++)
 		for (int x = 0; x < gray.cols; x++) {
 			//(gly_edge[y]+1, gly_edge[x]+1) (gly_edge[y+1],gly_edge[x+1]) 
@@ -424,6 +428,29 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 			float avg = sum / ((gly_edge[y + 1] - gly_edge[y]) * (glx_edge[x + 1] - glx_edge[x]));
 			gray.at<float>(y, x) = avg;
 			bins[avg * 2]++;
+#if 0
+			//(gly_edge[y]+1, gly_edge[x]+1) (gly_edge[y]+2,gly_edge[x+1])
+			float e_up = ig.at<int>(gly_edge[y] + 1, glx_edge[x] + 1) + ig.at<int>(gly_edge[y] + 3, glx_edge[x + 1] + 1) -
+				ig.at<int>(gly_edge[y] + 1, glx_edge[x + 1] + 1) - ig.at<int>(gly_edge[y] + 3, glx_edge[x] + 1);
+			//(gly_edge[y+1]-1, gly_edge[x]+1) (gly_edge[y+1],gly_edge[x+1])
+			float e_dn = ig.at<int>(gly_edge[y + 1] - 1, glx_edge[x] + 1) + ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x + 1] + 1) -
+				ig.at<int>(gly_edge[y + 1] - 1, glx_edge[x + 1] + 1) - ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x] + 1);
+			//(gly_edge[y]+1, gly_edge[x]+1) (gly_edge[y+1], gly_edge[x]+2)
+			float e_lt = ig.at<int>(gly_edge[y] + 1, glx_edge[x] + 1) + ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x] + 3) -
+				ig.at<int>(gly_edge[y] + 1, glx_edge[x] + 3) - ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x] + 1);
+			//(gly_edge[y]+1, gly_edge[x+1]-1) (gly_edge[y+1],gly_edge[x+1]) 
+			float e_rt = ig.at<int>(gly_edge[y] + 1, gly_edge[x + 1] - 1) + ig.at<int>(gly_edge[y + 1] + 1, gly_edge[x + 1] + 1) -
+				ig.at<int>(gly_edge[y] + 1, gly_edge[x + 1] + 1) - ig.at<int>(gly_edge[y + 1] + 1, gly_edge[x + 1] - 1);			
+			e_up = e_up / (glx_edge[x + 1] - glx_edge[x]) / 2;
+			e_rt = e_rt / (gly_edge[y + 1] - gly_edge[y]) / 2;
+			e_dn = e_dn / (glx_edge[x + 1] - glx_edge[x]) / 2;
+			e_lt = e_lt / (gly_edge[y + 1] - gly_edge[y]) / 2;
+			edge_gray.at< Vec<float, 4> >(y, x) = Vec<float, 4>(e_up, e_rt, e_dn, e_lt);
+			if (y > 0)
+				grad_bins[abs(e_up - edge_gray.at<Vec<float, 4> >(y - 1, x)[2]) * 2]++;
+			if (x > 0)
+				grad_bins[abs(e_lt - edge_gray.at<Vec<float, 4> >(y, x - 1)[1]) * 2]++;
+#endif	
 		}
 
 	//2 Auto compute gray level
@@ -434,6 +461,14 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 	float wg_th = th[1] - th[0] + (var_win[0] + var_win[1]) * wire_cred;
 	qDebug("Grid gray low (a=%f,w=%f), high (a=%f,w=%f), choose wire gray th=%f",
 		th[0], var_win[0], th[1], var_win[1], wg_th);
+#if 0
+	cal_threshold(grad_bins, th, var_win);
+	th[0] = th[0] / 2, th[1] = th[1] / 2;
+	var_win[0] = var_win[0] / 2, var_win[1] = var_win[1] / 2;
+	float grad_th = th[1] - th[0] + (var_win[0] + var_win[1]) * wire_cred;
+	qDebug("Grad low (a=%f,w=%f), high (a=%f,w=%f), choose grad th=%f",
+		th[0], var_win[0], th[1], var_win[1], grad_th);
+#endif
 
 #define PUSH_T_MIN(t, m, s, r) do \
 	{   if (m > t) \
@@ -458,11 +493,10 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 					PUSH_T_MIN(t, m, s, t0);
 				}
 			
-			double alpha[5][5] = { 0 }; //alpha estimate each grid probability, near to 1 like wire, near to 0 like insu
+			double alpha[3][3] = { 0 }; //alpha store p(grid_is_wire | img), near to 1 like wire, near to 0 like insu
 			//3.2 Do point by point gray compare to compute grid wire probability
-			for (int yy = y0 - 2; yy <= y0 + 2; yy++)
-				for (int xx = x0 - 2; xx <= x0 + 2; xx++) 
-				if (abs(yy - y0) + abs(xx - x0) <= 2) {
+			for (int yy = y0 - 1; yy <= y0 + 1; yy++)
+				for (int xx = x0 - 1; xx <= x0 + 1; xx++) {
 					float sw = 0;
 					for (int y1 = gly_edge[yy] + 1; y1 <= gly_edge[yy + 1]; y1++) {
 						const unsigned char * p_img = img.ptr<unsigned char>(y1);
@@ -475,27 +509,41 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 									sw += (float)(gray - t0) / wg_th;
 						}
 					}
-					alpha[yy - y0 + 2][xx - x0 + 2] = (double) sw / ((gly_edge[y + 1] - gly_edge[y]) * (glx_edge[x + 1] - glx_edge[x]));						
+					alpha[yy - y0 + 1][xx - x0 + 1] = (double) sw / ((gly_edge[yy + 1] - gly_edge[yy]) * (glx_edge[xx + 1] - glx_edge[xx]));
 				}
-			//3.3 Do some post process to eliminate some noise
-			alpha[1][2] = min(alpha[0][2], alpha[1][2]) * 1.02;
-			alpha[2][1] = min(alpha[2][0], alpha[2][1]) * 1.02;
-			alpha[2][3] = min(alpha[2][3], alpha[2][4]) * 1.02;
-			alpha[3][2] = min(alpha[3][2], alpha[4][2]) * 1.02;
-			alpha[1][1] = alpha[1][1] / 1.05;
-			alpha[1][3] = alpha[1][3] / 1.05;
-			alpha[3][1] = alpha[3][1] / 1.05;
-			alpha[3][3] = alpha[3][3] / 1.05;
-			for (int yy = 0; yy < 3; yy++)
-				for (int xx = 0; xx < 3; xx++)
-					alpha[yy][xx] = min(alpha[yy+1][xx+1], 1.0);
+			//Do some post process to integrate grad
+			alpha[0][0] = alpha[0][0] / 1.05;
+			alpha[0][2] = alpha[0][2] / 1.05;
+			alpha[2][0] = alpha[2][0] / 1.05;
+			alpha[2][2] = alpha[2][2] / 1.05;
 			if (!mark.empty()) {
 				for (int yy = 0; yy < 3; yy++)
 					for (int xx = 0; xx < 3; xx++) {
-						unsigned char color = alpha[yy][xx] * 255;
-						mark(Rect(gl_x[x] + xx * 3 - 4, gl_y[y] + yy * 3 - 4, 3, 3)) = color;
-					}				
+					CV_Assert(alpha[yy][xx] <= 1 && alpha[yy][xx]>=0);
+					unsigned char color = alpha[yy][xx] * 255;
+					mark(Rect(gl_x[x] + xx * 3 - 4, gl_y[y] + yy * 3 - 4, 3, 3)) = color;
+					}
 			}
+			//3.3 Compute grad
+			Vec<float, 4> e[3][3];
+
+			float glr[3][2], gud[2][3];
+			for (int yy = 0; yy < 3; yy++)
+				for (int xx = 0; xx < 2; xx++) {
+					glr[yy][xx] = (gray.at<float>(yy + y0 - 1, xx + x0) - gray.at<float>(yy + y0 - 1, xx + x0 - 1)) / wg_th;
+					if (abs(glr[yy][xx]) > 1)
+						glr[yy][xx] = SGN(glr[yy][xx]);
+				}
+					
+				
+			for (int yy = 0; yy < 2; yy++)
+				for (int xx = 0; xx < 3; xx++) {
+					gud[yy][xx] = (gray.at<float>(yy + y0, xx + x0 - 1) - gray.at<float>(yy + y0 - 1, xx + x0 - 1)) / wg_th;
+					if (abs(gud[yy][xx]) > 1)
+						gud[yy][xx] = SGN(gud[yy][xx]);
+				}
+				
+			
 			//3.4 Compute each brick likelihood probability
 			vector<double> brick_prob(sizeof(bricks) / sizeof(bricks[0])); // store p(grid | brick)
 			double normal = 0; //store p(grid) =Sum{p(grid | brick) * p(brick)}
@@ -504,10 +552,26 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 					double eng = FLT_MIN; //energy needed to transform the brick to grid image
 					for (int yy = 0; yy < 3; yy++)
 						for (int xx = 0; xx < 3; xx++) {
-							double t = abs(alpha[yy][xx] - bricks[i].a[yy][xx]);							
+							double t = abs(alpha[yy][xx] - bricks[i].a[yy][xx]);
+#if 0
 							t = sqrt(t * t * t);
 							eng += (yy == 1 || xx == 1) ? t : t / 2; //add t/2 is floor noise adjust, if floor noise is bigger, prob is more similar
+#else
+							eng += t;
+#endif
 						}
+					for (int yy = 0; yy < 3; yy++)
+						for (int xx = 0; xx < 2; xx++) {
+							double t = abs(glr[yy][xx] - (bricks[i].a[yy][xx + 1] - bricks[i].a[yy][xx]));
+							eng += t;
+						}
+
+					for (int yy = 0; yy < 2; yy++)
+						for (int xx = 0; xx < 3; xx++) {
+							double t = abs(gud[yy][xx] - (bricks[i].a[yy + 1][xx] - bricks[i].a[yy][xx]));
+							eng += t;
+						}
+
 					brick_prob[i] = 1 / eng; //if engrgy big, prob is small
 					normal += brick_prob[i] * bricks[i].priori_prob;
 				}
