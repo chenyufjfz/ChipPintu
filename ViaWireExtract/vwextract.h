@@ -50,6 +50,7 @@ enum {
 #define RULE_NO_X_POINT			0x200
 #define RULE_NO_T_POINT			0x400
 #define RULE_MINIUM_3_POINT		0x800
+#define RULE_END_WITH_VIA		0x80000000
 
 struct LearnContainer {
 	QRect learn_rect;
@@ -118,7 +119,8 @@ public:
 
 class VWExtractStat : public VWExtract {
 protected:
-	unsigned long long bfm[64][4]; //brick fit mask
+    unsigned long long bbfm[64][4]; //brick brick fit mask
+	unsigned long long vbvfm[2][2]; //via - brick -via fit mask
 	unsigned long long config_fit_mask(unsigned long long rule);
 
 public:
