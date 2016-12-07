@@ -147,7 +147,7 @@ static struct Brick {
 				DIR_UP_MASK | DIR_LEFT_MASK | DIR_RIGHT_MASK
 		},
 
-		{ 0.3f, {
+		{ 0.5f, {
 				{ 0, 1, 0 },
 				{ 1, 1, 1 },
 				{ 0, 1, 0 } },
@@ -157,10 +157,11 @@ static struct Brick {
 
 struct GridInfo {
 	int x, y;
-	vector<pair<int, int>> brick_order;
-	int brick_choose;
-	int po; //prefer order
-	int in_low_queue;
+	vector<pair<int, int>> brick_order; //first is prob, second is brick no
+	int brick_choose; //brick no chosed
+	int po; //prefer order, as brick_order's index
+	int abm; //available brick mask
+	int which_queue;
 };
 /*
 Use kmean 2 julei
@@ -403,9 +404,9 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 	const vector<int> & gl_x, const vector<int> & gl_y, unsigned long long mask, Mat & prob, Mat & mark)
 {
 	CV_Assert(ig.type() == CV_32SC1 && img.type() == CV_8UC1 && img.rows + 1 == ig.rows && img.cols + 1 == ig.cols);
-	CV_Assert(grid_wd > wire_wd && wire_cred <= 1 && wire_cred >= 0 && gl_x[0] >= wire_wd / 2 + 1 && gl_y[0] >= wire_wd / 2 + 1);
-	CV_Assert(gl_x[gl_x.size() - 1] <= img.cols - wire_wd + wire_wd / 2 - 3);
-	CV_Assert(gl_x[gl_y.size() - 1] <= img.rows - wire_wd + wire_wd / 2 - 3);
+	CV_Assert(grid_wd > wire_wd && wire_cred <= 1 && wire_cred >= 0 && gl_x[0] >= wire_wd / 2 && gl_y[0] >= wire_wd / 2);
+	CV_Assert(gl_x[gl_x.size() - 1] <= img.cols - wire_wd + wire_wd / 2 - 2);
+	CV_Assert(gl_y[gl_y.size() - 1] <= img.rows - wire_wd + wire_wd / 2 - 2);
 	CV_Assert(mark.empty() || mark.type() == CV_8UC1 && mark.size == img.size);
 
 	int sz[] = { (int)gl_y.size(), (int)gl_x.size(), (int) sizeof(bricks) / sizeof(bricks[0])};
@@ -419,10 +420,7 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 	compute_grid_edge(gl_x, wire_wd, glx_edge);
 	compute_grid_edge(gl_y, wire_wd, gly_edge);	
 	Mat gray((int) gl_y.size() * 2 - 1, (int) gl_x.size() * 2 - 1, CV_32FC1);
-#if 0
-	Mat edge_gray((int)gl_y.size() * 2 - 1, (int)gl_x.size() * 2 - 1, CV_32FC4);
-	vector<unsigned> grad_bins(512, 0);
-#endif
+
 	for (int y = 0; y < gray.rows; y++)
 		for (int x = 0; x < gray.cols; x++) {
 			//(gly_edge[y]+1, gly_edge[x]+1) (gly_edge[y+1],gly_edge[x+1]) 
@@ -431,29 +429,6 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 			float avg = sum / ((gly_edge[y + 1] - gly_edge[y]) * (glx_edge[x + 1] - glx_edge[x]));
 			gray.at<float>(y, x) = avg;
 			bins[avg * 2]++;
-#if 0
-			//(gly_edge[y]+1, gly_edge[x]+1) (gly_edge[y]+2,gly_edge[x+1])
-			float e_up = ig.at<int>(gly_edge[y] + 1, glx_edge[x] + 1) + ig.at<int>(gly_edge[y] + 3, glx_edge[x + 1] + 1) -
-				ig.at<int>(gly_edge[y] + 1, glx_edge[x + 1] + 1) - ig.at<int>(gly_edge[y] + 3, glx_edge[x] + 1);
-			//(gly_edge[y+1]-1, gly_edge[x]+1) (gly_edge[y+1],gly_edge[x+1])
-			float e_dn = ig.at<int>(gly_edge[y + 1] - 1, glx_edge[x] + 1) + ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x + 1] + 1) -
-				ig.at<int>(gly_edge[y + 1] - 1, glx_edge[x + 1] + 1) - ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x] + 1);
-			//(gly_edge[y]+1, gly_edge[x]+1) (gly_edge[y+1], gly_edge[x]+2)
-			float e_lt = ig.at<int>(gly_edge[y] + 1, glx_edge[x] + 1) + ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x] + 3) -
-				ig.at<int>(gly_edge[y] + 1, glx_edge[x] + 3) - ig.at<int>(gly_edge[y + 1] + 1, glx_edge[x] + 1);
-			//(gly_edge[y]+1, gly_edge[x+1]-1) (gly_edge[y+1],gly_edge[x+1]) 
-			float e_rt = ig.at<int>(gly_edge[y] + 1, gly_edge[x + 1] - 1) + ig.at<int>(gly_edge[y + 1] + 1, gly_edge[x + 1] + 1) -
-				ig.at<int>(gly_edge[y] + 1, gly_edge[x + 1] + 1) - ig.at<int>(gly_edge[y + 1] + 1, gly_edge[x + 1] - 1);			
-			e_up = e_up / (glx_edge[x + 1] - glx_edge[x]) / 2;
-			e_rt = e_rt / (gly_edge[y + 1] - gly_edge[y]) / 2;
-			e_dn = e_dn / (glx_edge[x + 1] - glx_edge[x]) / 2;
-			e_lt = e_lt / (gly_edge[y + 1] - gly_edge[y]) / 2;
-			edge_gray.at< Vec<float, 4> >(y, x) = Vec<float, 4>(e_up, e_rt, e_dn, e_lt);
-			if (y > 0)
-				grad_bins[abs(e_up - edge_gray.at<Vec<float, 4> >(y - 1, x)[2]) * 2]++;
-			if (x > 0)
-				grad_bins[abs(e_lt - edge_gray.at<Vec<float, 4> >(y, x - 1)[1]) * 2]++;
-#endif	
 		}
 
 	//2 Auto compute gray level
@@ -464,14 +439,6 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 	float wg_th = th[1] - th[0] + (var_win[0] + var_win[1]) * wire_cred;
 	qDebug("Grid gray low (a=%f,w=%f), high (a=%f,w=%f), choose wire gray th=%f",
 		th[0], var_win[0], th[1], var_win[1], wg_th);
-#if 0
-	cal_threshold(grad_bins, th, var_win);
-	th[0] = th[0] / 2, th[1] = th[1] / 2;
-	var_win[0] = var_win[0] / 2, var_win[1] = var_win[1] / 2;
-	float grad_th = th[1] - th[0] + (var_win[0] + var_win[1]) * wire_cred;
-	qDebug("Grad low (a=%f,w=%f), high (a=%f,w=%f), choose grad th=%f",
-		th[0], var_win[0], th[1], var_win[1], grad_th);
-#endif
 
 #define PUSH_T_MIN(t, m, s, r) do \
 	{   if (m > t) \
@@ -493,6 +460,7 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 			for (int yy = y0 - 1; yy <= y0 + 1; yy++)
 				for (int xx = x0 - 1; xx <= x0 + 1; xx++) {
 					float t = gray.at<float>(yy, xx);
+					//Here assume at least 3 insu grid within 3*3
 					PUSH_T_MIN(t, m, s, t0);
 				}
 			
@@ -556,12 +524,7 @@ static void compute_grid_prob(const Mat & img, const Mat & ig, int wire_wd, int 
 					for (int yy = 0; yy < 3; yy++)
 						for (int xx = 0; xx < 3; xx++) {
 							double t = abs(alpha[yy][xx] - bricks[i].a[yy][xx]);
-#if 0
-							t = sqrt(t * t * t);
-							eng += (yy == 1 || xx == 1) ? t : t / 2; //add t/2 is floor noise adjust, if floor noise is bigger, prob is more similar
-#else
 							eng += t;
-#endif
 						}
 					for (int yy = 0; yy < 3; yy++)
 						for (int xx = 0; xx < 2; xx++) {
@@ -798,29 +761,43 @@ static double find_grid_line(const vector<double> & weight, int w, int grid, vec
 	}
 	return max_base;
 }
+
+struct FindViaGridLineReq {
+	int dx, dy;
+	bool find_minor_gl, find_via, gl_x_valid, gl_y_valid;
+	FindViaGridLineReq(int _dx, int _dy, bool _find_minor_gl, bool _find_via, bool _gl_x_valid, bool _gl_y_valid) {
+		dx = _dx;
+		dy = _dy;
+		find_minor_gl = _find_minor_gl;
+		find_via = _find_via;
+		gl_x_valid = _gl_x_valid;
+		gl_y_valid = _gl_y_valid;
+	}
+};
 /*
 In img: raw image
-In ig: integral image
-In wire_wd: metal width
-In grid_wd: grid width
-In via_rd: via radius
+in ig: integral image
+InOut lpm: in wire_wd: metal width, In grid_wd: grid width, In via_rd: via radius out gl_x, gl_y
 Out via_prob: via probability gl_y.size() * gl_x.size(), 1 is via, 0 is not via
-Out gl_x: up-down grid line
-Out gl_y; left-right grid line
-return: direction
+return: direction, 0 means up-down grid line
 It require wire is darker than via; and insu is darker than wire
 */
-static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int grid_wd, int via_rd, float via_cred,
-	Mat & via_prob, vector<int> & gl_x, vector<int> & gl_y)
+static int find_via_grid_line(const Mat & img, const Mat & ig, struct LayerData & lpm, FindViaGridLineReq req,
+	Mat & via_prob)
 {
+	int wire_wd = lpm.wire_wd, grid_wd = lpm.grid_wd, via_rd = lpm.via_rd;
+	float via_cred = lpm.param1;
 	CV_Assert(ig.type() == CV_32SC1 && img.rows + 1 == ig.rows && img.cols + 1 == ig.cols && ig.rows < 65536 && ig.cols <65536);
-	CV_Assert(via_cred >= 0 && via_cred <= 1 && via_cred >= 0 && grid_wd > wire_wd);
-	
+	CV_Assert(via_cred >= 0 && via_cred <= 1 && grid_wd > wire_wd && grid_wd > via_rd);
+	if (req.find_via)
+		req.find_minor_gl = true;
+
 	//0 each point left right and up down grad
 	Mat grad0(img.rows, img.cols-1, CV_32SC1);
 	Mat grad1(img.rows-1, img.cols, CV_32SC1);	
 	int dw = grid_wd / 2;
 	vector<unsigned> stat(dw * 255, 0);	
+		
 	for (int y = 0; y < img.rows; y++) {
 		int * p_grad0 = grad0.ptr<int>(y);
 		int y1 = max(0, y - dw / 2);
@@ -833,7 +810,7 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 			p_grad0[x - 1] = e;
 			stat[abs(e)]++;
 		}
-	}
+	}	
 	for (int y = 1; y < img.rows; y++) {
 		int * p_grad1 = grad1.ptr<int>(y - 1);
 		const int * p_ig0 = ig.ptr<int>(y - 1);
@@ -849,13 +826,12 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 		}
 	}
 		
-	//1 Do auto threshold and compute each line weight
-	double d0 = 0, d1 = 0;
+	//1 Do auto threshold and compute each line weight	
 	vector<float> th, var_win;
 	cal_threshold(stat, th, var_win);
 	qDebug("grad low(a=%f,w=%f), grad high(a=%f,w=%f)", th[0], var_win[0], th[1], var_win[1]);
+	double d0 = 0, d1 = 0;
 	vector<float> lweight0, lweight1; //lweight means how much point is edge point, lweight0 for up-down, lweight1 for left-right
-	vector<double> weight;	
 	for (int x = 0; x < img.cols - 1; x++) { //lweight0.size() == img.cols-1
 		float s = 0;
 		for (int y = 0; y < img.rows; y++) {
@@ -886,50 +862,126 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 	}
 	//2 Compute main grid line and compute via feature for all main grid line points
 	vector<unsigned long long> caps; //center axis points set
-	double vs;
+	
 	if (d0 > d1) {
-		for (int x = 0; x < lweight0.size() - wire_wd; x++) //weight.size() == img.cols - wire_wd-1
-			weight.push_back(lweight0[x] - lweight0[x + wire_wd]); 
-		vs = find_grid_line(weight, wire_wd, grid_wd, gl_x);
-		vs = vs / ((2 * WEIGHT_FB + 1) * img.rows);		
-		for (int x = 0; x < gl_x.size(); x++) {
+		if (req.dx != 0 || !req.gl_x_valid) { //2.1 compute main grid line
+			vector<double> weight;
+			for (int x = 0; x < lweight0.size() - wire_wd; x++) //weight.size() == img.cols - wire_wd-1
+				weight.push_back(lweight0[x] - lweight0[x + wire_wd]);			
+			if (req.dx < lpm.grid_wd / 2 && req.gl_x_valid) { //use reference gl_x for compute
+				vector<int> gl_x;
+				for (int i = 0; i <= lpm.gl_x.size(); i++) {
+					int min_x = (i == 0) ? 0 : lpm.gl_x[i - 1] + req.dx + 1 - wire_wd / 2;
+					int max_x = (i >= (int) lpm.gl_x.size()) ? (int) weight.size() - 1 : lpm.gl_x[i] - req.dx - 1 - wire_wd / 2;
+					for (int x = min_x; x <= max_x; x++)
+						weight[x] = -1000000;
+				}
+				find_grid_line(weight, wire_wd, grid_wd, gl_x);
+				if (abs(lpm.gl_x[0] - gl_x[0]) > req.dx) {
+					if (gl_x[0] > lpm.gl_x[0])
+						gl_x.insert(gl_x.begin(), wire_wd / 2);
+					else
+						gl_x.erase(gl_x.begin());
+				}
+					
+				if (abs(lpm.gl_x.back() - gl_x.back()) > req.dx) {
+					if (gl_x.back() < lpm.gl_x.back())
+						gl_x.push_back((int) weight.size() - 1 + wire_wd / 2);
+					else
+						gl_x.pop_back();
+				}					
+				CV_Assert(lpm.gl_x.size() == gl_x.size());
+				for (int i = 0; i < gl_x.size(); i++)
+					CV_Assert(abs(lpm.gl_x[i] - gl_x[i]) <= req.dx);
+				lpm.gl_x.swap(gl_x);
+			} else //don't user reference
+				find_grid_line(weight, wire_wd, grid_wd, lpm.gl_x);
+		}
+		if (!req.find_minor_gl)
+			return (d0 > d1) ? 0 : 1;
+		for (int x = 0; x < lpm.gl_x.size(); x++) { //2.2 compute via feature for main grid line points
+			int gl = 0;
 			for (int y = via_rd + 1; y < img.rows - via_rd - 1; y++) {
+				if (req.gl_y_valid && y < lpm.gl_y[gl] - req.dy)
+					continue;
+				if (req.gl_y_valid && y >= lpm.gl_y[gl] + req.dy)
+					gl++;				
 				float feature[4];
 				double v;
 				unsigned long long c;
-				feature_extract_via(img.ptr<unsigned char>(y) +gl_x[x], (int)img.step[0], via_rd, feature);
+				feature_extract_via(img.ptr<unsigned char>(y) + lpm.gl_x[x], (int)img.step[0], via_rd, feature);
 				v = (double)feature[0] * feature[1] * feature[2] * feature[3]; //Normally, Insu and wire = 1, and via >1
 				v = max(v, 0.001);
 				v = min(v, 1000.0);
 				c = 0x40000000 + log(v) * 0x8000000;  //-7< log(v) <7, so c>0 & c<0x80000000, insu and wire, c=0x40000000
-				c = (c << 32) | (y << 16) | gl_x[x];
+				c = (c << 32) | (y << 16) | lpm.gl_x[x];
 				caps.push_back(c);
+				if (req.gl_y_valid && gl >= lpm.gl_y.size())
+					break;
 			}
 		}		
 	} else {
-		for (int y = 0; y < lweight1.size() - wire_wd; y++)
-			weight.push_back(lweight1[y] - lweight1[y + wire_wd]); 
-		vs = find_grid_line(weight, wire_wd, grid_wd, gl_y);
-		vs = vs / ((2 * WEIGHT_FB + 1) * img.cols);
-		for (int y = 0; y < gl_y.size(); y++) {
+		if (req.dy != 0 || !req.gl_y_valid) {
+			vector<double> weight;
+			for (int y = 0; y < lweight1.size() - wire_wd; y++) //weight.size() == img.rows - wire_wd-1
+				weight.push_back(lweight1[y] - lweight1[y + wire_wd]);
+			if (req.dy < lpm.grid_wd / 2 && req.gl_y_valid) { //use reference gl_y for compute
+				vector<int> gl_y;
+				for (int i = 0; i <= lpm.gl_y.size(); i++) {
+					int min_y = (i == 0) ? 0 : lpm.gl_y[i - 1] + req.dy + 1 - wire_wd / 2;
+					int max_y = (i >= (int) lpm.gl_y.size()) ? (int) weight.size() - 1 : lpm.gl_y[i] - req.dy - 1 - wire_wd / 2;
+					for (int y = min_y; y <= max_y; y++)
+						weight[y] = -1000000;
+				}
+				find_grid_line(weight, wire_wd, grid_wd, gl_y);
+				if (abs(lpm.gl_y[0] - gl_y[0]) > req.dy) {
+					if (gl_y[0] > lpm.gl_y[0])
+						gl_y.insert(gl_y.begin(), wire_wd / 2);
+					else
+						gl_y.erase(gl_y.begin());
+				}					
+				if (abs(lpm.gl_y.back() - gl_y.back()) > req.dy) {
+					if (gl_y.back() < lpm.gl_y.back())
+						gl_y.push_back((int) weight.size() - 1 + wire_wd / 2);
+					else
+						gl_y.pop_back();
+				}
+				CV_Assert(lpm.gl_y.size() == gl_y.size());
+				for (int i = 0; i < (int) gl_y.size(); i++)
+					CV_Assert(abs(lpm.gl_y[i] - gl_y[i]) <= req.dy);				
+				lpm.gl_y.swap(gl_y);
+			} else //don't user reference
+				find_grid_line(weight, wire_wd, grid_wd, lpm.gl_y);
+		}
+		if (!req.find_minor_gl)
+			return (d0 > d1) ? 0 : 1;
+		for (int y = 0; y < lpm.gl_y.size(); y++) {
+			int gl = 0;
 			for (int x = via_rd + 1; x < img.cols - via_rd - 1; x++) {
+				if (req.gl_x_valid && x < lpm.gl_x[gl] - req.dx)
+					continue;
+				if (req.gl_x_valid && x >= lpm.gl_x[gl] + req.dx)
+					gl++;
 				float feature[4];
 				double v;
 				unsigned long long c;
-				feature_extract_via(img.ptr<unsigned char>(gl_y[y]) + x, (int) img.step[0], via_rd, feature);
+				feature_extract_via(img.ptr<unsigned char>(lpm.gl_y[y]) + x, (int) img.step[0], via_rd, feature);
 				v = (double)feature[0] * feature[1] * feature[2] * feature[3]; //Normally, Insu and wire = 1, and via >1
 				v = max(v, 0.001);
 				v = min(v, 1000.0);
 				c = 0x40000000 + log(v) * 0x8000000;  //-7< log(v) <7, so c>0 & c<0x80000000, insu and wire, c=0x40000000
-				c = (c << 32) | (gl_y[y] << 16) | x;
+				c = (c << 32) | (lpm.gl_y[y] << 16) | x;
 				caps.push_back(c);
+				if (req.gl_x_valid && gl >= lpm.gl_x.size())
+					break;
 			}
 		}
 	}
 	//3 Compute Via threshold
 	sort(caps.begin(), caps.end(), greater<unsigned long long>());
 	vector<unsigned> bins(2048,0);
-	for (int i = 0; i < caps.size() / via_rd; i++)
+	size_t grid_num = (d0 > d1) ? lpm.gl_x.size() * lpm.gl_x.size() : lpm.gl_y.size() * lpm.gl_y.size();
+	for (int i = 0; i < min(caps.size(), grid_num); i++)
 		bins[caps[i] >> 52]++;
 	cal_threshold(bins, th, var_win);
 	unsigned th0 = 0, th1 = 0;
@@ -961,9 +1013,9 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 			via.push_back(QPoint(x, y));
 	}
 	//5 Compute minor grid line
-	weight.clear();		
-	vs = vs * 5 * wire_wd;
+	double vs = 3 * wire_wd;
 	if (d0 > d1) {
+		vector<double> weight;
 		for (int y = 0; y < lweight1.size() - wire_wd; y++)
 			weight.push_back(abs(lweight1[y] - lweight1[y + wire_wd]));
 		for (int i = 0; i < via.size(); i++) {
@@ -978,9 +1030,37 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 			if (via[i].y() >= wire_wd / 2 - 2 && via[i].y() < weight.size() + wire_wd / 2 - 2)
 				weight[via[i].y() - wire_wd / 2 + 2] += vs*0.3;
 		}
-		find_grid_line(weight, wire_wd, grid_wd, gl_y);		
+		if (req.dy < lpm.grid_wd / 2 && req.gl_y_valid) { //use reference gl_y for compute
+			vector<int> gl_y;
+			for (int i = 0; i <= lpm.gl_y.size(); i++) {
+				int min_y = (i == 0) ? 0 : lpm.gl_y[i - 1] + req.dy + 1 - wire_wd / 2;
+				int max_y = (i >= (int) lpm.gl_y.size()) ? (int) weight.size() - 1 : lpm.gl_y[i] - req.dy - 1 - wire_wd / 2;
+				for (int y = min_y; y <= max_y; y++)
+					weight[y] = -1000000;
+			}
+			find_grid_line(weight, wire_wd, grid_wd, gl_y);
+			if (abs(lpm.gl_y[0] - gl_y[0]) > req.dy) {
+				if (gl_y[0] > lpm.gl_y[0])
+					gl_y.insert(gl_y.begin(), wire_wd / 2);
+				else
+					gl_y.erase(gl_y.begin());
+			}
+			if (abs(lpm.gl_y.back() - gl_y.back()) > req.dy) {
+				if (gl_y.back() < lpm.gl_y.back())
+					gl_y.push_back((int) weight.size() - 1 + wire_wd / 2);
+				else
+					gl_y.pop_back();
+			}
+			CV_Assert(lpm.gl_y.size() == gl_y.size());
+			for (int i = 0; i < (int) gl_y.size(); i++)
+				CV_Assert(abs(lpm.gl_y[i] - gl_y[i]) <= req.dy);
+			lpm.gl_y.swap(gl_y);
+		}
+		else //don't user reference
+			find_grid_line(weight, wire_wd, grid_wd, lpm.gl_y);
 	}
 	else {
+		vector<double> weight;
 		for (int x = 0; x < lweight0.size() - wire_wd; x++)
 			weight.push_back(abs(lweight0[x] - lweight0[x + wire_wd]));
 		for (int i = 0; i < via.size(); i++) {
@@ -995,12 +1075,42 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 			if (via[i].x() >= wire_wd / 2 - 2 && via[i].x() < weight.size() + wire_wd / 2 - 2)
 				weight[via[i].x() - wire_wd / 2 + 2] += vs*0.3;
 		}
-		find_grid_line(weight, wire_wd, grid_wd, gl_x);		
+		if (req.dx < lpm.grid_wd / 2 && req.gl_x_valid) { //use reference gl_x for compute
+			vector<int> gl_x;
+			for (int i = 0; i <= lpm.gl_x.size(); i++) {
+				int min_x = (i == 0) ? 0 : lpm.gl_x[i - 1] + req.dx + 1 - wire_wd / 2;
+				int max_x = (i >= (int) lpm.gl_x.size()) ? (int) weight.size() - 1 : lpm.gl_x[i] - req.dx - 1 - wire_wd / 2;
+				for (int x = min_x; x <= max_x; x++)
+					weight[x] = -1000000;
+			}
+			find_grid_line(weight, wire_wd, grid_wd, gl_x);
+			if (abs(lpm.gl_x[0] - gl_x[0]) > req.dx) {
+				if (gl_x[0] > lpm.gl_x[0])
+					gl_x.insert(gl_x.begin(), wire_wd / 2);
+				else
+					gl_x.erase(gl_x.begin());
+			}
+
+			if (abs(lpm.gl_x.back() - gl_x.back()) > req.dx) {
+				if (gl_x.back() < lpm.gl_x.back())
+					gl_x.push_back((int) weight.size() - 1 + wire_wd / 2);
+				else
+					gl_x.pop_back();
+			}
+			CV_Assert(lpm.gl_x.size() == gl_x.size());
+			for (int i = 0; i < (int) gl_x.size(); i++)
+				CV_Assert(abs(lpm.gl_x[i] - gl_x[i]) <= req.dx);
+			lpm.gl_x.swap(gl_x);
+		}
+		else //don't user reference
+			find_grid_line(weight, wire_wd, grid_wd, lpm.gl_x);
 	}	
-	qDebug("Grid y lines=%d, grid x lines=%d", gl_y.size(), gl_x.size());
+	qDebug("Grid y lines=%d, grid x lines=%d", lpm.gl_y.size(), lpm.gl_x.size());
 	//6 compute via prob
+	if (!req.find_via)
+		return (d0 > d1) ? 0 : 1;
 	int stat_obvious_via = 0, stat_possible_via = 0;
-	via_prob.create((int) gl_y.size(), (int) gl_x.size(), CV_32FC1);
+	via_prob.create((int) lpm.gl_y.size(), (int) lpm.gl_x.size(), CV_32FC1);
 	via_prob = 0;
 	for (int i = 0; i < caps.size(); i++) {
 		unsigned v = caps[i] >> 32;
@@ -1009,29 +1119,29 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 		int y = (caps[i] >> 16) & 0xffff;
 		int x = caps[i] & 0xffff;
 		vector<int>::iterator iter;
-		iter = lower_bound(gl_y.begin(), gl_y.end(), y); //found point (x,y)'s grid
-		if (iter != gl_y.begin())
+		iter = lower_bound(lpm.gl_y.begin(), lpm.gl_y.end(), y); //found point (x,y)'s grid
+		if (iter != lpm.gl_y.begin())
 			iter--;
-		int yy = (int *)&(*iter) - (int *)&(*gl_y.begin());
-		if (yy < gl_y.size() - 1)
-			if (abs(gl_y[yy] - y) > abs(gl_y[yy + 1] - y))
+		int yy = (int *)&(*iter) - (int *)&(*lpm.gl_y.begin());
+		if (yy < lpm.gl_y.size() - 1)
+			if (abs(lpm.gl_y[yy] - y) > abs(lpm.gl_y[yy + 1] - y))
 				yy++;		
 
-		iter = lower_bound(gl_x.begin(), gl_x.end(), x);
-		if (iter != gl_x.begin())
+		iter = lower_bound(lpm.gl_x.begin(), lpm.gl_x.end(), x);
+		if (iter != lpm.gl_x.begin())
 			iter--;
-		int xx = (int *)&(*iter) - (int *)&(*gl_x.begin());
-		if (xx < gl_x.size() - 1)
-			if (abs(gl_x[xx] - x) > abs(gl_x[xx + 1] - x))
+		int xx = (int *)&(*iter) - (int *)&(*lpm.gl_x.begin());
+		if (xx < lpm.gl_x.size() - 1)
+			if (abs(lpm.gl_x[xx] - x) > abs(lpm.gl_x[xx + 1] - x))
 				xx++;
 		
 		if (via_prob.at<float>(yy, xx) == 0) {
-			if (abs(y - gl_y[yy]) > VIA_MAX_BIAS_PIXEL && v > th2) {
-				qWarning("Found via(x=%d,y=%d) not in grid, near y=%d", x, y, gl_y[yy]);
+			if (abs(y - lpm.gl_y[yy]) > VIA_MAX_BIAS_PIXEL && v > th2) {
+				qWarning("Found via(x=%d,y=%d) not in grid, near y=%d", x, y, lpm.gl_y[yy]);
 				continue;
 			}
-			if (abs(x - gl_x[xx]) > VIA_MAX_BIAS_PIXEL && v > th2) {
-				qWarning("Found via(x=%d,y=%d) not in grid, near x=%d", x, y, gl_x[xx]);
+			if (abs(x - lpm.gl_x[xx]) > VIA_MAX_BIAS_PIXEL && v > th2) {
+				qWarning("Found via(x=%d,y=%d) not in grid, near x=%d", x, y, lpm.gl_x[xx]);
 				continue;
 			}
 			via_prob.at<float>(yy, xx) = min((double)(v - th0) / (th1 - th0), 1.0);
@@ -1047,14 +1157,17 @@ static int find_via_grid_line(const Mat & img, const Mat & ig, int wire_wd, int 
 /*In: prob brick prob for each grid, 3 - dim Mat
 		more near to 1 means bigger probability for the brick,
 		more near to 0 means less probability for the brick.
+  In: layer
   In: gl_x, gl_y, used for mark debug
-  Out: grid_infos, sorted brick prob order
+  InOut: grid_infos, sorted brick prob order, push (prob.rows-2) * (prob.cols-2) grid_infos
   Out: mark used for debug
 */
-void post_process_grid_prob(const Mat & prob, vector<int> & gl_x, vector<int> & gl_y, vector<GridInfo> & grid_infos, Mat & mark)
+static void post_process_grid_prob(const Mat & prob, vector<int> & gl_x, vector<int> & gl_y,
+	vector<GridInfo> & grid_infos, Mat & mark)
 {
 	CV_Assert(mark.empty() || mark.type() == CV_8UC1 && mark.rows > gl_y[gl_y.size()-1] && mark.cols > gl_x[gl_x.size()-1]);
-	grid_infos.clear();
+	CV_Assert(prob.type() == CV_32F && prob.dims==3);
+	CV_Assert(prob.size[0] == gl_y.size() && prob.size[1] == gl_x.size());
 	for (int y = 1; y < prob.size[0] - 1; y++)
 		for (int x = 1; x < prob.size[1] - 1; x++) {
 			const float * p_prob = prob.ptr<float>(y, x);
@@ -1064,7 +1177,7 @@ void post_process_grid_prob(const Mat & prob, vector<int> & gl_x, vector<int> & 
 			for (int i = 0; i < prob.size[2]; i++)
 				if (p_prob[i] >= 0) {
 					int t = p_prob[i] * 0xF00000;
-					grid_info.brick_order.push_back(make_pair(t, i));
+					grid_info.brick_order.push_back(make_pair(t, i));					
 				}
 			CV_Assert(grid_info.brick_order.size()>0);
 			sort(grid_info.brick_order.begin(), grid_info.brick_order.end());
@@ -1085,171 +1198,314 @@ void post_process_grid_prob(const Mat & prob, vector<int> & gl_x, vector<int> & 
 		}
 }
 
-/*
-In: fit_mask, available brick mask for all grid
-In: bfm, neighbour brick fit mask
-InOut: abm, available brick mask for each grid
-Inout: grid_infos, get brick prob order and store grid choose brick
+/*In: prob via prob for each grid, 2 - dim Mat, more near to 0, more like wire&insu, more near to 1, more like via
+In: gl_x, gl_y, used for mark debug
+InOut: grid_infos, sorted brick prob order, push (prob.rows-2) * (prob.cols-2) grid_infos
+Out: mark used for debug
 */
-void coarse_assemble(unsigned long long fit_mask, unsigned long long bbfm[][4], vector< vector<int> > & abm,
-	vector<GridInfo> & grid_infos)
+static void post_process_via_prob(const Mat & prob, float beta, vector<int> & gl_x, vector<int> & gl_y,
+	vector<GridInfo> & grid_infos, Mat & mark)
+{
+	CV_Assert(mark.empty() || mark.type() == CV_8UC1 && mark.rows > gl_y[gl_y.size() - 1] && mark.cols > gl_x[gl_x.size() - 1]);
+	CV_Assert(prob.type() == CV_32F && prob.dims==2 && beta >= 0.5 && beta <= 8);
+	CV_Assert(prob.rows == gl_y.size() && prob.cols == gl_x.size());
+	for (int y = 1; y < prob.rows - 1; y++) {
+		const float * p_prob = prob.ptr<float>(y);
+		for (int x = 1; x < prob.cols - 1; x++) {
+			GridInfo grid_info;
+			grid_info.x = x;
+			grid_info.y = y;
+			unsigned t1 = p_prob[x] * 0xF00000 * beta;
+			unsigned t0 = (1 - p_prob[x]) * 0xF00000 * beta;
+			if (t0 > t1) {
+				grid_info.brick_order.push_back(make_pair(t0, 0));
+				grid_info.brick_order.push_back(make_pair(t1, 1));
+			}
+			else {
+				grid_info.brick_order.push_back(make_pair(t1, 1));
+				grid_info.brick_order.push_back(make_pair(t0, 0));
+			}
+			if (!mark.empty()) {
+				int x1 = (gl_x[x] + gl_x[x + 1]) / 2;
+				int y1 = (gl_y[y] + gl_y[y + 1]) / 2;
+				int color = (p_prob[x] > 0.5) ? (2 * p_prob[x] - 1) * 255 : 0;
+				for (int yy = 0; yy < 3; yy++)
+					for (int xx = 0; xx < 3; xx++)
+						if (xx == 1 || yy == 1)
+							mark.at<unsigned char>(y1 - 1 + yy, x1 - 1 + xx) = color;
+			}
+			grid_infos.push_back(grid_info);
+		}
+	}
+}
+
+struct LayerBrickRuleMask {
+	unsigned long long wwfm[64][4]; //wire wire fit mask
+	unsigned long long vwvfm[2][2]; //via - wire -via fit mask
+	unsigned long long fit_mask; //wire available mask
+};
+
+struct LayerGridInfo {
+	vector<GridInfo> grid_infos;
+	int grid_rows, grid_cols;
+};
+
+#define BRICK_PREFER(l, gi) lg[l].grid_infos[gi].brick_order[lg[l].grid_infos[gi].po].second
+#define BRICK_CHOOSE(l, gi) lg[l].grid_infos[gi].brick_choose
+#define ABM(l, gi) lg[l].grid_infos[gi].abm
+
+/*
+In: lbrm, rule for brick fit, 2*img_layer-1
+		0,2,4 for via;
+		1,3,5 for wire,
+Inout: lg, get brick prob order and store grid choose brick, 2*img_layer-1
+       0,2,4 for via; 
+	   1,3,5 for wire, 
+*/
+static void coarse_assemble_multilayer(vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg, int ignore_all_rule)
 {
 	//low_queue means at least two choice, high_queue means at least only 1 choice
 	set<unsigned long long, greater<unsigned long long>> high_queue, low_queue;
-	vector<unsigned long long> n010;
-	static int dxy[4][2] = {
+	set<unsigned> check_queue;
+	int layer_num = (int) lg.size();
+	int dxy[4][2] = {
 			{ -1, 0 },
 			{ 0, 1 },
 			{ 1, 0 },
 			{ 0, -1 }
 	};
+	CV_Assert(layer_num % 2 == 1);
 
-	for (int i = 0; i < 64; i++)
-		if (fit_mask & 1ULL << i)
-			n010.push_back(1ULL << i);
+#define DECODE_GI(t, l, gi)  do { gi = (t) & 0xffffff; l = ((t) >> 24 & 0xff); } while(0)
+#define ENCODE_GI(t, p, l, gi) t = (unsigned long long) (p) << 32 |  (unsigned long long) (l) << 24 | (gi)
 
-#define DECODE_XYB(t, g, x, y, b)  do { \
-			g = t & 0xffffffff; \
-			x = grid_infos[g].x; \
-			y = grid_infos[g].y; \
-			b = (t >> 32) & 0xff; \
-			} while(0)
-
-#define ENCODE_PXYB(t, p, xy, b) do { \
-			t = p << 8 | b; \
-			t = t << 32 | xy; \
-			} while(0)
-
-#define CHECK_ONLY1(n, only1) do { \
-			only1=false; \
-			for (int i=0; i < n010.size(); i++) \
-				if (n == n010[i]) \
-					only1=true; \
-			} while(0)
-
-#define XY2GI(x, y) ((y-1) * ((int) abm[0].size() - 2) + x-1)
-
-#define BRICK_PREFER(gi) grid_infos[gi].brick_order[grid_infos[gi].po].second
-
-#define ENQUEUE2(gi, queue) do { \
+#define ENQUEUE2(l, gi, queue) do { \
 			unsigned long long t; \
-			ENCODE_PXYB(t, grid_infos[gi].brick_order[grid_infos[gi].po].first, gi, BRICK_PREFER(gi)); \
+			ENCODE_GI(t, lg[l].grid_infos[gi].brick_order[lg[l].grid_infos[gi].po].first, l, gi); \
 			bool success = queue.insert(t).second; \
 			CV_Assert(success); \
-			} while (0)
+					} while (0)
 
-#define DEQUEUE2(gi, queue) do { \
+#define ENQUEUE(l, gi) do { \
+		if (lg[l].grid_infos[gi].which_queue==0) \
+			ENQUEUE2(l, gi, low_queue); \
+						else if (lg[l].grid_infos[gi].which_queue==1) \
+			ENQUEUE2(l, gi, high_queue); \
+					} while (0)
+
+#define DEQUEUE2(l, gi, queue) do { \
 			unsigned long long t; \
-			ENCODE_PXYB(t, grid_infos[gi].brick_order[grid_infos[gi].po].first, gi, BRICK_PREFER(gi)); \
+			ENCODE_GI(t, lg[l].grid_infos[gi].brick_order[lg[l].grid_infos[gi].po].first, l, gi); \
 			int success = (int) queue.erase(t); \
 			CV_Assert(success==1); \
-			} while (0)
+					} while (0)
 
-#define DEQUEUE(gi) do { \
-		if (grid_infos[gi].in_low_queue==0) \
-			DEQUEUE2(gi, low_queue); \
-				else if (grid_infos[gi].in_low_queue==1) \
-			DEQUEUE2(gi, high_queue); \
-		} while (0)
+#define DEQUEUE(l, gi) do { \
+		if (lg[l].grid_infos[gi].which_queue==0) \
+			DEQUEUE2(l, gi, low_queue); \
+						else if (lg[l].grid_infos[gi].which_queue==1) \
+			DEQUEUE2(l, gi, high_queue); \
+				} while (0)
 
-#define ENQUEUE(gi) do { \
-		if (grid_infos[gi].in_low_queue==0) \
-			ENQUEUE2(gi, low_queue); \
-				else if (grid_infos[gi].in_low_queue==1) \
-			ENQUEUE2(gi, high_queue); \
-			} while (0)
-
-	for (unsigned i = 0; i < grid_infos.size(); i++) {
-		grid_infos[i].brick_choose = BRICK_INVALID;
-		grid_infos[i].po = 0;
-		grid_infos[i].in_low_queue = 0;
-		ENQUEUE(i);
-	}
-
-	bool only1_choice;
+	for (int l = 0; l < layer_num; l++)
+		for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++) {
+			lg[l].grid_infos[gi].brick_choose = BRICK_INVALID;
+			for (int j = 0; j < lg[l].grid_infos[gi].brick_order.size(); j++)
+				if (lg[l].grid_infos[gi].abm & 1 << lg[l].grid_infos[gi].brick_order[j].second) {
+					lg[l].grid_infos[gi].po = j;
+					break;
+				}
+			lg[l].grid_infos[gi].which_queue = 0;
+			ENQUEUE(l, gi);
+		}
 	double lost_score = 0;
 	int drop_num = 0;
 	while (!high_queue.empty() || !low_queue.empty()) {
-		//First pick high queue brick, Then pick low queue
 		set<unsigned long long, greater<unsigned long long>> &queue = high_queue.empty() ? low_queue : high_queue;
-		int gi, x, y, b;
+		int gi, layer;
 		unsigned long long t = *(queue.begin());
 		queue.erase(queue.begin());
-		DECODE_XYB(t, gi, x, y, b);
-		CV_Assert(BRICK_PREFER(gi) == b && XY2GI(x, y) == gi);
-		grid_infos[gi].brick_choose = b;
-#if 1
-		continue;
-#endif
-		lost_score += grid_infos[gi].brick_order[0].first - grid_infos[gi].brick_order[b].first;
-		for (int dir = 0; dir <= 3; dir++) {
-			int y1 = y + dxy[dir][0];
-			int x1 = x + dxy[dir][1];
-			int gi1 = XY2GI(x1, y1);
-			if (y1 > 0 && y1 < abm.size() - 1 && x1>0 && x1 < abm[0].size() - 1 && grid_infos[gi1].in_low_queue < 2) {
-                abm[y1][x1] &= bbfm[b][dir];
-				if (!(abm[y1][x1] & 1 << BRICK_PREFER(gi1))) { //Neighbour prefer not fit, Need to rechoose prefer and reenqueue
-					CV_Assert(grid_infos[gi1].brick_choose == BRICK_INVALID);
-					DEQUEUE(gi1);
-					grid_infos[gi1].po = BRICK_INVALID;
-					for (int i = 0; i < grid_infos[gi1].brick_order.size(); i++)
-						if (abm[y1][x1] & 1 << grid_infos[gi1].brick_order[i].second) {
-						grid_infos[gi1].po = i;
-						break;
-						}
-					CHECK_ONLY1(abm[y1][x1], only1_choice);
-					grid_infos[gi1].in_low_queue = (only1_choice) ? 1 : 0;
-					if (grid_infos[gi1].po == BRICK_INVALID) {
-						grid_infos[gi1].in_low_queue = 2;
+		DECODE_GI(t, layer, gi);
+		CV_Assert(t >> 32 == lg[layer].grid_infos[gi].brick_order[lg[layer].grid_infos[gi].po].first);
+		BRICK_CHOOSE(layer, gi) = BRICK_PREFER(layer, gi);
+		if (ignore_all_rule)
+			continue;
+		check_queue.clear();
+		int x = lg[layer].grid_infos[gi].x;
+		int y = lg[layer].grid_infos[gi].y;
+		const int b = BRICK_CHOOSE(layer, gi);
+		lost_score += lg[layer].grid_infos[gi].brick_order[0].first - 
+			lg[layer].grid_infos[gi].brick_order[lg[layer].grid_infos[gi].po].first;
+
+#define UPDATE_ABM(l, gi, mask) do { \
+			unsigned long long old_abm = ABM(l, gi); \
+			unsigned long long new_abm = old_abm & (mask); \
+			if (old_abm != new_abm) { \
+				ABM(l, gi) = new_abm; \
+				if (BRICK_CHOOSE((l), gi) == BRICK_INVALID) \
+				check_queue.insert((l)<<24 | (gi)); \
+						} \
+						} while(0)
+
+#define ANTI_CHECK_VIA(l, vbv, v0, m, v1, gv1) do {\
+			if ((m)!=0) {\
+				if ((vbv[v0][v1] & (m)) ==0) \
+					UPDATE_ABM(l, gv1, 3 - (1<<v1)); \
+			}\
+				} while(0)
+
+		if (layer % 2 ==0) { //is via layer
+			if (layer > 0) {
+				CV_Assert(lg[layer - 1].grid_infos[gi].x == x && lg[layer - 1].grid_infos[gi].y == y);
+				CV_Assert(lg[layer - 2].grid_infos[gi].x == x && lg[layer - 2].grid_infos[gi].y == y);
+				if (BRICK_CHOOSE(layer - 2, gi) != BRICK_INVALID) {//via existing is decided
+					UPDATE_ABM(layer - 1, gi, lbrm[layer - 1].vwvfm[b][BRICK_CHOOSE(layer - 2, gi)]);
+				}
+				else { //via existing is not decided						
+					for (int v = 0; v < 2; v++)
+						ANTI_CHECK_VIA(layer - 2, lbrm[layer - 1].vwvfm, b, ABM(layer - 1, gi), v, gi);
+				}
+			}
+			if (layer + 1 < layer_num) {
+				CV_Assert(lg[layer + 1].grid_infos[gi].x == x && lg[layer + 1].grid_infos[gi].y == y);
+				CV_Assert(lg[layer + 2].grid_infos[gi].x == x && lg[layer + 2].grid_infos[gi].y == y);
+				if (BRICK_CHOOSE(layer + 2, gi) != BRICK_INVALID) //via existing is decided
+					UPDATE_ABM(layer + 1, gi, lbrm[layer + 1].vwvfm[b][BRICK_CHOOSE(layer + 2, gi)]);
+				else { //via existing is not decided					
+					for (int v = 0; v < 2; v++)
+						ANTI_CHECK_VIA(layer + 2, lbrm[layer + 1].vwvfm, b, ABM(layer + 1, gi), v, gi);
+				}
+			}
+		}
+		else {//is wire layer
+			if (BRICK_CHOOSE(layer + 1, gi) != BRICK_INVALID &&  //via[layer+1] existing is decided
+				BRICK_CHOOSE(layer - 1, gi) == BRICK_INVALID)  //via[layer-1] existing is not decided
+				for (int v = 0; v < 2; v++)
+					ANTI_CHECK_VIA(layer - 1, lbrm[layer].vwvfm, BRICK_CHOOSE(layer + 1, gi), 1ULL << b, v, gi);
+			if (BRICK_CHOOSE(layer - 1, gi) != BRICK_INVALID &&  //via[layer-1] existing is decided
+				BRICK_CHOOSE(layer + 1, gi) == BRICK_INVALID)  //via[layer+1] existing is not decided
+				for (int v = 0; v < 2; v++)
+					ANTI_CHECK_VIA(layer + 1, lbrm[layer].vwvfm, BRICK_CHOOSE(layer - 1, gi), 1ULL << b, v, gi);
+
+			for (int dir = 0; dir <= 3; dir++) {
+				int y1 = y + dxy[dir][0];
+				int x1 = x + dxy[dir][1];
+				int gi1 = gi + lg[layer].grid_cols * dxy[dir][0] + dxy[dir][1];
+				if (y1 > 0 && y1 < lg[layer].grid_rows && x1 > 0 && x1 < lg[layer].grid_cols && ABM(layer, gi1)!=0) {
+					CV_Assert(lg[layer].grid_infos[gi1].x == x1 && lg[layer].grid_infos[gi1].y == y1);
+					UPDATE_ABM(layer, gi1, lbrm[layer].wwfm[b][dir]);
+					if (BRICK_CHOOSE(layer + 1, gi1) != BRICK_INVALID &&  //via[layer+1] existing is decided
+						BRICK_CHOOSE(layer - 1, gi1) == BRICK_INVALID)  //via[layer-1] existing is not decided
+						for (int v = 0; v < 2; v++)
+							ANTI_CHECK_VIA(layer - 1, lbrm[layer].vwvfm, BRICK_CHOOSE(layer + 1, gi1), 
+								ABM(layer, gi1), v, gi1);
+					if (BRICK_CHOOSE(layer - 1, gi1) != BRICK_INVALID &&  //via[layer-1] existing is decided
+						BRICK_CHOOSE(layer + 1, gi1) == BRICK_INVALID)  //via[layer+1] existing is not decided
+						for (int v = 0; v < 2; v++)
+							ANTI_CHECK_VIA(layer + 1, lbrm[layer].vwvfm, BRICK_CHOOSE(layer - 1, gi1),
+								ABM(layer, gi1), v, gi1);
+				}
+			}
+			for (set<unsigned>::iterator iter = check_queue.begin(); iter != check_queue.end(); iter++) {
+				unsigned li = *iter;
+				unsigned gi = li & 0xffffff;
+				int layer = li >> 24;
+				if (!(ABM(layer,gi) & 1 << BRICK_PREFER(layer, gi))) {//Need to rechoose prefer and reenqueue
+					CV_Assert(BRICK_CHOOSE(layer, gi) == BRICK_INVALID);
+					DEQUEUE(layer, gi);
+					if (ABM(layer, gi) == 0) {
+						lg[layer].grid_infos[gi].which_queue = 2;
 						drop_num++;
-					}						
-					ENQUEUE(gi1);
+					}
+					else {
+						int can_choose = 0;
+						for (int i = 0; i < lg[layer].grid_infos[gi].brick_order.size(); i++)
+							if (ABM(layer, gi) & 1 << lg[layer].grid_infos[gi].brick_order[i].second) {
+								can_choose++;
+								if (can_choose == 1)
+									lg[layer].grid_infos[gi].po = i;
+								else
+									break;
+							}
+						CV_Assert(can_choose);
+						lg[layer].grid_infos[gi].which_queue = (can_choose == 1) ? 1 : 0;
+						ENQUEUE(layer, gi);
+					}
 				}
 			}
 		}
 	}
 
 	qDebug("drop %d grid, lost score=%f.", drop_num, lost_score / 0xF00000);
-
-#undef ENCODE_PXYB
-#undef DECODE_XYB
-#undef CHECK_ONLY1
-#undef XY2GI
+#undef DECODE_GI
+#undef ENCODE_GI
+#undef ENQUEUE2
+#undef ENQUEUE
+#undef DEQUEUE2
+#undef DEQUEUE
 }
 
 /*
-In: prob brick prob for each grid, 3 - dim Mat (gl_y.size() * gl_x.size() * Brick_NUM)
-	more near to 1 means bigger probability for the brick,
-	more near to 0 means less probability for the brick.
-In: fit_mask available brick mask
-In: bfm, neighbour brick fit mask
-In: gl_x, gl_y, used for mark debug
-Out: conet
-Out: mark, used for debug
+In: prob (2*img_layer-1), brick prob for each grid, 
+    0,2,4 for via; prob is 2 - dim Mat (gl_y.size() * gl_x.size()
+		more near to 1 means bigger probability for via
+	1,3,5 for wire, prob is 3 - dim Mat (gl_y.size() * gl_x.size() * Brick_NUM)
+		more near to 1 means bigger probability for the brick,
+		more near to 0 means less probability for the brick.
+In: lpm (img_layer), use lpm.param3 for via vs wire cred compute
+In: lbrm, (2*img_layer-1), it represents rules for neighbor wire & wire, via & wire & via
+Inout: abm, (2*img_layer-1), availabe brick mask, each layer is 2-dim Mat (gl_y.size()-2) * (gl_x.size()-2)
+Out: conets, (2*img_layer-1) brick shape
 */
-void assemble_grid(const Mat & prob, unsigned long long fit_mask, unsigned long long bbfm[][4],
-	vector<int> & gl_x, vector<int> & gl_y, Mat & conet, Mat & mark)
+static void assemble_grid_multilayer(const vector<Mat> & prob, vector<LayerData> lpm, vector<LayerBrickRuleMask> & lbrm,
+	vector<Mat> & abm, vector<Mat> & conets, int ignore_all_rule = 1)
 {
-	vector<GridInfo> grid_infos; 
-	vector<unsigned long long> n010;
-	vector< vector<int> > abm; //available brick mask
+	CV_Assert(prob.size() % 2 == 1 && prob.size() == abm.size() && prob.size()==lbrm.size());
+	CV_Assert((prob.size() + 1) / 2 == lpm.size());
+	for (int i = 0; i < prob.size(); i++) {
+		CV_Assert(prob[i].size[0] == lpm[(i + 1) / 2].gl_y.size() && prob[i].size[1] == lpm[(i + 1) / 2].gl_x.size());
+		CV_Assert(prob[i].size[0] == abm[i].rows + 2 && prob[i].size[1] == abm[i].cols + 2 && abm[i].type() == CV_64FC1);
+	}
 
-	post_process_grid_prob(prob, gl_x, gl_y, grid_infos, mark);
-
-	abm.resize(prob.size[0]);
-	for (int i = 0; i < abm.size(); i++)
-		abm[i].assign(prob.size[1], fit_mask);
-
-	coarse_assemble(fit_mask, bbfm, abm, grid_infos);
-
-	conet.create(prob.size[0], prob.size[1], CV_32SC1);
-	conet = 0;
-	for (int i = 0; i < grid_infos.size(); i++)
-		if (grid_infos[i].brick_choose != BRICK_INVALID) {
-			CV_Assert(fit_mask & 1ULL << grid_infos[i].brick_choose);
-			conet.at<int>(grid_infos[i].y, grid_infos[i].x) = bricks[grid_infos[i].brick_choose].shape;
+	vector<LayerGridInfo> lg(prob.size());
+	
+	for (int i = 0; i < prob.size(); i++) {
+		lg[i].grid_rows = abm[i].rows;
+		lg[i].grid_cols = abm[i].cols;
+		if (i % 2 == 0) 
+			post_process_via_prob(prob[i], lpm[(i + 1) / 2].param3, lpm[(i + 1) / 2].gl_x, lpm[(i + 1) / 2].gl_y,
+				lg[i].grid_infos, lpm[(i + 1) / 2].mark1); //0, 2, 4 for via
+		else
+			post_process_grid_prob(prob[i], lpm[(i + 1) / 2].gl_x, lpm[(i + 1) / 2].gl_y,
+				lg[i].grid_infos, lpm[(i + 1) / 2].mark1); //1,3, 5 for wire			
+	}
+	
+	for (int i = 0; i < prob.size(); i++) {
+		int gi = 0;
+		CV_Assert(lg[i].grid_infos.size() == abm[i].rows * abm[i].cols);
+		for (int y = 0; y < abm[i].rows; y++) {
+			unsigned long long * p_abm = abm[i].ptr<unsigned long long>(y);
+			for (int x = 0; x < abm[i].cols; x++, gi++)
+				ABM(i, gi) = p_abm[x];
 		}
-		
+	}
+	coarse_assemble_multilayer(lbrm, lg, ignore_all_rule);
+
+	conets.clear();
+	for (int i = 0; i < prob.size(); i++) {
+		int gi = 0;
+		Mat conet(abm[i].rows, abm[i].cols, CV_8UC1);
+		for (int y = 0; y < abm[i].rows; y++) {
+			unsigned long long * p_abm = abm[i].ptr<unsigned long long>(y);
+			unsigned char * p_con = conet.ptr<unsigned char>(y);
+			for (int x = 0; x < abm[i].cols; x++, gi++) {
+				CV_Assert(lg[i].grid_infos[gi].y == y + 1 && lg[i].grid_infos[gi].x == x + 1);
+				p_con[x] = (i % 2 == 0) ? BRICK_CHOOSE(i, gi) : bricks[BRICK_CHOOSE(i, gi)].shape;
+				p_abm[x] = ABM(i,gi);
+			}				
+		}
+		conets.push_back(conet);
+	}
 }
 
 /*
@@ -1258,50 +1514,87 @@ in: gl_x, grid line x
 in: gl_y, grid line y
 out: obj_sets
 */
-void grid2_wire_obj(const Mat & conet, const vector<int> & gl_x, const vector<int> & gl_y, vector<MarkObj> & obj_sets)
+void grid2_wire_obj(const Mat & conet, int layer, const vector<int> & gl_x, const vector<int> & gl_y, vector<MarkObj> & obj_sets)
 {
-	CV_Assert(conet.rows == gl_y.size() && conet.cols == gl_x.size() && conet.type()==CV_32SC1);
+	CV_Assert(conet.rows + 2 == gl_y.size() && conet.cols + 2 == gl_x.size() && conet.type()==CV_8UC1);
 	MarkObj wire;
 	wire.type = OBJ_LINE;
-	wire.type2 = 0;
+	wire.type2 = LINE_WIRE_AUTO_EXTRACT;
+	wire.type3 = layer;
 	wire.state = 0;
 
 	for (int y = 0; y < conet.rows; y++) {
 		int state = 0;
-		wire.p0.setY(gl_y[y]);
-		wire.p1.setY(gl_y[y]);
-		const int * p_conet = conet.ptr<int>(y);
+		wire.p0.setY(gl_y[y + 1]);
+		wire.p1.setY(gl_y[y + 1]);
+		const unsigned char * p_conet = conet.ptr<unsigned char>(y);
 		for (int x = 0; x < conet.cols; x++) 
 			if (p_conet[x] & DIR_RIGHT_MASK) {
-				if (state == 0) 
-					wire.p0.setX(gl_x[x]);
+				if (state == 0)
+					wire.p0.setX(gl_x[x + 1]);
 				state = 1;
 			}
 			else {
 				if (state == 1) {
-					wire.p1.setX(gl_x[x]);
+					wire.p1.setX(gl_x[x + 1]);
 					obj_sets.push_back(wire);
 				}
 				state = 0;
 			}		
+		if (state == 1) {
+			wire.p1.setX(gl_x[conet.cols]);
+			obj_sets.push_back(wire);
+		}
 	}
 	for (int x = 0; x < conet.cols; x++) {
 		int state = 0;
-		wire.p0.setX(gl_x[x]);
-		wire.p1.setX(gl_x[x]);
+		wire.p0.setX(gl_x[x + 1]);
+		wire.p1.setX(gl_x[x + 1]);
 		for (int y = 0; y < conet.rows; y++)
-			if (conet.at<int>(y, x) & DIR_DOWN_MASK) {
+			if (conet.at<unsigned char>(y, x) & DIR_DOWN_MASK) {
 				if (state == 0)
-					wire.p0.setY(gl_y[y]);
+					wire.p0.setY(gl_y[y + 1]);
 				state = 1;
 			}
 			else {
 				if (state == 1) {
-					wire.p1.setY(gl_y[y]);
+					wire.p1.setY(gl_y[y + 1]);
 					obj_sets.push_back(wire);
 				}
 				state = 0;
 			}
+		if (state == 1) {
+			wire.p1.setY(gl_y[conet.rows]);
+			obj_sets.push_back(wire);
+		}
+	}
+}
+
+
+/*
+in: connet, each grid metal connection, up 1, right 2, down 4, left 8
+in: gl_x, grid line x
+in: gl_y, grid line y
+out: obj_sets
+*/
+void grid2_via_obj(const Mat & conet, int layer, const vector<int> & gl_x, const vector<int> & gl_y, vector<MarkObj> & obj_sets)
+{
+	CV_Assert(conet.rows + 2 == gl_y.size() && conet.cols + 2 == gl_x.size() && conet.type() == CV_8UC1);
+	MarkObj via;
+	via.type = OBJ_POINT;
+	via.type2 = POINT_VIA_AUTO_EXTRACT;
+	via.type3 = layer;
+	via.state = 0;	
+
+	for (int y = 0; y < conet.rows; y++) {
+		const unsigned char * p_conet = conet.ptr<unsigned char>(y);
+		for (int x = 0; x < conet.cols; x++) {
+			if (p_conet[x]) {
+				via.p0 = QPoint(gl_x[x + 1], gl_y[y + 1]);
+				via.p1 = via.p0;
+				obj_sets.push_back(via);
+			}
+		}
 	}
 }
 
@@ -1310,7 +1603,7 @@ VWExtract::VWExtract()
 	
 }
 
-unsigned long long VWExtractStat::config_fit_mask(unsigned long long rule)
+unsigned long long config_fit_mask(unsigned long long rule, unsigned long long bbfm[][4], unsigned long long vbvfm[][2])
 {
 	unsigned long long fit_mask = 0;
 	bool del_xia = false, del_cao = false, del_bian = false, del_qi = false;
@@ -1488,8 +1781,6 @@ unsigned long long VWExtractStat::config_fit_mask(unsigned long long rule)
 	if (rule & RULE_NO_XX_CONN && !(rule & RULE_NO_X_POINT)) {
 		DISABLE_BRICK_CONN(BRICK_X_0, BRICK_X_0, DIR_UP);
 		DISABLE_BRICK_CONN(BRICK_X_0, BRICK_X_0, DIR_RIGHT);
-		DISABLE_BRICK_CONN(BRICK_X_0, BRICK_X_0, DIR_DOWN);
-		DISABLE_BRICK_CONN(BRICK_X_0, BRICK_X_0, DIR_LEFT);
 	}
 
 	for (unsigned i = 0; i < sizeof(bricks) / sizeof(bricks[0]); i++)		
@@ -1514,75 +1805,108 @@ unsigned long long VWExtractStat::config_fit_mask(unsigned long long rule)
 #undef DISABLE_BRICK_CONN	
 }
 
-int VWExtractStat::extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets)
+int VWExtractStat::extract(string file_name, QRect , std::vector<MarkObj> & obj_sets)
 {
-	Mat img = imread(file_name, 0);
-	CV_Assert(img.type() == CV_8UC1);
-	//feature extract
-	mark.create(img.rows, img.cols, CV_8UC1);
-	mark1.create(img.rows, img.cols, CV_8UC1);
-	mark2.create(img.rows, img.cols, CV_8UC1);
-	mark3.create(img.rows, img.cols, CV_8UC1);
-	mark = M_UNKNOW;
-	mark1 = 0;
-	mark2 = 0;
-	mark3 = 0;
+	vector<Mat> prob(lpm.size() * 2 - 1);
+	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2-1);
 
-	unsigned long long fit_mask = config_fit_mask(rule);
-
-	//find grid base line
-	Mat ig, via_prob;
-	vector<int> gl_x, gl_y;
-	integral(img, ig, CV_32S);
-	int up_down = find_via_grid_line(img, ig, wire_wd, grid_wd, via_rd, param1, via_prob, gl_x, gl_y);
-
-#if 1
-	vector<QPoint> vias;
-	for (int y = 0; y < via_prob.rows; y++)
-		for (int x = 0; x < via_prob.cols; x++)
-			if (via_prob.at<float>(y, x)>0.6f)
-				vias.push_back(QPoint(gl_x[x], gl_y[y]));
-#endif
-	//remove via	
-	MarkObj via;
-	via.type = OBJ_POINT;
-	via.type2 = POINT_NORMAL_VIA0;
-	via.state = 0;
-	
-	for (int i = 0; i < vias.size(); i++) {
-		via.p0 = vias[i];
-		via.p1 = vias[i];
-		obj_sets.push_back(via);
-		fill_circle(mark, vias[i].x(), vias[i].y(), via_rd + 2, M_V, QRect(0, 0, img.cols, img.rows));
+	unsigned char ll = file_name[file_name.size() - 5];
+	for (int l = 0; l < lpm.size(); l++) {
+		file_name[file_name.size() - 5] = ll++;
+		lpm[l].img = imread(file_name, 0);
+		CV_Assert(lpm[l].img.type() == CV_8UC1 && !lpm[l].img.empty());		
 	}
-	remove_via(mark, img, up_down, grid_wd - wire_wd);
-	imwrite("C:/chenyu/work/ChipPintu/images/remove_via.jpg", img);
-	//compute grid prob
-	Mat grid_prob, conet;
-	integral(img, ig, CV_32S);
-	compute_grid_prob(img, ig, wire_wd, grid_wd, param2, gl_x, gl_y, fit_mask, grid_prob, mark3);
-	
-	//transfer grid prob to wire
-	assemble_grid(grid_prob, fit_mask, bbfm, gl_x, gl_y, conet, mark2);
-	grid2_wire_obj(conet, gl_x, gl_y, obj_sets);
+
+	//compute base gl_x and gl_y
+#if 1
+	{
+		Mat ig;
+		integral(lpm[0].img, ig, CV_32S);
+		int ud0 = find_via_grid_line(lpm[0].img, ig, lpm[0], FindViaGridLineReq(0, 0, false, false, false, false), Mat());
+		integral(lpm[1].img, ig, CV_32S);
+		int ud1 = find_via_grid_line(lpm[1].img, ig, lpm[1], FindViaGridLineReq(0, 0, false, false, false, false), Mat());
+		CV_Assert(ud0 != ud1);
+		for (int l = 0; l < lpm.size(); l++) {
+			if (l != 0)
+				if (ud0 == 0)
+					lpm[l].gl_x = lpm[0].gl_x;
+				else
+					lpm[l].gl_y = lpm[0].gl_y;
+			if (l != 1)
+				if (ud1 == 0)
+					lpm[l].gl_x = lpm[1].gl_x;
+				else
+					lpm[l].gl_y = lpm[1].gl_y;
+		}
+	}
+#endif
+	for (int l = 0; l < lpm.size(); l++) {
+		lpm[l].mark.create(lpm[l].img.rows, lpm[l].img.cols, CV_8UC1);
+		lpm[l].mark1.create(lpm[l].img.rows, lpm[l].img.cols, CV_8UC1);
+		lpm[l].mark2.create(lpm[l].img.rows, lpm[l].img.cols, CV_8UC1);
+		lpm[l].mark3.create(lpm[l].img.rows, lpm[l].img.cols, CV_8UC1);
+		lpm[l].mark = M_UNKNOW;
+		lpm[l].mark1 = 0;
+		lpm[l].mark2 = 0;
+		lpm[l].mark3 = 0;
+
+		//compute lbrm based on rule
+		int lbrm_idx = (l == 0) ? 0 : 2 * l - 1;
+		lbrm[lbrm_idx].fit_mask = config_fit_mask(lpm[l].rule, lbrm[lbrm_idx].wwfm, lbrm[lbrm_idx].vwvfm);
+		lbrm[lbrm_idx + 1].fit_mask = 3; //for via
+
+		//find grid base line
+		Mat ig;
+		integral(lpm[l].img, ig, CV_32S);
+		int up_down = find_via_grid_line(lpm[l].img, ig, lpm[l], FindViaGridLineReq(3, 3, true, true, true, true),
+			prob[2 * l]);
+
+		if (l == 0)
+			continue;
+
+		//remove via
+#if 1
+		vector<QPoint> vias;
+		for (int y = 0; y < prob[2 * l].rows; y++)
+			for (int x = 0; x < prob[2 * l].cols; x++)
+				if (prob[2 * l].at<float>(y, x)>0.6f)
+					vias.push_back(QPoint(lpm[l].gl_x[x], lpm[l].gl_y[y]));
+#endif
+		for (int i = 0; i < vias.size(); i++)
+			fill_circle(lpm[l].mark, vias[i].x(), vias[i].y(), lpm[l].via_rd + 2, M_V, QRect(0, 0, lpm[l].img.cols, lpm[l].img.rows));
+		remove_via(lpm[l].mark, lpm[l].img, up_down, lpm[l].grid_wd - lpm[l].wire_wd);
+		string rmvia_file = "C:/chenyu/work/ChipPintu/images/remove_via_M";
+		rmvia_file += l;
+		rmvia_file += ".jpg";
+		imwrite(rmvia_file, lpm[l].img);
+
+		//compute grid prob
+		integral(lpm[l].img, ig, CV_32S);
+		compute_grid_prob(lpm[l].img, ig, lpm[l].wire_wd, lpm[l].grid_wd, lpm[l].param2, lpm[l].gl_x,
+			lpm[l].gl_y, lbrm[lbrm_idx].fit_mask, prob[2 * l - 1], lpm[l].mark1);
+	}
+
+	//init abm and then assemble grid based on prob
+	vector<Mat> abm(lbrm.size());
+	for (int i = 0; i < abm.size(); i++) {
+		abm[i].create((int)lpm[(i + 1) / 2].gl_y.size() - 2, (int)lpm[(i + 1) / 2].gl_x.size() - 2, CV_64F);
+		for (int y = 0; y < abm[i].rows; y++) {
+			unsigned long long * p_abm = abm[i].ptr<unsigned long long>(y);
+			for (int x = 0; x < abm[i].cols; x++)
+				p_abm[x] = lbrm[i].fit_mask;
+		}
+	}
 		
+	vector<Mat> conet;
+	assemble_grid_multilayer(prob, lpm, lbrm, abm, conet, 0);
+
+	//transfer grid prob to wire	
+	obj_sets.clear();
+	for (int i = 0; i < lpm.size(); i++) {
+		if (i>0)
+			grid2_wire_obj(conet[i * 2 - 1], i, lpm[i].gl_x, lpm[i].gl_y, obj_sets);
+		grid2_via_obj(conet[i * 2], i, lpm[i].gl_x, lpm[i].gl_y, obj_sets);
+	}	
 	return 0;
 }
 
-void VWExtractStat::get_feature(int x, int y, vector<float> & feature)
-{
-	if (img.empty() || y<20 || y>img.rows - 20 || x<20 || x>img.cols - 20) {
-		feature.clear();
-		return;
-	}
-
-	Vec<float, 5> feature_vec;
-	vector<int> xlimit;
-	for (int yy = -via_rd; yy <= via_rd; yy++)
-		xlimit.push_back((int)sqrt((float)via_rd*via_rd - yy *yy));
-	feature_vec = feature_extract_5(img.ptr<unsigned char>(y) +x, (int)img.step[0],
-		wire_wd + 2, wire_wd - 2, via_rd, xlimit);
-	feature.resize(5);
-	for (int i = 0; i < 5; i++)
-		feature[i] = feature_vec[i];
-}

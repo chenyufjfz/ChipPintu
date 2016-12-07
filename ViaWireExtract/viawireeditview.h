@@ -8,14 +8,25 @@
 #include "vwextract.h"
 #include "cellextract.h"
 
+struct LayerParam {
+	int wire_wd; //wire width
+	int via_rd; //via radius
+	int grid_wd; //grid width	
+	float param1; //via th, close to 1, higher threshold
+	float param2; //wire th, close to 1, higher threshold
+	float param3; //via_cred vs wire_cred, if via_cred> wire_cred, beta>1; else <1
+	unsigned long long rule; //rule affect bbfm
+};
+
 class ViaWireEditView : public QWidget
 {
     Q_OBJECT
 public:
     explicit ViaWireEditView(QWidget *parent = 0);
     double grid_high, grid_width, offset_y, offset_x;
-    int mark_state, mark_type2;
-    int wire_width, via_radius, insu_gap, grid_size;
+	int mark_state, mark_type2, layer;
+	unsigned mark_mask, show_debug_en;
+	vector<LayerParam> lpm;
 
 signals:
 	void mouse_change(QPoint pos, QString msg);
@@ -26,28 +37,24 @@ public:
     void set_offset(double oy, double ox);
     void set_mark(int ms, int type2);
     void save_objects(QString file_path);
-    void load_objects(QString file_path);
-	static bool load_objects(QString file_path, std::vector <MarkObj> & obj_set, int & wire_width, int & via_radius);
+    bool load_objects(QString file_path);
 	void erase_all_objects();
-    void start_train(int train_what, int _feature, int _iter_num, float _param1,float _param2, float _param3);
+    void start_cell_train(int , int , int , float _param1,float _param2, float _param3);
     void extract();
-	void set_mark(unsigned mark_mask);
-	void show_edge(bool show);
-    void set_para(int _wire_width, int _via_radius, int _insu_gap, int _grid_size) {
-        wire_width = _wire_width;
-        via_radius = _via_radius;
-        insu_gap = _insu_gap;
-        grid_size = _grid_size;
-    }
+	void show_mark(unsigned _mark_mask);
+	void show_debug(bool _show_debug_en);
+	void set_wire_para(int _layer, int _wire_width, int _via_radius, int _grid_size, int _rule, 
+		float _param1, float _param2, float _param3);
 
     void set_scale(int _scale);
     int get_scale();
 
 protected:
-    std::vector <MarkObj> obj_set;
-	std::string img_name;
-	std::vector<unsigned int> mark_color;
-	QImage bk_img, bk_img_mask;
+    vector <MarkObj> obj_set;
+	string img_name;
+	vector<unsigned int> mark_color;
+	vector<QImage> bk_img;
+	QImage bk_img_mask;
     bool mouse_press;
 	QPoint mp_point;
     int select_idx, scale;

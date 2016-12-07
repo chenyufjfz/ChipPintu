@@ -62,6 +62,12 @@ void MainWindow::on_actionLoad_Image_triggered()
                         "Images (*.png *.xpm *.jpg)");
 
 	vw_view->load_bk_image(image_file_name);
+	vw_view->set_wire_para(0, 10, 9, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA,
+		0.5, 0.5, 2);
+	vw_view->set_wire_para(1, 12, 10, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA,
+		0.5, 0.5, 2);
+	vw_view->set_wire_para(2, 12, 10, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA,
+		0.5, 0.5, 1);
 }
 
 void MainWindow::on_actionGenerate_Grid_triggered()
@@ -72,14 +78,7 @@ void MainWindow::on_actionGenerate_Grid_triggered()
 		vw_view->set_grid_size(grid_cfg_dlg.grid_high, grid_cfg_dlg.grid_width);
 		vw_view->set_offset(grid_cfg_dlg.offset_y, grid_cfg_dlg.offset_x);
     }
-    /*while (grid_cfg_dlg.grid_high==0 || grid_cfg_dlg.grid_width==0) {
-        int ret = QMessageBox::warning(this, "Warning", "Invalid Grid high or Grid width, reconfig?",
-                             QMessageBox::Ok, QMessageBox::Cancel);
-        if (ret==QMessageBox::Ok)
-            grid_cfg_dlg.exec();
-        else
-            break;
-    }*/
+
 }
 
 void MainWindow::on_actionMark_Insulator_triggered()
@@ -148,14 +147,19 @@ void MainWindow::on_actionStart_Train_triggered()
         train_param.param2 = train_dlg.param2;
         train_param.param3 = train_dlg.param3;
 		train_param.train_what = train_dlg.train_what;
-		vw_view->start_train(train_param.train_what, train_param.feature, train_param.iter_num,
+		vw_view->start_cell_train(0, 0, 0,
                              train_param.param1, train_param.param2, train_param.param3);
     }
 }
 
 void MainWindow::on_actionShow_Wire_triggered(bool checked)
 {
-	vw_view->show_edge(checked);
+	if (checked)
+		vw_view_mask |= (1 << M_W);
+	else
+		vw_view_mask &= ~(1 << M_W);
+	vw_view->show_mark(vw_view_mask);
+	
 }
 
 void MainWindow::on_actionShow_Via_triggered(bool checked)
@@ -164,16 +168,12 @@ void MainWindow::on_actionShow_Via_triggered(bool checked)
         vw_view_mask |= (1<<M_V);
     else
         vw_view_mask &= ~(1<<M_V);
-    vw_view->set_mark(vw_view_mask);
+    vw_view->show_mark(vw_view_mask);
 }
 
 void MainWindow::on_actionShow_Wire_Edge_triggered(bool checked)
 {
-    if (checked)
-        vw_view_mask |= (1<<M_W);
-    else
-        vw_view_mask &= ~(1<<M_W);
-    vw_view->set_mark(vw_view_mask);
+	vw_view->show_debug(checked);
 }
 
 void MainWindow::on_actionShow_Via_Edge_triggered(bool checked)
@@ -182,7 +182,7 @@ void MainWindow::on_actionShow_Via_Edge_triggered(bool checked)
         vw_view_mask |= (1<<M_V_I) | (1<<M_W_V);
     else
         vw_view_mask &= ~((1<<M_V_I) | (1<<M_W_V));
-    vw_view->set_mark(vw_view_mask);
+	vw_view->show_mark(vw_view_mask);
 }
 
 void MainWindow::on_actionShow_Via_Wire_Edge_triggered(bool checked)
@@ -191,7 +191,7 @@ void MainWindow::on_actionShow_Via_Wire_Edge_triggered(bool checked)
         vw_view_mask |= (1<<M_V_I_V) | (1<<M_V_I_W);
     else
         vw_view_mask &= ~((1<<M_V_I_V) | (1<<M_V_I_W));
-    vw_view->set_mark(vw_view_mask);
+	vw_view->show_mark(vw_view_mask);
 }
 
 
@@ -200,7 +200,7 @@ void MainWindow::on_actionShow_Select_triggered()
     ShowMaskDialog show_mask_dlg(this, vw_view_mask);
     if (show_mask_dlg.exec() == QDialog::Accepted) {
         vw_view_mask = show_mask_dlg.mask;
-        vw_view->set_mark(vw_view_mask);
+		vw_view->show_mark(vw_view_mask);
     }
 }
 
@@ -228,9 +228,11 @@ void MainWindow::on_actionZoom_out_triggered()
 
 void MainWindow::on_actionSet_Param_triggered()
 {
-    WireViaParamDialog wv_dlg(this, vw_view->wire_width, vw_view->via_radius, vw_view->insu_gap, vw_view->grid_size);
+	WireViaParamDialog wv_dlg(this, 0, 10, 9, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 
+		0.5f, 0.5f, 0.5f);
     if (wv_dlg.exec() == QDialog::Accepted)
-        vw_view->set_para(wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.insu_gap, wv_dlg.grid_size);
+		vw_view->set_wire_para(wv_dlg.layer, wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.grid_size, wv_dlg.rule, 
+			wv_dlg.param1, wv_dlg.param2, wv_dlg.param3);
 
 }
 

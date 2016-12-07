@@ -146,7 +146,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>Show Wire Edge</string>
+    <string>Show Debug</string>
    </property>
   </action>
   <action name="actionShow_Via_Edge">

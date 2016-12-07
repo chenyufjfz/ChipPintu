@@ -25,18 +25,6 @@ enum {
 	M_V_INL
 };
 
-enum {
-    FEA_GRADXY_HIST_6x6=0,
-	FEA_GRADXY_HIST_7x7,
-	FEA_GRADXY_HIST_9x9,
-	FEA_GRADXY_HIST_9x5,
-	FEA_GRADXY_9x5,
-};
-
-enum {
-	LEARN_SVM,
-	LEARN_BAYES
-};
 
 #define RULE_NO_LOOP			1
 #define RULE_NO_UCONN			2
@@ -61,56 +49,71 @@ struct LearnContainer {
 	}
 };
 
+struct LayerData {
+	int wire_wd; //wire width
+	int via_rd; //via radius
+	int grid_wd; //grid width	
+	float param1; //via th, close to 1, higher threshold
+	float param2; //wire th, close to 1, higher threshold
+	float param3; //via_cred vs wire_cred, if via_cred> wire_cred, beta>1; else <1
+	unsigned long long rule; //rule affect bbfm
+	Mat mark, mark1, mark2, mark3;
+	Mat img;
+	vector<int> gl_x, gl_y;
+};
 
 class VWExtract : public ObjExtract
 {
 protected:
-    int wire_wd; //wire width
-    int via_rd; //via radius
-	int grid_wd; //grid width
-	int feature_method;
-	int learn_method;
-    Mat img;
-	Mat mark, mark1, mark2, mark3;
-	unsigned long long rule;
-    float param1, param2, param3;
+	vector<LayerData> lpm;		
 	
 public:
 	VWExtract();
-	virtual int set_train_param(int width, int r, int rule_low, int rule_high, int grid_width, float _param1, float _param2, float _param3) {
-        wire_wd = width;
-        via_rd = r;
-		rule = rule_high;
-		rule = rule << 32 | rule_low;
-        param1 = _param1;
-        param2 = _param2;
-        param3 = _param3;
-		grid_wd = grid_width;
+	virtual int set_train_param(int layer, int width, int r, int rule_low, int grid_width, float _param1, float _param2, float _param3) {
+		if (layer > lpm.size())
+			return -1;
+		if (layer == lpm.size())
+			lpm.push_back(LayerData());
+		lpm[layer].wire_wd = width;
+		lpm[layer].via_rd = r;
+		lpm[layer].rule = rule_low;
+		lpm[layer].grid_wd = grid_width;
+		lpm[layer].param1 = _param1;
+		lpm[layer].param2 = _param2;
+		lpm[layer].param3 = _param3;
+		
 		return 0;
     }	
-	virtual int set_extract_param(int width, int r, int rule_low, int rule_high, int grid_width, float _param1, float _param2, float _param3, float) {
-		wire_wd = width;
-		via_rd = r;
-		rule = rule_high;
-		rule = rule << 32 | rule_low;
-		param1 = _param1;
-		param2 = _param2;
-		param3 = _param3;
-		grid_wd = grid_width;
+	virtual int set_extract_param(int layer, int width, int r, int rule_low, int grid_width, float _param1, float _param2, float _param3, float) {
+		if (layer > lpm.size())
+			return -1;
+		if (layer == lpm.size())
+			lpm.push_back(LayerData());
+		lpm[layer].wire_wd = width;
+		lpm[layer].via_rd = r;
+		lpm[layer].rule = rule_low;
+		lpm[layer].grid_wd = grid_width;
+		lpm[layer].param1 = _param1;
+		lpm[layer].param2 = _param2;
+		lpm[layer].param3 = _param3;
 		return 0;
 	}
 
-	Mat get_mark() {
-		return mark;
+	Mat get_mark(int layer) {
+		CV_Assert(layer < lpm.size());
+		return lpm[layer].mark;
 	}
-	Mat get_mark1() {
-		return mark1;
+	Mat get_mark1(int layer) {
+		CV_Assert(layer < lpm.size());
+		return lpm[layer].mark1;
 	}
-	Mat get_mark2() {
-		return mark2;
+	Mat get_mark2(int layer) {
+		CV_Assert(layer < lpm.size());
+		return lpm[layer].mark2;
 	}
-	Mat get_mark3() {
-		return mark3;
+	Mat get_mark3(int layer) {
+		CV_Assert(layer < lpm.size());
+		return lpm[layer].mark3;
 	}
 	virtual ~VWExtract() {
 
@@ -118,11 +121,6 @@ public:
 };
 
 class VWExtractStat : public VWExtract {
-protected:
-    unsigned long long bbfm[64][4]; //brick brick fit mask
-	unsigned long long vbvfm[2][2]; //via - brick -via fit mask
-	unsigned long long config_fit_mask(unsigned long long rule);
-
 public:
 	int train(string, const std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
@@ -130,6 +128,6 @@ public:
 	int extract(ICLayerWr * ic_layer, const std::vector<SearchArea> & area_, std::vector<MarkObj> & obj_sets) {
 		return 0;
 	}
-	void get_feature(int x, int y, vector<float> & feature);
+	void get_feature(int, int, int, vector<float> & ) {}
 };
 #endif // VWEXTRACT_H

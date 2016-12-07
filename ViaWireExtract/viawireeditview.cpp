@@ -77,42 +77,6 @@ void adjust_wire_point(const QPoint & pbase, QPoint & padjust)
 	padjust = ano_point;
 }
 
-bool ViaWireEditView::load_objects(QString file_path, std::vector <MarkObj> & obj_set, int & wire_width, int & via_radius)
-{
-	FileStorage fs(file_path.toStdString(), FileStorage::READ);
-	if (fs.isOpened()) {
-		int num = -1;
-		fs["obj_num"] >> num;
-		fs["wire_width"] >> wire_width;
-		fs["via_radius"] >> via_radius;
-		if (num > 0) {
-			obj_set.resize(num);
-			for (unsigned i = 0; i < obj_set.size(); i++) {
-				char sh[30];
-				Point p;
-                obj_set[i].state = 0;
-				sprintf(sh, "t%d", i);
-                int type;
-                fs[sh] >> type;
-                obj_set[i].type3 = (type >> 24) & 0xff;
-                obj_set[i].type2 = (type >> 16) & 0xff;
-                obj_set[i].type = type & 0xffff;
-				sprintf(sh, "p0_%d", i);
-				fs[sh] >> p;
-				obj_set[i].p0.setX(p.x);
-				obj_set[i].p0.setY(p.y);
-				sprintf(sh, "p1_%d", i);
-				fs[sh] >> p;
-				obj_set[i].p1.setX(p.x);
-				obj_set[i].p1.setY(p.y);
-			}
-		}
-
-		return true;
-	}
-	return false;
-}
-
 ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 {
     resize(600, 400);
@@ -120,15 +84,14 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
     grid_width = 0;
     offset_y = 0;
     offset_x = 0;
-	wire_width = 10;
-	insu_gap = 6;
-    grid_size = 16;
-	via_radius = 9;
+	layer = 0;
     scale = 1;
     mark_state = SELECT_OBJ;
     current_obj.type = OBJ_NONE;
 	setMouseTracking(true);
 	mouse_press = false;
+	mark_mask = 0;
+	show_debug_en = false;
 	mark_color.resize(sizeof(mark_color_table) / (sizeof(unsigned) * 2));
 	for (int i = 0; i < mark_color.size(); i++)
 		mark_color[mark_color_table[i][1]] = mark_color_table[i][0];
@@ -139,6 +102,9 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 {
+	int wire_width = (obj.type == OBJ_LINE) ? lpm[obj.type3].wire_wd : 0;
+	int via_radius = (obj.type == OBJ_POINT) ? lpm[obj.type3].via_rd : 0;
+
     switch (obj.type) {
     case OBJ_NONE:
         break;
@@ -176,7 +142,7 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 					painter.drawEllipse(bot_left, 2, 2);				
 			}
 			//draw metal rect
-			if (obj.type2 == AREA_METAL) {
+			if (obj.type2 == AREA_METAL) {				
 				painter.setPen(QPen(Qt::blue, 1, Qt::DotLine));
 				painter.setBrush(QBrush(Qt::NoBrush));
 				int rw = wire_width - wire_width / 2 - 1;
@@ -187,7 +153,7 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 		}
         break;
     case OBJ_LINE:
-		if (obj.state != 4) {
+		if (obj.state != 4 && obj.type3 == layer) {
 			if (obj.state == 3)
 				painter.setPen(QPen(Qt::red, 1));
 			else
@@ -208,12 +174,11 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 			int rw = wire_width - wire_width / 2 - 1;
 			QPoint lt(min(obj.p0.x(), obj.p1.x()) - wire_width / 2, min(obj.p0.y(), obj.p1.y()) - wire_width / 2);
 			QPoint rb(max(obj.p0.x(), obj.p1.x()) + rw, max(obj.p0.y(), obj.p1.y()) + rw);
-            painter.drawRect(QRect(lt, rb-QPoint(1,1)));
-			
+            painter.drawRect(QRect(lt, rb-QPoint(1,1)));			
 		}
         break;
     case OBJ_POINT:
-        if (obj.state !=4) {
+        if (obj.state !=4 && obj.type3 == layer) {
             if (obj.state == 0) {
                 painter.setPen(QPen(Qt::green, 1));
                 painter.setBrush(QBrush(Qt::green));
@@ -232,7 +197,7 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
     }
 }
 
-void ViaWireEditView::paintEvent(QPaintEvent *e)
+void ViaWireEditView::paintEvent(QPaintEvent *)
 {    
     if (bk_img_mask.isNull())
         return;
@@ -248,7 +213,7 @@ void ViaWireEditView::paintEvent(QPaintEvent *e)
     }
 	    
     for (unsigned i=0; i<obj_set.size(); i++)
-        draw_obj(painter_mem, obj_set[i]);
+		draw_obj(painter_mem, obj_set[i]);
     draw_obj(painter_mem, current_obj);
 
     QPainter painter(this);
@@ -260,15 +225,28 @@ void ViaWireEditView::paintEvent(QPaintEvent *e)
 
 void ViaWireEditView::load_bk_image(QString file_path)
 {
-	if (!bk_img.load(file_path)) {
+	string file_name = file_path.toStdString();
+	unsigned char ll = file_name[file_name.size() - 5];
+	while (1) {
+		file_name[file_name.size() - 5] = ll++;
+		QImage img;
+		if (!img.load(QString::fromStdString(file_name)))
+			break;
+		bk_img.push_back(img);
+		qDebug("load image %s, format=%d", file_path.toStdString().c_str(), bk_img[bk_img.size() - 1].format());
+	}
+	if (bk_img.empty()) {
 		QMessageBox::warning(this, "Warning", "file is not a image");
 		return;
 	}
-	img_name = file_path.toStdString();
-	qDebug("load image %s, format=%d", file_path.toStdString().c_str(), bk_img.format());
-    if (size() != bk_img.size())
-        resize(bk_img.size()*scale);
-	bk_img_mask = bk_img;
+
+	img_name = file_path.toStdString();	
+	mark_mask = 0;
+	show_debug_en = false;
+	layer = 0;
+	if (size() != bk_img[layer].size()*scale)
+		resize(bk_img[layer].size()*scale);
+	bk_img_mask = bk_img[layer];
     update();
 }
 
@@ -308,9 +286,10 @@ void ViaWireEditView::set_scale(int _scale)
     else
         return;
 
-    if (!bk_img.isNull())
-        resize(bk_img.size()*scale);
-    update();
+	if (!bk_img.empty()) {
+		resize(bk_img[layer].size()*scale);
+		update();
+	}
 }
 
 int ViaWireEditView::get_scale()
@@ -325,8 +304,6 @@ void ViaWireEditView::save_objects(QString file_path)
 		return;
     FileStorage fs(file_path.toStdString(), FileStorage::WRITE);
     fs << "obj_num" << (int) obj_set.size();
-    fs << "wire_width" << wire_width;
-    fs << "via_radius" << via_radius;
     for (unsigned i=0; i<obj_set.size(); i++) {
         char sh[30];
         Point p0(obj_set[i].p0.x(), obj_set[i].p0.y());
@@ -342,11 +319,39 @@ void ViaWireEditView::save_objects(QString file_path)
 	fs.release();
 }
 
-void ViaWireEditView::load_objects(QString file_path)
+bool ViaWireEditView::load_objects(QString file_path)
 {
 	qDebug("load objects %s", file_path.toStdString().c_str());
-	if (load_objects(file_path, obj_set, wire_width, via_radius))
+	FileStorage fs(file_path.toStdString(), FileStorage::READ);
+	if (fs.isOpened()) {
+		int num = -1;
+		fs["obj_num"] >> num;
+		if (num > 0) {
+			obj_set.resize(num);
+			for (unsigned i = 0; i < obj_set.size(); i++) {
+				char sh[30];
+				Point p;
+				obj_set[i].state = 0;
+				sprintf(sh, "t%d", i);
+				int type;
+				fs[sh] >> type;
+				obj_set[i].type3 = (type >> 24) & 0xff;
+				obj_set[i].type2 = (type >> 16) & 0xff;
+				obj_set[i].type = type & 0xffff;
+				sprintf(sh, "p0_%d", i);
+				fs[sh] >> p;
+				obj_set[i].p0.setX(p.x);
+				obj_set[i].p0.setY(p.y);
+				sprintf(sh, "p1_%d", i);
+				fs[sh] >> p;
+				obj_set[i].p1.setX(p.x);
+				obj_set[i].p1.setY(p.y);
+			}
+		}
 		update();
+		return true;
+	}
+	return false;		
 }
 
 void ViaWireEditView::erase_all_objects()
@@ -356,22 +361,32 @@ void ViaWireEditView::erase_all_objects()
 	update();
 }
 
-void ViaWireEditView::start_train(int train_what, int _feature, int _iter_num, float _param1, float _param2, float _param3)
+void ViaWireEditView::start_cell_train(int , int , int , float _param1, float _param2, float _param3)
 {
-	if (train_what == 0) {
-		vwe->set_train_param(wire_width, via_radius, 0xffffffff, 0xffffffff, grid_size, _param1, _param2, _param3);
-		vwe->train(img_name, obj_set);
-		current_train = vwe;
-	}
-	else {
-		cele->set_train_param(0, 0, 0, 0, 0, _param1, _param2, _param3);
-		for (int i = 0; i < obj_set.size(); i++)
-			if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA)
-				obj_set[i].type3 = POWER_UP;
-		cele->train(img_name, obj_set);
-		current_train = cele;
-	}
+	cele->set_train_param(0, 0, 0, 0, 0, _param1, _param2, _param3);
+	for (int i = 0; i < obj_set.size(); i++)
+		if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA)
+			obj_set[i].type3 = POWER_UP;
+	cele->train(img_name, obj_set);
+	current_train = cele;
+}
 
+void ViaWireEditView::set_wire_para(int _layer, int _wire_width, int _via_radius, int _grid_size, 
+	int _rule, float _param1, float _param2, float _param3)
+{
+	if (_layer > lpm.size())
+		return;
+	if (_layer == lpm.size())
+		lpm.push_back(LayerParam());
+	lpm[_layer].wire_wd = _wire_width;
+	lpm[_layer].via_rd = _via_radius;
+	lpm[_layer].rule = _rule;
+	lpm[_layer].grid_wd = _grid_size;
+	lpm[_layer].param1 = _param1;
+	lpm[_layer].param2 = _param2;
+	lpm[_layer].param3 = _param3;
+	vwe->set_train_param(_layer, _wire_width, _via_radius, _rule, _grid_size, _param1, _param2, _param3);
+	current_train = vwe;
 }
 
 void ViaWireEditView::extract()
@@ -380,30 +395,29 @@ void ViaWireEditView::extract()
 		return;
     obj_set.clear();
     current_obj.type = OBJ_NONE;
-	if (current_train == vwe) 
-		current_train->extract(img_name, QRect(60, 60, 900, 900), obj_set);	
-	else
-		current_train->extract(img_name, QRect(0, 0, 1020, 1020), obj_set);
+	current_train->extract(img_name, QRect(0, 0, 1020, 1020), obj_set);
     update();
 }
 
-void ViaWireEditView::set_mark(unsigned mark_mask)
+void ViaWireEditView::show_mark(unsigned _mark_mask)
 {
-	if (current_train == NULL)
+	if (current_train == NULL || bk_img.empty())
 		return;
-	Mat mark = current_train->get_mark();
-	if (bk_img.width() != mark.cols || bk_img.height() != mark.rows) {
+	mark_mask = _mark_mask;	
+	show_debug_en = false;
+	Mat mark = current_train->get_mark(layer);
+	if (bk_img[layer].width() != mark.cols || bk_img[layer].height() != mark.rows) {
 		QMessageBox::warning(this, "Warning", "click train or extract first!");
 		return;
 	}
 	if (mark_mask == 0) {
-		bk_img_mask = bk_img;
+		bk_img_mask = bk_img[layer];
 		update();
 		return;
 	}
-	else
-		bk_img_mask = bk_img.copy();
-	
+	else {		
+		bk_img_mask = bk_img[layer].copy();		
+	}
 	for (int y = 0; y < mark.rows; y++) {		
 		unsigned char * p_mark = mark.ptr<unsigned char>(y);
 		for (int x = 0; x < mark.cols; x++)
@@ -420,25 +434,27 @@ void ViaWireEditView::set_mark(unsigned mark_mask)
 	update();
 }
 
-void ViaWireEditView::show_edge(bool show)
+void ViaWireEditView::show_debug(bool _show_debug_en)
 {
-	if (current_train == NULL)
+	if (current_train == NULL || bk_img.empty())
 		return;
-	Mat mark1 = current_train->get_mark1();
-	Mat mark2 = current_train->get_mark2();
-	Mat mark3 = current_train->get_mark3();
-	if (bk_img.width() != mark1.cols || bk_img.height() != mark1.rows ||
-		bk_img.width() != mark2.cols || bk_img.height() != mark2.rows) {
+	show_debug_en = _show_debug_en;
+	mark_mask = 0;
+	Mat mark1 = current_train->get_mark1(layer);
+	Mat mark2 = current_train->get_mark2(layer);
+	Mat mark3 = current_train->get_mark3(layer);
+	if (bk_img[layer].width() != mark1.cols || bk_img[layer].height() != mark1.rows ||
+		bk_img[layer].width() != mark2.cols || bk_img[layer].height() != mark2.rows) {
 		QMessageBox::warning(this, "Warning", "click train or extract first!");
 		return;
 	}
-	if (!show) {
-		bk_img_mask = bk_img;
+	if (!show_debug_en) {
+		bk_img_mask = bk_img[layer];
 		update();
 		return;
 	}
 	else
-		bk_img_mask = bk_img.copy();
+		bk_img_mask = bk_img[layer].copy();
 
 	for (int y = 0; y < mark1.rows; y++) {
 		unsigned char * p_mark1 = mark1.ptr<unsigned char>(y);
@@ -472,6 +488,7 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 			mouse_press = true;
 			current_obj.type = mark_state;
 			current_obj.type2 = mark_type2;
+			current_obj.type3 = layer;
 			if (mark_type2 == AREA_CELL)
 				current_obj.type3 = POWER_UP;
 			current_obj.state = 0;
@@ -616,16 +633,16 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			update();
         }
     }
-	if (!bk_img.valid(event->pos() / scale))
+	if (bk_img.empty() || !bk_img[layer].valid(event->pos() / scale))
 		return;
-	QRgb color = bk_img.pixel(event->pos() / scale);
+	QRgb color = bk_img[layer].pixel(event->pos() / scale);
 	char s[200];
 	if (current_train == NULL) 
 		sprintf(s, "c=%x", color);	
 	else {		
 		int len = 0;
 		vector<float> feature;
-		current_train->get_feature((event->pos()).x() / scale, (event->pos()).y() / scale, feature);
+		current_train->get_feature(layer, (event->pos()).x() / scale, (event->pos()).y() / scale, feature);
 		if (!feature.empty()) {
 			for (int i = 0; i < feature.size(); i++) {
 				len += sprintf(s + len, "f%d=%f,", i, feature[i]);
@@ -634,9 +651,9 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 		unsigned m;
 		int y = (event->pos()).y() / scale;
 		int x = (event->pos()).x() / scale;
-		Mat mark1 = current_train->get_mark1();
-		Mat mark2 = current_train->get_mark2();
-		Mat mark3 = current_train->get_mark3();
+		Mat mark1 = current_train->get_mark1(layer);
+		Mat mark2 = current_train->get_mark2(layer);
+		Mat mark3 = current_train->get_mark3(layer);
 		if (!mark1.empty() && !mark2.empty() && !mark3.empty()) {
 			m = mark1.at<unsigned char>(y, x);
 			m = (mark2.at<unsigned char>(y, x) << 8) + m;
@@ -649,7 +666,67 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 
 void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 {
-	
+	int new_layer = layer;
+	switch (e->key()) {
+	case Qt::Key_0:
+		if (bk_img.size() > 0)
+			new_layer = 0;
+		break;
+	case Qt::Key_1:
+		if (bk_img.size() > 1)
+			new_layer = 1;
+		break;
+	case Qt::Key_2:
+		if (bk_img.size() > 2)
+			new_layer = 2;
+		break;
+	case Qt::Key_3:
+		if (bk_img.size() > 3)
+			new_layer = 3;
+		break;
+	case Qt::Key_4:
+		if (bk_img.size() > 4)
+			new_layer = 4;
+		break;
+	case Qt::Key_5:
+		if (bk_img.size() > 5)
+			new_layer = 5;
+		break;
+	case Qt::Key_6:
+		if (bk_img.size() > 6)
+			new_layer = 6;
+		break;
+	case Qt::Key_7:
+		if (bk_img.size() > 7)
+			new_layer = 7;
+		break;
+	case Qt::Key_8:
+		if (bk_img.size() > 8)
+			new_layer = 8;
+		break;
+	case Qt::Key_9:
+		if (bk_img.size() > 9)
+			new_layer = 9;
+		break;
+	case Qt::Key_W:
+		if (bk_img.size() > layer + 1)
+			new_layer = layer + 1;
+		break;
+	case Qt::Key_S:
+		if (layer > 0)
+			new_layer = layer - 1;
+		break;
+	}
+	if (new_layer != layer) {
+		layer = new_layer;
+		bk_img_mask = bk_img[layer];
+		if (show_debug_en)
+			show_debug(show_debug_en);
+		if (mark_mask != 0)
+			show_mark(mark_mask);
+		update();
+		return;
+	}
 	if (mark_state == SELECT_OBJ && select_idx != -1) {
 		MarkObj select_obj = obj_set[select_idx];
 		int d;
@@ -684,7 +761,6 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 			obj_set[select_idx] = select_obj;
 			break;        
 		}
-
 		update();
     }
 }
