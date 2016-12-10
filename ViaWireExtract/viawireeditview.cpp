@@ -443,11 +443,7 @@ void ViaWireEditView::show_debug(bool _show_debug_en)
 	Mat mark1 = current_train->get_mark1(layer);
 	Mat mark2 = current_train->get_mark2(layer);
 	Mat mark3 = current_train->get_mark3(layer);
-	if (bk_img[layer].width() != mark1.cols || bk_img[layer].height() != mark1.rows ||
-		bk_img[layer].width() != mark2.cols || bk_img[layer].height() != mark2.rows) {
-		QMessageBox::warning(this, "Warning", "click train or extract first!");
-		return;
-	}
+
 	if (!show_debug_en) {
 		bk_img_mask = bk_img[layer];
 		update();
@@ -457,15 +453,15 @@ void ViaWireEditView::show_debug(bool _show_debug_en)
 		bk_img_mask = bk_img[layer].copy();
 
 	for (int y = 0; y < mark1.rows; y++) {
-		unsigned char * p_mark1 = mark1.ptr<unsigned char>(y);
-		unsigned char * p_mark2 = mark2.ptr<unsigned char>(y);
-		unsigned char * p_mark3 = mark3.ptr<unsigned char>(y);
-		for (int x = 0; x < mark1.cols; x++)
-			if (p_mark1[x] != 0 || p_mark2[x] != 0 || p_mark3[x] !=0) {
+		unsigned char * p_mark1 = (!mark1.empty()) ? mark1.ptr<unsigned char>(y) : NULL;
+		unsigned char * p_mark2 = (!mark2.empty()) ? mark2.ptr<unsigned char>(y) : NULL;
+		unsigned char * p_mark3 = (!mark3.empty()) ? mark3.ptr<unsigned char>(y) : NULL;
+		if (p_mark1 != NULL || p_mark2 != NULL || p_mark3 != NULL)
+			for (int x = 0; x < mark1.cols; x++) {
 				QRgb oc = bk_img_mask.pixel(x, y);
-				QRgb nc = ((oc & 0xff) * 8 + p_mark1[x] * 8) / 16;
-				nc += (((oc & 0xff00) * 8 + (unsigned)p_mark2[x] * 256 * 8) / 16) & 0xff00;
-				nc += (((oc & 0xff0000) * 8 + (unsigned)p_mark3[x] * 65536 * 8) / 16) & 0xff0000;
+				QRgb nc = p_mark1 ? ((oc & 0xff) * 8 + p_mark1[x] * 8) / 16 : (oc & 0xfe) /2;
+				nc += p_mark2 ? (((oc & 0xff00) * 8 + (unsigned)p_mark2[x] * 256 * 8) / 16) & 0xff00 : (oc & 0xfe00) /2;
+				nc += p_mark3 ? (((oc & 0xff0000) * 8 + (unsigned)p_mark3[x] * 65536 * 8) / 16) & 0xff0000 : (oc & 0xfe0000) /2;
 				nc += oc & 0xff000000;
 				bk_img_mask.setPixel(x, y, nc);
 			}
@@ -708,11 +704,11 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		if (bk_img.size() > 9)
 			new_layer = 9;
 		break;
-	case Qt::Key_W:
+	case Qt::Key_PageUp:
 		if (bk_img.size() > layer + 1)
 			new_layer = layer + 1;
 		break;
-	case Qt::Key_S:
+	case Qt::Key_PageDown:
 		if (layer > 0)
 			new_layer = layer - 1;
 		break;

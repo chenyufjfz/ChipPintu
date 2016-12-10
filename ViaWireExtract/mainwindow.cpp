@@ -19,6 +19,7 @@ MainWindow::MainWindow(QWidget *parent) :
     scroll_view = new QScrollArea;
     scroll_view->setBackgroundRole(QPalette::Dark);
     scroll_view->setWidget(vw_view);
+	scroll_view->setFocusPolicy(Qt::NoFocus);
     setCentralWidget(scroll_view);
 	vw_view->setFocus();
 

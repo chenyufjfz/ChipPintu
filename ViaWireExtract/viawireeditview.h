@@ -8,15 +8,6 @@
 #include "vwextract.h"
 #include "cellextract.h"
 
-struct LayerParam {
-	int wire_wd; //wire width
-	int via_rd; //via radius
-	int grid_wd; //grid width	
-	float param1; //via th, close to 1, higher threshold
-	float param2; //wire th, close to 1, higher threshold
-	float param3; //via_cred vs wire_cred, if via_cred> wire_cred, beta>1; else <1
-	unsigned long long rule; //rule affect bbfm
-};
 
 class ViaWireEditView : public QWidget
 {

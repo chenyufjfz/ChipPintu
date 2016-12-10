@@ -49,7 +49,7 @@ struct LearnContainer {
 	}
 };
 
-struct LayerData {
+struct LayerParam{
 	int wire_wd; //wire width
 	int via_rd; //via radius
 	int grid_wd; //grid width	
@@ -57,23 +57,31 @@ struct LayerData {
 	float param2; //wire th, close to 1, higher threshold
 	float param3; //via_cred vs wire_cred, if via_cred> wire_cred, beta>1; else <1
 	unsigned long long rule; //rule affect bbfm
-	Mat mark, mark1, mark2, mark3;
+};
+
+struct TileLayerData {	
+	Mat mark, mark1;
 	Mat img;
+	Mat conet;
 	vector<int> gl_x, gl_y;
 };
 
+struct TileData {
+	vector<TileLayerData> d;
+};
 class VWExtract : public ObjExtract
 {
 protected:
-	vector<LayerData> lpm;		
-	
+	vector<LayerParam> lpm;
+	vector<TileData> ts;
+
 public:
 	VWExtract();
 	virtual int set_train_param(int layer, int width, int r, int rule_low, int grid_width, float _param1, float _param2, float _param3) {
 		if (layer > lpm.size())
 			return -1;
 		if (layer == lpm.size())
-			lpm.push_back(LayerData());
+			lpm.push_back(LayerParam());
 		lpm[layer].wire_wd = width;
 		lpm[layer].via_rd = r;
 		lpm[layer].rule = rule_low;
@@ -88,7 +96,7 @@ public:
 		if (layer > lpm.size())
 			return -1;
 		if (layer == lpm.size())
-			lpm.push_back(LayerData());
+			lpm.push_back(LayerParam());
 		lpm[layer].wire_wd = width;
 		lpm[layer].via_rd = r;
 		lpm[layer].rule = rule_low;
@@ -100,20 +108,23 @@ public:
 	}
 
 	Mat get_mark(int layer) {
+		if (ts.empty())
+			return Mat();
 		CV_Assert(layer < lpm.size());
-		return lpm[layer].mark;
+		return ts[0].d[layer].mark;
 	}
 	Mat get_mark1(int layer) {
+		if (ts.empty())
+			return Mat();
 		CV_Assert(layer < lpm.size());
-		return lpm[layer].mark1;
+		return ts[0].d[layer].mark1;
 	}
 	Mat get_mark2(int layer) {
-		CV_Assert(layer < lpm.size());
-		return lpm[layer].mark2;
+		return Mat();
 	}
 	Mat get_mark3(int layer) {
 		CV_Assert(layer < lpm.size());
-		return lpm[layer].mark3;
+		return Mat();
 	}
 	virtual ~VWExtract() {
 
