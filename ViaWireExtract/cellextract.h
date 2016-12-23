@@ -59,8 +59,8 @@ public:
         param3 = param3_;
         return 0;
     }
-	int train(ICLayerWr *ic_layer, const vector<MarkObj> & obj_sets);
-	int extract(ICLayerWr * ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
+    int train(vector<ICLayerWr *> & ic_layer, const vector<MarkObj> & obj_sets);
+    int extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
 	void get_feature(int, int , int , vector<float> & ) {}
 	Mat get_mark(int) {
 		return mark;

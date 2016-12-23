@@ -131,22 +131,10 @@ void prepare_grad(const Mat & img_in, Mat & grad_x, Mat & grad_y, Mat & edge_mas
     Sobel(filt_mat, grad_y, CV_16S, 0, 1, sobel_w);
     edge_mixer(grad_y, edge_mask, grad_y);
 }
-#if 0
-int main(int argc, char *argv[])
-{
-	/*
-    Mat src1 = imread("F:/chenyu/work/ChipStitch/data/chip2/M2/Project_9_48.jpg", 0);
-    Mat grad_x0, grad_y0, grad_x1, grad_y1, diff, edge;
-    prepare_grad(src1, grad_x1, grad_y1, edge, 1);
 
-	imshow("edge", edge);
-    imshow("grad_x", grad_x1);
-    imshow("grad_y", grad_y1);
-    waitKey();*/
-	qInstallMessageHandler(myMessageOutput);
+int cell_extract_test()
+{	
 	vector <MarkObj> obj_set; 
-	int wire_width;
-	int via_radius;
 
 #if 0
 	ViaWireEditView::load_objects("C:/chenyu/work/ChipPintu/images/Project_21_45.xml", obj_set, wire_width, via_radius);
@@ -160,7 +148,8 @@ int main(int argc, char *argv[])
 #else
 	CellExtract ce;
 	ICLayerWr ic("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", true);
-	
+    vector<ICLayerWr *> pic;
+    pic.push_back(&ic);
 	ce.set_train_param(0, 0, 0, 0, 0, 0.1, 3, 0.5);
 	MarkObj obj;
 	vector<MarkObj> objs;
@@ -171,24 +160,63 @@ int main(int argc, char *argv[])
 	obj.p1 = QPoint(304768, 241088);
 	obj.state = 0;
 	objs.push_back(obj);
-	ce.train(&ic, objs);
+    ce.train(pic, objs);
 	QRect r(0, 0, 327680, 327680);
 	vector<SearchArea> search;
 	search.push_back(SearchArea(r, POWER_UP | POWER_DOWN));
-	ce.extract(&ic, search, objs);
+    ce.extract(pic, search, objs);
 #endif
     return 0;
 }
-#else
+
+int wire_extract_test()
+{
+	vector <MarkObj> objs;
+	ICLayerWr ic[3]; 
+	ic[0].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M2.dat", true);
+	ic[1].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M3.dat", true);
+	ic[2].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", true);
+    vector<ICLayerWr *> pic;
+    pic.push_back(&ic[0]);
+    pic.push_back(&ic[1]);
+    pic.push_back(&ic[2]);
+
+	VWExtract * vwe = VWExtract::create_extract(0);
+	vwe->set_extract_param(0, 10, 9, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
+		0.5, 0.5, 2, 0);
+	vwe->set_extract_param(1, 12, 10, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
+		0.5, 0.5, 2, 0);
+	vwe->set_extract_param(2, 12, 10, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
+		0.5, 0.5, 1, 0);
+	vector<SearchArea> search;
+	search.push_back(SearchArea(QRect(1430000, 586000, 65536, 65536), 0));
+	
+    vwe->extract(pic, search, objs);
+	return 0;
+}
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
+	/*
+	Mat src1 = imread("F:/chenyu/work/ChipStitch/data/chip2/M2/Project_9_48.jpg", 0);
+	Mat grad_x0, grad_y0, grad_x1, grad_y1, diff, edge;
+	prepare_grad(src1, grad_x1, grad_y1, edge, 1);
+
+	imshow("edge", edge);
+	imshow("grad_x", grad_x1);
+	imshow("grad_y", grad_y1);
+	waitKey();*/
+
+	//cell_extract_test();
+
+	wire_extract_test();
+	return 0;
 
     qInstallMessageHandler(myMessageOutput);
     w.show();
 
     return a.exec();
 }
-#endif
+

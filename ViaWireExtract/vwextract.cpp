@@ -5,10 +5,14 @@
 #include <queue>  
 #include <cfloat>
 #include <set>
+#include <stdio.h>
 using namespace std;
 #define SGN(x) (((x)>0) ? 1 : (((x)==0) ? 0 : -1))
 #define WEIGHT_FB 3
 #define VIA_MAX_BIAS_PIXEL	3
+#define GRID_MAX_BIAS_PIXEL_FOR_LAYER	2
+#define GRID_MAX_BIAS_PIXEL_FOR_TILE	2
+#define GRID_COPY			3
 #define PROB2_INT			10000
 #define BRICK_NO_WIRE		0
 #define BRICK_i_0			1
@@ -38,6 +42,8 @@ using namespace std;
 #define DIR_DOWN_MASK		(1 << DIR_DOWN)
 #define DIR_LEFT_MASK		(1 << DIR_LEFT)
 #define VIA_MASK			(1 << 5)
+
+#define SAVE_RST_TO_FILE	1
 static struct Brick {
 	float priori_prob;	
 	int a[3][3];	
@@ -161,7 +167,70 @@ struct GridInfo {
 	int brick_choose; //brick no chosed
 	int po; //prefer order, as brick_order's index
 	int abm; //available brick mask
-	int which_queue;
+	GridInfo()
+	{
+		brick_choose = BRICK_INVALID;
+	}
+};
+
+struct LayerBrickRuleMask {
+	unsigned long long wwfm[64][4]; //wire wire fit mask
+	unsigned long long vwvfm[2][2]; //via - wire -via fit mask
+	unsigned long long fit_mask; //wire available mask
+};
+
+struct LayerGridInfo {
+	vector<GridInfo> grid_infos;
+	int grid_rows, grid_cols; //equal to gl_y.size()-2, gl_x.size()-2
+	GridInfo & at(int y, int x) {
+		CV_Assert(y >= 1 && y <= grid_rows && x >= 1 && x <= grid_cols);
+		return grid_infos.at((y - 1)*grid_cols + (x - 1));
+	}
+	const GridInfo & at(int y, int x) const {
+		CV_Assert(y >= 1 && y <= grid_rows && x >= 1 && x <= grid_cols);
+		return grid_infos.at((y - 1)*grid_cols + (x - 1));
+	}
+};
+
+struct LayerTileData {
+	Mat mark; //In nondebug mode, mark is for inout right image, In debug mode, mark is for show_mark
+	Mat mark1; //In nondebug mode, mark1 is for inout down image, In debug mode, mark1 is for show_debug
+	Mat img; //Input raw image to ProcessTile, after process, img is release to NULL
+	Mat conet;
+	vector<int> gl_x, gl_y;
+};
+
+struct TileData {
+	int valid_grid_x0, valid_grid_y0; // it is conet grid zuobiao
+	int img_grid_x0, img_grid_y0; // it is load image grid zuobiao for gl_x[0], gl_y[0]
+	int tile_x, tile_y;
+	vector<LayerTileData> d; //image_num
+	vector<LayerGridInfo> lg; // 2 * image_num-1
+};
+
+struct ProcessTileData {
+	const TileData * ut;
+	const TileData * lt;
+	TileData * tt;
+	vector<LayerBrickRuleMask> * lbrm;
+	vector<LayerParam> * lpm;
+	bool debug;
+	int up_down_layer, left_right_layer;
+};
+
+class VWExtractStat : public VWExtract {
+protected:
+	vector<TileData> ts;
+public:
+	Mat get_mark(int layer);
+	Mat get_mark1(int layer);
+	Mat get_mark2(int layer);
+	Mat get_mark3(int layer);
+	int train(string, const std::vector<MarkObj> &) { return 0; }
+	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
+    int train(vector<ICLayerWr *> &, const std::vector<MarkObj> &) { return 0; }
+    int extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
+	void get_feature(int, int, int, vector<float> &) {}
 };
 /*
 Use kmean 2 julei
@@ -249,7 +318,7 @@ QRect toQRect(Rect &r)
     return QRect(r.x, r.y, r.width, r.height);
 }
 
-static void fill_circle(Mat & mark, int x0, int y0, int r, unsigned char v, QRect & rect)
+static void fill_circle(Mat & mark, int x0, int y0, int r, unsigned char v, const QRect & rect)
 {
 	CV_Assert(mark.type() == CV_8UC1);
 
@@ -413,7 +482,7 @@ static void compute_grid_prob(const Mat & img, struct LayerParam & lpm,
 	int sz[] = { (int)gl_y.size(), (int)gl_x.size(), (int) sizeof(bricks) / sizeof(bricks[0])};
 	prob.create(3, sz, CV_32F);
 	prob = Scalar(0);
-	qDebug("prob size0=%d, step0=%d, size1=%d, step1=%d", prob.size[0], prob.step.p[0], prob.size[1], prob.step.p[1]);
+	//qDebug("prob size0=%d, step0=%d, size1=%d, step1=%d", prob.size[0], prob.step.p[0], prob.size[1], prob.step.p[1]);
 
 	//1 compute each grid average gray
 	vector<int> glx_edge, gly_edge;
@@ -572,7 +641,7 @@ static void remove_via_line(const vector<unsigned char> & mark, vector<unsigned 
 			do {
 				CV_Assert(mark[i + len] == 2);
 				for (; i + len < img.size() && mark[i + len] == 2; len++);
-				if (i + len >= img.size())
+				if (i + len + w >= img.size())
 					return;
 				tail_good = true;				
 				for (int j = len + i + 1; j < len + i + w; j++)
@@ -764,28 +833,37 @@ static double find_grid_line(const vector<double> & weight, int w, int grid, vec
 }
 
 struct FindViaGridLineReq {
-	int dx, dy;
-	bool find_minor_gl, find_via, gl_x_valid, gl_y_valid;
-	FindViaGridLineReq(int _dx, int _dy, bool _find_minor_gl, bool _find_via, bool _gl_x_valid, bool _gl_y_valid) {
+	int dx, dy; //allow max deviation
+	bool find_minor_gl, find_via, gl_x_valid, gl_y_valid, allow_new_x, allow_new_y;
+	int x_align, y_align;
+	FindViaGridLineReq(int _dx, int _dy, bool _find_minor_gl, bool _find_via, bool _gl_x_valid, bool _gl_y_valid, 
+		bool _allow_new_x, bool _allow_new_y) {
 		dx = _dx;
 		dy = _dy;
 		find_minor_gl = _find_minor_gl;
 		find_via = _find_via;
 		gl_x_valid = _gl_x_valid;
 		gl_y_valid = _gl_y_valid;
+		allow_new_x = _allow_new_x;
+		allow_new_y = _allow_new_y;
+		x_align = 0;
+		y_align = 0;
 	}
 };
 /*
-In img: raw image
-in ig: integral image
-InOut lpm: in wire_wd: metal width, In grid_wd: grid width, In via_rd: via radius out gl_x, gl_y
-Out via_prob: via probability gl_y.size() * gl_x.size(), 1 is via, 0 is not via
+In lpm: wire_wd: metal width, grid_wd: grid width,  via_rd: via radius 
+Inout td:  in img, input image, 
+		  out gl_x, gl_y,  grid line
+Inout req: in dx, dy, find_minor_gl, find_via, gl_x_valid, gl_y_valid, allow_new_x, allow_new_y
+		  out x_align, y_align
+out via_prob: via probability gl_y.size() * gl_x.size(), 1 is via, 0 is not via
 return: direction, 0 means up-down grid line
 It require wire is darker than via; and insu is darker than wire
 */
-static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct TileLayerData & td, FindViaGridLineReq req,
+static int find_via_grid_line(struct LayerParam & lpm, struct LayerTileData & td, FindViaGridLineReq & req,
 	Mat & via_prob)
 {
+	Mat img = td.img;
 	int wire_wd = lpm.wire_wd, grid_wd = lpm.grid_wd, via_rd = lpm.via_rd;
 	float via_cred = lpm.param1;
 	
@@ -880,29 +958,33 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
 						weight[x] = -1000000;
 				}
 				find_grid_line(weight, wire_wd, grid_wd, gl_x);
+				req.x_align = 0;
 				if (abs(td.gl_x[0] - gl_x[0]) > req.dx) {
-					if (gl_x[0] > td.gl_x[0])
-						gl_x.insert(gl_x.begin(), wire_wd / 2);
+					if (req.allow_new_x)					
+						req.x_align = (gl_x[0] > td.gl_x[0]) ? -1 : 1;
 					else
-						gl_x.erase(gl_x.begin());
+						if (gl_x[0] > td.gl_x[0])
+							gl_x.insert(gl_x.begin(), wire_wd / 2);
+						else
+							gl_x.erase(gl_x.begin());
 				}
 					
-				if (abs(td.gl_x.back() - gl_x.back()) > req.dx) {
+				if (abs(td.gl_x.back() - gl_x.back()) > req.dx && !req.allow_new_x) {
 					if (gl_x.back() < td.gl_x.back())
 						gl_x.push_back((int) weight.size() - 1 + wire_wd / 2);
 					else
 						gl_x.pop_back();
 				}					
-				CV_Assert(td.gl_x.size() == gl_x.size());
-				for (int i = 0; i < gl_x.size(); i++)
-					CV_Assert(abs(td.gl_x[i] - gl_x[i]) <= req.dx);
+				CV_Assert(td.gl_x.size() == gl_x.size() || req.allow_new_x);
+				for (int i = 1; i < min(gl_x.size(), td.gl_x.size()) - 1; i++)
+					CV_Assert(abs(td.gl_x[i] - gl_x[i + req.x_align]) <= req.dx);
 				td.gl_x.swap(gl_x);
 			} else //don't user reference
 				find_grid_line(weight, wire_wd, grid_wd, td.gl_x);
 		}
 		if (!req.find_minor_gl)
 			return (d0 > d1) ? 0 : 1;
-		for (int x = 0; x < td.gl_x.size(); x++) { //2.2 compute via feature for main grid line points
+		for (int x = 1; x < td.gl_x.size() -1; x++) { //2.2 compute via feature for main grid line points
 			int gl = 0;
 			for (int y = via_rd + 1; y < img.rows - via_rd - 1; y++) {
 				if (req.gl_y_valid && y < td.gl_y[gl] - req.dy)
@@ -937,28 +1019,32 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
 						weight[y] = -1000000;
 				}
 				find_grid_line(weight, wire_wd, grid_wd, gl_y);
+				req.y_align = 0;
 				if (abs(td.gl_y[0] - gl_y[0]) > req.dy) {
-					if (gl_y[0] > td.gl_y[0])
-						gl_y.insert(gl_y.begin(), wire_wd / 2);
+					if (req.allow_new_y)
+						req.y_align = (gl_y[0] > td.gl_y[0]) ? -1 : 1;
 					else
-						gl_y.erase(gl_y.begin());
+						if (gl_y[0] > td.gl_y[0])
+							gl_y.insert(gl_y.begin(), wire_wd / 2);
+						else
+							gl_y.erase(gl_y.begin());
 				}					
-				if (abs(td.gl_y.back() - gl_y.back()) > req.dy) {
+				if (abs(td.gl_y.back() - gl_y.back()) > req.dy && !req.allow_new_y) {
 					if (gl_y.back() < td.gl_y.back())
 						gl_y.push_back((int) weight.size() - 1 + wire_wd / 2);
 					else
 						gl_y.pop_back();
 				}
-				CV_Assert(td.gl_y.size() == gl_y.size());
-				for (int i = 0; i < (int) gl_y.size(); i++)
-					CV_Assert(abs(td.gl_y[i] - gl_y[i]) <= req.dy);				
+				CV_Assert(td.gl_y.size() == gl_y.size() || req.allow_new_y);
+				for (int i = 1; i < min(td.gl_y.size(), gl_y.size()) - 1; i++)
+					CV_Assert(abs(td.gl_y[i] - gl_y[i + req.y_align]) <= req.dy);				
 				td.gl_y.swap(gl_y);
 			} else //don't user reference
 				find_grid_line(weight, wire_wd, grid_wd, td.gl_y);
 		}
 		if (!req.find_minor_gl)
 			return (d0 > d1) ? 0 : 1;
-		for (int y = 0; y < td.gl_y.size(); y++) {
+		for (int y = 1; y < td.gl_y.size() - 1; y++) {
 			int gl = 0;
 			for (int x = via_rd + 1; x < img.cols - via_rd - 1; x++) {
 				if (req.gl_x_valid && x < td.gl_x[gl] - req.dx)
@@ -1042,21 +1128,25 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
 					weight[y] = -1000000;
 			}
 			find_grid_line(weight, wire_wd, grid_wd, gl_y);
+			req.y_align = 0;
 			if (abs(td.gl_y[0] - gl_y[0]) > req.dy) {
-				if (gl_y[0] > td.gl_y[0])
-					gl_y.insert(gl_y.begin(), wire_wd / 2);
+				if (req.allow_new_y)
+					req.y_align = (gl_y[0] > td.gl_y[0]) ? -1 : 1;
 				else
-					gl_y.erase(gl_y.begin());
+					if (gl_y[0] > td.gl_y[0])
+						gl_y.insert(gl_y.begin(), wire_wd / 2);
+					else
+						gl_y.erase(gl_y.begin());
 			}
-			if (abs(td.gl_y.back() - gl_y.back()) > req.dy) {
+			if (abs(td.gl_y.back() - gl_y.back()) > req.dy && !req.allow_new_y) {
 				if (gl_y.back() < td.gl_y.back())
 					gl_y.push_back((int) weight.size() - 1 + wire_wd / 2);
 				else
 					gl_y.pop_back();
 			}
-			CV_Assert(td.gl_y.size() == gl_y.size());
-			for (int i = 0; i < (int) gl_y.size(); i++)
-				CV_Assert(abs(td.gl_y[i] - gl_y[i]) <= req.dy);
+			CV_Assert(td.gl_y.size() == gl_y.size() && !req.allow_new_y);
+			for (int i = 1; i < min(gl_y.size(), td.gl_y.size()) - 1; i++)
+				CV_Assert(abs(td.gl_y[i] - gl_y[i + req.y_align]) <= req.dy);
 			td.gl_y.swap(gl_y);
 		}
 		else //don't user reference
@@ -1087,22 +1177,26 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
 					weight[x] = -1000000;
 			}
 			find_grid_line(weight, wire_wd, grid_wd, gl_x);
+			req.x_align = 0;
 			if (abs(td.gl_x[0] - gl_x[0]) > req.dx) {
-				if (gl_x[0] > td.gl_x[0])
-					gl_x.insert(gl_x.begin(), wire_wd / 2);
+				if (req.allow_new_x)
+					req.x_align = (gl_x[0] > td.gl_x[0]) ? -1 : 1;
 				else
-					gl_x.erase(gl_x.begin());
+					if (gl_x[0] > td.gl_x[0])
+						gl_x.insert(gl_x.begin(), wire_wd / 2);
+					else
+						gl_x.erase(gl_x.begin());
 			}
 
-			if (abs(td.gl_x.back() - gl_x.back()) > req.dx) {
+			if (abs(td.gl_x.back() - gl_x.back()) > req.dx && !req.allow_new_x) {
 				if (gl_x.back() < td.gl_x.back())
 					gl_x.push_back((int) weight.size() - 1 + wire_wd / 2);
 				else
 					gl_x.pop_back();
 			}
-			CV_Assert(td.gl_x.size() == gl_x.size());
-			for (int i = 0; i < (int) gl_x.size(); i++)
-				CV_Assert(abs(td.gl_x[i] - gl_x[i]) <= req.dx);
+			CV_Assert(td.gl_x.size() == gl_x.size() && !req.allow_new_x);
+			for (int i = 1; i < min(gl_x.size(), td.gl_x.size()) - 1; i++)
+				CV_Assert(abs(td.gl_x[i] - gl_x[i + req.x_align]) <= req.dx);
 			td.gl_x.swap(gl_x);
 		}
 		else //don't user reference
@@ -1114,7 +1208,7 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
 		return (d0 > d1) ? 0 : 1;
 	int stat_obvious_via = 0, stat_possible_via = 0;
 	via_prob.create((int) td.gl_y.size(), (int) td.gl_x.size(), CV_32FC1);
-	via_prob = 0;
+	via_prob = Scalar(0);
 	for (int i = 0; i < caps.size(); i++) {
 		unsigned v = caps[i] >> 32;
 		if (v < th0)
@@ -1138,7 +1232,7 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
 			if (abs(td.gl_x[xx] - x) > abs(td.gl_x[xx + 1] - x))
 				xx++;
 		
-		if (via_prob.at<float>(yy, xx) == 0) {
+		if (via_prob.at<float>(yy, xx) == 0 && yy > 0 && yy < td.gl_y.size() - 1 && xx>0 && xx < td.gl_x.size() - 1) {
 			if (abs(y - td.gl_y[yy]) > VIA_MAX_BIAS_PIXEL && v > th2) {
 				qWarning("Found via(x=%d,y=%d) not in grid, near y=%d", x, y, td.gl_y[yy]);
 				continue;
@@ -1152,7 +1246,7 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
 				stat_obvious_via++;
 			else
 				stat_possible_via++;
-		}								
+		}
 	}
 	qDebug("obvious via num=%d, possible via num =%d", stat_obvious_via, stat_possible_via);
 	return (d0 > d1) ? 0 : 1;
@@ -1169,18 +1263,18 @@ static int find_via_grid_line(const Mat & img, struct LayerParam & lpm, struct T
   Out: mark used for debug
 */
 static void post_process_grid_prob(const Mat & prob, vector<int> & gl_x, vector<int> & gl_y,
-	vector<GridInfo> & grid_infos, Mat & mark)
+	LayerGridInfo & g, QPoint cp, Mat & mark)
 {
 	CV_Assert(mark.empty() || mark.type() == CV_8UC1 && mark.rows > gl_y[gl_y.size()-1] && mark.cols > gl_x[gl_x.size()-1]);
-	CV_Assert(prob.type() == CV_32F && prob.dims==3);
-	CV_Assert(prob.size[0] == gl_y.size() && prob.size[1] == gl_x.size());
+	CV_Assert(prob.type() == CV_32F && prob.dims==3 && prob.size[0] == gl_y.size() && prob.size[1] == gl_x.size());
+	CV_Assert(cp.y() >= 0 && cp.x() >= 0);
+
 	for (int y = 1; y < prob.size[0] - 1; y++)
 		for (int x = 1; x < prob.size[1] - 1; x++) {
 			const float * p_prob = prob.ptr<float>(y, x);
 			GridInfo grid_info;
 			grid_info.x = x;
 			grid_info.y = y;
-			grid_info.brick_choose = BRICK_INVALID;
 			for (int i = 0; i < prob.size[2]; i++)
 				if (p_prob[i] >= 0) {
 					int t = p_prob[i] * PROB2_INT;
@@ -1200,9 +1294,33 @@ static void post_process_grid_prob(const Mat & prob, vector<int> & gl_x, vector<
 						for (int xx = 0; xx < 3; xx++)
 							if (bricks[b].a[yy][xx])
 								mark.at<unsigned char>(y1 - 1 + yy, x1 - 1 + xx) = color;
-				}
-			grid_infos.push_back(grid_info);
+				}			
+			g.at(y - 1 + cp.y(), x - 1 + cp.x()) = grid_info;
+			g.at(y - 1 + cp.y(), x - 1 + cp.x()).x = x - 1 + cp.x();
+			g.at(y - 1 + cp.y(), x - 1 + cp.x()).y = y - 1 + cp.y();
 		}
+}
+
+/*
+In: slg
+In: srect
+In: d
+Out: dlg
+*/
+static void copy_grid_info(const LayerGridInfo & slg, LayerGridInfo & dlg, const QRect srect, const QPoint d)
+{
+	CV_Assert(d.x() >= 1 && d.y() >= 1);
+	for (int y = 1; y <= slg.grid_rows; y++)
+		if (y >= srect.top() && y <= srect.bottom())
+		for (int x = 1; x <= slg.grid_cols; x++)
+			if (x >= srect.left() && x <= srect.right()) {
+				QPoint t(x - srect.left() + d.x(), y - srect.top() + d.y());
+				if (t.y() >= 1 && t.y() <= dlg.grid_rows && t.x() >= 1 && t.x() <= dlg.grid_cols) {
+					dlg.at(t.y(), t.x()) = slg.at(y, x);
+					dlg.at(t.y(), t.x()).x = t.x();
+					dlg.at(t.y(), t.x()).y = t.y();
+				}
+			}
 }
 
 /*In: prob via prob for each grid, 2 - dim Mat, more near to 0, more like wire&insu, more near to 1, more like via
@@ -1211,11 +1329,12 @@ InOut: grid_infos, sorted brick prob order, push (prob.rows-2) * (prob.cols-2) g
 Out: mark used for debug
 */
 static void post_process_via_prob(const Mat & prob, float beta, vector<int> & gl_x, vector<int> & gl_y,
-	vector<GridInfo> & grid_infos, Mat & mark)
+	LayerGridInfo & g, QPoint cp, Mat & mark)
 {
 	CV_Assert(mark.empty() || mark.type() == CV_8UC1 && mark.rows > gl_y[gl_y.size() - 1] && mark.cols > gl_x[gl_x.size() - 1]);
-	CV_Assert(prob.type() == CV_32F && prob.dims==2 && beta >= 0.5 && beta <= 8);
-	CV_Assert(prob.rows == gl_y.size() && prob.cols == gl_x.size());
+	CV_Assert(prob.type() == CV_32F && prob.dims == 2 && prob.rows == gl_y.size() && prob.cols == gl_x.size());
+	CV_Assert(beta >= 0.5 && beta <= 8 && cp.y() >= 0 && cp.x() >= 0);
+	
 	for (int y = 1; y < prob.rows - 1; y++) {
 		const float * p_prob = prob.ptr<float>(y);
 		for (int x = 1; x < prob.cols - 1; x++) {
@@ -1241,22 +1360,14 @@ static void post_process_via_prob(const Mat & prob, float beta, vector<int> & gl
 					for (int xx = 0; xx < 3; xx++)
 						if (xx == 1 || yy == 1)
 							mark.at<unsigned char>(y1 - 1 + yy, x1 - 1 + xx) = color;
-			}
-			grid_infos.push_back(grid_info);
+			}			
+			g.at(y - 1 + cp.y(), x - 1 + cp.x()) = grid_info;
+			g.at(y - 1 + cp.y(), x - 1 + cp.x()).x = x - 1 + cp.x();
+			g.at(y - 1 + cp.y(), x - 1 + cp.x()).y = y - 1 + cp.y();
 		}
 	}
 }
 
-struct LayerBrickRuleMask {
-	unsigned long long wwfm[64][4]; //wire wire fit mask
-	unsigned long long vwvfm[2][2]; //via - wire -via fit mask
-	unsigned long long fit_mask; //wire available mask
-};
-
-struct LayerGridInfo {
-	vector<GridInfo> grid_infos;
-	int grid_rows, grid_cols;
-};
 
 #define BRICK_PREFER(l, gi) BRICK(lg[l].grid_infos[gi].brick_order[lg[l].grid_infos[gi].po])
 #define BRICK_CHOOSE(l, gi) lg[l].grid_infos[gi].brick_choose
@@ -1266,10 +1377,78 @@ struct LayerGridInfo {
 In: lbrm, rule for brick fit, 2*img_layer-1
 		0,2,4 for via;
 		1,3,5 for wire,
-Inout: lg, get brick prob order and store grid choose brick, 2*img_layer-1
+Inout: lg, in brick_order and out brick_choose, 2*img_layer-1
        0,2,4 for via; 
 	   1,3,5 for wire, 
 */
+#if 1
+static void coarse_assemble_multilayer(vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg, const QRect & ar, int ignore_all_rule)
+{
+	CV_Assert(lbrm.size() == lg.size());
+	int layer_num = (int)lg.size();
+	static int dxy[4][2] = {
+			{ -1, 0 },
+			{ 0, 1 },
+			{ 1, 0 },
+			{ 0, -1 }
+	};
+	CV_Assert(layer_num % 2 == 1);
+
+	for (int l = 0; l < layer_num; l++)
+		for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++) {			
+			int x = lg[l].grid_infos[gi].x;
+			int y = lg[l].grid_infos[gi].y;
+			if (ar.contains(x, y, true)) {
+				BRICK_CHOOSE(l, gi) = BRICK_INVALID;
+				for (int j = 0; j < lg[l].grid_infos[gi].brick_order.size(); j++)
+					if (lg[l].grid_infos[gi].abm & 1 << BRICK(lg[l].grid_infos[gi].brick_order[j])) {
+					BRICK_CHOOSE(l, gi) = BRICK(lg[l].grid_infos[gi].brick_order[j]);
+					break;
+					}
+			}				
+		}
+	if (ignore_all_rule)
+		return;
+
+	for (int l = 0; l < layer_num; l++)
+		for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++) {
+			int x = lg[l].grid_infos[gi].x;
+			int y = lg[l].grid_infos[gi].y;
+			if (!ar.contains(x, y, true))
+				continue;
+			if (l % 2 == 0) { //is via layer
+				if (l > 0) {
+					CV_Assert(lg[l - 1].grid_infos[gi].x == x && lg[l - 1].grid_infos[gi].y == y);
+					CV_Assert(lg[l - 2].grid_infos[gi].x == x && lg[l - 2].grid_infos[gi].y == y);
+					for (int v = 0; v <= 1; v++)
+						if (!(lbrm[l - 1].vwvfm[v][BRICK_CHOOSE(l - 2, gi)] & 1ULL << BRICK_CHOOSE(l - 1, gi)))
+							ABM(l, gi) &= ~(1ULL << v);					
+				}
+				if (l + 1 < layer_num) {
+					CV_Assert(lg[l + 1].grid_infos[gi].x == x && lg[l + 1].grid_infos[gi].y == y);
+					CV_Assert(lg[l + 2].grid_infos[gi].x == x && lg[l + 2].grid_infos[gi].y == y);
+					for (int v = 0; v <= 1; v++)
+						if (!(lbrm[l + 1].vwvfm[v][BRICK_CHOOSE(l + 2, gi)] & 1ULL << BRICK_CHOOSE(l + 1, gi)))
+							ABM(l, gi) &= ~(1ULL << v);
+				}
+			} 
+			else { //is wire layer
+				for (int dir = 0; dir <= 3; dir++) {
+					int y1 = y + dxy[dir][0];
+					int x1 = x + dxy[dir][1];
+					int gi1 = gi + lg[l].grid_cols * dxy[dir][0] + dxy[dir][1];
+					if (y1 > 0 && y1 < lg[l].grid_rows && x1 > 0 && x1 < lg[l].grid_cols) {
+						CV_Assert(lg[l].grid_infos[gi1].x == x1 && lg[l].grid_infos[gi1].y == y1);
+						ABM(l, gi) &= lbrm[l].wwfm[BRICK_CHOOSE(l, gi1)][(dir + 2) & 3];
+					}
+				}
+				CV_Assert(lg[l - 1].grid_infos[gi].x == x && lg[l - 1].grid_infos[gi].y == y && 
+					lg[l + 1].grid_infos[gi].x == x && lg[l + 1].grid_infos[gi].y == y);
+				ABM(l, gi) &= lbrm[l].vwvfm[BRICK_CHOOSE(l - 1, gi)][BRICK_CHOOSE(l + 1, gi)];
+			}				
+		}
+}
+#else
 static void coarse_assemble_multilayer(vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg, int ignore_all_rule)
 {
 	//low_queue means at least two choice, high_queue means at least only 1 choice
@@ -1452,25 +1631,54 @@ static void coarse_assemble_multilayer(vector<LayerBrickRuleMask> & lbrm, vector
 #undef DEQUEUE2
 #undef DEQUEUE
 }
-
+#endif
 /*
-In: prob (2*img_layer-1), brick prob for each grid, 
-    0,2,4 for via; prob is 2 - dim Mat (gl_y.size() * gl_x.size()
-		more near to 1 means bigger probability for via
-	1,3,5 for wire, prob is 3 - dim Mat (gl_y.size() * gl_x.size() * Brick_NUM)
-		more near to 1 means bigger probability for the brick,
-		more near to 0 means less probability for the brick.
-In: lpm (img_layer), use lpm.param3 for via vs wire cred compute
+In: lg.brick_order
+    0,2,4 for via;
+	1,3,5 for wire, 
 In: lbrm, (2*img_layer-1), it represents rules for neighbor wire & wire, via & wire & via
-Inout: abm, (2*img_layer-1), availabe brick mask, each layer is 2-dim Mat (gl_y.size()-2) * (gl_x.size()-2)
 InOut: td,(img_layer) in td.gl_x, td.gl_y, out  brick shape
 */
 static void assemble_grid_multilayer(vector<LayerGridInfo> & lg, vector<LayerBrickRuleMask> & lbrm,
-	TileData & td, int ignore_all_rule = 1)
+	TileData & td, const QRect & ar, int ignore_all_rule = 1)
 {
+	static int dxy[4][2] = {
+			{ -1, 0 },
+			{ 0, 1 },
+			{ 1, 0 },
+			{ 0, -1 }
+	};
+
 	CV_Assert(lg.size() % 2 == 1 && lg.size()==lbrm.size());	
 	
-	coarse_assemble_multilayer(lbrm, lg, ignore_all_rule);
+	for (int l = 0; l < lg.size(); l++) {
+		for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++) {
+			int x = lg[l].grid_infos[gi].x;
+			int y = lg[l].grid_infos[gi].y;
+			if (ar.contains(x, y, true))
+				lg[l].grid_infos[gi].abm = lbrm[l].fit_mask;
+		}				
+	}
+	for (int l = 0; l < lg.size(); l++)
+		if (l % 2 == 1) //is wire layer
+		for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++) {
+			if (BRICK_CHOOSE(l, gi) == BRICK_INVALID)
+				continue;
+			int x = lg[l].grid_infos[gi].x;
+			int y = lg[l].grid_infos[gi].y;			
+			if (((y == ar.top() || y == ar.bottom()) && x > ar.left() && x < ar.right()) ||
+				((x == ar.left() || x == ar.right()) && y > ar.top() && y < ar.bottom()))
+				for (int dir = 0; dir <= 3; dir++) {
+					int y1 = y + dxy[dir][0];
+					int x1 = x + dxy[dir][1];
+					int gi1 = gi + lg[l].grid_cols * dxy[dir][0] + dxy[dir][1];
+					if (ar.contains(x1, y1, true)) {
+						CV_Assert(lg[l].grid_infos[gi1].x == x1 && lg[l].grid_infos[gi1].y == y1);
+						ABM(l, gi1) &= lbrm[l].wwfm[BRICK_CHOOSE(l, gi)][dir];
+					}
+				}
+		}
+	coarse_assemble_multilayer(lbrm, lg, ar, ignore_all_rule);
 
 	for (int i = 0; i < lg.size(); i++) {
 		int gi = 0;
@@ -1479,7 +1687,11 @@ static void assemble_grid_multilayer(vector<LayerGridInfo> & lg, vector<LayerBri
 		for (int y = 0; y < lg[i].grid_rows; y++) {			
 			unsigned char * p_con = td.d[(i + 1) / 2].conet.ptr<unsigned char>(y);
 			for (int x = 0; x < lg[i].grid_cols; x++, gi++) {
-				CV_Assert(lg[i].grid_infos[gi].y == y + 1 && lg[i].grid_infos[gi].x == x + 1);
+				if (BRICK_CHOOSE(i, gi) == BRICK_INVALID) {
+					p_con[x] = 0;
+					continue;
+				}
+				CV_Assert(lg[i].grid_infos[gi].y == y + 1 && lg[i].grid_infos[gi].x == x + 1);				
 				if (i == 0)
 					p_con[x] = BRICK_CHOOSE(i, gi) ? VIA_MASK : 0;
 				else
@@ -1506,6 +1718,7 @@ void grid2_wire_obj(const Mat & conet, int layer, const vector<int> & gl_x, cons
 	wire.type2 = LINE_WIRE_AUTO_EXTRACT;
 	wire.type3 = layer;
 	wire.state = 0;
+	wire.prob = 1;
 
 	for (int y = 0; y < conet.rows; y++) {
 		int state = 0;
@@ -1569,6 +1782,7 @@ void grid2_via_obj(const Mat & conet, int layer, const vector<int> & gl_x, const
 	via.type2 = POINT_VIA_AUTO_EXTRACT;
 	via.type3 = layer;
 	via.state = 0;	
+	via.prob = 1;
 
 	for (int y = 0; y < conet.rows; y++) {
 		const unsigned char * p_conet = conet.ptr<unsigned char>(y);
@@ -1580,11 +1794,6 @@ void grid2_via_obj(const Mat & conet, int layer, const vector<int> & gl_x, const
 			}
 		}
 	}
-}
-
-VWExtract::VWExtract()
-{
-	
 }
 
 unsigned long long config_fit_mask(unsigned long long rule, unsigned long long bbfm[][4], unsigned long long vbvfm[][2])
@@ -1637,11 +1846,6 @@ unsigned long long config_fit_mask(unsigned long long rule, unsigned long long b
 					}
 				}
 		}
-
-	if (rule & RULE_MINIUM_3_POINT) {
-		DISABLE_BRICK_CONN(BRICK_i_0, BRICK_i_180, DIR_UP);
-		DISABLE_BRICK_CONN(BRICK_i_90, BRICK_i_270, DIR_RIGHT);
-	}
 
 	if (rule & RULE_NO_UCONN) {
 		DISABLE_BRICK_CONN(BRICK_L_0, BRICK_L_90, DIR_UP);
@@ -1789,11 +1993,235 @@ unsigned long long config_fit_mask(unsigned long long rule, unsigned long long b
 #undef DISABLE_BRICK_CONN	
 }
 
-int VWExtractStat::extract(string file_name, QRect , std::vector<MarkObj> & obj_sets)
+void process_tile(ProcessTileData & t3)
 {
-	vector<Mat> prob(lpm.size() * 2 - 1);
-	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2-1);
-	vector<LayerGridInfo> lg(lbrm.size());
+	CV_Assert(t3.lbrm->size() == t3.lpm->size() * 2 - 1 && t3.tt->d.size() == t3.lpm->size());
+	Mat prob;
+	vector<LayerParam> & lpm = *t3.lpm;
+	vector<LayerBrickRuleMask> & lbrm = *t3.lbrm;
+	QPoint compute_g0;
+	t3.tt->lg.resize(lbrm.size());
+
+	if (t3.ut == NULL && t3.lt == NULL) {
+		FindViaGridLineReq find_req(0, 0, false, false, false, false, true, true);
+		int ud0 = find_via_grid_line(lpm[t3.up_down_layer], t3.tt->d[t3.up_down_layer],	find_req, prob);
+		int ud1 = find_via_grid_line(lpm[t3.left_right_layer], t3.tt->d[t3.left_right_layer], find_req, prob);
+		CV_Assert(ud0 != ud1);
+		if (ud1 == 0)
+			std::swap(t3.up_down_layer, t3.left_right_layer);
+		t3.tt->img_grid_x0 = 0;
+		t3.tt->img_grid_y0 = 0;
+		t3.tt->valid_grid_x0 = 1;
+		t3.tt->valid_grid_y0 = 1;
+		t3.tt->tile_x = 0;
+		t3.tt->tile_y = 0;
+		compute_g0 = QPoint(0, 0);
+	}
+
+	if (t3.ut == NULL && t3.lt != NULL) {
+		FindViaGridLineReq find_req(0, 0, false, false, false, false, true, true);
+		//copy image
+		for (int l = 0; l < (int) lpm.size(); l++) {
+			CV_Assert(t3.lt->d[l].mark.rows == t3.tt->d[l].img.rows && t3.tt->d[l].img.type() == CV_8UC1);
+			Mat img(t3.lt->d[l].mark.rows, t3.lt->d[l].mark.cols + t3.tt->d[l].img.cols, CV_8UC1);
+			t3.lt->d[l].mark.copyTo(img(Rect(0, 0, t3.lt->d[l].mark.cols, t3.lt->d[l].mark.rows)));
+			t3.tt->d[l].img.copyTo(img(Rect(t3.lt->d[l].mark.cols, 0, t3.tt->d[l].img.cols, t3.tt->d[l].img.rows)));
+			t3.tt->d[l].img = img;			
+		}
+		//find grid line
+		int ud0 = find_via_grid_line(lpm[t3.up_down_layer], t3.tt->d[t3.up_down_layer], find_req, prob);
+		t3.tt->d[t3.left_right_layer].gl_y = t3.lt->d[t3.left_right_layer].gl_y;	
+		FindViaGridLineReq find_req1(0, GRID_MAX_BIAS_PIXEL_FOR_TILE, false, false, false, true, true, true);
+		int ud1 = find_via_grid_line(lpm[t3.left_right_layer], t3.tt->d[t3.left_right_layer], find_req1, prob);
+		CV_Assert(ud0 == 0 && ud1 == 1);
+		if (find_req1.y_align != 0)
+			qDebug("detect left_right align!=0, y_align=%d", find_req1.y_align);
+		t3.tt->img_grid_x0 = t3.lt->img_grid_x0 + (int) t3.lt->d[t3.up_down_layer].gl_x.size() - 2;
+		t3.tt->img_grid_y0 = t3.lt->img_grid_y0 - find_req1.y_align;
+		t3.tt->valid_grid_x0 = t3.tt->img_grid_x0 - GRID_COPY + 2;
+		t3.tt->valid_grid_y0 = t3.tt->img_grid_y0 + 1;
+		t3.tt->tile_x = t3.lt->tile_x + 1;
+		t3.tt->tile_y = t3.lt->tile_y;
+		compute_g0 = QPoint(1, 0);
+	}
+
+	if (t3.ut != NULL && t3.lt == NULL) {
+		FindViaGridLineReq find_req(0, 0, false, false, false, false, true, true);
+		//copy image
+		for (int l = 0; l < (int)lpm.size(); l++) {
+			CV_Assert(t3.ut->d[l].mark1.cols == t3.tt->d[l].img.cols && t3.tt->d[l].img.type() == CV_8UC1);
+			Mat img(t3.ut->d[l].mark1.rows + t3.tt->d[l].img.rows, t3.ut->d[l].mark1.cols, CV_8UC1);
+			t3.ut->d[l].mark1.copyTo(img(Rect(0, 0, t3.ut->d[l].mark1.cols, t3.ut->d[l].mark1.rows)));
+			t3.tt->d[l].img.copyTo(img(Rect(0, t3.ut->d[l].mark1.rows, t3.tt->d[l].img.cols, t3.tt->d[l].img.rows)));
+			t3.tt->d[l].img = img;
+		}
+		//find grid line
+		int ud1 = find_via_grid_line(lpm[t3.left_right_layer], t3.tt->d[t3.left_right_layer], find_req, prob);
+		t3.tt->d[t3.up_down_layer].gl_x = t3.ut->d[t3.up_down_layer].gl_x;	
+		FindViaGridLineReq find_req0(GRID_MAX_BIAS_PIXEL_FOR_TILE, 0, false, false, true, false, true, true);
+		int ud0 = find_via_grid_line(lpm[t3.up_down_layer], t3.tt->d[t3.up_down_layer], find_req0, prob);
+		CV_Assert(ud0 == 0 && ud1 == 1);
+		if (find_req0.x_align != 0)
+			qDebug("detect up_down align!=0, x_align=%d", find_req0.x_align);
+		t3.tt->img_grid_y0 = t3.ut->img_grid_y0 + (int) t3.ut->d[t3.left_right_layer].gl_y.size() - 2;
+		t3.tt->img_grid_x0 = t3.ut->img_grid_x0 - find_req0.x_align;
+		t3.tt->valid_grid_x0 = t3.tt->img_grid_x0 + 1;
+		t3.tt->valid_grid_y0 = t3.tt->img_grid_y0 - GRID_COPY + 2;
+		t3.tt->tile_x = t3.ut->tile_x;
+		t3.tt->tile_y = t3.ut->tile_y + 1;
+		compute_g0 = QPoint(0, 1);
+	}
+
+	if (t3.ut != NULL && t3.lt != NULL) {
+		FindViaGridLineReq find_req(0, 0, false, false, false, false, true, true);
+		//copy image
+		for (int l = 0; l < (int)lpm.size(); l++) {			
+			Mat img(t3.ut->d[l].mark1.rows + t3.tt->d[l].img.rows, t3.lt->d[l].mark.cols + t3.tt->d[l].img.cols, CV_8UC1);
+			CV_Assert(abs(t3.lt->d[l].mark.rows - img.rows) <= 3 && abs(t3.ut->d[l].mark1.cols - img.cols) <= 3);
+			Mat right_img = (t3.lt->d[l].mark.rows > img.rows) ?
+				t3.lt->d[l].mark(Rect(0, t3.lt->d[l].mark.rows - img.rows, t3.lt->d[l].mark.cols, img.rows)) :
+				t3.lt->d[l].mark;
+			right_img.copyTo(img(Rect(0, img.rows - right_img.rows, right_img.cols, right_img.rows)));
+			Mat top_img = (t3.ut->d[l].mark1.cols > img.cols) ?
+				t3.ut->d[l].mark1(Rect(t3.ut->d[l].mark1.cols - img.cols, 0, img.cols, t3.ut->d[l].mark1.rows)) :
+				t3.ut->d[l].mark1;
+			top_img.copyTo(img(Rect(img.cols - top_img.cols, 0, top_img.cols, top_img.rows)));
+			t3.tt->d[l].img.copyTo(img(Rect(t3.lt->d[l].mark.cols, t3.ut->d[l].mark1.rows, t3.tt->d[l].img.cols, t3.tt->d[l].img.rows)));
+			t3.tt->d[l].img = img;
+		}
+		//find grid line		
+		int ud0 = find_via_grid_line(lpm[t3.up_down_layer], t3.tt->d[t3.up_down_layer], find_req, prob);
+		int ud1 = find_via_grid_line(lpm[t3.left_right_layer], t3.tt->d[t3.left_right_layer], find_req, prob);
+		CV_Assert(ud0 == 0 && ud1 == 1);
+		t3.tt->img_grid_x0 = t3.lt->img_grid_x0 + (int) t3.lt->d[0].gl_x.size() - 2;
+		t3.tt->img_grid_y0 = t3.ut->img_grid_y0 + (int) t3.ut->d[0].gl_y.size() - 2;
+		t3.tt->valid_grid_x0 = t3.tt->img_grid_x0 - GRID_COPY + 2;
+		t3.tt->valid_grid_y0 = t3.tt->img_grid_y0 - GRID_COPY + 2;
+		CV_Assert(abs(t3.tt->img_grid_x0 - t3.ut->img_grid_x0) <= 1 && abs(t3.tt->img_grid_y0 - t3.lt->img_grid_y0) <= 1);
+		t3.tt->tile_x = t3.ut->tile_x;
+		t3.tt->tile_y = t3.lt->tile_y;
+		CV_Assert(t3.tt->tile_x == t3.lt->tile_x + 1 && t3.tt->tile_y == t3.ut->tile_y + 1);
+		compute_g0 = QPoint(1, 1);
+	}
+		
+	for (int l = 0; l < lpm.size(); l++) {
+		FindViaGridLineReq find_req(GRID_MAX_BIAS_PIXEL_FOR_LAYER, GRID_MAX_BIAS_PIXEL_FOR_LAYER, true, true, true, true, false, false);
+		if (t3.debug) {
+			t3.tt->d[l].mark1.create(t3.tt->d[l].img.rows, t3.tt->d[l].img.cols, CV_8UC1);
+			t3.tt->d[l].mark1 = Scalar(0);
+		}
+		t3.tt->d[l].mark.create(t3.tt->d[l].img.rows, t3.tt->d[l].img.cols, CV_8UC1);
+		t3.tt->d[l].mark = M_UNKNOW;
+		if (l != t3.up_down_layer)
+			t3.tt->d[l].gl_x = t3.tt->d[t3.up_down_layer].gl_x;
+		if (l!=t3.left_right_layer)
+			t3.tt->d[l].gl_y = t3.tt->d[t3.left_right_layer].gl_y;
+		int up_down = find_via_grid_line(lpm[l], t3.tt->d[l], find_req, prob);
+		t3.tt->lg[2 * l].grid_rows = (int)t3.tt->d[l].gl_y.size() - 2 + ((t3.ut != NULL) ? GRID_COPY : 0);
+		t3.tt->lg[2 * l].grid_cols = (int)t3.tt->d[l].gl_x.size() - 2 + ((t3.lt != NULL) ? GRID_COPY : 0);
+		t3.tt->lg[2 * l].grid_infos.resize(t3.tt->lg[2 * l].grid_rows * t3.tt->lg[2 * l].grid_cols);
+		//Copy GridInfo
+		QPoint pic_g0(1, 1);
+		if (t3.lt != NULL) {
+			copy_grid_info(t3.lt->lg[2 * l], t3.tt->lg[2 * l],
+				QRect(t3.lt->lg[2 * l].grid_cols - GRID_COPY + 1, 1 + t3.tt->img_grid_y0 - t3.lt->img_grid_y0, GRID_COPY, t3.lt->lg[2 * l].grid_rows),
+				QPoint(1, 1));
+			pic_g0.setX(GRID_COPY + 1);
+		}
+		if (t3.ut != NULL) {
+			copy_grid_info(t3.ut->lg[2 * l], t3.tt->lg[2 * l],
+				QRect(1 + t3.tt->img_grid_x0 - t3.ut->img_grid_x0, t3.ut->lg[2 * l].grid_rows - GRID_COPY + 1, t3.ut->lg[2 * l].grid_cols, GRID_COPY),
+				QPoint(1, 1));
+			pic_g0.setY(GRID_COPY + 1);
+		}
+		post_process_via_prob(prob, lpm[l].param3, t3.tt->d[l].gl_x, t3.tt->d[l].gl_y,
+			t3.tt->lg[2 * l], pic_g0, t3.tt->d[l].mark1); //0, 2, 4 for via
+		if (l != 0) {
+			//TODO: suppose >0.6 is via, more precise? 
+#if 1
+			vector<QPoint> vias;
+			for (int y = 0; y < prob.rows; y++)
+				for (int x = 0; x < prob.cols; x++)
+					if (prob.at<float>(y, x)>0.6f)
+						vias.push_back(QPoint(t3.tt->d[l].gl_x[x], t3.tt->d[l].gl_y[y]));
+#endif
+
+			for (int i = 0; i < vias.size(); i++)
+				fill_circle(t3.tt->d[l].mark, vias[i].x(), vias[i].y(), lpm[l].via_rd + 2, M_V,
+				QRect(0, 0, t3.tt->d[l].img.cols, t3.tt->d[l].img.rows));
+			Mat img = t3.tt->d[l].img.clone();
+			remove_via(t3.tt->d[l].mark, img, up_down, lpm[l].grid_wd - lpm[l].wire_wd);
+
+			//compute grid prob		
+			compute_grid_prob(img, lpm[l], t3.tt->d[l].gl_x,
+				t3.tt->d[l].gl_y, lbrm[2 * l - 1].fit_mask, prob, t3.tt->d[l].mark1);
+			t3.tt->lg[2 * l - 1].grid_rows = (int)t3.tt->d[l].gl_y.size() - 2 + ((t3.ut != NULL) ? GRID_COPY : 0);
+			t3.tt->lg[2 * l - 1].grid_cols = (int)t3.tt->d[l].gl_x.size() - 2 + ((t3.lt != NULL) ? GRID_COPY : 0);
+			t3.tt->lg[2 * l - 1].grid_infos.resize(t3.tt->lg[2 * l - 1].grid_rows * t3.tt->lg[2 * l - 1].grid_cols);
+			//Copy GridInfo
+			if (t3.lt != NULL)
+				copy_grid_info(t3.lt->lg[2 * l - 1], t3.tt->lg[2 * l - 1],
+				QRect(t3.lt->lg[2 * l - 1].grid_cols - GRID_COPY + 1, 1 + t3.tt->img_grid_y0 - t3.lt->img_grid_y0, GRID_COPY, t3.lt->lg[2 * l - 1].grid_rows),
+				QPoint(1, 1));
+
+			if (t3.ut != NULL)
+				copy_grid_info(t3.ut->lg[2 * l - 1], t3.tt->lg[2 * l - 1],
+				QRect(1 + t3.tt->img_grid_x0 - t3.ut->img_grid_x0, t3.ut->lg[2 * l].grid_rows - GRID_COPY + 1, t3.ut->lg[2 * l].grid_cols, GRID_COPY),
+				QPoint(1, 1));
+
+			post_process_grid_prob(prob, t3.tt->d[l].gl_x, t3.tt->d[l].gl_y,
+				t3.tt->lg[2 * l - 1], pic_g0, t3.tt->d[l].mark1); //1,3, 5 for wire
+		}
+		if (!t3.debug) {
+			t3.tt->d[l].mark.release();
+			int offset = lpm[l].wire_wd / 2 + GRID_MAX_BIAS_PIXEL_FOR_LAYER + 1;
+			t3.tt->d[l].img(Rect(t3.tt->d[l].gl_x[t3.tt->d[l].gl_x.size() - 2] - offset, 0, 
+				t3.tt->d[l].img.cols - t3.tt->d[l].gl_x[t3.tt->d[l].gl_x.size() - 2] + offset, t3.tt->d[l].img.rows)).copyTo(t3.tt->d[l].mark);
+			t3.tt->d[l].img(Rect(0, t3.tt->d[l].gl_y[t3.tt->d[l].gl_y.size() - 2] - offset,
+				t3.tt->d[l].img.cols, t3.tt->d[l].img.rows - t3.tt->d[l].gl_y[t3.tt->d[l].gl_y.size() - 2] + offset)).copyTo(t3.tt->d[l].mark1);
+			t3.tt->d[l].img.release();
+		}
+	}
+	
+	assemble_grid_multilayer(t3.tt->lg, lbrm, *(t3.tt), QRect(compute_g0, QPoint(0x70000000, 0x70000000)), 1);
+	for (int l = 0; l < lpm.size(); l++) {
+		t3.tt->d[l].conet = t3.tt->d[l].conet(Rect(compute_g0.x(), compute_g0.y(),
+			t3.tt->d[l].conet.cols - compute_g0.x(), t3.tt->d[l].conet.rows - compute_g0.y()));
+	}
+}
+
+VWExtract * VWExtract::create_extract(int)
+{
+	return new VWExtractStat;
+}
+
+Mat VWExtractStat::get_mark(int layer) {
+	if (ts.empty())
+		return Mat();
+	CV_Assert(layer < lpm.size());
+	return ts[0].d[layer].mark;
+}
+Mat VWExtractStat::get_mark1(int layer) {
+	if (ts.empty())
+		return Mat();
+	CV_Assert(layer < lpm.size());
+	return ts[0].d[layer].mark1;
+}
+Mat VWExtractStat::get_mark2(int ) {
+	return Mat();
+}
+Mat VWExtractStat::get_mark3(int ) {
+	return Mat();
+}
+
+int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_sets)
+{
+	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2 - 1);
+	for (int l = 0; l < lpm.size(); l++) {
+		int lbrm_idx = (l == 0) ? 0 : 2 * l - 1;
+		lbrm[lbrm_idx].fit_mask = config_fit_mask(lpm[l].rule, lbrm[lbrm_idx].wwfm, lbrm[lbrm_idx].vwvfm);
+		lbrm[lbrm_idx + 1].fit_mask = 3;
+	}
 
 	ts.resize(1);
 	ts[0].d.resize(lpm.size());
@@ -1801,94 +2229,231 @@ int VWExtractStat::extract(string file_name, QRect , std::vector<MarkObj> & obj_
 	for (int l = 0; l < lpm.size(); l++) {
 		file_name[file_name.size() - 5] = ll++;
 		ts[0].d[l].img = imread(file_name, 0);
-		CV_Assert(ts[0].d[l].img.type() == CV_8UC1 && !ts[0].d[l].img.empty());		
+		CV_Assert(ts[0].d[l].img.type() == CV_8UC1 && !ts[0].d[l].img.empty());
 	}
 
-	//compute base gl_x and gl_y
-#if 1
-	{
-		int ud0 = find_via_grid_line(ts[0].d[0].img, lpm[0], ts[0].d[0], FindViaGridLineReq(0, 0, false, false, false, false), Mat());
-		int ud1 = find_via_grid_line(ts[0].d[1].img, lpm[1], ts[0].d[1], FindViaGridLineReq(0, 0, false, false, false, false), Mat());
-		CV_Assert(ud0 != ud1);
-		for (int l = 0; l < lpm.size(); l++) {
-			if (l != 0)
-				if (ud0 == 0)
-					ts[0].d[l].gl_x = ts[0].d[0].gl_x;
-				else
-					ts[0].d[l].gl_y = ts[0].d[0].gl_y;
-			if (l != 1)
-				if (ud1 == 0)
-					ts[0].d[l].gl_x = ts[0].d[1].gl_x;
-				else
-					ts[0].d[l].gl_y = ts[0].d[1].gl_y;
-		}
-	}
-#endif
-	for (int l = 0; l < lpm.size(); l++) {
-		ts[0].d[l].mark.create(ts[0].d[l].img.rows, ts[0].d[l].img.cols, CV_8UC1);
-		ts[0].d[l].mark1.create(ts[0].d[l].img.rows, ts[0].d[l].img.cols, CV_8UC1);
-		ts[0].d[l].mark = M_UNKNOW;
-		ts[0].d[l].mark1 = 0;
-
-		//compute lbrm based on rule
-		int lbrm_idx = (l == 0) ? 0 : 2 * l - 1;
-		lbrm[lbrm_idx].fit_mask = config_fit_mask(lpm[l].rule, lbrm[lbrm_idx].wwfm, lbrm[lbrm_idx].vwvfm);
-		lbrm[lbrm_idx + 1].fit_mask = 3; //for via
-
-		//find grid base line
-		int up_down = find_via_grid_line(ts[0].d[l].img, lpm[l], ts[0].d[l], FindViaGridLineReq(3, 3, true, true, true, true),
-			prob[2 * l]);
-		lg[2 * l].grid_rows = (int) ts[0].d[l].gl_y.size() - 2;
-		lg[2 * l].grid_cols = (int) ts[0].d[l].gl_x.size() - 2;
-		post_process_via_prob(prob[2 * l], lpm[l].param3, ts[0].d[l].gl_x, ts[0].d[l].gl_y,
-			lg[2 * l].grid_infos, ts[0].d[l].mark1); //0, 2, 4 for via
-		if (l == 0)
-			continue;
-
-		//remove via
-#if 1
-		vector<QPoint> vias;
-		for (int y = 0; y < prob[2 * l].rows; y++)
-			for (int x = 0; x < prob[2 * l].cols; x++)
-				if (prob[2 * l].at<float>(y, x)>0.6f)
-					vias.push_back(QPoint(ts[0].d[l].gl_x[x], ts[0].d[l].gl_y[y]));
-#endif
-		for (int i = 0; i < vias.size(); i++)
-			fill_circle(ts[0].d[l].mark, vias[i].x(), vias[i].y(), lpm[l].via_rd + 2, M_V, QRect(0, 0, ts[0].d[l].img.cols, ts[0].d[l].img.rows));
-		remove_via(ts[0].d[l].mark, ts[0].d[l].img, up_down, lpm[l].grid_wd - lpm[l].wire_wd);
-		string rmvia_file = "C:/chenyu/work/ChipPintu/images/remove_via_M";
-		rmvia_file += l;
-		rmvia_file += ".jpg";
-		imwrite(rmvia_file, ts[0].d[l].img);
-
-		//compute grid prob		
-		compute_grid_prob(ts[0].d[l].img, lpm[l], ts[0].d[l].gl_x,
-			ts[0].d[l].gl_y, lbrm[lbrm_idx].fit_mask, prob[2 * l - 1], ts[0].d[l].mark1);
-		lg[2 * l - 1].grid_rows = (int) ts[0].d[l].gl_y.size() - 2;
-		lg[2 * l - 1].grid_cols = (int) ts[0].d[l].gl_x.size() - 2;
-		post_process_grid_prob(prob[2 * l - 1], ts[0].d[l].gl_x, ts[0].d[l].gl_y,
-			lg[2 * l - 1].grid_infos, ts[0].d[l].mark1); //1,3, 5 for wire
-	}
-	for (int i = 0; i < prob.size(); i++)
-		CV_Assert(prob[i].size[0] == ts[0].d[(i + 1) / 2].gl_y.size() && prob[i].size[1] == ts[0].d[(i + 1) / 2].gl_x.size());
-
-	//init abm and then assemble grid based on prob
-	for (int i = 0; i < lg.size(); i++) {
-		int gi = 0;
-		for (int y = 0; y < lg[i].grid_rows; y++) {
-			for (int x = 0; x < lg[i].grid_cols; x++, gi++)
-				ABM(i, gi) = lbrm[i].fit_mask;
-		}
-	}
-	assemble_grid_multilayer(lg, lbrm, ts[0], 0);
-
-	//transfer grid prob to wire	
+	ProcessTileData ptd;
+	ptd.debug = true;
+	ptd.left_right_layer = 0;
+	ptd.up_down_layer = 1;
+	ptd.lbrm = &lbrm;
+	ptd.lpm = &lpm;
+	ptd.lt = NULL;
+	ptd.ut = NULL;
+	ptd.tt = &ts[0];
+	
+	process_tile(ptd);
+	ts[0].lg.clear();
 	obj_sets.clear();
-	for (int i = 0; i < lpm.size(); i++) {
-		if (i>0)
-			grid2_wire_obj(ts[0].d[i].conet, i, ts[0].d[i].gl_x, ts[0].d[i].gl_y, obj_sets);
-		grid2_via_obj(ts[0].d[i].conet, i, ts[0].d[i].gl_x, ts[0].d[i].gl_y, obj_sets);
-	}	
+	for (int l = 0; l < lpm.size(); l++) {
+		if (l>0)
+			grid2_wire_obj(ts[0].d[l].conet, l, ts[0].d[l].gl_x, ts[0].d[l].gl_y, obj_sets);
+		grid2_via_obj(ts[0].d[l].conet, l, ts[0].d[l].gl_x, ts[0].d[l].gl_y, obj_sets);
+	}
 	return 0;
 }
 
+int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
+{
+	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2 - 1);
+	for (int l = 0; l < lpm.size(); l++) {
+		int lbrm_idx = (l == 0) ? 0 : 2 * l - 1;
+		lbrm[lbrm_idx].fit_mask = config_fit_mask(lpm[l].rule, lbrm[lbrm_idx].wwfm, lbrm[lbrm_idx].vwvfm);
+		lbrm[lbrm_idx + 1].fit_mask = 3;
+	}
+#if SAVE_RST_TO_FILE
+	FILE * fp;
+	fp = fopen("result.txt", "w");
+#endif
+	int block_x, block_y;
+    ic_layer[0]->getBlockNum(block_x, block_y);
+    int scale = 32768 / ic_layer[0]->getBlockWidth();
+	vector <ProcessTileData> ptd_sets;
+	obj_sets.clear();
+	for (int area_idx = 0; area_idx < area_.size(); area_idx++) {
+		QRect sr = area_[area_idx].rect.marginsAdded(QMargins(lpm[0].grid_wd, lpm[0].grid_wd, lpm[0].grid_wd, lpm[0].grid_wd));
+		sr &= QRect(0, 0, block_x << 15, block_y << 15);
+		if (sr.width() <= 0x8000 || sr.height() <= 0x8000) {			
+			qWarning("Picture(%d,%d) too small!", sr.width(), sr.height());
+			continue;
+		}
+		
+		QRect sb(QPoint((sr.left() + 0x4000) >> 15, (sr.top() + 0x4000) >> 15), 
+			QPoint((sr.right() - 0x4000) >> 15, (sr.bottom() - 0x4000) >> 15));
+		CV_Assert(sb.right() >= sb.left() && sb.bottom() >= sb.top());
+		ts.resize(sb.width() * sb.height());
+		int lx = sr.left() - (sb.left() << 15);
+		int rx = sr.right() - ((sb.right() + 1) << 15);
+		int ty = sr.top() - (sb.top() << 15);		
+		int by = sr.bottom() - ((sb.bottom() + 1) << 15);
+		for (int xay = sb.left() + sb.top(); xay <= sb.right() + sb.bottom(); xay++) {
+			ptd_sets.clear();
+			for (int x0 = sb.left(); x0 <= sb.right(); x0++) {
+				int y0 = xay - x0;
+				//1 load image
+				if (sb.contains(x0, y0)) {		
+					//1.1 compute load image source and destination
+					int wide[3] = { 0 }, height[3] = { 0 }; //wide & height is image destination bound
+					
+					if (x0 == sb.left()) {
+						if (lx < 0) {
+							wide[0] = -lx / scale;
+                            wide[1] = ic_layer[0]->getBlockWidth();
+						} else
+                            wide[1] = ic_layer[0]->getBlockWidth() - lx / scale;
+					} 
+					if (x0 == sb.right()) {
+						if (rx > 0) {
+                            wide[1] = (wide[1] == 0) ? ic_layer[0]->getBlockWidth() : wide[1];
+							wide[2] = rx / scale;
+						} else
+                            wide[1] = ic_layer[0]->getBlockWidth() + rx / scale;
+					} 
+					if (x0 != sb.left() && x0 != sb.right())
+                        wide[1] = ic_layer[0]->getBlockWidth();
+
+					if (y0 == sb.top()) {
+						if (ty < 0) {
+							height[0] = -ty / scale;
+                            height[1] = ic_layer[0]->getBlockWidth();
+						} else
+                            height[1] = ic_layer[0]->getBlockWidth() - ty / scale;
+					} 
+					if (y0 == sb.bottom()) {
+						if (by > 0) {
+                            height[1] = (height[1] == 0) ? ic_layer[0]->getBlockWidth() : height[1];
+							height[2] = by / scale;
+						} else
+                            height[1] = ic_layer[0]->getBlockWidth() + by / scale;
+					}
+					if (y0 != sb.top() && y0 != sb.bottom())
+                        height[1] = ic_layer[0]->getBlockWidth();
+
+					ts[(y0 - sb.top()) * sb.width() + x0 - sb.left()].d.resize(lpm.size());
+					TileData * tt = &ts[(y0 - sb.top()) * sb.width() + x0 - sb.left()];
+					for (int l = 0; l < lpm.size(); l++) {
+						tt->d[l].img.create(height[0] + height[1] + height[2], wide[0] + wide[1] + wide[2], CV_8U);
+						for (int y = y0 - 1, img_y=0; y <= y0 + 1; y++) {
+							int dy = y - y0;
+							for (int x = x0 - 1, img_x = 0; x <= x0 + 1; x++) {
+								int dx = x - x0;
+								if (wide[dx + 1] != 0 && height[dy + 1] != 0) {
+									vector<uchar> encode_img;
+                                    if (ic_layer[l]->getRawImgByIdx(encode_img, x, y, 0, 0) != 0) {
+										qCritical("load image error at l=%d, (%d,%d)", l, x, y);
+										return -1;
+									}
+									Mat image = imdecode(Mat(encode_img), 0);
+									if (image.rows != image.cols) {
+										qCritical("load image rows!=cols at l=%d, (%d,%d)", l, x, y);
+										return -1;
+									}
+									QRect s(0, 0, image.cols, image.rows);
+									if (dx == -1)
+										s.setLeft(image.cols - wide[0]);
+									if (dx == 1)
+										s.setRight(wide[2] - 1);
+									if (dx == 0) {
+										if (wide[0] == 0 && x0 == sb.left())
+											s.setLeft(image.cols - wide[1]);
+										if (wide[2] == 0 && x0 == sb.right())
+											s.setRight(wide[1] - 1);
+									}
+									if (dy == -1)
+										s.setTop(image.rows - height[0]);
+									if (dy == 1)
+										s.setBottom(height[2] - 1);
+									if (dy == 0) {
+										if (height[0] == 0 && y0 == sb.top())
+											s.setTop(image.rows - height[1]);
+										if (height[2] == 0 && y0 == sb.bottom())
+											s.setBottom(height[1] - 1);
+									}
+									CV_Assert(s.width() == wide[dx + 1] && s.height() == height[dy + 1]);
+									if (l == 0)
+										qDebug("load image%d_%d, (%d,%d),(%d,%d)", y, x, s.left(), s.top(), s.width(), s.height());
+									image(Rect(s.left(), s.top(), s.width(), s.height())).copyTo(tt->d[l].img(Rect(img_x, img_y, wide[dx + 1], height[dy + 1])));
+								}
+								img_x += wide[dx + 1];
+							}
+							img_y += height[dy + 1];
+						}
+					}	
+					//2 prepare ProcessTileData
+					ProcessTileData ptd;
+					ptd.debug = false;
+					ptd.lbrm = &lbrm;
+					ptd.lpm = &lpm;
+					ptd.left_right_layer = 0; //TODO change
+					ptd.left_right_layer = 1;
+					ptd.tt = tt;
+					ptd.lt = (x0 == sb.left()) ? NULL : &ts[(y0 - sb.top()) * sb.width() + x0 - sb.left() - 1];
+					ptd.ut = (y0 == sb.top()) ? NULL : &ts[(y0 - sb.top() - 1) * sb.width() + x0 - sb.left()];
+					ptd_sets.push_back(ptd);
+				}
+			}
+			//3 ProcessTileData
+			for (int i = 0; i < ptd_sets.size(); i++)
+				process_tile(ptd_sets[i]);
+			//4 release previous lg memory
+			for (int x0 = sb.left(); x0 <= sb.right(); x0++) {
+				int y0 = xay - 1 - x0;
+				if (sb.contains(x0, y0)) {
+					ts[(y0 - sb.top()) * sb.width() + x0 - sb.left()].lg.clear();
+					for (int l = 0; l < lpm.size(); l++) {
+						ts[(y0 - sb.top()) * sb.width() + x0 - sb.left()].d[l].mark.release();
+						ts[(y0 - sb.top()) * sb.width() + x0 - sb.left()].d[l].mark1.release();
+					}						
+				}
+			}
+		}
+		for (int l = 0; l < lpm.size(); l++) {			
+			vector<int> gl_x, gl_y;
+			gl_x.push_back(sr.left() / scale + ts[0].d[l].gl_x[0]);
+			for (int x = sb.left(); x <= sb.right(); x++) {
+				for (int i = 1; i < ts[x - sb.left()].d[l].gl_x.size(); i++)
+					gl_x.push_back(gl_x.back() + ts[x - sb.left()].d[l].gl_x[i] - ts[x - sb.left()].d[l].gl_x[i - 1]);
+				if (x != sb.right())
+					gl_x.pop_back();
+			}
+			gl_y.push_back(sr.top() / scale + ts[0].d[l].gl_y[0]);
+			for (int y = sb.top(); y <= sb.bottom(); y++) {
+				for (int i = 1; i < ts[(y - sb.top()) * sb.width()].d[l].gl_y.size(); i++)
+					gl_y.push_back(gl_y.back() + ts[(y - sb.top()) * sb.width()].d[l].gl_y[i] -
+					ts[(y - sb.top()) * sb.width()].d[l].gl_y[i - 1]);
+				if (y != sb.bottom())
+					gl_y.pop_back();
+			}
+			Mat conet((int) gl_y.size() - 2, (int) gl_x.size() - 2, CV_8UC1);
+			Rect cr(0, 0, conet.cols, conet.rows);
+			for (int i = 0; i < ts.size(); i++) {
+				int x = ts[i].valid_grid_x0 - 1;
+				int y = ts[i].valid_grid_y0 - 1;
+				Rect sr(x, y, ts[i].d[l].conet.cols, ts[i].d[l].conet.rows);
+				Rect dr = sr & cr;
+				ts[i].d[l].conet(Rect(dr.x - sr.x, dr.y - sr.y, dr.width, dr.height)).copyTo(conet(dr));
+			}
+			if (l>0)
+				grid2_wire_obj(conet, l, gl_x, gl_y, obj_sets);
+			grid2_via_obj(conet, l, gl_x, gl_y, obj_sets);
+		}
+		for (int i = 0; i < obj_sets.size(); i++) {
+			obj_sets[i].p0 *= scale;
+			obj_sets[i].p1 *= scale;
+		}
+#if SAVE_RST_TO_FILE		
+		for (int i = 0; i < obj_sets.size(); i++) {
+			unsigned t = obj_sets[i].type;
+			t = (t << 8) | obj_sets[i].type2;
+			t = (t << 8) | obj_sets[i].type3;
+			fprintf(fp, "t=%d, (%d,%d)->(%d,%d)\n", t, obj_sets[i].p0.x(), obj_sets[i].p0.y(),
+				obj_sets[i].p1.x(), obj_sets[i].p1.y());
+		}
+#endif
+		ts.clear();
+	}
+#if SAVE_RST_TO_FILE
+	fclose(fp);
+#endif
+	return 0;
+}

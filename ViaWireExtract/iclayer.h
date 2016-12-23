@@ -20,8 +20,10 @@ public:
 class ICLayerWr
 {
 public:
-    ICLayerWr(string file, bool _read);
+	ICLayerWr();
+    ICLayerWr(string file, bool _read);	
     ~ICLayerWr();
+	void create(string file, bool _read);
     int getBlockWidth();
 	void getBlockNum(int & bx, int &by);
     int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved);

@@ -187,16 +187,25 @@ int ICLayer::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigne
     return 0;
 }
 
+ICLayerWr::ICLayerWr()
+{
+	layer_ = NULL;
+}
+
 ICLayerWr::ICLayerWr(string file, bool _read)
 {
-    layer_ = NULL;
-    layer_ = new ICLayer(file, _read);
+	create(file, _read);
 }
 
 ICLayerWr::~ICLayerWr()
 {
     if (layer_)
         delete(layer_);
+}
+
+void ICLayerWr::create(string file, bool _read)
+{
+	layer_ = new ICLayer(file, _read);
 }
 
 int ICLayerWr::getBlockWidth()

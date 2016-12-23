@@ -95,7 +95,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	mark_color.resize(sizeof(mark_color_table) / (sizeof(unsigned) * 2));
 	for (int i = 0; i < mark_color.size(); i++)
 		mark_color[mark_color_table[i][1]] = mark_color_table[i][0];
-	vwe = new VWExtractStat();
+	vwe = VWExtract::create_extract(0);
 	cele = new CellExtract();
 	current_train = NULL;
 }
@@ -644,17 +644,16 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 				len += sprintf(s + len, "f%d=%f,", i, feature[i]);
 			}
 		}
-		unsigned m;
+		unsigned m = 0;
 		int y = (event->pos()).y() / scale;
 		int x = (event->pos()).x() / scale;
 		Mat mark1 = current_train->get_mark1(layer);
 		Mat mark2 = current_train->get_mark2(layer);
 		Mat mark3 = current_train->get_mark3(layer);
-		if (!mark1.empty() && !mark2.empty() && !mark3.empty()) {
-			m = mark1.at<unsigned char>(y, x);
-			m = (mark2.at<unsigned char>(y, x) << 8) + m;
-			m = (mark3.at<unsigned char>(y, x) << 16) + m;
-		}
+		m |= mark1.empty() ? 0 : mark1.at<unsigned char>(y, x);
+		m |= mark2.empty() ? 0 : (int) mark2.at<unsigned char>(y, x) << 8;
+		m |= mark3.empty() ? 0 : (int) mark3.at<unsigned char>(y, x) << 16;
+		
 		sprintf(s, "%s, c=%x, m=%x", s, color, m);
 	}
     emit mouse_change(event->pos() / scale, QString(s));

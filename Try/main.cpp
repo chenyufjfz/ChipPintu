@@ -95,10 +95,10 @@ int main(int argc, char *argv[])
     QCoreApplication a(argc, argv);
 	qInstallMessageHandler(myMessageOutput);
 	qDebug("generate new database");
-    ICLayerWr new_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.dat", false);
-    new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 10, 20, 40, 50);
+    ICLayerWr new_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", false);
+    new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/M4/Project_", 1, 60, 1, 75);
 	qDebug("read new database");
-    ICLayerWr read_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.dat", true);
+    ICLayerWr read_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", true);
 
-    return a.exec();
+	printf("finished");
 }

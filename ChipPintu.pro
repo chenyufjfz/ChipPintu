@@ -4,4 +4,5 @@ SUBDIRS += \
     StitchView \
     FeatureExtract \
     ViaWireExtract \
-    Try
+    Try \
+    VWExtractLib
