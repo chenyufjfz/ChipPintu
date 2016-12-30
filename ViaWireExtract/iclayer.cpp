@@ -178,6 +178,10 @@ void ICLayer::putBlockNumWidth(int bx, int by, int width)
 
 int ICLayer::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved)
 {
+	if (x < 0 || y < 0 || x >= num_block_x || y >= num_block_y) {
+		qCritical("load image x=%d, y=%d, out of range", x, y);
+		return -1;
+	}
 	int idx = y*num_block_x + x;
     if (idx > corners.size()) return -3;
     if (ovr > 5)return -2;

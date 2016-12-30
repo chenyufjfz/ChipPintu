@@ -232,8 +232,8 @@ void ViaWireEditView::load_bk_image(QString file_path)
 		QImage img;
 		if (!img.load(QString::fromStdString(file_name)))
 			break;
-		bk_img.push_back(img);
-		qDebug("load image %s, format=%d", file_path.toStdString().c_str(), bk_img[bk_img.size() - 1].format());
+        qDebug("load image %s, format=%d", file_path.toStdString().c_str(), img.format());
+        bk_img.push_back(img.convertToFormat(QImage::Format_ARGB32));
 	}
 	if (bk_img.empty()) {
 		QMessageBox::warning(this, "Warning", "file is not a image");

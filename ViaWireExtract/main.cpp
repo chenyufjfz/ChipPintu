@@ -172,25 +172,27 @@ int cell_extract_test()
 int wire_extract_test()
 {
 	vector <MarkObj> objs;
-	ICLayerWr ic[3]; 
-	ic[0].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M2.dat", true);
-	ic[1].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M3.dat", true);
-	ic[2].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", true);
+	ICLayerWr ic[4]; 
+	ic[0].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", true);
+	ic[1].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M2.dat", true);
+	ic[2].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M3.dat", true);
+	ic[3].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", true);
     vector<ICLayerWr *> pic;
     pic.push_back(&ic[0]);
     pic.push_back(&ic[1]);
     pic.push_back(&ic[2]);
+	pic.push_back(&ic[3]);
 
 	VWExtract * vwe = VWExtract::create_extract(0);
-	vwe->set_extract_param(0, 10, 9, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
-		0.5, 0.5, 2, 0);
-	vwe->set_extract_param(1, 12, 10, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
+	vwe->set_extract_param(0, 4, 9, RULE_END_WITH_VIA, 16, 0.5, 0.5, 2, 0);
+	vwe->set_extract_param(1, 10, 9, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
 		0.5, 0.5, 2, 0);
 	vwe->set_extract_param(2, 12, 10, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
+		0.5, 0.5, 2, 0);
+	vwe->set_extract_param(3, 12, 10, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 16,
 		0.5, 0.5, 1, 0);
 	vector<SearchArea> search;
-	search.push_back(SearchArea(QRect(1430000, 586000, 65536, 65536), 0));
-	
+	search.push_back(SearchArea(QRect(QPoint(1428723, 618377), QPoint(1654771, 777865)), 0));
     vwe->extract(pic, search, objs);
 	return 0;
 }
@@ -210,11 +212,11 @@ int main(int argc, char *argv[])
 	waitKey();*/
 
 	//cell_extract_test();
-
+	qInstallMessageHandler(myMessageOutput);
+#if 0
 	wire_extract_test();
 	return 0;
-
-    qInstallMessageHandler(myMessageOutput);
+#endif
     w.show();
 
     return a.exec();
