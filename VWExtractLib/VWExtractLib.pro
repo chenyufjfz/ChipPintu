@@ -10,17 +10,17 @@ CONFIG(debug, debug|release) {
 TARGET = VWExtractd
 LIBS += -L$$_PRO_FILE_PWD_/../lib/debug
 INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/debug/
+DESTDIR = $$_PRO_FILE_PWD_/../../ChipAnalysis/lib/debug
 } else {
 TARGET = VWExtract
 LIBS += -L$$_PRO_FILE_PWD_/../lib/release
 INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/
+DESTDIR = $$_PRO_FILE_PWD_/../../ChipAnalysis/lib/release
 }
 LIBS += -L$$_PRO_FILE_PWD_/../lib
 
 TEMPLATE = lib
 CONFIG += staticlib
-
-DESTDIR = $$_PRO_FILE_PWD_/../app
 
 SOURCES += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.cpp
 HEADERS += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.h

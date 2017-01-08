@@ -64,11 +64,11 @@ void MainWindow::on_actionLoad_Image_triggered()
 
 	vw_view->load_bk_image(image_file_name);
 	vw_view->set_wire_para(0, 4, 9, 16, RULE_END_WITH_VIA, 0.5, 0.5, 2);
-	vw_view->set_wire_para(1, 10, 9, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA,
+	vw_view->set_wire_para(1, 10, 9, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP,
 		0.5, 0.5, 2);
-	vw_view->set_wire_para(2, 12, 10, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA,
+	vw_view->set_wire_para(2, 12, 10, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP,
 		0.5, 0.5, 2);
-	vw_view->set_wire_para(3, 12, 10, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA,
+	vw_view->set_wire_para(3, 12, 10, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP,
 		0.5, 0.5, 1);
 }
 
