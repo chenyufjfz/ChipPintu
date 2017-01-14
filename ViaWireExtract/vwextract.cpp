@@ -23,7 +23,7 @@ using namespace std;
 //BRICK_CHOOSE_NUM is How many brick candidate use
 #define BRICK_CHOOSE_NUM	5
 //CONFLICT_SEARCH_DEPTH is for fine adjust search length
-#define CONFLICT_SEARCH_DEPTH	4
+#define CONFLICT_SEARCH_DEPTH	8
 //EXTEND_VIA_FACTOR is for via & up_layer wire overlap
 #define EXTEND_VIA_FACTOR	0.7
 
@@ -196,6 +196,7 @@ static struct Brick {
 
 struct GridInfo {
 	int x, y;
+	int state; //only vaild for wire layer
 	vector<unsigned> brick_order; //first is prob, second is brick no
 	vector<int> brick_weight;
 	int brick_choose; //brick currently chosed
@@ -1719,6 +1720,7 @@ static void post_process_via_prob(const Mat & prob, float beta, vector<int> & gl
 #define BRICK_CHOOSE(l, gi) lg[l].grid_infos[gi].brick_choose
 #define BRICK_ORDER(l, gi, i) lg[l].grid_infos[gi].brick_order[i]
 #define BRICK_WEIGHT(l, gi, i) lg[l].grid_infos[gi].brick_weight[i]
+#define BRICK_STATE(l, gi) lg[l].grid_infos[gi].state
 #define VIA_BRICK_WEIGHT(l, gi, b) ((BRICK(BRICK_ORDER(l,gi,0)) ==b) ? BRICK_WEIGHT(l, gi,0) : BRICK_WEIGHT(l, gi,1))
 #define ABM(l, gi) lg[l].grid_infos[gi].abm
 
@@ -1764,10 +1766,13 @@ static void post_process_wire_via_prob(vector<LayerBrickRuleMask> & lbrm, vector
 						i2 = via_extend_improve[i][2];
 					}
 				}
-				if (i1 >= 0) { //Let BRICK_i increase probability
+				if (i1 >= 0) { //Let BRICK_i increase probability, mainly increase brick-i for wire end
+					float factor = EXTEND_VIA_FACTOR * PROB(BRICK_ORDER(l1, gi, 0)) * 2/ (PROB(BRICK_ORDER(l1, gi, 0)) + PROB(BRICK_ORDER(l1, gi, 1)))
+						- EXTEND_VIA_FACTOR;
+					CV_Assert(factor >= 0);
 					for (unsigned i = 0; i <lg[l].grid_infos[gi].brick_order.size(); i++)
 						if (BRICK(BRICK_ORDER(l, gi, i)) == i1 || BRICK(BRICK_ORDER(l, gi, i)) == i2) {
-							int prob = EXTEND_VIA_FACTOR * PROB(BRICK_ORDER(l, gi, 0)) + (1 - EXTEND_VIA_FACTOR) * PROB(BRICK_ORDER(l, gi, i));
+						int prob = factor * PROB(BRICK_ORDER(l, gi, 0)) + (1 - factor) * PROB(BRICK_ORDER(l, gi, i));
 							BRICK_ORDER(l, gi, i) = MAKE_BRICK_ORDER(prob, BRICK(BRICK_ORDER(l, gi, i)));
 						}
 				}
@@ -1782,7 +1787,8 @@ static void post_process_wire_via_prob(vector<LayerBrickRuleMask> & lbrm, vector
 				BRICK_WEIGHT(l, gi, i) = PROB(BRICK_ORDER(l, gi, i));
 			}
 			bool renorm = false;
-			int via_punish = 0.1 * (PROB(BRICK_ORDER(l1, gi, 0)) + PROB(BRICK_ORDER(l2, gi, 0)));
+			int via_punish = 0.1 * min(PROB(BRICK_ORDER(l1, gi, 0)) - PROB(BRICK_ORDER(l1, gi, 1)), 
+				PROB(BRICK_ORDER(l2, gi, 0)) - PROB(BRICK_ORDER(l2, gi, 1))); //mainly punish brick-i to kill wire end
 			tot = 0;
 			for (unsigned i = 0; i < lg[l].grid_infos[gi].brick_order.size(); i++) {
 				if (!(lbrm[l].vwvfm[BRICK(BRICK_ORDER(l1, gi, 0))][BRICK(BRICK_ORDER(l2, gi, 0))] &
@@ -1850,6 +1856,8 @@ In: lbrm, rule for brick fit, 2*img_layer-1
 Inout: lg, in brick_order and out brick_choose, 2*img_layer-1
 0,2,4 for via;
 1,3,5 for wire,
+In: path, store real point
+In: expand, store virtual point
 */
 static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg, vector<unsigned> & path, vector <unsigned> expand)
 {
@@ -1858,7 +1866,7 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 	if (score < best.best_score || path.size() + expand.size() > max_path)
 		return;
 		
-	//1 Check all unfit nearby brick of path.back, push the grid to expand queue
+	//1 Check all unfit nearby brick of path.back, push the unfit grid to expand queue (generate new virtual point)
 	if (!path.empty()) {
 		loc = path.back();
 		l = _LAYER(loc);
@@ -1878,7 +1886,7 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 					if (BRICK_PREFER(l, gi1) != BRICK_INVALID)
 						CV_Assert(abm & 1ULL << BRICK_PREFER(l, gi1)); //make sure all path brick is satisfied abm
 					else {
-						if (!(abm & 1ULL << BRICK_CHOOSE(l, gi1))) //found nearby unfit brick, push to expand 
+						if (!(abm & 1ULL << BRICK_CHOOSE(l, gi1)) || BRICK_STATE(l,gi1)==0) //found nearby unfit brick, push to expand 
 							expand.push_back(MAKE_LOC(l, gi1));
 					}
 				}
@@ -1919,7 +1927,7 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 					ll[1] = l - 2;
 				}
 				CV_Assert(BRICK_PREFER(ll[0], gi) == BRICK_INVALID);
-				if (BRICK_PREFER(ll[1], gi) != BRICK_INVALID)
+				if (BRICK_PREFER(ll[1], gi) != BRICK_INVALID || BRICK_STATE(ll[0], gi) == 0)
 					expand.push_back(MAKE_LOC(ll[0], gi));
 				else
 					for (int i = 1; i >= 0; i--)	{
@@ -1933,7 +1941,21 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 			}
 		}
 	}
-	if (expand.empty()) {
+	bool expand_empty = true;
+	while (!expand.empty()) {
+		loc = expand.back();
+		l = _LAYER(loc);
+		gi = _GI(loc);
+		expand.pop_back();
+		if (BRICK_PREFER(l, gi) == BRICK_INVALID) { //check if it is already turn to real point
+			expand_empty = false;
+			break;
+		}
+	}
+	if (path.size() + expand.size() >= max_path)
+		return;
+
+	if (expand_empty) {
 		if (best.best_score < score) {
 			best.best_score = score;
 			best.best_path = path;
@@ -1947,16 +1969,13 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 		}
 		return;
 	}
-	//2 pop-back expand queue, calculate abm, and choose two brick with biggest probability TODO: need to choose 3 brick?
-	loc = expand.back();
-	l = _LAYER(loc);
-	gi = _GI(loc);
-	expand.pop_back();
+	//2 pop-back expand queue, calculate abm, and choose two brick with biggest probability (Turn virtual point to real point) 
+	//TODO: need to choose 3 brick?	
 	x = lg[l].grid_infos[gi].x;
 	y = lg[l].grid_infos[gi].y;	
 	if (l % 2 == 1) { // is wire layer
 		CV_Assert(BRICK_PREFER(l, gi) == BRICK_INVALID);
-		unsigned long long abm = ABM(l, gi);
+		unsigned long long abm = ABM(l, gi); //following compute abm of brick prefer
 		for (int dir = 0; dir <= 3; dir++) {
 			int y1 = y + dxy[dir][0];
 			int x1 = x + dxy[dir][1];
@@ -1971,8 +1990,7 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 			lg[l + 1].grid_infos[gi].x == x && lg[l + 1].grid_infos[gi].y == y);
 		if (BRICK_PREFER(l - 1, gi) != BRICK_INVALID && BRICK_PREFER(l + 1, gi) != BRICK_INVALID)
 			abm &= lbrm[l].vwvfm[BRICK_PREFER(l - 1, gi)][BRICK_PREFER(l + 1, gi)];
-		CV_Assert(path.empty() || !(abm & 1ULL << BRICK_CHOOSE(l, gi))); //Make sure expand is realy unfit
-		
+				
 		int max = -PROB2_INT, submax = -PROB2_INT;
 		int max_b = BRICK_INVALID, submax_b = BRICK_INVALID;
 		int cur_prob = -1, max_prob = -1, submax_prob;
@@ -1996,7 +2014,7 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 					}
 			}
 		}
-		CV_Assert(path.empty() || submax_b != BRICK_CHOOSE(l, gi) && max_b != BRICK_CHOOSE(l, gi));
+		
 		//3 try two brick
 		path.push_back(loc);
 		if (max_b != BRICK_INVALID) {
@@ -2146,53 +2164,81 @@ static void coarse_assemble_multilayer(const vector<LayerBrickRuleMask> & lbrm, 
 	if (method == OBEY_RULE_WEAK)
 		return;
 
-	set<unsigned long long> unfit_set;
+	set<unsigned long> unfit_set;
 	int bc_strong = 0;
 	long long bc_score = 0;
+	/*
 #define MAKE_UNFIT(lgi0, lgi1) ((lgi0) < (lgi1) ? (unsigned long long) (lgi0) << 32 | (lgi1) : (unsigned long long) (lgi1) << 32 | (lgi0))
 #define _LGI1(uf) (uf & 0xffffffff)
-#define _LGI0(uf) (uf >> 32)
+#define _LGI0(uf) (uf >> 32)*/
 
 	for (int l = 1; l < layer_num; l += 2) //only check wire layer
 		for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++) {
 			int x = lg[l].grid_infos[gi].x;
 			int y = lg[l].grid_infos[gi].y;
-			if (!ar.contains(x, y, true))
+			if (!ar.contains(x, y, true)) {
+				BRICK_STATE(l, gi) = 1;
 				continue;
+			}				
 			unsigned long long abm;
 			unsigned lgi = check_nearby_unfit(l, gi, lbrm, lg, abm);
 			
-			if (lgi != 0xffffffff)
-				unfit_set.insert(MAKE_UNFIT(MAKE_LOC(l,gi), lgi));									
+			if (lgi != 0xffffffff) {
+				BRICK_STATE(l, gi) = 0;				
+				unfit_set.insert(MAKE_LOC(l, gi));
+			} else
+				BRICK_STATE(l, gi) = 1;
 		}
 
-	while (!unfit_set.empty()) {
-		FineAdjustAnswer best0, best1;
-		vector<unsigned> path, expand;
-		unsigned lgi0 = _LGI0(*unfit_set.begin());
-		unsigned lgi1 = _LGI1(*unfit_set.begin());
+	while (!unfit_set.empty()) {		
+		unsigned lgi0 = *unfit_set.begin();
 		unfit_set.erase(unfit_set.begin());
-
-		best0.best_score = -100 * PROB2_INT;		
-		expand.push_back(lgi0);		
-		fine_adjust(0, best0, CONFLICT_SEARCH_DEPTH, lbrm, lg, path, expand);		
-		CV_Assert(path.empty());
-		expand.pop_back();
-
-		best1.best_score = best0.best_score;
-		expand.push_back(lgi1);
-		fine_adjust(0, best1, CONFLICT_SEARCH_DEPTH, lbrm, lg, path, expand);
-		CV_Assert(path.empty());
-		expand.pop_back();
-
-		FineAdjustAnswer & best = (best0.best_score >= best1.best_score) ? best0 : best1;
-		for (unsigned i = 0; i < best.best_path.size(); i++) {
-			unsigned loc = best.best_path[i];
-			unsigned l = _LAYER(loc);
-			unsigned gi = _GI(loc);
-			CV_Assert(BRICK_PREFER(l, gi) == BRICK_INVALID);
-			BRICK_CHOOSE(l, gi) = best.brick[i];
+		vector<unsigned> search_unfit_queue;
+		set<unsigned> nearby_unfit;
+		search_unfit_queue.push_back(lgi0);
+		
+		//Put all lgi0 nearby unfit grid to nearby_unfit, and delete them from unfit_set
+		while (!search_unfit_queue.empty()) {
+			lgi0 = search_unfit_queue.back();
+			search_unfit_queue.pop_back();
+			nearby_unfit.insert(lgi0);
+			int l = _LAYER(lgi0);
+			int gi = _GI(lgi0);
+			CV_Assert(BRICK_STATE(l, gi) == 0);
+			for (int dir = 0; dir <= 3; dir++) {
+				int gi1 = gi + lg[l].grid_cols * dxy[dir][0] + dxy[dir][1];
+				if (unfit_set.find(MAKE_LOC(l, gi1)) != unfit_set.end()) {
+					unfit_set.erase(MAKE_LOC(l, gi1));
+					search_unfit_queue.push_back(MAKE_LOC(l, gi1));
+				}
+			}
 		}
+
+		FineAdjustAnswer best;
+		vector<unsigned> path, expand;
+		best.best_score = -100 * PROB2_INT;
+		int depth = nearby_unfit.size() + 2;
+
+		if (depth <= CONFLICT_SEARCH_DEPTH) {
+			while (!nearby_unfit.empty()) {
+				lgi0 = *nearby_unfit.begin();
+				nearby_unfit.erase(nearby_unfit.begin());
+				expand.push_back(lgi0);
+				fine_adjust(0, best, depth, lbrm, lg, path, expand);
+				CV_Assert(path.empty());
+				expand.pop_back();
+			}
+		}
+
+		if (best.best_score > -100 * PROB2_INT)
+			for (unsigned i = 0; i < best.best_path.size(); i++) {
+				unsigned loc = best.best_path[i];
+				unsigned l = _LAYER(loc);
+				unsigned gi = _GI(loc);
+				CV_Assert(BRICK_PREFER(l, gi) == BRICK_INVALID);
+				BRICK_CHOOSE(l, gi) = best.brick[i];
+				BRICK_STATE(l, gi) = 1;
+			}
 		bc_strong++;
 		bc_score += best.best_score;
 	}
