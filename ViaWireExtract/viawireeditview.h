@@ -18,6 +18,7 @@ public:
 	int mark_state, mark_type2, layer;
 	unsigned mark_mask, show_debug_en;
 	vector<LayerParam> lpm;
+	bool hide_obj;
 
 signals:
 	void mouse_change(QPoint pos, QString msg);
@@ -34,8 +35,8 @@ public:
     void extract();
 	void show_mark(unsigned _mark_mask);
 	void show_debug(bool _show_debug_en);
-	void set_wire_para(int _layer, int _wire_width, int _via_radius, int _grid_size, int _rule, 
-		float _param1, float _param2, float _param3);
+	void set_wire_para(int _layer, int _wire_width, int _via_radius, int _grid_size, int _rule, int _warning_rule, 
+		float _param1, float _param2, float _param3, float _param4);
 
     void set_scale(int _scale);
     int get_scale();

@@ -584,7 +584,7 @@ int CellExtract::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea
     obj_sets.clear();
 
 	//1 Do some check and sort area
-    qInfo("Allow total similar th=%f, block similar th=%f, s", 1 - param1, param2);
+    qInfo("Allow total similar th=%f, block similar th=%f. overlap > %f", 1 - param1, param2, param3);
     if (area_[0].option & (POWER_UP | POWER_DOWN)) {
         for (int i = 0; i < area_.size(); i++) {
             qInfo("Receive search rect(%d,%d) (%d,%d)", area_[i].rect.left(), area_[i].rect.top(),

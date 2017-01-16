@@ -63,13 +63,13 @@ void MainWindow::on_actionLoad_Image_triggered()
                         "Images (*.png *.xpm *.jpg)");
 
 	vw_view->load_bk_image(image_file_name);
-	vw_view->set_wire_para(0, 4, 9, 16, RULE_END_WITH_VIA, 0.5, 0.5, 1);
-	vw_view->set_wire_para(1, 10, 9, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP,
-		0.5, 0.5, 2);
-	vw_view->set_wire_para(2, 12, 10, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP,
-		0.5, 0.5, 2);
-	vw_view->set_wire_para(3, 12, 10, 16, RULE_NO_LOOP | RULE_NO_hCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP,
-		0.5, 0.5, 1);
+	vw_view->set_wire_para(0, 4, 9, 16, RULE_END_WITH_VIA, RULE_END_WITH_VIA, 0.5, 0.5, 1, 0);
+	vw_view->set_wire_para(1, 10, 9, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
+		RULE_NO_hCONN, 0.5, 0.5, 2, 0);
+	vw_view->set_wire_para(2, 12, 10, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
+		RULE_NO_hCONN, 0.5, 0.5, 2, 0);
+	vw_view->set_wire_para(3, 12, 10, 16, RULE_NO_LOOP | RULE_NO_hCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
+		0, 0.5, 0.5, 1, 0);
 }
 
 void MainWindow::on_actionGenerate_Grid_triggered()
@@ -230,11 +230,11 @@ void MainWindow::on_actionZoom_out_triggered()
 
 void MainWindow::on_actionSet_Param_triggered()
 {
-	WireViaParamDialog wv_dlg(this, 0, 10, 9, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 
-		0.5f, 0.5f, 0.5f);
+	WireViaParamDialog wv_dlg(this, 0, 10, 9, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 0, 
+		0.5f, 0.5f, 0.5f, 0);
     if (wv_dlg.exec() == QDialog::Accepted)
-		vw_view->set_wire_para(wv_dlg.layer, wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.grid_size, wv_dlg.rule, 
-			wv_dlg.param1, wv_dlg.param2, wv_dlg.param3);
+		vw_view->set_wire_para(wv_dlg.layer, wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.grid_size, wv_dlg.rule, wv_dlg.warning_rule,
+			wv_dlg.param1, wv_dlg.param2, wv_dlg.param3, wv_dlg.param4);
 
 }
 

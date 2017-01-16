@@ -54,7 +54,9 @@ using namespace std;
 #define DIR_RIGHT_MASK		(1 << DIR_RIGHT)
 #define DIR_DOWN_MASK		(1 << DIR_DOWN)
 #define DIR_LEFT_MASK		(1 << DIR_LEFT)
-#define VIA_MASK			(1 << 5)
+#define VIA_MASK			(1 << 4)
+#define UNSURE_SHIFT		5
+#define UNSURE_MASK			(7 << UNSURE_SHIFT)
 #define SAVE_RST_TO_FILE	1
 
 #define SGN(x) (((x)>0) ? 1 : (((x)==0) ? 0 : -1))
@@ -197,6 +199,7 @@ static struct Brick {
 struct GridInfo {
 	int x, y;
 	int state; //only vaild for wire layer
+	float prob; //error probability, bigger more error, only vaild for wire layer
 	vector<unsigned> brick_order; //first is prob, second is brick no
 	vector<int> brick_weight;
 	int brick_choose; //brick currently chosed
@@ -216,6 +219,7 @@ struct LayerBrickRuleMask {
 	unsigned long long wwfm[64][4]; //wire wire fit mask
 	unsigned long long vwvfm[2][2]; //via - wire -via fit mask
 	unsigned long long fit_mask; //wire available mask
+	void config(unsigned long long _rule);
 };
 
 struct LayerGridInfo {
@@ -254,6 +258,7 @@ struct ProcessTileData {
 	const TileData * lt;
 	TileData * tt;
 	vector<LayerBrickRuleMask> * lbrm;
+	vector<LayerBrickRuleMask> * warn_lbrm;
 	vector<LayerParam> * lpm;
 	bool debug;
 	int up_down_layer, left_right_layer;
@@ -1721,6 +1726,7 @@ static void post_process_via_prob(const Mat & prob, float beta, vector<int> & gl
 #define BRICK_ORDER(l, gi, i) lg[l].grid_infos[gi].brick_order[i]
 #define BRICK_WEIGHT(l, gi, i) lg[l].grid_infos[gi].brick_weight[i]
 #define BRICK_STATE(l, gi) lg[l].grid_infos[gi].state
+#define BRICK_PROB(l, gi) lg[l].grid_infos[gi].prob
 #define VIA_BRICK_WEIGHT(l, gi, b) ((BRICK(BRICK_ORDER(l,gi,0)) ==b) ? BRICK_WEIGHT(l, gi,0) : BRICK_WEIGHT(l, gi,1))
 #define ABM(l, gi) lg[l].grid_infos[gi].abm
 
@@ -1732,7 +1738,7 @@ Inout: lg, in brick_order and out brick_choose, 2*img_layer-1
 0,2,4 for via;
 1,3,5 for wire,
 */
-static void post_process_wire_via_prob(vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg)
+static void post_process_wire_via_prob(const vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg)
 {
 	static int via_extend_improve[][3] = {
 			{ BRICK_I_0 , BRICK_i_0, BRICK_i_180},
@@ -1807,6 +1813,8 @@ static void post_process_wire_via_prob(vector<LayerBrickRuleMask> & lbrm, vector
 	//2 post process via prob
 	for (unsigned l = 0; l < lg.size(); l += 2) {
 		for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++) {
+			if (lg[l].grid_infos[gi].brick_order.empty())
+				continue;
 			lg[l].grid_infos[gi].brick_weight.resize(2);
 			BRICK_WEIGHT(l, gi, 0) = PROB(BRICK_ORDER(l, gi, 0));
 			BRICK_WEIGHT(l, gi, 1) = PROB(BRICK_ORDER(l, gi, 1));
@@ -1926,7 +1934,9 @@ static void fine_adjust(int score, FineAdjustAnswer & best, int max_path, const 
 					ll[0] = l - 1;
 					ll[1] = l - 2;
 				}
-				CV_Assert(BRICK_PREFER(ll[0], gi) == BRICK_INVALID);
+				if (BRICK_PREFER(ll[0], gi) != BRICK_INVALID)
+					return;
+				
 				if (BRICK_PREFER(ll[1], gi) != BRICK_INVALID || BRICK_STATE(ll[0], gi) == 0)
 					expand.push_back(MAKE_LOC(ll[0], gi));
 				else
@@ -2084,8 +2094,9 @@ Inout: lg, in brick_order and out brick_choose, 2*img_layer-1
 0,2,4 for via;
 1,3,5 for wire,
 out: abm
+Return: 0xffffffff means good, else means 1st conflict (l,gi)
 */
-static unsigned check_nearby_unfit(int l, int gi, const vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg, unsigned long long & abm)
+static unsigned check_nearby_unfit(int l, int gi, const vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg, unsigned long long & abm, bool check_adj_via=false)
 {
 	CV_Assert((l & 1) == 1);
 	
@@ -2093,14 +2104,18 @@ static unsigned check_nearby_unfit(int l, int gi, const vector<LayerBrickRuleMas
 	int y = lg[l].grid_infos[gi].y;
 	abm = ABM(l, gi);
 	unsigned lgi = 0xffffffff;
+	if (BRICK_CHOOSE(l + 1, gi) == 0) //no via, no check_adj_via
+		check_adj_via = false;
 	for (int dir = 0; dir <= 3; dir++) {
 		int y1 = y + dxy[dir][0];
 		int x1 = x + dxy[dir][1];
 		int gi1 = gi + lg[l].grid_cols * dxy[dir][0] + dxy[dir][1];
-		if (y1 > 0 && y1 <= lg[l].grid_rows && x1 > 0 && x1 <= lg[l].grid_cols) {
+		if (y1 > 0 && y1 <= lg[l].grid_rows && x1 > 0 && x1 <= lg[l].grid_cols && !lg[l].grid_infos[gi1].brick_order.empty()) {
 			CV_Assert(lg[l].grid_infos[gi1].x == x1 && lg[l].grid_infos[gi1].y == y1);
 			abm &= lbrm[l].wwfm[BRICK_CHOOSE(l, gi1)][(dir + 2) & 3];
 			if (!(abm & 1ULL << BRICK_CHOOSE(l, gi)) && lgi == 0xffffffff) // check unfit
+				lgi = MAKE_LOC(l, gi1);
+			if (check_adj_via && BRICK_CHOOSE(l + 1, gi1) && (bricks[BRICK_CHOOSE(l, gi)].shape & 1<<dir)) 
 				lgi = MAKE_LOC(l, gi1);
 		}
 	}
@@ -2113,6 +2128,43 @@ static unsigned check_nearby_unfit(int l, int gi, const vector<LayerBrickRuleMas
 	return lgi;
 }
 /*
+In: l, layer, must be wire layer
+Inout: lg, in brick_order and out brick_choose, 2*img_layer-1
+0,2,4 for via;
+1,3,5 for wire,
+In: ar, area rect
+*/
+static int remove_adj_vias(int l, vector<LayerGridInfo> & lg, const QRect & ar)
+{
+	int remove_num = 0;
+	CV_Assert(l % 2 == 1);
+	for (unsigned gi = 0; gi < lg[l].grid_infos.size(); gi++)
+		if (BRICK_CHOOSE(l+1, gi) && !lg[l+1].grid_infos[gi].brick_order.empty()) { // have via, check adj
+			int x = lg[l].grid_infos[gi].x;
+			int y = lg[l].grid_infos[gi].y;				
+			if (ar.contains(x, y, true)) {
+				int shape = bricks[BRICK_CHOOSE(l, gi)].shape;
+				for (int dir = 0; dir <= 3; dir++)
+					if (shape & 1 << dir) { //adj connected, check if it have via
+						int y1 = y + dxy[dir][0];
+						int x1 = x + dxy[dir][1];
+						int gi1 = gi + lg[l].grid_cols * dxy[dir][0] + dxy[dir][1];
+						if (ar.contains(x1, y1, true) && y1 > 0 && y1 <= lg[l].grid_rows && x1 > 0 && x1 <= lg[l].grid_cols && BRICK_CHOOSE(l + 1, gi1))
+							shape &= ~(1 << dir);
+					}
+				if (shape != bricks[BRICK_CHOOSE(l, gi)].shape) {
+					for (int i = 0; i < sizeof(bricks) / sizeof(bricks[0]); i++)
+						if (bricks[i].shape == shape) {
+							BRICK_CHOOSE(l, gi) = i;
+							remove_num++;
+						}
+				}
+			}
+		}
+	return remove_num;
+}
+
+/*
 In: lbrm, rule for brick fit, 2*img_layer-1
 		0,2,4 for via;
 		1,3,5 for wire,
@@ -2120,6 +2172,7 @@ Inout: lg, in brick_order and out brick_choose, 2*img_layer-1
        0,2,4 for via; 
 	   1,3,5 for wire, 
 In: ar, only assemble grid's brick truly inside ar (not in edge)
+In: method, IGNORE_ALL_RULE or OBEY_RULE_WEAK or OBEY_RULE_STRONG
 */
 static void coarse_assemble_multilayer(const vector<LayerBrickRuleMask> & lbrm, vector<LayerGridInfo> & lg, const QRect & ar, int method)
 {
@@ -2178,30 +2231,35 @@ static void coarse_assemble_multilayer(const vector<LayerBrickRuleMask> & lbrm, 
 			int y = lg[l].grid_infos[gi].y;
 			if (!ar.contains(x, y, true)) {
 				BRICK_STATE(l, gi) = 1;
+				BRICK_PROB(l, gi) = 0;
 				continue;
 			}				
 			unsigned long long abm;
 			unsigned lgi = check_nearby_unfit(l, gi, lbrm, lg, abm);
 			
 			if (lgi != 0xffffffff) {
-				BRICK_STATE(l, gi) = 0;				
+				BRICK_STATE(l, gi) = 0;	
+				BRICK_PROB(l, gi) = 1;
 				unfit_set.insert(MAKE_LOC(l, gi));
-			} else
+			}
+			else {
 				BRICK_STATE(l, gi) = 1;
+				BRICK_PROB(l, gi) = 0;
+			}
 		}
 
 	while (!unfit_set.empty()) {		
 		unsigned lgi0 = *unfit_set.begin();
 		unfit_set.erase(unfit_set.begin());
 		vector<unsigned> search_unfit_queue;
-		set<unsigned> nearby_unfit;
+		vector<unsigned> nearby_unfit;
 		search_unfit_queue.push_back(lgi0);
 		
 		//Put all lgi0 nearby unfit grid to nearby_unfit, and delete them from unfit_set
 		while (!search_unfit_queue.empty()) {
 			lgi0 = search_unfit_queue.back();
 			search_unfit_queue.pop_back();
-			nearby_unfit.insert(lgi0);
+			nearby_unfit.push_back(lgi0);
 			int l = _LAYER(lgi0);
 			int gi = _GI(lgi0);
 			CV_Assert(BRICK_STATE(l, gi) == 0);
@@ -2221,8 +2279,8 @@ static void coarse_assemble_multilayer(const vector<LayerBrickRuleMask> & lbrm, 
 
 		if (depth <= CONFLICT_SEARCH_DEPTH) {
 			while (!nearby_unfit.empty()) {
-				lgi0 = *nearby_unfit.begin();
-				nearby_unfit.erase(nearby_unfit.begin());
+				lgi0 = nearby_unfit.back();
+				nearby_unfit.pop_back();
 				expand.push_back(lgi0);
 				fine_adjust(0, best, depth, lbrm, lg, path, expand);
 				CV_Assert(path.empty());
@@ -2230,19 +2288,28 @@ static void coarse_assemble_multilayer(const vector<LayerBrickRuleMask> & lbrm, 
 			}
 		}
 
-		if (best.best_score > -100 * PROB2_INT)
+		if (best.best_score > -100 * PROB2_INT) {
 			for (unsigned i = 0; i < best.best_path.size(); i++) {
 				unsigned loc = best.best_path[i];
 				unsigned l = _LAYER(loc);
 				unsigned gi = _GI(loc);
 				CV_Assert(BRICK_PREFER(l, gi) == BRICK_INVALID);
 				BRICK_CHOOSE(l, gi) = best.brick[i];
-				BRICK_STATE(l, gi) = 1;
+				if (l % 2 == 1) {
+					BRICK_STATE(l, gi) = 1;
+					BRICK_PROB(l, gi) = best.best_score > 0 ? 0 : (float) -best.best_score / PROB2_INT;
+				}
 			}
-		bc_strong++;
-		bc_score += best.best_score;
+			bc_strong++;
+			bc_score += best.best_score;
+		}
 	}
 	qDebug("brick change=%d, brick score change = %d", bc_strong, bc_score);
+	int remove_num = 0;
+	for (int l = 1; l < layer_num; l += 2)
+		if (lbrm[l].rule & RULE_NO_ADJ_VIA_CONN)
+			remove_num += remove_adj_vias(l, lg, ar);
+	qDebug("adj via remove_num=%d", remove_num);
 }
 
 /*
@@ -2252,8 +2319,8 @@ In: lg.brick_order
 In: lbrm, (2*img_layer-1), it represents rules for neighbor wire & wire, via & wire & via
 InOut: td,(img_layer) in td.gl_x, td.gl_y, out  brick shape
 */
-static void assemble_grid_multilayer(vector<LayerGridInfo> & lg, vector<LayerBrickRuleMask> & lbrm,
-	TileData & td, const QRect & ar, int method)
+static void assemble_grid_multilayer(vector<LayerGridInfo> & lg, const vector<LayerBrickRuleMask> & lbrm,
+	const vector<LayerBrickRuleMask> & warn_lbrm, TileData & td, const QRect & ar, int method)
 {
 	
 	CV_Assert(lg.size() % 2 == 1 && lg.size()==lbrm.size());	
@@ -2288,32 +2355,46 @@ static void assemble_grid_multilayer(vector<LayerGridInfo> & lg, vector<LayerBri
 	post_process_wire_via_prob(lbrm, lg);
 	coarse_assemble_multilayer(lbrm, lg, ar, method);
 
-	for (int i = 0; i < lg.size(); i++) {
+	for (int l = 0; l < lg.size(); l++) {
 		int gi = 0;
-		if (i==0 || i%2==1)
-			td.d[(i + 1) / 2].conet.create(lg[i].grid_rows, lg[i].grid_cols, CV_8UC1);
-		for (int y = 0; y < lg[i].grid_rows; y++) {			
-			unsigned char * p_con = td.d[(i + 1) / 2].conet.ptr<unsigned char>(y);
-			for (int x = 0; x < lg[i].grid_cols; x++, gi++) {
-				if (BRICK_CHOOSE(i, gi) == BRICK_INVALID) {
+		if (l==0 || l%2==1)
+			td.d[(l + 1) / 2].conet.create(lg[l].grid_rows, lg[l].grid_cols, CV_8UC1);
+		for (int y = 0; y < lg[l].grid_rows; y++) {			
+			unsigned char * p_con = td.d[(l + 1) / 2].conet.ptr<unsigned char>(y);
+			for (int x = 0; x < lg[l].grid_cols; x++, gi++) {
+				if (BRICK_CHOOSE(l, gi) == BRICK_INVALID) {
 					p_con[x] = 0;
 					continue;
 				}
-				CV_Assert(lg[i].grid_infos[gi].y == y + 1 && lg[i].grid_infos[gi].x == x + 1);				
-				if (i == 0)
-					p_con[x] = BRICK_CHOOSE(i, gi) ? VIA_MASK : 0;
+				CV_Assert(lg[l].grid_infos[gi].y == y + 1 && lg[l].grid_infos[gi].x == x + 1);				
+				if (l == 0)
+					p_con[x] = BRICK_CHOOSE(l, gi) ? VIA_MASK : 0;
 				else
-					if (i % 2==0)
-						p_con[x] |= BRICK_CHOOSE(i, gi) ? VIA_MASK : 0;
+					if (l % 2==0) //via layer
+						p_con[x] |= BRICK_CHOOSE(l, gi) ? VIA_MASK : 0;
 					else
-						p_con[x] = bricks[BRICK_CHOOSE(i, gi)].shape;
+						p_con[x] = bricks[BRICK_CHOOSE(l, gi)].shape;
+				if (l % 2 == 1) { //wire layer
+					if (BRICK_STATE(l, gi) == 0)
+						p_con[x] |= UNSURE_MASK;
+					else {
+						unsigned long long abm;
+						if (check_nearby_unfit(l, gi, warn_lbrm, lg, abm) != 0xffffffff)
+							p_con[x] |= UNSURE_MASK;
+						else {
+							int unsure = BRICK_PROB(l, gi) * 10;
+							unsure = min(6, unsure);
+							p_con[x] |= unsure << UNSURE_SHIFT;
+						}
+					}
+				}
 			}				
 		}
 	}
 }
 
 /*
-in: connet, each grid metal connection, up 1, right 2, down 4, left 8
+in: connet, each grid metal connection, up 1, right 2, down 4, left 8, via 16, unsure, xxx00000
 in: gl_x, grid line x
 in: gl_y, grid line y
 out: obj_sets
@@ -2377,7 +2458,7 @@ void grid2_wire_obj(const Mat & conet, int layer, const vector<int> & gl_x, cons
 
 
 /*
-in: connet, each grid metal connection, up 1, right 2, down 4, left 8
+in: connet, each grid metal connection, up 1, right 2, down 4, left 8, via 16, unsure, xxx00000
 in: gl_x, grid line x
 in: gl_y, grid line y
 out: obj_sets
@@ -2401,6 +2482,57 @@ void grid2_via_obj(const Mat & conet, int layer, const vector<int> & gl_x, const
 				obj_sets.push_back(via);
 			}
 		}
+	}
+}
+
+/*
+in: connet, each grid metal connection, up 1, right 2, down 4, left 8, via 16, unsure, xxx00000
+in: gl_x, grid line x
+in: gl_y, grid line y
+out: obj_sets
+*/
+void grid2_check_obj(Mat & conet, int layer, const vector<int> & gl_x, const vector<int> & gl_y, vector<MarkObj> & obj_sets)
+{
+	CV_Assert(conet.rows + 2 == gl_y.size() && conet.cols + 2 == gl_x.size() && conet.type() == CV_8UC1);
+	MarkObj check;
+	check.type = OBJ_AREA;
+	check.type2 = AREA_CHECK_ERR;
+	check.type3 = layer;
+	check.state = 0;
+	
+	for (int y = 0; y < conet.rows; y++) {
+		unsigned char * p_conet = conet.ptr<unsigned char>(y);
+		for (int x = 0; x < conet.cols; x++)
+			if (p_conet[x] & UNSURE_MASK) {
+				check.prob = (p_conet[x] >> UNSURE_SHIFT & 7) / 7.0f;
+				vector<unsigned> search_unsure_queue;
+				search_unsure_queue.push_back(y << 16 | x);
+				int xmin = x, xmax = x, ymin = y, ymax = y;
+				p_conet[x] &= ~UNSURE_MASK;
+				while (!search_unsure_queue.empty()) {
+					int x0 = search_unsure_queue.back();
+					int y0 = x0 >> 16;
+					x0 = x0 & 0xffff;
+					search_unsure_queue.pop_back();
+					for (int dir = 0; dir <= 3; dir++) {
+						int y1 = y0 + dxy[dir][0];
+						int x1 = x0 + dxy[dir][1];
+						if (y1 >= 0 && y1 < conet.rows && x1 >= 0 && x1 < conet.cols && 
+							conet.at<unsigned char>(y1,x1) & UNSURE_MASK) {
+							search_unsure_queue.push_back(y1 << 16 | x1);
+							xmin = min(x1, xmin);
+							ymin = min(y1, ymin);
+							xmax = max(x1, xmax);
+							ymax = max(y1, ymax);
+							conet.at<unsigned char>(y1, x1) &= ~UNSURE_MASK;
+						}
+							
+					}
+				}
+				check.p0 = QPoint((gl_x[xmin] + gl_x[xmin + 1]) / 2, (gl_y[ymin] + gl_y[ymin + 1]) / 2);
+				check.p1 = QPoint((gl_x[xmax + 2] + gl_x[xmax + 1]) / 2, (gl_y[ymax + 2] + gl_y[ymax + 1]) / 2);
+				obj_sets.push_back(check);
+			}
 	}
 }
 
@@ -2601,12 +2733,20 @@ unsigned long long config_fit_mask(unsigned long long rule, unsigned long long b
 #undef DISABLE_BRICK_CONN	
 }
 
+void LayerBrickRuleMask::config(unsigned long long _rule)
+{
+	rule = _rule;
+	fit_mask = config_fit_mask(rule, wwfm, vwvfm);
+	via_extend_ovlap = rule & RULE_EXTEND_VIA_OVERLAP;
+}
+
 void process_tile(ProcessTileData & t3)
 {
 	CV_Assert(t3.lbrm->size() == t3.lpm->size() * 2 - 1 && t3.tt->d.size() == t3.lpm->size());
 	Mat prob;
 	vector<LayerParam> & lpm = *t3.lpm;
 	vector<LayerBrickRuleMask> & lbrm = *t3.lbrm;
+	vector<LayerBrickRuleMask> & warn_lbrm = *t3.warn_lbrm;
 	QPoint compute_g0;
 	t3.tt->lg.resize(lbrm.size());
 
@@ -2847,7 +2987,7 @@ void process_tile(ProcessTileData & t3)
 		}
 	}
 	
-	assemble_grid_multilayer(t3.tt->lg, lbrm, *(t3.tt), QRect(compute_g0, QPoint(0x70000000, 0x70000000)), OBEY_RULE_STRONG);
+	assemble_grid_multilayer(t3.tt->lg, lbrm, warn_lbrm, *(t3.tt), QRect(compute_g0, QPoint(0x70000000, 0x70000000)), OBEY_RULE_STRONG);
 	for (int l = 0; l < lpm.size(); l++) {
 		t3.tt->d[l].conet = t3.tt->d[l].conet(Rect(compute_g0.x(), compute_g0.y(),
 			t3.tt->d[l].conet.cols - compute_g0.x(), t3.tt->d[l].conet.rows - compute_g0.y()));
@@ -2881,12 +3021,13 @@ Mat VWExtractStat::get_mark3(int ) {
 int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_sets)
 {
 	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2 - 1);
+	vector<LayerBrickRuleMask> warn_lbrm(lpm.size() * 2 - 1);
 	for (int l = 0; l < lpm.size(); l++) {
 		int lbrm_idx = (l == 0) ? 0 : 2 * l - 1;
-		lbrm[lbrm_idx].fit_mask = config_fit_mask(lpm[l].rule, lbrm[lbrm_idx].wwfm, lbrm[lbrm_idx].vwvfm);
-		lbrm[lbrm_idx].rule = lpm[l].rule;
-		lbrm[lbrm_idx].via_extend_ovlap = lpm[l].rule & RULE_EXTEND_VIA_OVERLAP;
-		lbrm[lbrm_idx + 1].fit_mask = 3;
+		lbrm[lbrm_idx].config(lpm[l].rule);		
+		warn_lbrm[lbrm_idx].config(lpm[l].warning_rule | lpm[l].rule);
+		lbrm[lbrm_idx + 1].fit_mask = 3; //let via_layer fit_mask =3
+		warn_lbrm[lbrm_idx + 1].fit_mask = 3;
 	}
 
 	ts.resize(1);
@@ -2903,6 +3044,7 @@ int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 	ptd.left_right_layer = 1;
 	ptd.up_down_layer = 2;
 	ptd.lbrm = &lbrm;
+	ptd.warn_lbrm = &warn_lbrm;
 	ptd.lpm = &lpm;
 	ptd.lt = NULL;
 	ptd.ut = NULL;
@@ -2912,8 +3054,10 @@ int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 	ts[0].lg.clear();
 	obj_sets.clear();
 	for (int l = 0; l < lpm.size(); l++) {
-		if (l>0)
+		if (l > 0) {
 			grid2_wire_obj(ts[0].d[l].conet, l, ts[0].d[l].gl_x, ts[0].d[l].gl_y, obj_sets);
+			grid2_check_obj(ts[0].d[l].conet, l, ts[0].d[l].gl_x, ts[0].d[l].gl_y, obj_sets);
+		}
 		grid2_via_obj(ts[0].d[l].conet, l, ts[0].d[l].gl_x, ts[0].d[l].gl_y, obj_sets);
 		qInfo("l=%d, gl_x0=%d, gl_y0=%d", l, ts[0].d[l].gl_x[0],ts[0].d[l].gl_y[0]);
 	}
@@ -2923,10 +3067,15 @@ int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
 {
 	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2 - 1);
+	vector<LayerBrickRuleMask> warn_lbrm(lpm.size() * 2 - 1);
 	for (int l = 0; l < lpm.size(); l++) {
 		int lbrm_idx = (l == 0) ? 0 : 2 * l - 1;
-		lbrm[lbrm_idx].fit_mask = config_fit_mask(lpm[l].rule, lbrm[lbrm_idx].wwfm, lbrm[lbrm_idx].vwvfm);
+		lbrm[lbrm_idx].config(lpm[l].rule);
+		warn_lbrm[lbrm_idx].config(lpm[l].warning_rule | lpm[l].rule);
 		lbrm[lbrm_idx + 1].fit_mask = 3;
+		warn_lbrm[lbrm_idx + 1].fit_mask = 3;
+		qInfo("layer%d: w=%d,g=%d,vr=%d,rule=%llx,wrule=%llx,via_th=%f,wire_th=%f,vw_ratio=%f", lpm[l].wire_wd, lpm[l].grid_wd, 
+			lpm[l].via_rd, lpm[l].rule, lpm[l].warning_rule, lpm[l].param1, lpm[l].param2, lpm[l].param3);
 	}
 #if SAVE_RST_TO_FILE
 	FILE * fp;
@@ -3051,6 +3200,7 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 					ProcessTileData ptd;
 					ptd.debug = false;
 					ptd.lbrm = &lbrm;
+					ptd.warn_lbrm = &warn_lbrm;
 					ptd.lpm = &lpm;
 					ptd.up_down_layer = up_down_layer;
 					ptd.left_right_layer = left_right_layer;
@@ -3105,8 +3255,10 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 				ts[i].d[l].conet(Rect(dr.x - sr.x, dr.y - sr.y, dr.width, dr.height)).copyTo(conet(dr));
 			}
 
-			if (l>0)
+			if (l > 0) {
 				grid2_wire_obj(conet, l, gl_x, gl_y, obj_sets);
+				grid2_check_obj(conet, l, gl_x, gl_y, obj_sets);
+			}
 			grid2_via_obj(conet, l, gl_x, gl_y, obj_sets);
 		}
 		for (int i = 0; i < obj_sets.size(); i++) {

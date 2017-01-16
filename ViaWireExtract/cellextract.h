@@ -36,7 +36,7 @@ public:
 		param2 = 2;	
 		param3 = 0.5f;
 	}
-	int set_train_param(int, int, int, int, int, float param1_, float param2_, float param3_) {
+	int set_train_param(int, int, int, int, int, int, float param1_, float param2_, float param3_, float) {
 		if (param1_ < 0 || param1_ >= 0.5 || param3_ >= 1 || param2_>4) {
 			qWarning("CellExtract invalid param %f, %f, %f", param1_, param2_, param3_);
             return -1;
@@ -48,7 +48,7 @@ public:
 	}
 	int train(string file_name, const vector<MarkObj> & obj_sets);
 	int extract(string file_name, QRect rect, vector<MarkObj> & obj_sets);
-    int set_extract_param(int, int, int, int, int, float param1_, float param2_, float param3_, float)
+    int set_extract_param(int, int, int, int, int, int, float param1_, float param2_, float param3_, float)
     {
         if (param1_ < 0 || param1_ >= 0.5 || param3_ >= 1 || param2_>4) {
             qWarning("CellExtract invalid param %f, %f, %f", param1_, param2_, param3_);

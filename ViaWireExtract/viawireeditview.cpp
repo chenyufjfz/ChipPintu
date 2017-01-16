@@ -92,6 +92,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	mouse_press = false;
 	mark_mask = 0;
 	show_debug_en = false;
+	hide_obj = false;
 	mark_color.resize(sizeof(mark_color_table) / (sizeof(unsigned) * 2));
 	for (int i = 0; i < mark_color.size(); i++)
 		mark_color[mark_color_table[i][1]] = mark_color_table[i][0];
@@ -109,47 +110,55 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
     case OBJ_NONE:
         break;
     case OBJ_AREA:
-		if (obj.state != 4) {
-			QPoint top_left(min(obj.p0.x(), obj.p1.x()), min(obj.p0.y(), obj.p1.y()));
-			QPoint bot_right(max(obj.p0.x(), obj.p1.x()), max(obj.p0.y(), obj.p1.y()));
-			if (obj.state == 3)
-				painter.setPen(QPen(Qt::red, 1));
-			else
-				if (obj.type2 == AREA_LEARN)
-					painter.setPen(QPen(Qt::white, 1));
+		if (obj.type2 == AREA_LEARN || obj.type2 == AREA_CELL || obj.type2==AREA_EXTRACT)
+			if (obj.state != 4) {
+				QPoint top_left(min(obj.p0.x(), obj.p1.x()), min(obj.p0.y(), obj.p1.y()));
+				QPoint bot_right(max(obj.p0.x(), obj.p1.x()), max(obj.p0.y(), obj.p1.y()));
+				if (obj.state == 3)
+					painter.setPen(QPen(Qt::red, 1));
 				else
-                    if (obj.type2 == AREA_CELL)
-                        painter.setPen(QPen(Qt::yellow, 2));
-                    else
-                        painter.setPen(QPen(Qt::blue, 1));
-            if (obj.type2 == AREA_LEARN || obj.type2 == AREA_CELL)
-				painter.setBrush(QBrush(Qt::NoBrush));
-			else
-				painter.setBrush(QBrush(Qt::blue));
-			painter.drawRect(QRect(top_left, bot_right));
-			if (obj.state != 0) {
-				painter.setPen(QPen(Qt::red, 1));
-				painter.setBrush(QBrush(Qt::red));
-				QPoint top_right(obj.p1.x(), obj.p0.y());
-				QPoint bot_left(obj.p0.x(), obj.p1.y());
-				if (obj.state == 1)
-					painter.drawEllipse(obj.p0, 2, 2);
-				if (obj.state == 2)
-					painter.drawEllipse(obj.p1, 2, 2);
-				if (obj.state == 5)
-					painter.drawEllipse(top_right, 2, 2);
-				if (obj.state == 6)
-					painter.drawEllipse(bot_left, 2, 2);				
+					if (obj.type2 == AREA_LEARN)
+						painter.setPen(QPen(Qt::white, 1));
+					else
+						if (obj.type2 == AREA_CELL)
+							painter.setPen(QPen(Qt::yellow, 2));
+						else
+							painter.setPen(QPen(Qt::blue, 1));
+				if (obj.type2 == AREA_LEARN || obj.type2 == AREA_CELL)
+					painter.setBrush(QBrush(Qt::NoBrush));
+				else
+					painter.setBrush(QBrush(Qt::blue));
+				painter.drawRect(QRect(top_left, bot_right));
+				if (obj.state != 0) {
+					painter.setPen(QPen(Qt::red, 1));
+					painter.setBrush(QBrush(Qt::red));
+					QPoint top_right(obj.p1.x(), obj.p0.y());
+					QPoint bot_left(obj.p0.x(), obj.p1.y());
+					if (obj.state == 1)
+						painter.drawEllipse(obj.p0, 2, 2);
+					if (obj.state == 2)
+						painter.drawEllipse(obj.p1, 2, 2);
+					if (obj.state == 5)
+						painter.drawEllipse(top_right, 2, 2);
+					if (obj.state == 6)
+						painter.drawEllipse(bot_left, 2, 2);
+				}
 			}
 			//draw metal rect
-			if (obj.type2 == AREA_METAL) {				
-				painter.setPen(QPen(Qt::blue, 1, Qt::DotLine));
-				painter.setBrush(QBrush(Qt::NoBrush));
-				int rw = wire_width - wire_width / 2 - 1;
-				QPoint lt(min(obj.p0.x(), obj.p1.x()) - wire_width / 2, min(obj.p0.y(), obj.p1.y()) - wire_width / 2);
-				QPoint rb(max(obj.p0.x(), obj.p1.x()) + rw, max(obj.p0.y(), obj.p1.y()) + rw);
-                painter.drawRect(QRect(lt, rb -QPoint(1,1)));
-			}
+		if (obj.type2 == AREA_METAL) {				
+			painter.setPen(QPen(Qt::blue, 1, Qt::DotLine));
+			painter.setBrush(QBrush(Qt::NoBrush));
+			int rw = wire_width - wire_width / 2 - 1;
+			QPoint lt(min(obj.p0.x(), obj.p1.x()) - wire_width / 2, min(obj.p0.y(), obj.p1.y()) - wire_width / 2);
+			QPoint rb(max(obj.p0.x(), obj.p1.x()) + rw, max(obj.p0.y(), obj.p1.y()) + rw);
+            painter.drawRect(QRect(lt, rb -QPoint(1,1)));
+		}
+		if (obj.type2 == AREA_CHECK_ERR && obj.type3 == layer) {
+			painter.setPen(QPen(QColor(200 * obj.prob, 0, 0), 1, Qt::DotLine));
+			painter.setBrush(QBrush(Qt::NoBrush));
+			QPoint lt(obj.p0.x(), obj.p0.y());
+			QPoint rb(obj.p1.x(), obj.p1.y());
+			painter.drawRect(QRect(lt, rb));
 		}
         break;
     case OBJ_LINE:
@@ -211,9 +220,11 @@ void ViaWireEditView::paintEvent(QPaintEvent *)
             for (double x=offset_x; x<width(); x+=grid_width)
                 painter_mem.drawRect((int)x, (int)y, 1, 1);
     }
-	    
-    for (unsigned i=0; i<obj_set.size(); i++)
-		draw_obj(painter_mem, obj_set[i]);
+	
+	if (!hide_obj) {
+		for (unsigned i = 0; i < obj_set.size(); i++)
+			draw_obj(painter_mem, obj_set[i]);
+	}
     draw_obj(painter_mem, current_obj);
 
     QPainter painter(this);
@@ -363,7 +374,7 @@ void ViaWireEditView::erase_all_objects()
 
 void ViaWireEditView::start_cell_train(int , int , int , float _param1, float _param2, float _param3)
 {
-	cele->set_train_param(0, 0, 0, 0, 0, _param1, _param2, _param3);
+	cele->set_train_param(0, 0, 0, 0, 0, 0, _param1, _param2, _param3, 0);
 	for (int i = 0; i < obj_set.size(); i++)
 		if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA)
 			obj_set[i].type3 = POWER_UP;
@@ -372,7 +383,7 @@ void ViaWireEditView::start_cell_train(int , int , int , float _param1, float _p
 }
 
 void ViaWireEditView::set_wire_para(int _layer, int _wire_width, int _via_radius, int _grid_size, 
-	int _rule, float _param1, float _param2, float _param3)
+	int _rule, int _warning_rule, float _param1, float _param2, float _param3, float _param4)
 {
 	if (_layer > lpm.size())
 		return;
@@ -381,11 +392,13 @@ void ViaWireEditView::set_wire_para(int _layer, int _wire_width, int _via_radius
 	lpm[_layer].wire_wd = _wire_width;
 	lpm[_layer].via_rd = _via_radius;
 	lpm[_layer].rule = _rule;
+	lpm[_layer].warning_rule = _warning_rule;
 	lpm[_layer].grid_wd = _grid_size;
 	lpm[_layer].param1 = _param1;
 	lpm[_layer].param2 = _param2;
 	lpm[_layer].param3 = _param3;
-	vwe->set_train_param(_layer, _wire_width, _via_radius, _rule, _grid_size, _param1, _param2, _param3);
+	lpm[_layer].param4 = _param4;
+	vwe->set_train_param(_layer, _wire_width, _via_radius, _rule, _warning_rule, _grid_size, _param1, _param2, _param3, _param4);
 	current_train = vwe;
 }
 
@@ -754,7 +767,10 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 			if (select_obj.state == 2)
 				adjust_wire_point(select_obj.p0, select_obj.p1);
 			obj_set[select_idx] = select_obj;
-			break;        
+			break;   
+		case Qt::Key_H:
+			hide_obj = !hide_obj;
+			break;
 		}
 		update();
     }

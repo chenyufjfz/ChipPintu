@@ -21,8 +21,8 @@ struct SearchArea {
 
 class ObjExtract {
 public:
-	virtual int set_train_param(int, int, int, int, int, float, float, float) = 0;
-    virtual int set_extract_param(int, int, int, int, int, float, float, float, float) = 0;
+	virtual int set_train_param(int, int, int, int, int, int, float, float, float, float) = 0;
+    virtual int set_extract_param(int, int, int, int, int, int, float, float, float, float) = 0;
     virtual int train(std::string file_name, const std::vector<MarkObj> & obj_sets) = 0;
     virtual int extract(std::string file_name, QRect rect, std::vector<MarkObj> & obj_sets) = 0;
     virtual int train(std::vector<ICLayerWr *> & ic_layer, const std::vector<MarkObj> & obj_sets) = 0;

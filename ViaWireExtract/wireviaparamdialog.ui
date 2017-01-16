@@ -35,7 +35,7 @@
      <x>20</x>
      <y>50</y>
      <width>161</width>
-     <height>138</height>
+     <height>164</height>
     </rect>
    </property>
    <layout class="QFormLayout" name="formLayout">
@@ -89,6 +89,16 @@
     <item row="6" column="1">
      <widget class="QLineEdit" name="rule"/>
     </item>
+    <item row="7" column="0">
+     <widget class="QLabel" name="label_10">
+      <property name="text">
+       <string>Warn Rule</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="1">
+     <widget class="QLineEdit" name="warn_rule"/>
+    </item>
    </layout>
   </widget>
   <widget class="QWidget" name="formLayoutWidget">
@@ -130,6 +140,16 @@
     </item>
     <item row="2" column="1">
      <widget class="QLineEdit" name="param3"/>
+    </item>
+    <item row="3" column="0">
+     <widget class="QLabel" name="label_9">
+      <property name="text">
+       <string>Param4</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="1">
+     <widget class="QLineEdit" name="param4"/>
     </item>
    </layout>
   </widget>

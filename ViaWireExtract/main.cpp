@@ -150,7 +150,7 @@ int cell_extract_test()
 	ICLayerWr ic("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", true);
     vector<ICLayerWr *> pic;
     pic.push_back(&ic);
-	ce.set_train_param(0, 0, 0, 0, 0, 0.1, 3, 0.5);
+	ce.set_train_param(0, 0, 0, 0, 0, 0,  0.1, 3, 0.5, 0);
 	MarkObj obj;
 	vector<MarkObj> objs;
 	obj.type = OBJ_AREA;
@@ -184,15 +184,15 @@ int wire_extract_test()
 	pic.push_back(&ic[3]);
 
 	VWExtract * vwe = VWExtract::create_extract(0);
-	vwe->set_extract_param(0, 4, 9, RULE_END_WITH_VIA, 16, 0.5, 0.5, 2, 0);
+	vwe->set_extract_param(0, 4, 9, RULE_END_WITH_VIA, 0, 16, 0.5, 0.5, 2, 0);
 	vwe->set_extract_param(1, 10, 9, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP, 
-		16, 0.5, 0.5, 2, 0);
+		RULE_NO_hCONN, 16, 0.5, 0.5, 2, 0);
 	vwe->set_extract_param(2, 12, 10, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP, 
-		16,	0.5, 0.5, 2, 0);
+		RULE_NO_hCONN, 16, 0.5, 0.5, 2, 0);
 	vwe->set_extract_param(3, 12, 10, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP, 
-		16,	0.5, 0.5, 1, 0);
-	vector<SearchArea> search;
-	search.push_back(SearchArea(QRect(QPoint(1428723, 618377), QPoint(1654771, 777865)), 0));
+		RULE_NO_hCONN, 16, 0.5, 0.5, 1, 0);
+	vector<SearchArea> search;  
+	search.push_back(SearchArea(QRect(QPoint(1427951, 623749), QPoint(1653743, 777349)), 0));
     vwe->extract(pic, search, objs);
 	return 0;
 }
@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
 
 	//cell_extract_test();
 	qInstallMessageHandler(myMessageOutput);
-#if 0
+#if 1
 	wire_extract_test();
 	return 0;
 #endif
