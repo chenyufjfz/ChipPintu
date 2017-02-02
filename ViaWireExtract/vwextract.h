@@ -49,9 +49,9 @@ public:
 	virtual int set_train_param(int layer, int width, int r, int rule_low, int warning_rule_low, int grid_width, float _param1, float _param2, float _param3, float _param4) {
         if (layer==0)
             lpm.clear();
-		if (layer > lpm.size())
+		if (layer > (int) lpm.size())
 			return -1;
-		if (layer == lpm.size())
+		if (layer == (int) lpm.size())
 			lpm.push_back(LayerParam());
 		lpm[layer].wire_wd = width;
 		lpm[layer].via_rd = r;
@@ -67,9 +67,9 @@ public:
 	virtual int set_extract_param(int layer, int width, int r, int rule_low, int warning_rule_low, int grid_width, float _param1, float _param2, float _param3, float _param4) {
         if (layer==0)
             lpm.clear();
-		if (layer > lpm.size())
+		if (layer > (int) lpm.size())
 			return -1;
-		if (layer == lpm.size())
+		if (layer == (int) lpm.size())
 			lpm.push_back(LayerParam());
 		lpm[layer].wire_wd = width;
 		lpm[layer].via_rd = r;

@@ -185,14 +185,14 @@ int wire_extract_test()
 
 	VWExtract * vwe = VWExtract::create_extract(0);
 	vwe->set_extract_param(0, 4, 9, RULE_END_WITH_VIA, 0, 16, 0.5, 0.5, 2, 0);
-	vwe->set_extract_param(1, 10, 9, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP, 
-		RULE_NO_hCONN, 16, 0.5, 0.5, 2, 0);
-	vwe->set_extract_param(2, 12, 10, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP, 
-		RULE_NO_hCONN, 16, 0.5, 0.5, 2, 0);
-	vwe->set_extract_param(3, 12, 10, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP, 
-		RULE_NO_hCONN, 16, 0.5, 0.5, 1, 0);
-	vector<SearchArea> search;  
-	search.push_back(SearchArea(QRect(QPoint(1427951, 623749), QPoint(1653743, 777349)), 0));
+	vwe->set_extract_param(1, 10, 9, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
+		RULE_NO_hCONN | RULE_VIA_NO_LCONN, 16, 0.5, 0.5, 2, 0);
+	vwe->set_extract_param(2, 12, 10, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
+		RULE_NO_hCONN | RULE_VIA_NO_LCONN, 16, 0.5, 0.5, 2, 0);
+	vwe->set_extract_param(3, 12, 10, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
+		RULE_NO_hCONN | RULE_VIA_NO_LCONN, 16, 0.5, 0.5, 1, 0);
+	vector<SearchArea> search; 
+	search.push_back(SearchArea(QRect(QPoint(1427671, 674029), QPoint(1657047, 828653)), 0));
     vwe->extract(pic, search, objs);
 	return 0;
 }
