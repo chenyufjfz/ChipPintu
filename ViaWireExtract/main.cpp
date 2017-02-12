@@ -173,10 +173,10 @@ int wire_extract_test()
 {
 	vector <MarkObj> objs;
 	ICLayerWr ic[4]; 
-	ic[0].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.dat", true);
-	ic[1].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M2.dat", true);
-	ic[2].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M3.dat", true);
-	ic[3].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", true);
+	ic[0].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.db", true);
+	ic[1].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M2.db", true);
+	ic[2].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M3.db", true);
+	ic[3].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.db", true);
     vector<ICLayerWr *> pic;
     pic.push_back(&ic[0]);
     pic.push_back(&ic[1]);

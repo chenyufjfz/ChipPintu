@@ -33,6 +33,10 @@ Debug:LIBS += -lopencv_nonfree249d -lopencv_objdetect249d -lopencv_photo249d -lo
 Debug:LIBS += -lopencv_ts249d -lopencv_video249d -lopencv_videostab249d
 Debug:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/debug/
 
+LIBS += -lMdb
+INCLUDEPATH += $$_PRO_FILE_PWD_/../Mdb
+win32:LIBS += -ladvapi32
+unix:LIBS += -lpthread
 FORMS += \
     mainwindow.ui \
     gridcfgdialog.ui \

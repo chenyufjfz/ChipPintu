@@ -1,6 +1,7 @@
 #include <QCoreApplication>
 #include "iclayer.h"
 #include <QDateTime>
+#include <fstream>
 using namespace std;
 
 
@@ -90,15 +91,56 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 	}
 }
 
+void test_one_layer()
+{
+	ICLayerWr new_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", false, false);
+	//new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
+	new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 6, 1, 7);
+	ICLayerWr read_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", true, false);
+	int bx, by, width;
+	read_db.getBlockNum(bx, by);
+	width = read_db.getBlockWidth();
+	qDebug("read new database, bx=%d, by=%d, w=%d", bx, by, width);
+	vector<uchar> buff;
+
+	for (int s = 1; s < 16; s++) {
+		char file_name[30];
+		sprintf(file_name, "%d.jpg", s);
+		read_db.getRawImgByIdx(buff, 0, 0, s, 0);
+		if (buff.empty())
+			break;
+		ofstream fout(file_name, ofstream::binary);
+		fout.write((char*)&buff[0], buff.size());
+		fout.close();
+	}
+}
 int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);
 	qInstallMessageHandler(myMessageOutput);
 	qDebug("generate new database");
-
-    ICLayerWr new_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", false);
-    new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/M4/Project_", 1, 60, 1, 75);
-	qDebug("read new database");
-    ICLayerWr read_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.dat", true);
-	printf("finished");
+	BkImgDBInterface * bk_img_db = BkImgDBInterface::create_BkImgDB();
+	bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip.prj", false);
+	bk_img_db->addNewLayer("PL.db", "F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
+	bk_img_db->addNewLayer("M1.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M1/Project_", 1, 60, 1, 75);
+	bk_img_db->addNewLayer("M2.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M2/Project_", 1, 60, 1, 75);
+	bk_img_db->addNewLayer("M3.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M3/Project_", 1, 60, 1, 75);
+	bk_img_db->addNewLayer("M4.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M4/Project_", 1, 60, 1, 75);
+	bk_img_db->close();
+	bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip.prj", true);
+	for (int l = 0; l < 5; l++) {
+		vector<uchar> buff;
+		for (int s = 0; s < 16; s++) {
+			char file_name[30];
+			sprintf(file_name, "%d_%d.jpg", l, s);
+			bk_img_db->getRawImgByIdx(buff, l, 0, 0, s, 0);
+			if (buff.empty())
+				break;
+			ofstream fout(file_name, ofstream::binary);
+			fout.write((char*)&buff[0], buff.size());
+			fout.close();
+		}		
+	}
+	
+	qDebug("finished");
 }
