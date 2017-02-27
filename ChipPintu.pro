@@ -5,4 +5,5 @@ SUBDIRS += \
     FeatureExtract \
     ViaWireExtract \
     Try \
-    VWExtractLib
+    VWExtractLib \
+    ICLayerLib

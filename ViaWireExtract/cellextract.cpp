@@ -506,7 +506,7 @@ int CellExtract::train(vector<ICLayerWr *> & ic_layer, const std::vector<MarkObj
             for (int yy = rect.y() >> 15; yy <= (rect.y() + rect.height()) >> 15; yy++)
                 for (int xx = rect.x() >> 15; xx <= (rect.x() + rect.width()) >> 15; xx++) {
                     vector<uchar> encode_img;
-                    if (ic_layer[0]->getRawImgByIdx(encode_img, xx, yy, 0, 0) != 0)
+                    if (ic_layer[0]->getRawImgByIdx(encode_img, xx, yy, 0, 0, false) != 0)
                         return -2;
                     Mat image = imdecode(Mat(encode_img), 0);
                     CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
@@ -661,7 +661,7 @@ int CellExtract::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea
         for (int yy = cr.y() >> 15, y = 0; yy < (cr.y() >> 15) + fb_y; yy++, y += ic_layer[0]->getBlockWidth())
             for (int xx = cr.x() >> 15, x = 0; xx < (cr.x() >> 15) + fb_x; xx++, x += ic_layer[0]->getBlockWidth()) {
                 vector<uchar> encode_img;
-                if (ic_layer[0]->getRawImgByIdx(encode_img, xx, yy, 0, 0) != 0)
+                if (ic_layer[0]->getRawImgByIdx(encode_img, xx, yy, 0, 0, false) != 0)
                     return -2;
                 Mat image = imdecode(Mat(encode_img), 0);
                 CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
@@ -735,7 +735,7 @@ int CellExtract::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea
                 qDebug("load image, img(%d,%d),(w=%d,h=%d)", cr.y() >> 15, xx + fb_x, 1, fb_y);
                 for (int yy = cr.y() >> 15, y = 0; yy < (cr.y() >> 15) + fb_y; yy++, y += ic_layer[0]->getBlockWidth()) {
                     vector<uchar> encode_img;
-                    if (ic_layer[0]->getRawImgByIdx(encode_img, xx + fb_x, yy, 0, 0)!=0)
+                    if (ic_layer[0]->getRawImgByIdx(encode_img, xx + fb_x, yy, 0, 0, false)!=0)
                         return -2;
                     Mat image = imdecode(Mat(encode_img), 0);
                     CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);

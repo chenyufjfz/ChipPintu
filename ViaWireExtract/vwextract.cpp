@@ -285,6 +285,8 @@ struct ProcessTileData {
 
 class VWExtractStat : public VWExtract {
 protected:
+	/*ts is only used in extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets); not used in
+	extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);*/
 	vector<TileData> ts;
 public:
 	Mat get_mark(int layer);
@@ -3231,8 +3233,7 @@ int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 		warn_lbrm[lbrm_idx].config(lpm[l].warning_rule | lpm[l].rule);
 		lbrm[lbrm_idx + 1].fit_mask = 3; //let via_layer fit_mask =3
 		warn_lbrm[lbrm_idx + 1].fit_mask = 3;
-	}
-
+	}	
 	ts.resize(1);
 	ts[0].d.resize(lpm.size());
 	unsigned char ll = file_name[file_name.size() - 5];
@@ -3264,6 +3265,7 @@ int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 		grid2_via_obj(ts[0].d[l].conet, l, ts[0].d[l].gl_x, ts[0].d[l].gl_y, obj_sets);
 		qInfo("l=%d, gl_x0=%d, gl_y0=%d", l, ts[0].d[l].gl_x[0], ts[0].d[l].gl_y[0]);
 	}
+	ts.clear();
 	return 0;
 }
 
@@ -3271,6 +3273,7 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 {
 	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2 - 1);
 	vector<LayerBrickRuleMask> warn_lbrm(lpm.size() * 2 - 1);
+
 	for (int l = 0; l < lpm.size(); l++) {
 		int lbrm_idx = (l == 0) ? 0 : 2 * l - 1;
 		lbrm[lbrm_idx].config(lpm[l].rule);
@@ -3286,9 +3289,11 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 #endif
 	int block_x, block_y;
 	ic_layer[0]->getBlockNum(block_x, block_y);
-	int scale = 32768 / ic_layer[0]->getBlockWidth();
+	int block_width = ic_layer[0]->getBlockWidth();
+	int scale = 32768 / block_width;
 	vector <ProcessTileData> ptd_sets;
 	obj_sets.clear();
+	vector<TileData> ts;
 	for (int area_idx = 0; area_idx < area_.size(); area_idx++) {
 		QRect sr = area_[area_idx].rect.marginsAdded(QMargins(lpm[1].grid_wd * scale, lpm[1].grid_wd *scale, lpm[1].grid_wd*scale, lpm[1].grid_wd*scale));
 		sr &= QRect(0, 0, block_x << 15, block_y << 15);
@@ -3314,44 +3319,44 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 				if (sb.contains(x0, y0)) {
 					//1.1 compute load image source and destination
 					int wide[3] = { 0 }, height[3] = { 0 }; //wide & height is image destination bound
-
+					
 					if (x0 == sb.left()) {
 						if (lx < 0) {
 							wide[0] = -lx / scale;
-							wide[1] = ic_layer[0]->getBlockWidth();
+							wide[1] = block_width;
 						}
 						else
-							wide[1] = ic_layer[0]->getBlockWidth() - lx / scale;
+							wide[1] = block_width - lx / scale;
 					}
 					if (x0 == sb.right()) {
 						if (rx > 0) {
-							wide[1] = (wide[1] == 0) ? ic_layer[0]->getBlockWidth() : wide[1];
+							wide[1] = (wide[1] == 0) ? block_width : wide[1];
 							wide[2] = rx / scale;
 						}
 						else
-							wide[1] = ic_layer[0]->getBlockWidth() + rx / scale;
+							wide[1] = block_width + rx / scale;
 					}
 					if (x0 != sb.left() && x0 != sb.right())
-						wide[1] = ic_layer[0]->getBlockWidth();
+						wide[1] = block_width;
 
 					if (y0 == sb.top()) {
 						if (ty < 0) {
 							height[0] = -ty / scale;
-							height[1] = ic_layer[0]->getBlockWidth();
+							height[1] = block_width;
 						}
 						else
-							height[1] = ic_layer[0]->getBlockWidth() - ty / scale;
+							height[1] = block_width - ty / scale;
 					}
 					if (y0 == sb.bottom()) {
 						if (by > 0) {
-							height[1] = (height[1] == 0) ? ic_layer[0]->getBlockWidth() : height[1];
+							height[1] = (height[1] == 0) ? block_width : height[1];
 							height[2] = by / scale;
 						}
 						else
-							height[1] = ic_layer[0]->getBlockWidth() + by / scale;
+							height[1] = block_width + by / scale;
 					}
 					if (y0 != sb.top() && y0 != sb.bottom())
-						height[1] = ic_layer[0]->getBlockWidth();
+						height[1] = block_width;
 
 					ts[(y0 - sb.top()) * sb.width() + x0 - sb.left()].d.resize(lpm.size());
 					TileData * tt = &ts[(y0 - sb.top()) * sb.width() + x0 - sb.left()];
@@ -3363,7 +3368,7 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 								int dx = x - x0;
 								if (wide[dx + 1] != 0 && height[dy + 1] != 0) {
 									vector<uchar> encode_img;
-									if (ic_layer[l]->getRawImgByIdx(encode_img, x, y, 0, 0) != 0) {
+									if (ic_layer[l]->getRawImgByIdx(encode_img, x, y, 0, 0, false) != 0) {
 										qCritical("load image error at l=%d, (%d,%d)", l, x, y);
 										return -1;
 									}
@@ -3417,7 +3422,7 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 					ptd_sets.push_back(ptd);
 				}
 			}
-			//3 ProcessTileData
+			//3 ProcessTileData, TODO: conside multi-thread process
 			for (int i = 0; i < ptd_sets.size(); i++) {
 #if 1
 				if (ptd_sets.size()==1) {

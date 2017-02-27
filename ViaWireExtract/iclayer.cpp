@@ -4,6 +4,7 @@
 #include <QBuffer>
 #include <QPainter>
 #include <stdio.h>
+#include <QMutexLocker>
 #include "lmdb.h"
 
 typedef long long int64;
@@ -15,14 +16,13 @@ protected:
     vector<vector<int64> > bias;
     vector<vector<int> > len;
     vector<QPoint> corners;
-    string file_;
     ifstream fin;
 	ofstream fout;
 	int num_block_x, num_block_y; //image num in row and col
 	int block_w; //image width and height
 
 public:
-    ICLayer(string& file, bool read);
+    ICLayer(const string& file, bool read);
 	~ICLayer();	
     int readLayerFile(const string& file);
 	int addRawImg(vector<uchar> & buff, int , int , int);
@@ -31,6 +31,7 @@ public:
 	void getBlockNum(int & bx, int &by);
 	void putBlockNumWidth(int bx, int by, int width);
     int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved);
+    int getMaxScale();
 	void close();
 	bool is_active() { return fin.is_open() | fout.is_open(); }
 };
@@ -137,14 +138,14 @@ int ICLayer::addRawImg(vector<uchar> & buff, int , int , int)
 	return 0;
 }
 
-ICLayer::ICLayer(string& file, bool read) :file_(file)
+ICLayer::ICLayer(const string& file, bool read)
 {
 	if (read) {
 		if (readLayerFile(file) != 0)
 			qFatal("layer file not exist");
 	}		
 	else
-		fout.open(file_.c_str(), ofstream::binary);
+		fout.open(file.c_str(), ofstream::binary);
     
 }
 
@@ -198,6 +199,11 @@ int ICLayer::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigne
     return 0;
 }
 
+int ICLayer::getMaxScale()
+{
+	return 4;
+}
+
 void ICLayer::close()
 {
 	if (fin.is_open())
@@ -227,7 +233,7 @@ public:
 	bool read_write, active;
 	
 public:
-	ICLayerMdb(string& file, bool _read);
+	ICLayerMdb(const string& file, bool _read);
 	~ICLayerMdb();
 	int getBlockWidth();
 	void getBlockNum(int & bx, int &by);	
@@ -235,7 +241,8 @@ public:
 	int addRawImg(vector<uchar> & buff, int x, int y, int);
 	int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved);
 	bool is_active() { return active; }
-	void close();
+	int getMaxScale();
+	void close();	
 };
 
 #define E(expr) do { \
@@ -254,7 +261,7 @@ public:
 		} \
 } while (0) 
 
-ICLayerMdb::ICLayerMdb(string& file, bool _read)
+ICLayerMdb::ICLayerMdb(const string& file, bool _read)
 {
 	MDB_txn *txn;
 	
@@ -384,6 +391,13 @@ int ICLayerMdb::addRawImg(vector<uchar> & buff, int x, int y, int)
 	return 0;
 }
 
+int ICLayerMdb::getMaxScale()
+{
+	int s;
+	for (s = 1; num_block_x > 1 << (s - 1) || num_block_y > 1 << (s - 1); s++);
+	return s - 1;
+}
+
 void ICLayerMdb::close()
 {
 	if (!active)
@@ -420,14 +434,14 @@ void ICLayerMdb::close()
 					data3.mv_data = NULL;
 				QImage image0, image1, image2, image3;
 				if (data0.mv_data) {
-					if (!image0.loadFromData((uchar *)data0.mv_data, data0.mv_size))
+					if (!image0.loadFromData((uchar *)data0.mv_data, (int) data0.mv_size))
 						qFatal("image format error, (x=%d,y=%d,s=%d)", x0, y0, s - 1);
 					v++;
 				}
 				else
 					qFatal("image miss (x=%d,y=%d,s=%d)", x0, y0, s - 1);
 				if (data1.mv_data) {
-					if (!image1.loadFromData((uchar *)data1.mv_data, data1.mv_size))
+					if (!image1.loadFromData((uchar *)data1.mv_data, (int) data1.mv_size))
 						qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y0, s - 1);
 					if (image0.format() != image1.format() || image0.width() != image1.width() || image0.height() != image1.height())
 						qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y0, s - 1, 
@@ -435,7 +449,7 @@ void ICLayerMdb::close()
 					v++;
 				}
 				if (data2.mv_data) {
-					if (!image2.loadFromData((uchar *)data2.mv_data, data2.mv_size))
+					if (!image2.loadFromData((uchar *)data2.mv_data, (int) data2.mv_size))
 						qFatal("image format error, (x=%d,y=%d,s=%d)", x0, y1, s - 1);
 					if (image0.format() != image2.format() || image0.width() != image2.width() || image0.height() != image2.height())
 						qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x0, y1, s - 1,
@@ -443,7 +457,7 @@ void ICLayerMdb::close()
 					v++;
 				}
 				if (data3.mv_data) {
-					if (!image3.loadFromData((uchar *)data3.mv_data, data3.mv_size))
+					if (!image3.loadFromData((uchar *)data3.mv_data, (int) data3.mv_size))
 						qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y1, s - 1);
 					if (image0.format() != image3.format() || image0.width() != image3.width() || image0.height() != image3.height())
 						qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y1, s - 1,
@@ -482,6 +496,7 @@ void ICLayerMdb::close()
 		mst.ms_entries, mst.ms_leaf_pages, mst.ms_overflow_pages, mst.ms_psize);
 }
 
+
 //ICLayerM contain meta info in file header, it is mainly for network file system
 /*
 File Format
@@ -494,7 +509,6 @@ class ICLayerM : public ICLayerInterface
 protected:
 	vector<unsigned long long> bias_storage; //pointer image offset from file.begin(), total_num+1
 	vector<unsigned long long *> bias;	
-	string file;
 	ifstream fin;
 	fstream fout;
 	int x0, y0, s0, idx0;
@@ -509,24 +523,24 @@ protected:
 	int compute_bias_num(vector<int> & bias_num);
 
 public:
-	ICLayerM(string & file_, bool _read);
+	ICLayerM(const string & file_, bool _read);
 	~ICLayerM();
 	int getBlockWidth();
 	void getBlockNum(int & bx, int & by);
 	void putBlockNumWidth(int bx, int by, int width);
 	int addRawImg(vector<uchar> & buff, int x, int y, int);
 	int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved);
+	int getMaxScale();
 	void close();
 	bool is_active() { return fin.is_open() | fout.is_open(); }
 };
 
-ICLayerM::ICLayerM(string & _file, bool _read)
+ICLayerM::ICLayerM(const string & _file, bool _read)
 {	
-	file = _file;
 	memset(&head, 0, sizeof(head));
 	if (_read) {		
 		vector<unsigned> img_len;
-		fin.open(file.c_str(), ios::binary);
+		fin.open(_file.c_str(), ios::binary);
 		if (!fin.is_open())
 			return;
 		fin.read((char*)&head, sizeof(head));
@@ -553,7 +567,7 @@ ICLayerM::ICLayerM(string & _file, bool _read)
 			bias[i] = &bias_storage[j];
 	}
 	else {
-		fout.open(file.c_str(), fstream::in | fstream::out | fstream::binary | fstream::trunc);
+		fout.open(_file.c_str(), fstream::in | fstream::out | fstream::binary | fstream::trunc);
 		if (!fout.is_open())
 			qFatal("open file write error");
 		strncpy(head.flag, "CID", 4);
@@ -678,6 +692,11 @@ int ICLayerM::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsign
 	return 0;
 }
 
+int ICLayerM::getMaxScale()
+{
+	return (int)bias.size() - 1;
+}
+
 void ICLayerM::close()
 {
 	if (fin.is_open()) {
@@ -698,14 +717,14 @@ void ICLayerM::close()
 					int y1 = y0 + (1 << (s - 1));
 					QImage image0, image1, image2, image3;
 					if (getRawImgByIdx(buff, x0, y0, s - 1, 0) == 0) {
-						if (!image0.loadFromData((uchar *)&buff[0], buff.size()))
+						if (!image0.loadFromData((uchar *)&buff[0], (int) buff.size()))
 							qFatal("image format error, (x=%d,y=%d,s=%d)", x0, y0, s - 1);
 						v++;
 					}
 					else
 						qFatal("image miss (x=%d,y=%d,s=%d)", x0, y0, s - 1);
 					if (getRawImgByIdx(buff, x1, y0, s - 1, 0) == 0) {
-						if (!image1.loadFromData((uchar *)&buff[0], buff.size()))
+						if (!image1.loadFromData((uchar *)&buff[0], (int) buff.size()))
 							qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y0, s - 1);
 						if (image0.format() != image1.format() || image0.width() != image1.width() || image0.height() != image1.height())
 							qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y0, s - 1,
@@ -713,7 +732,7 @@ void ICLayerM::close()
 						v++;
 					}
 					if (getRawImgByIdx(buff, x0, y1, s - 1, 0) == 0) {
-						if (!image2.loadFromData((uchar *)&buff[0], buff.size()))
+						if (!image2.loadFromData((uchar *)&buff[0], (int) buff.size()))
 							qFatal("image format error, (x=%d,y=%d,s=%d)", x0, y1, s - 1);
 						if (image0.format() != image2.format() || image0.width() != image2.width() || image0.height() != image2.height())
 							qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x0, y1, s - 1,
@@ -721,7 +740,7 @@ void ICLayerM::close()
 						v++;
 					}
 					if (getRawImgByIdx(buff, x1, y1, s - 1, 0) == 0) {
-						if (!image3.loadFromData((uchar *)&buff[0], buff.size()))
+						if (!image3.loadFromData((uchar *)&buff[0], (int) buff.size()))
 							qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y1, s - 1);
 						if (image0.format() != image3.format() || image0.width() != image3.width() || image0.height() != image3.height())
 							qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y1, s - 1,
@@ -762,47 +781,58 @@ void ICLayerM::close()
 	}
 }
 
+#define CACHE_ENABLE_TH (256 * 1024)
+
 ICLayerWr::ICLayerWr()
 {
 	layer = NULL;
 	cache_size = 0;
 }
 
-ICLayerWr::ICLayerWr(string file, bool _read, int _cache_enable, int type)
+ICLayerWr::ICLayerWr(const string file, bool _read, int _cache_size, int type)
 {
 	layer = NULL;
 	cache_size = 0;
-	create(file, _read, _cache_enable, type);
+	create(file, _read, _cache_size, type);
 }
 
 ICLayerWr::~ICLayerWr()
 {
+	QMutexLocker locker(&mutex);
 	close();
 }
 
-void ICLayerWr::create(string file, bool _read, int _cache_enable, int type)
+void ICLayerWr::create(const string file, bool _read, int _cache_size, int type)
 {
-	close();
-	read_write = _read;
-	max_cache_size = 1 << 27; //default 128M
+	QMutexLocker locker(&mutex);
+	close();	
+	file_name = file;
+	qInfo("layer file %s is opened for %s", file_name.c_str(), _read ? "read" : "write");	
+	read_write = _read;	
 	if (!_read) {
 		remove(file.c_str());
-		if (_cache_enable)
+		max_cache_size = 0;
+		if (_cache_size > 2)
 			qWarning("Cache enable only work for read");
 	} else
-		switch (_cache_enable) {
+		switch (_cache_size) {
 		case 0:
-			cache_enable = false;
+			max_cache_size = 0;
 			break;
 		case 1:
-			cache_enable = true;
+			max_cache_size = 1 << 27; //default 128M
 			break;
 		case 2:
 			if (file[0] == '/' && file[1] == '/' || file[0] == '\\' && file[1] == '\\')
-				cache_enable = true;
+				max_cache_size = 1 << 27;
 			else
-				cache_enable = false;
+				max_cache_size = 1 << 23;
 			break;
+		default:
+			if (_cache_size <= CACHE_ENABLE_TH)
+				max_cache_size = 0;
+			else
+				max_cache_size = _cache_size;
 		}
 
 	switch (type) {
@@ -821,6 +851,7 @@ void ICLayerWr::create(string file, bool _read, int _cache_enable, int type)
 
 int ICLayerWr::getBlockWidth()
 {
+	QMutexLocker locker(&mutex);
 	if (layer!=NULL && read_write)
 		return layer->getBlockWidth();
 	else {
@@ -834,6 +865,7 @@ int ICLayerWr::getBlockWidth()
 
 void ICLayerWr::getBlockNum(int & bx, int &by)
 {
+	QMutexLocker locker(&mutex);
 	if (layer != NULL && read_write)
 		return layer->getBlockNum(bx, by);
 	else {
@@ -845,19 +877,35 @@ void ICLayerWr::getBlockNum(int & bx, int &by)
 	}		 
 }
 
-int ICLayerWr::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved)
+int ICLayerWr::getMaxScale()
 {
+	QMutexLocker locker(&mutex);
+	if (layer != NULL && read_write)
+		return layer->getMaxScale();
+	else {
+		if (layer == NULL)
+			qCritical("layer is NULL when getMaxScale");
+		if (!read_write)
+			qCritical("getMaxScale can't be called when open write");
+		return -1;
+	}
+}
+
+int ICLayerWr::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved, bool need_cache)
+{
+	QMutexLocker locker(&mutex);
 	int ret;
-	unsigned long long id = x << 32 | y << 16 | ovr;
+    unsigned long long id = (unsigned long long) x << 32 | y << 16 | ovr;
 	if (!read_write) {
 		qCritical("getRawImgByIdx can't be called when open write");
 		return -5;
 	}
-	if (cache_enable) {		
+	if (max_cache_size > CACHE_ENABLE_TH) {
 		map<unsigned long long, BkImg>::iterator pmap;
 		pmap = cache_map.find(id);
 		if (pmap != cache_map.end()) {
 			buff.resize(reserved + pmap->second.len);
+			qDebug("get cache image, (%d,%d,%d)", x, y, ovr);
 			memcpy(&buff[reserved], pmap->second.data, pmap->second.len);
 			cache_list.erase(pmap->second.plist);
 			cache_list.push_back(BkImgMeta(id));
@@ -867,11 +915,12 @@ int ICLayerWr::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsig
 			return 0;
 		}
 	}
+	qDebug("get raw image, (%d,%d,%d)", x, y, ovr);
     ret = layer->getRawImgByIdx(buff, x, y, ovr, reserved);
-	if (ret == 0 && cache_enable) { //add to cache
+	if (ret == 0 && max_cache_size > CACHE_ENABLE_TH && need_cache) { //add to cache
 		BkImg img;
 		img.data = (unsigned char *)malloc(buff.size() - reserved);
-		img.len = buff.size() - reserved;
+		img.len = (unsigned) buff.size() - reserved;
 		memcpy(img.data, &buff[reserved], img.len);
 		cache_list.push_back(BkImgMeta(id));
 		img.plist = cache_list.end();
@@ -879,15 +928,18 @@ int ICLayerWr::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsig
 		cache_size += img.len;
 		Q_ASSERT(img.plist->id == id);
 		cache_map[id] = img;
-		if (cache_size > max_cache_size)
+		if (cache_size > max_cache_size) {
+			locker.unlock();
 			release_cache(max_cache_size, cache_list.begin()->tm);
+		}
 	}
 	return ret;
 }
 
 void ICLayerWr::get_cache_stat(int & _cache_size, QTime & earlest_tm)
 {
-	if (cache_enable) {
+	QMutexLocker locker(&mutex);
+	if (max_cache_size > CACHE_ENABLE_TH) {
 		_cache_size = cache_size;
 		if (cache_size != 0)
 			earlest_tm = cache_list.begin()->tm;
@@ -902,6 +954,8 @@ void ICLayerWr::get_cache_stat(int & _cache_size, QTime & earlest_tm)
 
 void ICLayerWr::release_cache(int cache_limit, QTime tm)
 {
+	qDebug("release cache cache_size=%d, limit=%d", cache_size, cache_limit);
+	QMutexLocker locker(&mutex);
 	for (list<BkImgMeta>::iterator it = cache_list.begin(); it != cache_list.end(); it = cache_list.begin()) {
 		if (cache_size <= cache_limit && it->tm >= tm)
 			break;
@@ -917,8 +971,9 @@ void ICLayerWr::release_cache(int cache_limit, QTime tm)
 	}
 }
 
-void ICLayerWr::generateDatabase(string path, int from_row, int to_row, int from_col, int to_col)
+void ICLayerWr::generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col)
 {
+	QMutexLocker locker(&mutex);
 	char file_name[500];
 	vector<uchar> buff;
 	if (read_write) {
@@ -947,12 +1002,16 @@ void ICLayerWr::generateDatabase(string path, int from_row, int to_row, int from
 	close();
 }
 
-//Release all resource
+//Release all resource, mutex should be acquired before call this function
 void ICLayerWr::close()
 {
-	if (layer!=NULL)
+	if (layer != NULL) {
 		delete layer;
+		qInfo("layer file %s is closed", file_name.c_str());
+	}
+		
 	layer = NULL;
+	Q_ASSERT(cache_list.size() == cache_map.size());
 	for (map<unsigned long long, BkImg>::iterator it = cache_map.begin(); it != cache_map.end(); it++) {
 		cache_size -= it->second.len;
 		free(it->second.data);
@@ -965,52 +1024,87 @@ void ICLayerWr::close()
 
 void ICLayerWr::set_cache_size(int _max_cache_size)
 {
-	max_cache_size = _max_cache_size;
+	QMutexLocker locker(&mutex);
+	if (_max_cache_size <= CACHE_ENABLE_TH)
+		max_cache_size = 0;
+	else
+		max_cache_size = _max_cache_size;
+	if (cache_size > max_cache_size) {
+		locker.unlock();
+		release_cache(max_cache_size, cache_list.begin()->tm);
+	}
 }
 
-class BkImg : public BkImgDBInterface
+string ICLayerWr::get_file_name()
+{
+	QMutexLocker locker(&mutex);
+	return file_name;
+}
+
+void ICLayerWr::adjust_cache_size(int _delta_cache_size)
+{
+	QMutexLocker locker(&mutex);
+	int _max_cache_size = max_cache_size + _delta_cache_size;
+	if (_max_cache_size <= CACHE_ENABLE_TH)
+		max_cache_size = 0;
+	else
+		max_cache_size = _max_cache_size;
+	if (cache_size > max_cache_size) {
+		locker.unlock();
+		release_cache(max_cache_size, cache_list.begin()->tm);
+	}
+}
+
+class BkImg : public BkImgInterface
 {
 protected:
 	vector<ICLayerWr *> bk_img_layers;
 	vector<string> layer_file;
 	string prj_file;
 	bool read_write;
-	int max_cache_size, poll_count;
+	int max_cache_size, poll_count, acc_img_size;
+	QMutex mutex, open_mutex; //protect upper global member
 
 protected:
 	string full_path_layer_file(string filename);
+	void close();
 
 public:
 	BkImg(); 
 	~BkImg();
 	int getBlockWidth();
 	void getBlockNum(int & bx, int &by);
-	int getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved);
+	int getMaxScale();
+	int getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved, bool need_cache = true);
 	int getLayerNum();
 	ICLayerWr * get_layer(int layer);	
-	void addNewLayer(string filename, string path, int from_row, int to_row, int from_col, int to_col);
-	int open(string prj, bool _read);
-	void close();
+	void addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col);
+	int open(const string prj, bool _read, int _max_cache_size);
 	void set_cache_size(int _max_cache_size);
+	void adjust_cache_size(int _delta_cache_size);
+	string get_prj_name();
 };
 
 BkImg::BkImg()
 {
 	read_write = true; 
 	poll_count = 0;
-	poll_count = 0;
+	acc_img_size = 0;
 }
 
 BkImg::~BkImg()
 {
-	close();
+	QMutexLocker locker(&mutex);
+	if (!prj_file.empty())
+		close();
 }
 
+//Mutex should be obtained before call this function
 string BkImg::full_path_layer_file(string filename)
 {
 	while (filename[0] == ' ' || filename[0] == '\t')
 		filename.erase(filename.begin());
-	int len = filename.length() - 1;
+	int len = (int) filename.length() - 1;
 	for (; filename[len] == ' ' || filename[len] == '\t' || filename[len] == '\n'; len--);
 	filename.erase(len+1);
 	string path = prj_file.substr(0, prj_file.find_last_of('/')+1);
@@ -1019,6 +1113,7 @@ string BkImg::full_path_layer_file(string filename)
 
 int BkImg::getBlockWidth()
 {
+	QMutexLocker locker(&mutex);
 	if (!read_write) {
 		qCritical("getBlockWidth not work for write mode");
 		return -2;
@@ -1026,12 +1121,9 @@ int BkImg::getBlockWidth()
 	if (layer_file.empty())
 		return 0;
 	else {
-		if (bk_img_layers[0] == NULL) {
-			if (read_write)
-				bk_img_layers[0] = new ICLayerWr(layer_file[0], true);
-			else
-				qFatal("bk_img_layer is NULL when do write");
-		}
+		if (bk_img_layers[0] == NULL)
+			bk_img_layers[0] = new ICLayerWr(layer_file[0], true, (max_cache_size == 0) ? 0 : 2); 
+		locker.unlock();
 		return bk_img_layers[0]->getBlockWidth();
 	}
 		
@@ -1039,6 +1131,7 @@ int BkImg::getBlockWidth()
 
 void BkImg::getBlockNum(int & bx, int &by)
 {
+	QMutexLocker locker(&mutex);
 	if (!read_write) {
 		qCritical("getBlockNum not work for write mode");
 		return;
@@ -1048,19 +1141,33 @@ void BkImg::getBlockNum(int & bx, int &by)
 		by = 0;
 	}
 	else {
-		if (bk_img_layers[0] == NULL) {
-			if (read_write)
-				bk_img_layers[0] = new ICLayerWr(layer_file[0], true);
-			else
-				qFatal("bk_img_layer is NULL when do write");
-		}
+		if (bk_img_layers[0] == NULL)
+			bk_img_layers[0] = new ICLayerWr(layer_file[0], true, (max_cache_size==0) ? 0 : 2);
+		locker.unlock();
 		bk_img_layers[0]->getBlockNum(bx, by);
 	}
-		
 }
 
-int BkImg::getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved)
+int BkImg::getMaxScale()
+{
+	QMutexLocker locker(&mutex);
+	if (!read_write) {
+		qCritical("getMaxScale not work for write mode");
+		return -1;
+	}
+	if (layer_file.empty())
+		return 0;
+	else {
+		if (bk_img_layers[0] == NULL) 
+			bk_img_layers[0] = new ICLayerWr(layer_file[0], true, (max_cache_size == 0) ? 0 : 2);
+		locker.unlock();
+		return bk_img_layers[0]->getMaxScale();
+	}
+}
+
+int BkImg::getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved, bool need_cache)
 {	
+	QMutexLocker locker(&mutex);
 	if (!read_write) {
 		qCritical("getRawImgByIdx not work for write mode");
 		return -2;
@@ -1072,28 +1179,37 @@ int BkImg::getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr
 	}
 	else {
 		if (bk_img_layers[layer] == NULL)
-			bk_img_layers[layer] = new ICLayerWr(layer_file[layer], true);		
-		int ret = bk_img_layers[layer]->getRawImgByIdx(buff, x, y, ovr, reserved);
-		poll_count++;
-		if (poll_count >= 3) {
+			bk_img_layers[layer] = new ICLayerWr(layer_file[layer], true, (max_cache_size == 0) ? 0 : 2);
+		locker.unlock();
+		int ret = bk_img_layers[layer]->getRawImgByIdx(buff, x, y, ovr, reserved, need_cache);
+		locker.relock();
+		if (need_cache) {
+			poll_count++;
+			acc_img_size += (int) buff.size();
+		}
+		if (poll_count >= 5) {
 			poll_count = 0;
 			int cache_size = 0;
+			int reserve_size;
+			int remove_layer;
 			QTime earlest_tm = QTime::currentTime();
 			for (int i = 0; i < bk_img_layers.size(); i++)				
 				if (bk_img_layers[i]) {
 					int layer_cache_size;
 					QTime tm;
 					bk_img_layers[i]->get_cache_stat(layer_cache_size, tm);
-					if (earlest_tm > tm)
-						earlest_tm = tm;					
+					if (earlest_tm > tm) {
+						earlest_tm = tm;
+						reserve_size = max(layer_cache_size - acc_img_size, acc_img_size); //remove 5 image
+						remove_layer = i;
+					}
 					cache_size += layer_cache_size;
 				}
 			if (cache_size > max_cache_size) {
 				earlest_tm.addSecs(5);
-				for (int i = 0; i < bk_img_layers.size(); i++)
-					if (bk_img_layers[i])
-						bk_img_layers[i]->release_cache(max_cache_size, earlest_tm);
+				bk_img_layers[remove_layer]->release_cache(reserve_size, earlest_tm);
 			}
+			acc_img_size = 0;
 		}
 		return ret;
 	}		
@@ -1101,10 +1217,12 @@ int BkImg::getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr
 
 int BkImg::getLayerNum()
 {
-	return layer_file.size();
+	QMutexLocker locker(&mutex);
+	return (int) layer_file.size();
 }
 
 ICLayerWr * BkImg::get_layer(int layer) {
+	QMutexLocker locker(&mutex);
 	if (!read_write) {
 		qCritical("get_layer not work for write mode");
 		return NULL;
@@ -1116,13 +1234,14 @@ ICLayerWr * BkImg::get_layer(int layer) {
 	}
 	else {
 		if (bk_img_layers[layer] == NULL)
-			bk_img_layers[layer] = new ICLayerWr(layer_file[layer], true);
+			bk_img_layers[layer] = new ICLayerWr(layer_file[layer], true, (max_cache_size == 0) ? 0 : 2); 
 		return bk_img_layers[layer];
 	}
 }
 
-void BkImg::addNewLayer(string filename, string path, int from_row, int to_row, int from_col, int to_col)
+void BkImg::addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col)
 {
+	QMutexLocker locker(&mutex);
 	if (read_write) {
 		qCritical("addNewLayer not work for read mode");
 		return;
@@ -1130,16 +1249,19 @@ void BkImg::addNewLayer(string filename, string path, int from_row, int to_row, 
 	layer_file.push_back(full_path_layer_file(filename));
 	ICLayerWr * new_db = new ICLayerWr(layer_file.back(), false);
 	qInfo("Add layer %d=%s", layer_file.size() - 1, layer_file.back().c_str());
-	new_db->generateDatabase(path, from_row, to_row, from_col, to_col);
 	bk_img_layers.push_back(NULL);
+	locker.unlock();
+	new_db->generateDatabase(path, from_row, to_row, from_col, to_col);	
 }
 
-int BkImg::open(string prj, bool _read)
+int BkImg::open(const string prj, bool _read, int _max_cache_size)
 {
+	QMutexLocker locker(&mutex);
 	if (!prj_file.empty())
 		close();
 	prj_file = prj;
 	read_write = _read;
+	qInfo("Open BkImg Prj %s for %s, cache_size=%d", prj_file.c_str(), _read ? "read" : "write", _max_cache_size);
 	if (read_write) {
 		//Read prj file to load each layer file name
 		FILE *fp = fopen(prj.c_str(), "rt");
@@ -1159,15 +1281,20 @@ int BkImg::open(string prj, bool _read)
 			}
 		}
 		fclose(fp);
-		max_cache_size = 1 ^ 20;
+		if (_max_cache_size <= CACHE_ENABLE_TH)
+			max_cache_size = 0;
+		else
+			max_cache_size = _max_cache_size;
 	}
 	else
 		max_cache_size = 0;
 	return 0;
 }
 
+//mutex should be acquired before call close()
 void BkImg::close()
 {
+	qInfo("close BkImg %s", prj_file.c_str());
 	for (unsigned i = 0; i<bk_img_layers.size(); i++)
 		if (bk_img_layers[i])
 			delete bk_img_layers[i];
@@ -1175,7 +1302,7 @@ void BkImg::close()
 		//write prj file
 		FILE *fp = fopen(prj_file.c_str(), "w");
 		for (int i = 0; i < layer_file.size(); i++)
-			fprintf(fp, "layer=%s\n", layer_file[i].substr(layer_file[i].find_last_of('/')).c_str());
+			fprintf(fp, "layer=%s\n", layer_file[i].substr(layer_file[i].find_last_of('/')+1).c_str());
 		fclose(fp);
 	}
 	bk_img_layers.clear();
@@ -1186,14 +1313,69 @@ void BkImg::close()
 
 void BkImg::set_cache_size(int _max_cache_size)
 {
+	QMutexLocker locker(&mutex);
 	if (!read_write) {
 		qCritical("set_cache_size not work for write mode");
 		return;
 	}
-	max_cache_size = _max_cache_size;
+	if (_max_cache_size <= CACHE_ENABLE_TH) {
+		max_cache_size = 0;
+		for (int i = 0; i < bk_img_layers.size(); i++)
+			if (bk_img_layers[i])
+				bk_img_layers[i]->set_cache_size(0);
+	}
+	else
+		max_cache_size = _max_cache_size;
 }
 
-BkImgDBInterface * BkImgDBInterface::create_BkImgDB()
+void BkImg::adjust_cache_size(int _delta_cache_size)
+{
+	QMutexLocker locker(&mutex);
+	int _max_cache_size = max_cache_size + _delta_cache_size;
+	if (!read_write) {
+		qCritical("set_cache_size not work for write mode");
+		return;
+	}
+	if (_max_cache_size <= CACHE_ENABLE_TH) {
+		max_cache_size = 0;
+		for (int i = 0; i < bk_img_layers.size(); i++)
+			if (bk_img_layers[i])
+				bk_img_layers[i]->set_cache_size(0);
+	}
+	else
+		max_cache_size = _max_cache_size;
+}
+
+string BkImg::get_prj_name()
+{
+	QMutexLocker locker(&mutex);
+	return prj_file;
+}
+
+BkImgInterface * BkImgInterface::create_BkImgDB()
 {
 	return new BkImg();
+}
+
+QSharedPointer<BkImgInterface> BkImgRoMgr::open(const string prj, int _cache_size)
+{
+    QSharedPointer<BkImgInterface> ret;
+	if (_cache_size < 0)
+		_cache_size = 0;
+    QMutexLocker locker(&mutex);
+    map<string, QWeakPointer<BkImgInterface> >::iterator bk_img_iter = bk_imgs_opened.find(prj);
+    if (bk_img_iter != bk_imgs_opened.end()) { //already opened
+        ret = bk_img_iter->second.toStrongRef();
+		if (!ret.isNull()) {
+            qInfo("Prj %s is already opened", prj.c_str());
+			ret->adjust_cache_size(_cache_size);
+			return ret;
+		}
+		bk_imgs_opened.erase(prj);
+    }
+    ret = QSharedPointer<BkImgInterface>(BkImgInterface::create_BkImgDB());
+    qInfo("Now open %s", prj.c_str());
+	ret->open(prj, true, _cache_size);
+    bk_imgs_opened[prj] = ret.toWeakRef();
+    return ret;
 }
