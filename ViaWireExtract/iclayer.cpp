@@ -1107,7 +1107,7 @@ string BkImg::full_path_layer_file(string filename)
 	int len = (int) filename.length() - 1;
 	for (; filename[len] == ' ' || filename[len] == '\t' || filename[len] == '\n'; len--);
 	filename.erase(len+1);
-	string path = prj_file.substr(0, prj_file.find_last_of('/')+1);
+    string path = prj_file.substr(0, prj_file.find_last_of("\\/")+1);
 	return path + filename;
 }
 
@@ -1375,7 +1375,14 @@ QSharedPointer<BkImgInterface> BkImgRoMgr::open(const string prj, int _cache_siz
     }
     ret = QSharedPointer<BkImgInterface>(BkImgInterface::create_BkImgDB());
     qInfo("Now open %s", prj.c_str());
-	ret->open(prj, true, _cache_size);
-    bk_imgs_opened[prj] = ret.toWeakRef();
-    return ret;
+	int rst = ret->open(prj, true, _cache_size);
+	if (rst == 0) {
+		bk_imgs_opened[prj] = ret.toWeakRef();
+		return ret;
+	}
+	else {
+		ret.reset();
+		return ret;
+	}
+		
 }

@@ -53,6 +53,9 @@ void edge_mixer(const Mat & img_in, const Mat & mask, Mat & img_out)
     img_out = out;
 }
 
+/*
+Input img_in
+*/
 void prepare_grad(const Mat & img_in, Mat & grad_x, Mat & grad_y, int rescale = 4, int bfilt_w = 8, int bfilt_csigma = 23,
                   int canny_high_th=200, int canny_low_th=100, int sobel_w=3)
 {
@@ -173,11 +176,12 @@ public:
 
 	~ParallelExtractDiff()
 	{
+		/*
 		gvar.grad_x[0].clear();
 		gvar.grad_y[0].clear();
 		gvar.grad_x[1].clear();
 		gvar.grad_y[1].clear();
-		gvar.diff.clear();
+		gvar.diff.clear();*/
 	}
 
 	void operator() (const Image2Grad & image)
@@ -463,14 +467,6 @@ void generate_feature_diff()
 
 int main(int argc, char** argv)
 {
-	Mat src1 = imread("C:/chenyu/work/ChipPintu/images/Project_21_45.jpg", 0);
-    if(src1.empty()) {
-        cout << "can not open " << endl;
-        return -1;
-    } else
-        cout << "src row=" << src1.rows << ",col=" << src1.cols << ",depth=" <<src1.depth()<<
-                ",channel=" << src1.channels() << '\n';
-	return 0;
 	/*
     Mat grad_x0, grad_y0, grad_x1, grad_y1, diff;
     prepare_grad(src0, grad_x0, grad_y0);
@@ -484,10 +480,11 @@ int main(int argc, char** argv)
 	FileStorage fs(".\\diff.xml", FileStorage::WRITE);
 	fs << "diff" << diff;
 	fs.release();*/
-	/*
+#if 0	
 	generate_init_offset();
 	generate_feature_diff();
-	return 0;*/
+	return 0;
+#endif
 	gvar.clip_l = 6;
 	gvar.clip_r = 0;
 	gvar.clip_u = 0;

@@ -14,15 +14,16 @@ TEMPLATE = app
 
 SOURCES += main.cpp\
         mainwindow.cpp \
-    stitchview.cpp
+    stitchview.cpp \
+    bundleadjust.cpp
 
 HEADERS  += mainwindow.h \
-    stitchview.h
+    stitchview.h \
+    bundleadjust.h
 
 FORMS    += mainwindow.ui
 
-#DESTDIR = $$_PRO_FILE_PWD_/../app
-
+DESTDIR = $$_PRO_FILE_PWD_/../app
 
 Release:LIBS += -L$$_PRO_FILE_PWD_/../lib/release
 Release:LIBS += -lopencv_calib3d249 -lopencv_contrib249 -lopencv_core249 -lopencv_features2d249 -lopencv_flann249

@@ -125,22 +125,20 @@ int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);
 	qInstallMessageHandler(myMessageOutput);
-	QSharedPointer<DeleteMe> m1(new DeleteMe(1));
-	QSharedPointer<DeleteMe> m2(new DeleteMe(2));
-	m1 = m2;
-	qDebug("generate new database");
-	return 0;
+
     BkImgInterface * bk_img_db = BkImgInterface::create_BkImgDB();
-    /*
-    bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip.prj", false);
-    bk_img_db->addNewLayer("PL.db", "F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
+    
+    bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip_a.prj", false);
+	bk_img_db->addNewLayer("ST.db", "F:/chenyu/work/ChipStitch/data/hanzhou/ST/Project_", 1, 60, 1, 75); 
+	bk_img_db->addNewLayer("DF.db", "F:/chenyu/work/ChipStitch/data/hanzhou/DF1/Project_", 1, 60, 1, 75);
+    /*bk_img_db->addNewLayer("PL.db", "F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
     bk_img_db->addNewLayer("M1.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M1/Project_", 1, 60, 1, 75);
     bk_img_db->addNewLayer("M2.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M2/Project_", 1, 60, 1, 75);
     bk_img_db->addNewLayer("M3.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M3/Project_", 1, 60, 1, 75);
-    bk_img_db->addNewLayer("M4.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M4/Project_", 1, 60, 1, 75);
-    */
+    bk_img_db->addNewLayer("M4.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M4/Project_", 1, 60, 1, 75);*/
+	bk_img_db->addNewLayer("TOP.db", "F:/chenyu/work/ChipStitch/data/hanzhou/TOP/Project_", 1, 60, 1, 75);
 #if 1
-	bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip.prj", true);
+	bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip_a.prj", true);
 #else
 	bk_img_db->open("\\\\10.233.140.185/Linuxshare/imgdb/chip.prj", true);
 #endif
