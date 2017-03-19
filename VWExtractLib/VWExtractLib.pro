@@ -4,7 +4,7 @@
 #
 #-------------------------------------------------
 
-QT += core gui
+QT += core gui concurrent
 
 CONFIG(debug, debug|release) {
 TARGET = VWExtractd

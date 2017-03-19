@@ -487,6 +487,7 @@ int CellExtract::train(vector<ICLayerWr *> & ic_layer, const std::vector<MarkObj
 {
     vector<unsigned> bins, th;
     Mat mark, img;
+    cell.clear();
     for (unsigned i = 0; i < obj_sets.size(); i++)
         if (obj_sets[i].type == OBJ_AREA && obj_sets[i].type2 == AREA_CELL) {
 		if (obj_sets[i].type3 != POWER_UP_L && obj_sets[i].type3 != POWER_UP_R &&
@@ -587,8 +588,8 @@ int CellExtract::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea
     qInfo("Allow total similar th=%f, block similar th=%f. overlap > %f", 1 - param1, param2, param3);
     if (area_[0].option & (POWER_UP | POWER_DOWN)) {
         for (int i = 0; i < area_.size(); i++) {
-            qInfo("Receive search rect(%d,%d) (%d,%d)", area_[i].rect.left(), area_[i].rect.top(),
-                  area_[i].rect.right(), area_[i].rect.bottom());
+            qInfo("Receive search rect(%d,%d) (%d,%d), mask=%x", area_[i].rect.left(), area_[i].rect.top(),
+                  area_[i].rect.right(), area_[i].rect.bottom(), area_[i].option);
             if (area_[i].rect.width() < cwide * scale || area_[i].rect.height() < chigh *scale)
                 qWarning("Rect(%d,%d) can't contain object (%d,%d)", area_[i].rect.width(), area_[i].rect.height(),
                 cwide, chigh);

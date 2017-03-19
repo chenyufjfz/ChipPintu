@@ -1,16 +1,9 @@
 #ifndef BUNDLEADJUST_H
 #define BUNDLEADJUST_H
 #include <vector>
-#include "opencv2/imgproc/imgproc.hpp"
 #include <list>
-using namespace cv;
+#include "featext.h"
 using namespace std;
-
-struct EdgeDiff {
-	Mat_<unsigned char> diff;
-	unsigned score;
-	unsigned short y, x;
-};
 
 struct EdgeDiffCmp {
 	bool operator()(const EdgeDiff & e1, const EdgeDiff & e2) {

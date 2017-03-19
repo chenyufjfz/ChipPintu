@@ -4,24 +4,33 @@
 #
 #-------------------------------------------------
 
-QT       += core gui
+QT       += core gui concurrent
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
-TARGET = StitchView
+Release:TARGET = StitchView
+Debug:TARGET = StitchViewd
 TEMPLATE = app
 
 
 SOURCES += main.cpp\
         mainwindow.cpp \
     stitchview.cpp \
-    bundleadjust.cpp
+    bundleadjust.cpp \
+    featext.cpp \
+    cparadialog.cpp \
+    tparadialog.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
-    bundleadjust.h
+    bundleadjust.h \
+    featext.h \
+    cparadialog.h \
+    tparadialog.h
 
-FORMS    += mainwindow.ui
+FORMS    += mainwindow.ui \
+    cparadialog.ui \
+    tparadialog.ui
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 

@@ -6,4 +6,5 @@ SUBDIRS += \
     ViaWireExtract \
     Try \
     VWExtractLib \
-    ICLayerLib
+    ICLayerLib \
+    Compare

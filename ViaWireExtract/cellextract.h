@@ -28,7 +28,7 @@ class CellExtract : public ObjExtract
 {
 protected:
 	/* img, mark, mark1,mark2, mark3 are only used in train(string file_name, const vector<MarkObj> & obj_sets) 
-	and extract(string file_name, QRect rect, vector<MarkObj> & obj_sets) not used in
+    and extract(string file_name, QRect rect, vector<MarkObj> & obj_sets), not used in
 	train(vector<ICLayerWr *> & ic_layer, const vector<MarkObj> & obj_sets) and 
 	extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)*/
 	Mat img, mark, mark1, mark2, mark3; 

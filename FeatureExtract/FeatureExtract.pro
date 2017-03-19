@@ -12,14 +12,17 @@ TARGET = FeatureExtract
 TEMPLATE = app
 
 
-SOURCES += main.cpp\
-        featurewindow.cpp
+SOURCES += main.cpp \
+        featurewindow.cpp \
+    $$_PRO_FILE_PWD_/../StitchView/featext.cpp
 
-HEADERS  += featurewindow.h
+HEADERS  += featurewindow.h \
+    $$_PRO_FILE_PWD_/../StitchView/featext.h
 
 FORMS    += featurewindow.ui
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
+INCLUDEPATH += $$_PRO_FILE_PWD_/../StitchView
 
 Release:LIBS += -L$$_PRO_FILE_PWD_/../lib/release
 Release:LIBS += -lopencv_calib3d249 -lopencv_contrib249 -lopencv_core249 -lopencv_features2d249 -lopencv_flann249

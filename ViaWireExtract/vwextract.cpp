@@ -2013,7 +2013,7 @@ static void post_process_wire_via_prob(const vector<LayerBrickRuleMask> & lbrm, 
 				if (l2 < 0 || l2 >(int) lg.size())
 					continue;
 
-				if (l < l2) {
+				if ((int) l < l2) {
 					if (lbrm[l1].vwvfm[BRICK(BRICK_ORDER(l, gi, 0))][BRICK(BRICK_ORDER(l2, gi, 0))] &
 						1ULL << BRICK(BRICK_ORDER(l1, gi, 0)))
 						check = true;
@@ -2464,7 +2464,7 @@ static void try_assemble_multilayer(const vector<LayerBrickRuleMask> & lbrm, vec
 		FineAdjustAnswer best;
 		vector<unsigned> path, expand;
 		best.best_score = -100 * PROB2_INT;
-		int depth = nearby_unfit.size() + 2;
+		int depth = (int) nearby_unfit.size() + 2;
 
 		if (depth <= CONFLICT_SEARCH_DEPTH) {
 			while (!nearby_unfit.empty()) {
@@ -3494,14 +3494,14 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 			vector<int> gl_x, gl_y;
 			for (int x = sb.left(); x <= sb.right(); x++) {
 				int idx = x - sb.left();
-				int end = (x != sb.right()) ? ts[idx].d[l].gl_x.size() - 2 : ts[idx].d[l].gl_x.size();
+				int end = (x != sb.right()) ? (int) ts[idx].d[l].gl_x.size() - 2 : ts[idx].d[l].gl_x.size();
 				for (int i = 0; i < end; i++)
 					gl_x.push_back(sr.left() / scale + ts[idx].img_pixel_x0 + ts[idx].d[l].gl_x[i] + 2); //TODO: Check why +2?
 			}
 
 			for (int y = sb.top(); y <= sb.bottom(); y++) {
 				int idx = (y - sb.top()) * sb.width();
-				int end = (y != sb.bottom()) ? ts[idx].d[l].gl_y.size() - 2 : ts[idx].d[l].gl_y.size();
+				int end = (y != sb.bottom()) ? (int) ts[idx].d[l].gl_y.size() - 2 : ts[idx].d[l].gl_y.size();
 				for (int i = 0; i < end; i++)
 					gl_y.push_back(sr.top() / scale + ts[idx].img_pixel_y0 + ts[idx].d[l].gl_y[i] + 2); //TODO: check why + 2
 			}

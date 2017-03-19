@@ -8,27 +8,29 @@
 #include <list>
 #include <string>
 #include <QKeyEvent>
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
+#include <QtConcurrent>
+#include "featext.h"
 using namespace std;
 using namespace cv;
 
 typedef unsigned long long MapID;
+typedef unsigned long long MapID2;
 #define INVALID_MAP_ID 0xffffffffffffffff
 
 
-typedef struct {
+struct BkEncimg {
 	list <MapID>::iterator plist;
-	QImage * data;
-} Bkimg;
+	vector<uchar> data;
+};
 
-struct LayerInfo {
-	int img_num_w, img_num_h;
-	int clip_l, clip_r, clip_u, clip_d;
-	int move_scale;
-	int right_bound, bottom_bound;
-	string img_path;
-	Mat_<Vec2i> offset;
+struct BkDecimg {
+	list <MapID2>::iterator plist;
+	QImage data;
+	BkDecimg() {}
+	BkDecimg(list <MapID2>::iterator _plist, QImage _data) {
+		plist = _plist;
+		data = _data;
+	}
 };
 
 class StitchView : public QWidget
@@ -36,11 +38,9 @@ class StitchView : public QWidget
     Q_OBJECT
 public:
     explicit StitchView(QWidget *parent = 0);
-    static MapID sxy2mapid(unsigned char layer, unsigned char scale, unsigned short x, unsigned short y) {
+    static MapID lxy2mapid(unsigned char layer, unsigned short x, unsigned short y) {
         MapID ret;
         ret = layer;
-        ret = ret <<8;
-        ret |= scale;
         ret = ret <<16;
         ret |= x;
         ret = ret <<16;
@@ -48,16 +48,36 @@ public:
         return ret;
     }
 
-    static void mapid2sxy(MapID m, unsigned char &layer, unsigned char & scale, unsigned short & x, unsigned short &y)
+    static void mapid2lxy(MapID m, unsigned char &layer, unsigned short & x, unsigned short &y)
     {
-        layer = (m >>40) & 0xff;
-        scale = (m >>32) & 0xff;
+        layer = (m >>32) & 0xff;
         x = (m>>16) & 0xffff;
         y = m & 0xffff;
     }
 
+	static MapID2 slxy2mapid(unsigned scale, unsigned char layer, unsigned short x, unsigned short y) {
+		MapID ret;
+		ret = scale;
+		ret = ret << 8;
+		ret |= layer;
+		ret = ret << 16;
+		ret |= x;
+		ret = ret << 16;
+		ret |= y;
+		return ret;
+	}
+
+	static void mapid2slxy(MapID2 m, unsigned & scale, unsigned char &layer, unsigned short & x, unsigned short &y)
+	{
+		scale = (m >> 40) & 0xff;
+		layer = (m >> 32) & 0xff;
+		x = (m >> 16) & 0xffff;
+		y = m & 0xffff;
+	}
+
 signals:
 	void MouseChange(QPoint point);
+	void notify_progress(float progress);
 
 public slots:
 
@@ -66,18 +86,46 @@ protected:
     void keyPressEvent(QKeyEvent *e);
 	void mouseMoveEvent(QMouseEvent *event);
 	void mouseReleaseEvent(QMouseEvent *event);
-	int load_layer_info(string layer_cfg);
 	void remove_cache_front();
+	void timerEvent(QTimerEvent *e);
 
 protected:
-	vector<LayerInfo> l_info;
-	int scale, cache_size;
-    unsigned char layer;
+	vector<ConfigPara> cpara;
+	vector<TuningPara> tpara;
+	vector<string> feature_file; //feature file name in disk
+	FeatExt feature;
+	int feature_layer; //feature storts which layer
+	double scale; //current scale, should be bigger than cpara.rescale /2
+    unsigned char layer; //current layer, use cpara[layer] for drawing
 	QPoint choose, may_choose;
-    QRect view_rect;
-    QPoint center;
-    list<MapID> cache_list;
-	map<MapID, Bkimg> cache_map;
+	QRect view_rect; //view_rect unit is pixel in original file image
+	QPoint center;
+	map <MapID2, BkDecimg> preimg_map; //store decode image, its number is small, because each BkDecimg is big
+	list<MapID2> preimg_list;
+    list<MapID> cache_list;	
+	map<MapID, BkEncimg> cache_map; //store encode image,  its number is big, because each BkEncimg is small
+	int cache_size, preimg_size;
+	QFuture<string> compute_feature;
+	int compute_feature_timer;
+
+public:
+	//if _layer==-1, means current layer, if _layer==get_layer_num(), add new layer
+	int set_config_para(int _layer, const ConfigPara & _cpara);
+	//if _layer==-1, means get config of current layer
+	int get_config_para(int _layer, ConfigPara & _cpara);
+	//if _layer==-1, means set tune of current layer
+	int set_tune_para(int _layer, const TuningPara & _tpara);
+	//if _layer==-1, means get tune of current layer
+	int get_tune_para(int _layer, TuningPara & _tpara);
+	//From cpara, tpara, generate new FeatExt. if _layer==-1, means get tune of current layer
+	int compute_new_feature(int _layer);
+	int get_layer_num() { return (int)cpara.size(); }
+	int get_current_layer() { return layer; }
+	int set_current_layer(int _layer);
+	//if _layer==-1, means erase current layer
+	int delete_layer(int _layer);
+	void write_file(string file_name);
+	int read_file(string file_name);
 };
 
 #endif // STITCHVIEW_H

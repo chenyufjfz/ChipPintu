@@ -921,13 +921,15 @@ int ICLayerWr::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsig
 		BkImg img;
 		img.data = (unsigned char *)malloc(buff.size() - reserved);
 		img.len = (unsigned) buff.size() - reserved;
-		memcpy(img.data, &buff[reserved], img.len);
-		cache_list.push_back(BkImgMeta(id));
-		img.plist = cache_list.end();
-		img.plist--;
-		cache_size += img.len;
-		Q_ASSERT(img.plist->id == id);
-		cache_map[id] = img;
+		if (img.data) {
+			memcpy(img.data, &buff[reserved], img.len);
+			cache_list.push_back(BkImgMeta(id));
+			img.plist = cache_list.end();
+			img.plist--;
+			cache_size += img.len;
+			Q_ASSERT(img.plist->id == id);
+			cache_map[id] = img;
+		}
 		if (cache_size > max_cache_size) {
 			locker.unlock();
 			release_cache(max_cache_size, cache_list.begin()->tm);
@@ -1275,9 +1277,12 @@ int BkImg::open(const string prj, bool _read, int _max_cache_size)
 			fgets(line, sizeof(line), fp);
 			if (sscanf(line, "layer=%s", name) == 1) {
 				string filename(name);
-				layer_file.push_back(full_path_layer_file(filename));
-				qInfo("Prj layer %d=%s", layer_file.size()-1, layer_file.back().c_str());
-				bk_img_layers.push_back(NULL);
+				string full_path_name = full_path_layer_file(filename);
+				if (layer_file.empty() || layer_file.back() != full_path_name) {
+					layer_file.push_back(full_path_name);
+                    qInfo("Prj layer %d=%s", layer_file.size()-1, layer_file.back().c_str());
+                    bk_img_layers.push_back(NULL);
+                }
 			}
 		}
 		fclose(fp);

@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include <QApplication>
 #include <QDateTime>
+#include <QDir>
 
 static FILE * fp = NULL;
 
@@ -93,8 +94,18 @@ int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
+	QDir work_dir(qApp->applicationDirPath() + "/WorkData");
 
     qInstallMessageHandler(myMessageOutput);
+
+	if (!work_dir.exists()) {
+		bool ret = work_dir.mkdir(qApp->applicationDirPath() + "/WorkData");
+		if (!ret) {
+			qFatal("Unable to create work dir %s", work_dir.absolutePath().toStdString().c_str());
+			return -1;
+		}
+	}
+
     w.show();
 
     return a.exec();
