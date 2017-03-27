@@ -116,3 +116,8 @@ void MainWindow::on_actionQuick_Load_triggered()
 	string filename = qApp->applicationDirPath().toStdString() + "/WorkData/quicksave.xml";
 	stitch_view->read_file(filename);
 }
+
+void MainWindow::on_actionOptimize_Offset_triggered()
+{
+    stitch_view->optimize_offset(-1);
+}

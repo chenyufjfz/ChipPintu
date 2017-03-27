@@ -85,26 +85,46 @@ public:
 	}
 };
 
+#define MAKE_EDGE_IDX(x, y, e) ((e) << 31 | (y) << 16 | (x))
+#define EDGE_Y(idx) ((idx) >> 16 & 0x7fff)
+#define EDGE_X(idx) ((idx) & 0x7fff)
+#define EDGE_E(idx) ((idx) >> 31 & 1)
+
+#define MAKE_IMG_IDX(x, y) ((y) << 16 | (x))
+#define IMG_Y(idx) ((idx) >> 16 & 0x7fff)
+#define IMG_X(idx) ((idx) & 0x7fff)
+
 class EdgeDiff {
 public:
+	Point offset; //it is nearby image top-left point - base image top-left point
+	unsigned edge_idx;
 	Mat_<unsigned char> diff;
-	unsigned char max;
-	unsigned short score;
-	int offset_y, offset_x;
+	unsigned char maxd;
+	unsigned short score;	
 
 public:
 	void read_file(const FileNode& node) {
-		offset_y = (int) node["oy"];
-		offset_x = (int) node["ox"];
-		max = (int)node["m"];
+		offset.y = (int) node["oy"];
+		offset.x = (int) node["ox"];
+		maxd = (int)node["m"];
 		read(node["diff"], diff);
 	}
 
 	void write_file(FileStorage& fs) const {
-		fs << "{" << "oy" << offset_y;
-		fs << "ox" << offset_x;
-		fs << "m" << max;
+		fs << "{" << "oy" << offset.y;
+		fs << "ox" << offset.x;
+		fs << "m" << maxd;
 		fs << "diff" << diff << "}";
+	}
+
+	EdgeDiff * clone() {
+		EdgeDiff * new_diff = new EdgeDiff();
+		new_diff->offset = offset;
+		new_diff->edge_idx = edge_idx;
+		new_diff->diff = diff.clone();
+		new_diff->maxd = maxd;
+		new_diff->score = score;
+		return new_diff;
 	}
 
 	void compute_score() {
@@ -127,6 +147,76 @@ public:
 			}
 		}
 		score = (submin - min) + (thirdmin - submin) / 3;
+	}
+
+	void get_img_idx(unsigned & img_idx0, unsigned & img_idx1)
+	{
+		int x = EDGE_X(edge_idx);
+		int y = EDGE_Y(edge_idx);
+		if (EDGE_E(edge_idx)) {
+			img_idx0 = MAKE_IMG_IDX(x, y);
+			img_idx1 = MAKE_IMG_IDX(x + 1, y);
+		}
+		else {
+			img_idx0 = MAKE_IMG_IDX(x, y);
+			img_idx1 = MAKE_IMG_IDX(x, y + 1);
+		}
+	}
+
+	unsigned char get_diff(Point o, int s)
+	{
+		Point t = o - offset;
+		t.y = t.y / s;
+		t.x = t.x / s;
+		if (t.y < 0 || t.x < 0 || t.y >= diff.rows || t.x >= diff.cols)
+			return maxd;
+		return diff.at<unsigned char>(t);
+	}
+	
+	/*p1m1 is for this edge, p2m2 is for edge e2
+	p1, p2 belong to same bundle; m1, m2 belong to same bundle*/
+	void fw_merge(const EdgeDiff & e2, Point p1p2, Point m1m2, int s)
+	{
+		Point t = m1m2 - p1p2 + offset - e2.offset;
+		t.y = t.y / s;
+		t.x = t.x / s;
+		maxd = max(maxd, e2.maxd);
+		for (int y = 0; y < diff.rows; y++) {
+			unsigned char * pd = diff.ptr<unsigned char>(y);
+			int y1 = y + t.y;
+			const unsigned char * pd1 = (y1 >= 0 && y1 < e2.diff.rows) ? e2.diff.ptr<unsigned char>(y1) : NULL;
+			for (int x = 0; x < diff.cols; x++) {
+				int x1 = x + t.x;
+				if (pd1 && x1 >= 0 && x1 < e2.diff.cols)
+					pd[x] = max(pd[x], pd1[x1]);
+				else
+					pd[x] = maxd;
+			}
+		}
+		compute_score();
+	}
+
+	/*p1m1 is for this edge, m2p2 is for edge e2
+	p1, p2 belong to same bundle; m1, m2 belong to same bundle*/
+	void bw_merge(const EdgeDiff & e2, Point p1p2, Point m1m2, int s)
+	{
+		Point t = p1p2 - m1m2 - offset - e2.offset;
+		t.y = t.y / s;
+		t.x = t.x / s;
+		maxd = max(maxd, e2.maxd);
+		for (int y = 0; y < diff.rows; y++) {
+			unsigned char * pd = diff.ptr<unsigned char>(y);
+			int y1 = t.y - y;
+			const unsigned char * pd1 = e2.diff.ptr<unsigned char>(y1);
+			for (int x = 0; x < diff.cols; x++) {
+				int x1 = t.x - x;
+				if (y1 >= 0 && y1 < e2.diff.rows && x1 >= 0 && x1 < e2.diff.cols)
+					pd[x] = max(pd[x], pd1[x1]);
+				else
+					pd[x] = maxd;
+			}
+		}
+		compute_score();
 	}
 };
 
@@ -160,11 +250,12 @@ public:
 	float get_progress() {
 		return progress;
 	}
-    Mat & get_diff0(int y, int x);
-    Mat & get_diff1(int y, int x);
-    Point get_diff_offset0(int y, int x);
-    Point get_diff_offset1(int y, int x);
+	//i==0 means heng edge, i==1 means shu edge
 	EdgeDiff * get_edge(int i, int y, int x);
+	EdgeDiff * get_edge(int idx);
+	ConfigPara get_config_para() {
+		return cpara;
+	}
 };
 
 #endif // FEATEXT_H

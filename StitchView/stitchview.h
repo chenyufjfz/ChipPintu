@@ -10,6 +10,7 @@
 #include <QKeyEvent>
 #include <QtConcurrent>
 #include "featext.h"
+#include "bundleadjust.h"
 using namespace std;
 using namespace cv;
 
@@ -91,23 +92,38 @@ protected:
 
 protected:
 	vector<ConfigPara> cpara;
-	vector<TuningPara> tpara;
-	vector<string> feature_file; //feature file name in disk
-	FeatExt feature;
-	int feature_layer; //feature storts which layer
+
+	//Following is for drawing layer and rect
 	double scale; //current scale, should be bigger than cpara.rescale /2
     unsigned char layer; //current layer, use cpara[layer] for drawing
 	QPoint choose, may_choose;
 	QRect view_rect; //view_rect unit is pixel in original file image
 	QPoint center;
+	//upper is for drawing layer and rect
+
+	//Following is for encoder and decode image cache
 	map <MapID2, BkDecimg> preimg_map; //store decode image, its number is small, because each BkDecimg is big
 	list<MapID2> preimg_list;
-    list<MapID> cache_list;	
 	map<MapID, BkEncimg> cache_map; //store encode image,  its number is big, because each BkEncimg is small
+    list<MapID> cache_list;		
 	int cache_size, preimg_size;
+	//Upper is for  encoder and decode image cache
+
+	//Following is for feature compute and store
+	FeatExt feature;
+	vector<TuningPara> tpara;
+	vector<string> feature_file; //feature file name in disk
+	int feature_layer; //feature storts which layer
 	QFuture<string> compute_feature;
 	int compute_feature_timer;
+	//upper is for feature compute and store
 
+	//Following is for bundleadjust
+	int bundle_adjust_timer;
+	BundleAdjust ba;
+	QFuture<void> bundle_adjust_future;
+	Mat_<Vec2i> adjust_offset;
+	//upper is for bundleadjust
 public:
 	//if _layer==-1, means current layer, if _layer==get_layer_num(), add new layer
 	int set_config_para(int _layer, const ConfigPara & _cpara);
@@ -119,6 +135,8 @@ public:
 	int get_tune_para(int _layer, TuningPara & _tpara);
 	//From cpara, tpara, generate new FeatExt. if _layer==-1, means get tune of current layer
 	int compute_new_feature(int _layer);
+	//From FeatExt, compute new cpara.offset
+	int optimize_offset(int _layer);
 	int get_layer_num() { return (int)cpara.size(); }
 	int get_current_layer() { return layer; }
 	int set_current_layer(int _layer);

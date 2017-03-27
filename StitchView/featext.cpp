@@ -191,27 +191,27 @@ void extract_diff(GradDiff & gd)
 	if (gd.dir) { //do left-right compare
 		int start_x = gd.gx0->cols - gd.overlap / gd.cvar->rescale;		
 		int shift = gd.shift / gd.cvar->rescale;
-		gd.e->max = compute_diff(
+		gd.e->maxd = compute_diff(
 			(*gd.gx0)(Rect(start_x, max(shift, 0), gd.overlap / gd.cvar->rescale, gd.gx0->rows - abs(shift))),
 			(*gd.gy0)(Rect(start_x, max(shift, 0), gd.overlap / gd.cvar->rescale, gd.gy0->rows - abs(shift))),
 			(*gd.gx1)(Rect(0, max(-shift, 0), gd.overlap / gd.cvar->rescale, gd.gx1->rows - abs(shift))),
 			(*gd.gy1)(Rect(0, max(-shift, 0), gd.overlap / gd.cvar->rescale, gd.gy1->rows - abs(shift))),
 			gd.cvar->max_lr_xshift / gd.cvar->rescale, gd.cvar->max_lr_yshift / gd.cvar->rescale, gd.e->diff);
-		gd.e->offset_x = (start_x - gd.cvar->max_lr_xshift / gd.cvar->rescale) * gd.cvar->rescale;
-		gd.e->offset_y = (shift - gd.cvar->max_lr_yshift / gd.cvar->rescale) * gd.cvar->rescale;
+		gd.e->offset.x = (start_x - gd.cvar->max_lr_xshift / gd.cvar->rescale) * gd.cvar->rescale;
+		gd.e->offset.y = (shift - gd.cvar->max_lr_yshift / gd.cvar->rescale) * gd.cvar->rescale;
 		gd.e->compute_score();
 	}
 	else { //do up-down compare
 		int start_y = gd.gx0->rows - gd.overlap / gd.cvar->rescale;
 		int shift = gd.shift / gd.cvar->rescale;
-		gd.e->max = compute_diff(
+		gd.e->maxd = compute_diff(
 			(*gd.gx0)(Rect(max(shift, 0), start_y, gd.gx0->cols - abs(shift), gd.overlap / gd.cvar->rescale)),
 			(*gd.gy0)(Rect(max(shift, 0), start_y, gd.gy0->cols - abs(shift), gd.overlap / gd.cvar->rescale)),
 			(*gd.gx1)(Rect(max(-shift, 0), 0, gd.gx1->cols - abs(shift), gd.overlap / gd.cvar->rescale)),
 			(*gd.gy1)(Rect(max(-shift, 0), 0, gd.gy1->cols - abs(shift), gd.overlap / gd.cvar->rescale)),
 			gd.cvar->max_ud_xshift / gd.cvar->rescale, gd.cvar->max_ud_yshift / gd.cvar->rescale, gd.e->diff);
-		gd.e->offset_x = (shift - gd.cvar->max_ud_xshift / gd.cvar->rescale) * gd.cvar->rescale;
-		gd.e->offset_y = (start_y - gd.cvar->max_ud_yshift / gd.cvar->rescale) * gd.cvar->rescale;
+		gd.e->offset.x = (shift - gd.cvar->max_ud_xshift / gd.cvar->rescale) * gd.cvar->rescale;
+		gd.e->offset.y = (start_y - gd.cvar->max_ud_yshift / gd.cvar->rescale) * gd.cvar->rescale;
 		gd.e->compute_score();
 	}
 }
@@ -256,7 +256,13 @@ void FeatExt::generate_feature_diff()
 	edge[0].clear();
 	edge[1].clear();
 	edge[0].resize((cpara.img_num_h - 1) * cpara.img_num_w);
+	for (int y = 0; y < cpara.img_num_h - 1; y++)
+		for (int x = 0; x < cpara.img_num_w; x++)
+			edge[0][y*cpara.img_num_w + x].edge_idx = MAKE_EDGE_IDX(x, y, 0);
 	edge[1].resize(cpara.img_num_h * (cpara.img_num_w - 1));
+	for (int y = 0; y < cpara.img_num_h; y++)
+		for (int x = 0; x < cpara.img_num_w - 1; x++)
+			edge[1][y*(cpara.img_num_w - 1) + x].edge_idx = MAKE_EDGE_IDX(x, y, 1);
 
 	for (int row = 0; row < cpara.img_num_h - 1; row += img_load_num) { //once load img_load_num
 		for (int x = 0; x < cpara.img_num_w; x++) {
@@ -286,6 +292,7 @@ void FeatExt::generate_feature_diff()
 				for (int i = 0; i < gdiff.size(); i++) {					
 					if (i & 1) { //for up-down image feature extract
 						gdiff[i].e = &edge[0][(row + i / 2) * cpara.img_num_w + x - 1];
+						CV_Assert(gdiff[i].e->edge_idx == MAKE_EDGE_IDX(x - 1, row + i / 2, 0));
 						gdiff[i].gx0 = &grad_x[(x - 1) & 1][i / 2];
 						gdiff[i].gy0 = &grad_y[(x - 1) & 1][i / 2];
 						gdiff[i].gx1 = &grad_x[(x - 1) & 1][i / 2 + 1];
@@ -298,6 +305,7 @@ void FeatExt::generate_feature_diff()
 					}
 					else { //for left-right image feature extract
 						gdiff[i].e = &edge[1][(row + i / 2) * (cpara.img_num_w - 1) + x - 1];
+						CV_Assert(gdiff[i].e->edge_idx == MAKE_EDGE_IDX(x - 1, row + i / 2, 1));
 						gdiff[i].gx0 = &grad_x[0][i / 2];
 						gdiff[i].gy0 = &grad_y[0][i / 2];
 						gdiff[i].gx1 = &grad_x[1][i / 2];
@@ -416,6 +424,7 @@ int FeatExt::read_diff_file(string filename)
 			sprintf(name, "d0ud_%d_%d", y, x);
 			fs[name] >> edge[0][y* cpara.img_num_w + x];
 			edge[0][y* cpara.img_num_w + x].compute_score();
+			edge[0][y* cpara.img_num_w + x].edge_idx = MAKE_EDGE_IDX(x, y, 0);
 		}
 
 	for (int y = 0; y < cpara.img_num_h; y++)
@@ -424,32 +433,9 @@ int FeatExt::read_diff_file(string filename)
 			sprintf(name, "d1lr_%d_%d", y, x);
 			fs[name] >> edge[1][y* (cpara.img_num_w - 1) + x];
 			edge[1][y* (cpara.img_num_w - 1) + x].compute_score();
+			edge[1][y* (cpara.img_num_w - 1) + x].edge_idx = MAKE_EDGE_IDX(x, y, 1);
 		}
 	return 0;
-}
-
-Mat & FeatExt::get_diff0(int y, int x)
-{
-    CV_Assert(y < cpara.img_num_h - 1 && x < cpara.img_num_w);
-    return edge[0][y* cpara.img_num_w + x].diff;
-}
-
-Mat & FeatExt::get_diff1(int y, int x)
-{
-    CV_Assert(y < cpara.img_num_h && x < cpara.img_num_w - 1);
-    return edge[1][y* (cpara.img_num_w - 1) + x].diff;
-}
-
-Point FeatExt::get_diff_offset0(int y, int x)
-{
-    CV_Assert(y < cpara.img_num_h - 1 && x < cpara.img_num_w);
-	return Point(edge[0][y* cpara.img_num_w + x].offset_x, edge[0][y* cpara.img_num_w + x].offset_y);
-}
-
-Point FeatExt::get_diff_offset1(int y, int x)
-{
-    CV_Assert(y < cpara.img_num_h && x < cpara.img_num_w - 1);
-	return Point(edge[1][y* (cpara.img_num_w - 1) + x].offset_x, edge[1][y* (cpara.img_num_w - 1) + x].offset_y);
 }
 
 EdgeDiff * FeatExt::get_edge(int i, int y, int x)
@@ -459,4 +445,11 @@ EdgeDiff * FeatExt::get_edge(int i, int y, int x)
 		return &edge[0][y* cpara.img_num_w + x];
 	else
 		return &edge[1][y* (cpara.img_num_w - 1) + x];
+}
+
+EdgeDiff * FeatExt::get_edge(int idx) 
+{
+	EdgeDiff * diff = get_edge(EDGE_E(idx), EDGE_Y(idx), EDGE_X(idx));
+	CV_Assert(diff->edge_idx == idx);
+	return diff;
 }

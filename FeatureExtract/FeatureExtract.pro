@@ -14,10 +14,12 @@ TEMPLATE = app
 
 SOURCES += main.cpp \
         featurewindow.cpp \
-    $$_PRO_FILE_PWD_/../StitchView/featext.cpp
+    $$_PRO_FILE_PWD_/../StitchView/featext.cpp \
+    $$_PRO_FILE_PWD_/../StitchView/bundleadjust.cpp
 
 HEADERS  += featurewindow.h \
-    $$_PRO_FILE_PWD_/../StitchView/featext.h
+    $$_PRO_FILE_PWD_/../StitchView/featext.h \
+    $$_PRO_FILE_PWD_/../StitchView/bundleadjust.h
 
 FORMS    += featurewindow.ui
 

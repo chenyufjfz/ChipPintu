@@ -39,13 +39,19 @@ string thread_generate_diff(FeatExt * feature, int layer)
 {
 	feature->generate_feature_diff();
 	QDateTime current = QDateTime::currentDateTime();
-	string filename = current.toString("/WorkData/yy_MM_dd-hh.mm.ss-l").toStdString();
+	string filename = current.toString("yy_MM_dd-hh.mm.ss-l").toStdString();
 	char l = '0' + layer;
 	filename = filename + l;
 	filename = filename + ".xml";
-	filename = qApp->applicationDirPath().toStdString() + filename;
+	filename = qApp->applicationDirPath().toStdString() + "/WorkData/" + filename;
+	qInfo("write to %s", filename.c_str());
 	feature->write_diff_file(filename);
 	return filename;
+}
+
+void thread_bundle_adjust(BundleAdjust * ba, FeatExt * feature, Mat_<Vec2i> *offset)
+{
+	*offset = ba->arrange(*feature, -1, -1);
 }
 
 StitchView::StitchView(QWidget *parent) : QWidget(parent)
@@ -55,6 +61,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
     cache_size = 150;
 	preimg_size = 18;
     layer = -1;
+	feature_layer = -1;
 	choose = QPoint(-1, -1);
     resize(1800, 1000);
 	setMouseTracking(true);
@@ -94,7 +101,7 @@ void StitchView::paintEvent(QPaintEvent *)
 	painter.setBrush(QBrush(Qt::red));
 	QRect screen_rect(0, 0, width(), height());	
 
-	//first loop decode image
+	//first loop, decode image
 	for (int draw_order = 0; draw_order < 2; draw_order++) {
 		int max_x, max_y, start_x, start_y, end_x, end_y;
 		if (draw_order == 1) {
@@ -110,10 +117,10 @@ void StitchView::paintEvent(QPaintEvent *)
 		else {
 			max_x = (cpara[layer].offset(0, 1)[1] - cpara[layer].offset(0, 0)[1]) * 4 / 3;
 			start_x = view_rect.left() / max_x;
-			end_x = min(cpara[layer].img_num_w - (cpara[layer].right_bound() - view_rect.right()) / max_x + 1, cpara[layer].img_num_w);
+			end_x = min(cpara[layer].img_num_w - (cpara[layer].right_bound() - view_rect.right()) / max_x + 2, cpara[layer].img_num_w);
 			max_y = (cpara[layer].offset(1, 0)[0] - cpara[layer].offset(0, 0)[0]) * 4 / 3;
 			start_y = view_rect.top() / max_y;
-			end_y = min(cpara[layer].img_num_h - (cpara[layer].bottom_bound() - view_rect.top()) / max_y + 1, cpara[layer].img_num_h);
+			end_y = min(cpara[layer].img_num_h - (cpara[layer].bottom_bound() - view_rect.bottom()) / max_y + 2, cpara[layer].img_num_h);
 		}
 
 		for (int y = start_y; y < end_y; y++)
@@ -170,7 +177,7 @@ void StitchView::paintEvent(QPaintEvent *)
 		}
 	}
 	int dec_idx = 0;
-	//second loop draw image
+	//second loop, draw image
 	for (int draw_order = 0; draw_order < 2; draw_order++) {
 		int max_x, max_y, start_x, start_y, end_x, end_y;
 		if (draw_order == 1) {
@@ -186,10 +193,10 @@ void StitchView::paintEvent(QPaintEvent *)
 		else {
 			max_x = (cpara[layer].offset(0, 1)[1] - cpara[layer].offset(0, 0)[1]) * 4 / 3;
 			start_x = view_rect.left() / max_x;
-			end_x = min(cpara[layer].img_num_w - (cpara[layer].right_bound() - view_rect.right()) / max_x + 1, cpara[layer].img_num_w);
+			end_x = min(cpara[layer].img_num_w - (cpara[layer].right_bound() - view_rect.right()) / max_x + 2, cpara[layer].img_num_w);
 			max_y = (cpara[layer].offset(1, 0)[0] - cpara[layer].offset(0, 0)[0]) * 4 / 3;
 			start_y = view_rect.top() / max_y;
-			end_y = min(cpara[layer].img_num_h - (cpara[layer].bottom_bound() - view_rect.top()) / max_y + 1, cpara[layer].img_num_h);
+			end_y = min(cpara[layer].img_num_h - (cpara[layer].bottom_bound() - view_rect.bottom()) / max_y + 2, cpara[layer].img_num_h);
 		}
 
 		for (int y = start_y; y < end_y; y++)
@@ -323,8 +330,10 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 	mouse_point = mouse_point * scale + view_rect.topLeft();
 	for (int y = 0; y<cpara[layer].img_num_h; y++)
 		for (int x = 0; x<cpara[layer].img_num_w; x++)
-			if (cpara[layer].offset(y, x)[0] < mouse_point.y() && cpara[layer].offset(y + 1, x)[0] > mouse_point.y() &&
-				cpara[layer].offset(y, x)[1] < mouse_point.x() && cpara[layer].offset(y, x + 1)[1] > mouse_point.x()) {
+			if (cpara[layer].offset(y, x)[0] < mouse_point.y() && 
+				(y + 1 == cpara[layer].img_num_h || cpara[layer].offset(y + 1, x)[0] > mouse_point.y()) &&
+				cpara[layer].offset(y, x)[1] < mouse_point.x() && 
+				(x + 1 == cpara[layer].img_num_w || cpara[layer].offset(y, x + 1)[1] > mouse_point.x())) {
 				may_choose.setX(x);
 				may_choose.setY(y);
 				break;
@@ -369,11 +378,21 @@ void StitchView::timerEvent(QTimerEvent *e)
 			killTimer(compute_feature_timer);
 			emit notify_progress(0);			
 			string filename = compute_feature.result();
-			int layer = filename[filename.size() - 5] - '0';
-			feature_file[layer] = filename;
+			feature_file[feature_layer] = filename;
 			QMessageBox::information(this, "Info", "Prepare finish");
 		} else
 			emit notify_progress(feature.get_progress());
+	}
+
+	if (e->timerId() == bundle_adjust_timer) {
+		if (bundle_adjust_future.isFinished()) {
+			killTimer(bundle_adjust_timer);
+			emit notify_progress(0);
+			cpara[feature_layer].offset = adjust_offset;
+			QMessageBox::information(this, "Info", "Optimize offset finish");
+			update();
+		} else
+			emit notify_progress(ba.get_progress());
 	}
 }
 
@@ -448,17 +467,55 @@ int StitchView::compute_new_feature(int _layer)
 		_layer = layer;
 	if (_layer >= cpara.size() || _layer < 0)
 		return -1;
+	if (compute_feature.isRunning()) {
+		QMessageBox::information(this, "Info", "Prepare is already running, wait it finish");
+		return -2;
+	}
+	if (bundle_adjust_future.isRunning()) {
+		QMessageBox::information(this, "Info", "Optimize offset is running, wait it finish and redo Prepare");
+		return -3;
+	}
 	next_scale = !feature_file[_layer].empty();
 	if (cpara[_layer].rescale == 1 && next_scale)
-		return -2;
+		return -4;
 
 	if (next_scale)
 		cpara[_layer].rescale = cpara[_layer].rescale / 2;
 	feature.set_cfg_para(cpara[_layer]);
 	feature.set_tune_para(tpara[_layer]);
-	feature.generate_feature_diff();
+	feature_layer = _layer;
 	compute_feature = QtConcurrent::run(thread_generate_diff, &feature, _layer);
-	compute_feature_timer = startTimer(1000);
+	compute_feature_timer = startTimer(2000);
+	return 0;
+}
+
+int StitchView::optimize_offset(int _layer)
+{
+	bool next_scale;
+	Q_ASSERT(cpara.size() == tpara.size() && cpara.size() == feature_file.size());
+	if (_layer == -1)
+		_layer = layer;
+	if (_layer >= cpara.size() || _layer < 0)
+		return -1;
+	if (compute_feature.isRunning()) {
+		QMessageBox::information(this, "Info", "Prepare is running, wait it finish and redo optimize offset");
+		return -2;
+	}
+	if (bundle_adjust_future.isRunning()) {
+		QMessageBox::information(this, "Info", "Optimize offset is running, wait it finish");
+		return -3;
+	}
+	if (feature_layer != _layer) {
+		if (feature_file[_layer].size() < 2) {//empty
+			QMessageBox::information(this, "Info", "feature is empty, click Prepare first");
+			return -4;
+		}
+		feature.read_diff_file(feature_file[_layer]);
+		feature_layer = _layer;
+	}
+
+	bundle_adjust_future = QtConcurrent::run(thread_bundle_adjust, &ba, &feature, &adjust_offset);
+	bundle_adjust_timer = startTimer(2000);
 	return 0;
 }
 
@@ -474,6 +531,10 @@ int StitchView::set_current_layer(int _layer) {
 int StitchView::delete_layer(int _layer)
 {
 	Q_ASSERT(cpara.size() == tpara.size() && cpara.size() == feature_file.size());
+	if (compute_feature.isRunning() || bundle_adjust_future.isRunning()) {
+		QMessageBox::information(this, "Info", "Prepare is running, can't delete layer");
+		return -2;
+	}
 	if (_layer == -1)
 		_layer = layer;
 	if (_layer >= cpara.size() || _layer < 0)
@@ -498,6 +559,8 @@ void StitchView::write_file(string file_name)
 		char name[30];
 		sprintf(name, "cpara%d", i);
 		fs << name << cpara[i];
+		sprintf(name, "tpara%d", i);
+		fs << name << tpara[i];
 		sprintf(name, "diff_file%d", i);
 		fs << name << feature_file[i];
 	}
@@ -518,11 +581,14 @@ int StitchView::read_file(string file_name)
 		layer_num = (int)fs["layer_num"];
 		cpara.clear();
 		cpara.resize(layer_num);
+		tpara.resize(layer_num);
 		feature_file.resize(layer_num);
 		for (int i = 0; i < (int)cpara.size(); i++) {
 			char name[30];
 			sprintf(name, "cpara%d", i);
 			fs[name] >> cpara[i];
+			sprintf(name, "tpara%d", i);
+			fs[name] >> tpara[i];
 			sprintf(name, "diff_file%d", i);
 			fs[name] >> feature_file[i];
 		}
@@ -534,6 +600,7 @@ int StitchView::read_file(string file_name)
 		center = QPoint(ct.x, ct.y);
 		choose = QPoint(ce.x, ce.y);
 		fs.release();
+		feature_layer = -1;
 		return 0;
 	}
 	return -1;

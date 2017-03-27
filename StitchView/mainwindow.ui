@@ -39,6 +39,7 @@
     <addaction name="actionConfig_Para"/>
     <addaction name="actionTune_Para"/>
     <addaction name="actionPrepare_Next_Iter"/>
+    <addaction name="actionOptimize_Offset"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuConfig"/>
@@ -85,6 +86,11 @@
   <action name="actionPrepare_Next_Iter">
    <property name="text">
     <string>Prepare Next iter</string>
+   </property>
+  </action>
+  <action name="actionOptimize_Offset">
+   <property name="text">
+    <string>Optimize Offset</string>
    </property>
   </action>
  </widget>

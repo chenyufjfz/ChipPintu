@@ -128,17 +128,16 @@ int main(int argc, char *argv[])
 
     BkImgInterface * bk_img_db = BkImgInterface::create_BkImgDB();
     
-    bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip_a.prj", false);
-	bk_img_db->addNewLayer("ST.db", "F:/chenyu/work/ChipStitch/data/hanzhou/ST/Project_", 1, 60, 1, 75); 
-	bk_img_db->addNewLayer("DF.db", "F:/chenyu/work/ChipStitch/data/hanzhou/DF1/Project_", 1, 60, 1, 75);
-    /*bk_img_db->addNewLayer("PL.db", "F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
-    bk_img_db->addNewLayer("M1.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M1/Project_", 1, 60, 1, 75);
-    bk_img_db->addNewLayer("M2.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M2/Project_", 1, 60, 1, 75);
-    bk_img_db->addNewLayer("M3.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M3/Project_", 1, 60, 1, 75);
-    bk_img_db->addNewLayer("M4.db", "F:/chenyu/work/ChipStitch/data/hanzhou/M4/Project_", 1, 60, 1, 75);*/
-	bk_img_db->addNewLayer("TOP.db", "F:/chenyu/work/ChipStitch/data/hanzhou/TOP/Project_", 1, 60, 1, 75);
+    bk_img_db->open("F:/chenyu/work/ChipStitch/data/ADCLK/chip_a.prj", false);
+	//bk_img_db->addNewLayer("1.db", "F:/chenyu/work/ChipStitch/data/ADCLK/1/ST_", 1, 41, 1, 40); 
+	bk_img_db->addNewLayer("2.db", "F:/chenyu/work/ChipStitch/data/ADCLK/2/ST_", 1, 41, 1, 40);
+	bk_img_db->addNewLayer("3.db", "F:/chenyu/work/ChipStitch/data/ADCLK/3/ST_", 1, 41, 1, 40);
+	bk_img_db->addNewLayer("4.db", "F:/chenyu/work/ChipStitch/data/ADCLK/4/ST_", 1, 41, 1, 40);
+	bk_img_db->addNewLayer("5.db", "F:/chenyu/work/ChipStitch/data/ADCLK/5/ST_", 1, 41, 1, 40);
+	bk_img_db->addNewLayer("6.db", "F:/chenyu/work/ChipStitch/data/ADCLK/6/ST_", 1, 41, 1, 40);
+	bk_img_db->addNewLayer("7.db", "F:/chenyu/work/ChipStitch/data/ADCLK/7/ST_", 1, 41, 1, 40);
 #if 1
-	bk_img_db->open("F:/chenyu/work/ChipStitch/data/hanzhou/M1/chip_a.prj", true);
+	bk_img_db->open("F:/chenyu/work/ChipStitch/data/ADCLK/chip_a.prj", true);
 #else
 	bk_img_db->open("\\\\10.233.140.185/Linuxshare/imgdb/chip.prj", true);
 #endif

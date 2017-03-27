@@ -33,6 +33,8 @@ private slots:
 
     void on_actionQuick_Load_triggered();
 
+    void on_actionOptimize_Offset_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

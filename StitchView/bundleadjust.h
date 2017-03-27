@@ -2,27 +2,69 @@
 #define BUNDLEADJUST_H
 #include <vector>
 #include <list>
+#include <map>
 #include "featext.h"
 using namespace std;
 
-struct EdgeDiffCmp {
-	bool operator()(const EdgeDiff & e1, const EdgeDiff & e2) {
-		return e1.score > e2.score;
+
+#define DIR_UP				0
+#define DIR_RIGHT			1
+#define DIR_DOWN			2
+#define DIR_LEFT			3
+
+struct ImgMeta {
+	unsigned img_idx;				//it is fixed after init
+	unsigned bundle_idx;			//bundle_idx is bundle's top-left img_idx
+	Point offset;					//This image top-left offset to bundle's top-left (in pixel)
+	unsigned state;					//NOT VISIT or VISIT
+	/*up is 0, right is 1, down is 2, left is 3, return edge index which can be used by get_edge*/
+	unsigned get_edge_idx(int dir) {
+		switch (dir) {
+		case DIR_UP:
+			if (img_idx >= 0x10000)
+				return img_idx - 0x10000;
+			break;
+			
+		case DIR_RIGHT:
+			return img_idx | 0x80000000;
+
+		case DIR_DOWN:
+			return img_idx;	
+			
+		case DIR_LEFT:
+			if (img_idx & 0x7fff)
+				return (img_idx - 1) | 0x80000000;
+			break;
+		}
+		return 0xffffffff;
+	}
+	/*up is 0, right is 1, down is 2, left is 3, return image index which can be used by get_img_meta*/
+	unsigned get_img_idx(int dir) {
+		switch (dir) {
+		case DIR_UP:
+			if (img_idx >= 0x10000)
+				return img_idx - 0x10000;
+			break;
+
+		case DIR_RIGHT:
+			return img_idx + 1;
+
+		case DIR_DOWN:
+			return img_idx + 0x10000;
+
+		case DIR_LEFT:
+			if (img_idx & 0x7fff)
+				return img_idx - 1;
+			break;
+		}
+		return 0xffffffff;
 	}
 };
-struct Edge {
-	unsigned next_edge_idx[2], prev_edge_idx[2];
-	short dx, dy;
-	list<EdgeDiff>::iterator pdiff;
-};
 
-struct LayerInfo {
-	int img_num_w, img_num_h;
-	int clip_l, clip_r, clip_u, clip_d;
-	int move_scale;
-	int right_bound, bottom_bound;
-	string img_path;
-	Mat_<Vec2i> offset;
+struct Edge {
+	EdgeDiff * diff;
+	short state; //MERGED, SHARED, FREE
+	short score;	
 };
 
 /*
@@ -31,17 +73,29 @@ Algorithm
 */
 class BundleAdjust
 {
+protected:
+	vector<Edge> eds[2];
+	vector<ImgMeta> imgs;
+	list<EdgeDiff *> new_eds;
+	list<Edge *> edge_mqueue;
+	int img_num_h, img_num_w, scale;
+	float progress;
+
+protected:
+	Edge * get_edge(int i, int y, int x);
+	Edge * get_edge(int idx);
+	ImgMeta * get_img_meta(int idx);
+	void push_mqueue(Edge * e);
+	void release_new_eds();
+	void init(FeatExt & fet, int _img_num_h, int _img_num_w);
+	void merge(EdgeDiff * edge, FeatExt & fet);
+
 public:
     BundleAdjust();
-	static unsigned compute_score(Mat_<unsigned char> &diff);
-	static int load_edge_diff0(string filename);
-	static int load_config(string filename);
-	static unsigned xy2edge(unsigned short y, unsigned short x);
-protected:
-	vector<Edge> edge; //size= n*(m-1) + m*(n-1), size doesn't decrease during merge
-	list<EdgeDiff> edge_diff; //size decrease during merge
-	static list<EdgeDiff> edge_diff0;
-	static LayerInfo l_info;
+	Mat_<Vec2i> arrange(FeatExt & fet, int _img_num_h = 0, int _img_num_w = 0);
+	float get_progress() {
+		return progress;
+	}
 };
 
 #endif // BUNDLEADJUST_H

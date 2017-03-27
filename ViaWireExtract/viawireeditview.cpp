@@ -243,7 +243,7 @@ void ViaWireEditView::load_bk_image(QString file_path)
 		QImage img;
 		if (!img.load(QString::fromStdString(file_name)))
 			break;
-        qDebug("load image %s, format=%d", file_path.toStdString().c_str(), img.format());
+		qDebug("load image %s, format=%d", file_name.c_str(), img.format());
         bk_img.push_back(img.convertToFormat(QImage::Format_ARGB32));
 	}
 	if (bk_img.empty()) {
