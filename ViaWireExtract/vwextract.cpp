@@ -7,6 +7,7 @@
 #include <set>
 #include <stdio.h>
 #include <QtConcurrent>
+#include <QScopedPointer>
 using namespace std;
 
 //WEIGHT_FB is for find grid look forward & backward
@@ -83,6 +84,21 @@ enum {
 	OBEY_RULE_WEAK,
 	OBEY_RULE_STRONG,
 	DO_FIND_TUNE
+};
+
+struct LayerParam{
+	int wire_wd; //wire width
+	int via_rd0; //outter via radius
+	int via_rd1; //middle via radius
+	int via_rd2; //inter via radius
+	int via_method; //via extract method
+	int grid_wd; //grid width	
+	float param1; //via th, close to 1, higher threshold
+	float param2; //wire th, close to 1, higher threshold
+	float param3; //via_cred vs wire_cred, if via_cred> wire_cred, >1; else <1
+	float param4; //via density
+	unsigned long long rule; //rule affect bbfm
+	unsigned long long warning_rule; //rule affect bbfm
 };
 
 //dxy[][0] is for y, dxy[][1] is for x
@@ -292,7 +308,33 @@ protected:
 	/*ts is only used in extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets); not used in
 	extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);*/
 	vector<TileData> ts;
+	vector<LayerParam> lpm;
+
 public:
+	int set_train_param(int layer, int width, int r, int rule_low, int warning_rule_low, int grid_width, int _param1, int _param2, int _param3, float _param4) {
+		if (layer == 0)
+			lpm.clear();
+		if (layer > (int)lpm.size())
+			return -1;
+		if (layer == (int)lpm.size())
+			lpm.push_back(LayerParam());
+		lpm[layer].wire_wd = width;
+		lpm[layer].via_rd0 = r & 0xff;
+		lpm[layer].via_rd1 = (r >> 8) & 0xff;
+		lpm[layer].via_rd2 = (r >> 16) & 0xff;
+		lpm[layer].via_method = (r >> 24) & 0xff;
+		lpm[layer].rule = rule_low;
+		lpm[layer].warning_rule = warning_rule_low;
+		lpm[layer].grid_wd = grid_width;
+		lpm[layer].param1 = _param1 / 100.0;
+		lpm[layer].param2 = _param2 / 100.0;
+		lpm[layer].param3 = _param3 / 100.0;
+		lpm[layer].param4 = _param4;
+		return 0;
+	}
+	int set_extract_param(int layer, int width, int r, int rule_low, int warning_rule_low, int grid_width, int _param1, int _param2, int _param3, float _param4) {
+		return set_train_param(layer, width, r, rule_low, warning_rule_low, grid_width, _param1, _param2, _param3, _param4);
+	}
 	Mat get_mark(int layer);
 	Mat get_mark1(int layer);
 	Mat get_mark2(int layer);
@@ -1048,10 +1090,9 @@ Out feature,
 feature_extract_via2 suppose via is lighter than insu, it compute two concentric circles gray
 */
 static void feature_extract_via2(int x0, int y0, const Mat & ia, const Mat & stat, int r, int r1,
-	const vector<int> & dx, const vector<int> & dx1, float feature[])
+	const vector<int> & dx, const vector<int> & dx1, float feature[], int & last_xx, int &last_yy, int &last_gray)
 {
 	CV_Assert((int)dx.size() == r + 1 && (int)dx1.size() == r1 + 1);
-	static int last_xx = -1, last_yy = -1, last_gray = 0;
 	int s = 0, n = 0, gray, s1 = 0, n1 = 0;
 	for (int y = -r; y <= r; y++) {
 		int x = dx[abs(y)];
@@ -1094,6 +1135,84 @@ static void feature_extract_via2(int x0, int y0, const Mat & ia, const Mat & sta
 	feature[0] = (float)s / (n * gray);
 	feature[1] = (float)s1 / (n1 * gray);
 }
+
+
+class FeatureExtractVia {
+protected:
+	int r0, r1, r2;
+public:
+	static FeatureExtractVia * create_feaext_via(int method);
+	virtual void prepare(Mat & img, int r0, int r1, int r2) = 0;
+	virtual unsigned compute_feature(int x, int y) = 0;
+	virtual ~FeatureExtractVia() {
+	}
+};
+
+//The via r0 is nearly same as wire's width
+class BigViaExtract : public FeatureExtractVia {
+protected:
+	Mat img;
+public:
+	void prepare(Mat & _img, int _r0, int _r1, int _r2) {
+		img = _img;
+		r0 = _r0;
+		r1 = _r1;
+		r2 = _r2;
+	}
+	unsigned compute_feature(int x, int y) {
+		float feature[4];
+		double v;
+		unsigned c;
+		feature_extract_via(img.ptr<unsigned char>(y) + x, (int)img.step[0], r0, feature);
+		v = (double)feature[0] * feature[1] * feature[2] * feature[3]; //Normally, Insu and wire = 1, and via >1
+		v = max(v, 0.001);
+		v = min(v, 1000.0);
+		c = 0x40000000 + log(v) * 0x8000000;  //-7< log(v) <7, so c>0 & c<0x78000000, insu and wire, c=0x40000000
+		return c;
+	}
+};
+
+//The via has two circle
+class TwoLightCircleViaExtract : public FeatureExtractVia {
+protected:
+	Mat img, ia, stat;
+	vector<int>  dx, dx1;
+	int last_xx, last_yy, last_gray;
+public:
+	void prepare(Mat & _img, int _r0, int _r1, int _r2) {
+		img = _img;
+		r0 = _r0;
+		r1 = _r1;
+		r2 = _r2;
+		last_xx = -1; 
+		last_yy = -1; 
+		last_gray = 0;
+		feature_extract_via2_prepare(img, r0, r1, ia, stat, dx, dx1);
+	}
+	unsigned compute_feature(int x, int y) {
+		float feature[2];
+		float v;
+		feature_extract_via2(x, y, ia, stat, r0, r1, dx, dx1, feature, last_xx, last_yy, last_gray); //Normally, Insu and wire = 1, and via >1
+		v = feature[0] * feature[1];
+		v = max(v, 0.001f);
+		v = min(v, 1000.0f);
+		unsigned c = 0x40000000 + log(v) * 0x8000000; //-7< log(v) <7, so c>0 & c<0x78000000, insu and wire, c=0x40000000
+		return c;
+	}
+};
+
+FeatureExtractVia * FeatureExtractVia::create_feaext_via(int method)
+{
+	switch (method) {
+	case 0:
+		return new BigViaExtract;
+	case 1:
+		return new TwoLightCircleViaExtract;
+	default:
+		qCritical("Invalid via feature extract method %d", method);
+		return NULL;
+	}
+}
 /*
 Input: weight, 
 Input: w
@@ -1107,6 +1226,7 @@ static double find_grid_line(const vector<double> & weight, int w, int grid, vec
 	grid_line.clear();
 	vector<double> weight_f[WEIGHT_FB], weight_b[WEIGHT_FB];
 
+	//accumulate WEIGHT_FB forward and backward
 	for (int i = 0; i < WEIGHT_FB; i++) {
 		weight_f[i].resize(weight.size());
 		weight_b[i].resize(weight.size());
@@ -1127,7 +1247,7 @@ static double find_grid_line(const vector<double> & weight, int w, int grid, vec
 			}
 		}
 	}
-
+	//choose max as baseline, this is important
 	int base_line;
 	double max_base = -100000000;
 	for (int i = grid * 2; i < weight.size() - grid * 2; i++)
@@ -1137,6 +1257,7 @@ static double find_grid_line(const vector<double> & weight, int w, int grid, vec
 		}
 	grid_line.push_back(base_line + w / 2);
 	qDebug("base=%d", base_line + w / 2);
+	//from base, search forward and backward
 	for (int i = base_line; i > 0;) {
 		int ib0 = max(0, i - grid);
 		int ib1 = max(0, i - grid - 1);
@@ -1162,7 +1283,7 @@ static double find_grid_line(const vector<double> & weight, int w, int grid, vec
 struct FindViaGridLineReq {
 	int dx, dy; //allow max deviation
 	bool find_minor_gl, find_via, gl_x_valid, gl_y_valid, allow_new_x, allow_new_y;
-	int x_align, y_align;
+	int x_align, y_align; //0, +1, -1
 	FindViaGridLineReq(int _dx, int _dy, bool _find_minor_gl, bool _find_via, bool _gl_x_valid, bool _gl_y_valid,
 		bool _allow_new_x, bool _allow_new_y) {
 		dx = _dx;
@@ -1183,7 +1304,7 @@ Inout td:  in img, input image,
 	out gl_x, gl_y,  grid line
 Inout req: in dx, dy, find_minor_gl, find_via, gl_x_valid, gl_y_valid, allow_new_x, allow_new_y
 	out x_align, y_align
-	out via_prob: via probability gl_y.size() * gl_x.size(), 1 is via, 0 is not via
+out via_prob: via probability gl_y.size() * gl_x.size(), 1 is via, 0 is not via
 return: direction, 0 means up-down grid line
 It require wire is darker than via; and insu is darker than wire
 */
@@ -1191,10 +1312,19 @@ static int find_via_grid_line(struct LayerParam & lpm, struct LayerTileData & td
 	Mat & via_prob)
 {
 	Mat img = td.img;
-	int wire_wd = lpm.wire_wd, grid_wd = lpm.grid_wd, via_rd = lpm.via_rd;
-	float via_cred = lpm.param1;
+	int wire_wd = lpm.wire_wd, grid_wd = lpm.grid_wd, via_rd = lpm.via_rd0;
+	float via_cred = lpm.param1;	
 
-	CV_Assert(via_cred >= 0 && via_cred <= 1 && grid_wd > wire_wd && grid_wd > via_rd);
+	if (!(via_cred >= 0 && via_cred <= 1 && grid_wd > wire_wd && grid_wd > via_rd)) {
+		qCritical("invalid parameter via_cred=%f, grid=%d, wird_wd=%d, via_rd=%d", via_cred, grid_wd, wire_wd, via_rd);
+		return -1;
+	}
+
+	QScopedPointer<FeatureExtractVia> extract_via(FeatureExtractVia::create_feaext_via(lpm.via_method));
+	if (extract_via.isNull())
+		return -2;
+	extract_via->prepare(img, lpm.via_rd0, lpm.via_rd1, lpm.via_rd2);
+
 	if (req.find_via)
 		req.find_minor_gl = true;
 
@@ -1319,14 +1449,8 @@ static int find_via_grid_line(struct LayerParam & lpm, struct LayerTileData & td
 					continue;
 				if (req.gl_y_valid && y >= td.gl_y[gl] + req.dy)
 					gl++;
-				float feature[4];
-				double v;
 				unsigned long long c;
-				feature_extract_via(img.ptr<unsigned char>(y) +td.gl_x[x], (int)img.step[0], via_rd, feature);
-				v = (double)feature[0] * feature[1] * feature[2] * feature[3]; //Normally, Insu and wire = 1, and via >1
-				v = max(v, 0.001);
-				v = min(v, 1000.0);
-				c = 0x40000000 + log(v) * 0x8000000;  //-7< log(v) <7, so c>0 & c<0x80000000, insu and wire, c=0x40000000
+				c = extract_via->compute_feature(td.gl_x[x], y);
 				c = (c << 32) | (y << 16) | td.gl_x[x];
 				caps.push_back(c);
 				if (req.gl_y_valid && gl >= td.gl_y.size())
@@ -1381,15 +1505,11 @@ static int find_via_grid_line(struct LayerParam & lpm, struct LayerTileData & td
 					continue;
 				if (req.gl_x_valid && x >= td.gl_x[gl] + req.dx)
 					gl++;
-				float feature[4];
-				double v;
+				
 				unsigned long long c;
-				feature_extract_via(img.ptr<unsigned char>(td.gl_y[y]) + x, (int)img.step[0], via_rd, feature);
-				v = (double)feature[0] * feature[1] * feature[2] * feature[3]; //Normally, Insu and wire = 1, and via >1
-				v = max(v, 0.001);
-				v = min(v, 1000.0);
-				c = 0x40000000 + log(v) * 0x8000000;  //-7< log(v) <7, so c>0 & c<0x78000000, insu and wire, c=0x40000000
-				c = (c << 32) | (td.gl_y[y] << 16) | x;
+				
+				c = extract_via->compute_feature(x, td.gl_y[y]);
+				c = (c << 32) | (td.gl_y[y] << 16) | x;	
 				caps.push_back(c);
 				if (req.gl_x_valid && gl >= td.gl_x.size())
 					break;
@@ -1592,14 +1712,20 @@ static void find_via_grid_line2(struct LayerParam & lpm, struct LayerTileData & 
 	Mat & via_prob)
 {
 	Mat img = td.img;
-	int grid_wd = lpm.grid_wd, via_rd = lpm.via_rd, r1 = lpm.wire_wd;
+	int grid_wd = lpm.grid_wd, via_rd = lpm.via_rd0;
 	float via_cred = lpm.param1;
 
-	CV_Assert(via_cred >= 0 && via_cred <= 1 && grid_wd > via_rd);
+	if (!(via_cred >= 0 && via_cred <= 1 && grid_wd > via_rd)) {
+		qCritical("invalid parameter via_cred=%f, grid=%d, via_rd=%d", via_cred, grid_wd, via_rd);
+		return;
+	}
 	CV_Assert(req.find_via && req.gl_x_valid && req.gl_y_valid && !req.allow_new_x && !req.allow_new_y);
-	Mat ia, st;
-	vector<int> dx, dx1;
-	feature_extract_via2_prepare(img, via_rd, r1, ia, st, dx, dx1);
+
+	QScopedPointer<FeatureExtractVia> extract_via(FeatureExtractVia::create_feaext_via(lpm.via_method));
+	extract_via->prepare(img, lpm.via_rd0, lpm.via_rd1, lpm.via_rd2);
+	if (extract_via.isNull())
+		return;
+
 	//1 compute via feature for all grid line points
 	vector<unsigned long long> caps;
 	for (int yy = 1; yy < td.gl_y.size() - 1; yy++)
@@ -1608,15 +1734,9 @@ static void find_via_grid_line2(struct LayerParam & lpm, struct LayerTileData & 
 		int x0 = td.gl_x[xx];
 		for (int y = y0 - req.dy; y <= y0 + req.dy; y++)
 			for (int x = x0 - req.dx; x <= x0 + req.dx; x++) {
-			float feature[2];
-			float v;
-			feature_extract_via2(x, y, ia, st, via_rd, r1, dx, dx1, feature); //Normally, Insu and wire = 1, and via >1
-			v = feature[0] * feature[1];
-			v = max(v, 0.001f);
-			v = min(v, 1000.0f);
-			unsigned long long c = 0x40000000 + log(v) * 0x8000000; //-7< log(v) <7, so c>0 & c<0x78000000, insu and wire, c=0x40000000
-			c = (c << 32) | (y << 16) | x;
-			caps.push_back(c);
+				unsigned long long c = extract_via->compute_feature(x, y);
+				c = (c << 32) | (y << 16) | x;
+				caps.push_back(c);
 			}
 		}
 
@@ -3173,7 +3293,7 @@ void process_tile(ProcessTileData & t3)
 #endif
 
 			for (int i = 0; i < vias.size(); i++)
-				fill_circle(t3.tt->d[l].mark, vias[i].x(), vias[i].y(), lpm[l].via_rd + 2, M_V,
+				fill_circle(t3.tt->d[l].mark, vias[i].x(), vias[i].y(), lpm[l].via_rd0 + 2, M_V,
 				QRect(0, 0, t3.tt->d[l].img.cols, t3.tt->d[l].img.rows));
 			Mat img = t3.tt->d[l].img.clone();
 			remove_via(t3.tt->d[l].mark, img, up_down, lpm[l].grid_wd - lpm[l].wire_wd);
@@ -3227,10 +3347,6 @@ void process_tile(ProcessTileData & t3)
 	}
 }
 
-VWExtract * VWExtract::create_extract(int)
-{
-	return new VWExtractStat;
-}
 
 Mat VWExtractStat::get_mark(int layer) {
 	if (ts.empty())
@@ -3309,7 +3425,7 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 		lbrm[lbrm_idx + 1].fit_mask = 3;
 		warn_lbrm[lbrm_idx + 1].fit_mask = 3;
 		qInfo("layer%d: w=%d,g=%d,vr=%d,rule=%llx,wrule=%llx,via_th=%f,wire_th=%f,vw_ratio=%f", l, lpm[l].wire_wd, lpm[l].grid_wd,
-			lpm[l].via_rd, lpm[l].rule, lpm[l].warning_rule, lpm[l].param1, lpm[l].param2, lpm[l].param3);
+			lpm[l].via_rd0, lpm[l].rule, lpm[l].warning_rule, lpm[l].param1, lpm[l].param2, lpm[l].param3);
 	}
 #if SAVE_RST_TO_FILE
 	FILE * fp;

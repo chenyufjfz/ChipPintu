@@ -12,11 +12,11 @@ class WireViaParamDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit WireViaParamDialog(QWidget *parent, int _layer, int _wire_width, int _via_radius, int _grid_size,
-                                int _rule, int _warn_rule, float _param1, float _param2, float _param3, float _param4);
+	explicit WireViaParamDialog(QWidget *parent, int _layer, int _type, int _opt0, int _opt1,
+		int _opt2, int _opt3, int _opt4, int _opt5, int _opt6, float _opt_f0);
     ~WireViaParamDialog();
-    int wire_width, via_radius, layer, grid_size, rule, warning_rule;
-    float param1, param2, param3, param4;
+    int layer, type, opt0, opt1, opt2, opt3, opt4, opt5, opt6;
+	float opt_f0;
 
 private slots:
     void on_buttonBox_accepted();

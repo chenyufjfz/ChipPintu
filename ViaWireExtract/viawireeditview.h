@@ -5,7 +5,7 @@
 #include <vector>
 #include <QMouseEvent>
 #include <string>
-#include "vwextract.h"
+#include "vwextract2.h"
 #include "cellextract.h"
 
 
@@ -17,7 +17,6 @@ public:
     double grid_high, grid_width, offset_y, offset_x;
 	int mark_state, mark_type2, layer;
 	unsigned mark_mask, show_debug_en;
-	vector<LayerParam> lpm;
 	bool hide_obj;
 
 signals:
@@ -35,8 +34,8 @@ public:
     void extract();
 	void show_mark(unsigned _mark_mask);
 	void show_debug(bool _show_debug_en);
-	void set_wire_para(int _layer, int _wire_width, int _via_radius, int _grid_size, int _rule, int _warning_rule, 
-		float _param1, float _param2, float _param3, float _param4);
+	void set_wire_para(int _layer, int type, int opt0, int opt1, int opt2, int opt3, 
+		int opt4, int opt5, int opt6, float opt_f0);
 
     void set_scale(int _scale);
     int get_scale();

@@ -1,22 +1,22 @@
 #include "wireviaparamdialog.h"
 #include "ui_wireviaparamdialog.h"
 
-WireViaParamDialog::WireViaParamDialog(QWidget *parent, int _layer, int _wire_width, int _via_radius, int _grid_size,
-						int _rule, int _warn_rule, float _param1, float _param2, float _param3, float _param4) :
+WireViaParamDialog::WireViaParamDialog(QWidget *parent, int _layer, int _type, int _opt0, int _opt1,
+						int _opt2, int _opt3, int _opt4, int _opt5, int _opt6, float _opt_f0) :
     QDialog(parent),
     ui(new Ui::WireViaParamDialog)
 {
     ui->setupUi(this);
     ui->layer->setText(QString::number(_layer));
-    ui->wire_width->setText(QString::number(_wire_width));
-    ui->via_radius->setText(QString::number(_via_radius));    
-    ui->grid_size->setText(QString::number(_grid_size));
-    ui->rule->setText(QString::number(_rule));
-	ui->warn_rule->setText(QString::number(_warn_rule));
-    ui->param1->setText(QString::number(_param1));
-    ui->param2->setText(QString::number(_param2));
-    ui->param3->setText(QString::number(_param3));
-	ui->param4->setText(QString::number(_param4));
+	ui->type->setText(QString::number(_type));
+    ui->opt0->setText(QString::number(_opt0));    
+    ui->opt1->setText(QString::number(_opt1));
+    ui->opt2->setText(QString::number(_opt2));
+	ui->opt3->setText(QString::number(_opt3));
+    ui->opt4->setText(QString::number(_opt4));
+    ui->opt5->setText(QString::number(_opt5));
+    ui->opt6->setText(QString::number(_opt6));
+	ui->opt_f0->setText(QString::number(_opt_f0));
 }
 
 WireViaParamDialog::~WireViaParamDialog()
@@ -27,13 +27,13 @@ WireViaParamDialog::~WireViaParamDialog()
 void WireViaParamDialog::on_buttonBox_accepted()
 {
     layer = ui->layer->text().toUInt();
-    wire_width = ui->wire_width->text().toUInt();
-    via_radius = ui->via_radius->text().toUInt();    
-    grid_size = ui->grid_size->text().toUInt();
-    rule = ui->rule->text().toUInt();
-	warning_rule = ui->warn_rule->text().toUInt();
-    param1 = ui->param1->text().toFloat();
-    param2 = ui->param2->text().toFloat();
-    param3 = ui->param3->text().toFloat();
-	param4 = ui->param4->text().toFloat();
+	type = ui->type->text().toUInt();
+    opt0 = ui->opt0->text().toUInt();    
+    opt1 = ui->opt1->text().toUInt();
+    opt2 = ui->opt2->text().toUInt();
+	opt3 = ui->opt3->text().toUInt();
+	opt4 = ui->opt4->text().toUInt();
+	opt5 = ui->opt5->text().toUInt();
+	opt6 = ui->opt6->text().toUInt();
+	opt_f0 = ui->opt_f0->text().toFloat();
 }

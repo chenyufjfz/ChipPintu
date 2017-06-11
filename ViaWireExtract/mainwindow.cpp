@@ -233,8 +233,8 @@ void MainWindow::on_actionSet_Param_triggered()
 	WireViaParamDialog wv_dlg(this, 0, 10, 9, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 0, 
 		0.5f, 0.5f, 0.5f, 0);
     if (wv_dlg.exec() == QDialog::Accepted)
-		vw_view->set_wire_para(wv_dlg.layer, wv_dlg.wire_width, wv_dlg.via_radius, wv_dlg.grid_size, wv_dlg.rule, wv_dlg.warning_rule,
-			wv_dlg.param1, wv_dlg.param2, wv_dlg.param3, wv_dlg.param4);
+		vw_view->set_wire_para(wv_dlg.layer, wv_dlg.type, wv_dlg.opt0, wv_dlg.opt1, wv_dlg.opt2, wv_dlg.opt3,
+			wv_dlg.opt4, wv_dlg.opt5, wv_dlg.opt6, wv_dlg.opt_f0);
 
 }
 

@@ -103,8 +103,8 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 {
-	int wire_width = (obj.type == OBJ_LINE) ? lpm[obj.type3].wire_wd : 0;
-	int via_radius = (obj.type == OBJ_POINT) ? lpm[obj.type3].via_rd : 0;
+	int wire_width = (obj.type == OBJ_LINE) ? 10 : 0;
+	int via_radius = (obj.type == OBJ_POINT) ? 8 : 0;
 
     switch (obj.type) {
     case OBJ_NONE:
@@ -374,7 +374,7 @@ void ViaWireEditView::erase_all_objects()
 
 void ViaWireEditView::start_cell_train(int , int , int , float _param1, float _param2, float _param3)
 {
-	cele->set_train_param(0, 0, 0, 0, 0, 0, _param1, _param2, _param3, 0);
+	cele->set_train_param(0, 0, 0, 0, 0, 0, _param1 * 100, _param2 * 100, _param3 * 100, 0);
 	for (int i = 0; i < obj_set.size(); i++)
 		if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA)
 			obj_set[i].type3 = POWER_UP;
@@ -382,23 +382,10 @@ void ViaWireEditView::start_cell_train(int , int , int , float _param1, float _p
 	current_train = cele;
 }
 
-void ViaWireEditView::set_wire_para(int _layer, int _wire_width, int _via_radius, int _grid_size, 
-	int _rule, int _warning_rule, float _param1, float _param2, float _param3, float _param4)
+void ViaWireEditView::set_wire_para(int _layer, int type, int opt0, int opt1, int opt2, int opt3,
+	int opt4, int opt5, int opt6, float opt_f0)
 {
-	if (_layer > lpm.size())
-		return;
-	if (_layer == lpm.size())
-		lpm.push_back(LayerParam());
-	lpm[_layer].wire_wd = _wire_width;
-	lpm[_layer].via_rd = _via_radius;
-	lpm[_layer].rule = _rule;
-	lpm[_layer].warning_rule = _warning_rule;
-	lpm[_layer].grid_wd = _grid_size;
-	lpm[_layer].param1 = _param1;
-	lpm[_layer].param2 = _param2;
-	lpm[_layer].param3 = _param3;
-	lpm[_layer].param4 = _param4;
-	vwe->set_train_param(_layer, _wire_width, _via_radius, _rule, _warning_rule, _grid_size, _param1, _param2, _param3, _param4);
+	vwe->set_train_param(_layer, type, opt0, opt1, opt2, opt3, opt4, opt5, opt6, opt_f0);
 	current_train = vwe;
 }
 

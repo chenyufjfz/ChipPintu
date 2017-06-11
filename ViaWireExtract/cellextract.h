@@ -40,28 +40,22 @@ public:
 		param2 = 2;	
 		param3 = 0.5f;
 	}
-	int set_train_param(int, int, int, int, int, int, float param1_, float param2_, float param3_, float) {
-		if (param1_ < 0 || param1_ >= 0.5 || param3_ >= 1 || param2_>4) {
+	int set_train_param(int, int, int, int, int, int, int param1_, int param2_, int param3_, float) {
+		param1 = param1_ / 100.0;
+		param2 = param2_ / 100.0;
+		param3 = param3_ / 100.0;
+
+		if (param1 < 0 || param1 >= 0.5 || param3 >= 1 || param2>4) {
 			qWarning("CellExtract invalid param %f, %f, %f", param1_, param2_, param3_);
             return -1;
-		}			
-		param1 = param1_;
-		param2 = param2_;
-		param3 = param3_;
+		}		
         return 0;
 	}
 	int train(string file_name, const vector<MarkObj> & obj_sets);
 	int extract(string file_name, QRect rect, vector<MarkObj> & obj_sets);
-    int set_extract_param(int, int, int, int, int, int, float param1_, float param2_, float param3_, float)
+    int set_extract_param(int, int, int, int, int, int, int param1_, int param2_, int param3_, float)
     {
-        if (param1_ < 0 || param1_ >= 0.5 || param3_ >= 1 || param2_>4) {
-            qWarning("CellExtract invalid param %f, %f, %f", param1_, param2_, param3_);
-            return -1;
-        }
-        param1 = param1_;
-        param2 = param2_;
-        param3 = param3_;
-        return 0;
+		return set_train_param(0, 0, 0, 0, 0, 0, param1_, param2_, param3_, 0);
     }
     int train(vector<ICLayerWr *> & ic_layer, const vector<MarkObj> & obj_sets);
     int extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);

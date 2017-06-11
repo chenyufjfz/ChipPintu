@@ -16,7 +16,9 @@ SOURCES += main.cpp \
     traindialog.cpp \
     wireviaparamdialog.cpp \
     cellextract.cpp \
-    iclayer.cpp
+    iclayer.cpp \
+    vwextract2.cpp \
+    extractparam.cpp
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 
@@ -56,4 +58,6 @@ HEADERS += \
     objextract.h \
     cellextract.h \
     iclayer.h \
-    markobj.h
+    markobj.h \
+    vwextract2.h \
+    extractparam.h
