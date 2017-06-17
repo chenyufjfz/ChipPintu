@@ -10,6 +10,26 @@
 typedef long long int64;
 using namespace std;
 
+void encrypt(char * a, int len, int magic)
+{
+	magic = magic ^ ((magic + len) << 16) ^ len ^ (len * 11 >> 1) ^ (len * 101 >> 3) ^ (len * 3103 >> 6);
+	for (int i = 0; i < len; i++) {
+		unsigned b = a[i];
+		a[i] = a[i] ^ (magic >> 6);
+		magic = (magic ^ 0x55555555) * b + b;
+	}
+}
+
+void decrypt(char * a, int len, int magic)
+{
+	magic = magic ^ ((magic + len) << 16) ^ len ^ (len * 11 >> 1) ^ (len * 101 >> 3) ^ (len * 3103 >> 6);
+	for (int i = 0; i < len; i++) {		
+		a[i] = a[i] ^ (magic >> 6);
+		unsigned b = a[i];
+		magic = (magic ^ 0x55555555) * b + b;
+	}
+}
+
 class ICLayer : public ICLayerInterface
 {
 protected:
@@ -504,6 +524,7 @@ Header: num_block_x(4), num_block_y(4), block_w(4), total image num(4)
 Image length Array(total_num): Image0 length(4), Image1 length(4).. 
 Image(total_num): Image0 (Image0 length), Image1,...
 */
+#define ICLayerM_GENERATE_VERSION 1
 class ICLayerM : public ICLayerInterface
 {
 protected:
@@ -518,6 +539,7 @@ protected:
 		int block_w; //image width and height
 		int total_num; //total image number
 	} head;
+	int version;
 
 protected:
 	int compute_bias_num(vector<int> & bias_num);
@@ -549,6 +571,9 @@ ICLayerM::ICLayerM(const string & _file, bool _read)
 			fin.close();
 			return;
 		}
+		version = head.num_block_x >> 24;
+		head.num_block_x = head.num_block_x & 0xffffff;
+		head.num_block_y = head.num_block_y & 0xffffff;
 		vector<int> bias_num;
 		int total_num = compute_bias_num(bias_num);
 		if (total_num != head.total_num) {
@@ -558,6 +583,8 @@ ICLayerM::ICLayerM(const string & _file, bool _read)
 		}
 		img_len.resize(total_num);
 		fin.read((char*)& img_len[0], sizeof(unsigned) * total_num);
+		if (version >= 1)
+			decrypt((char*)&img_len[0], sizeof(unsigned)* head.total_num, 0x87654321);
 		bias_storage.resize(total_num + 1);
 		bias_storage[0] = sizeof(head) + total_num * sizeof(unsigned);
 		for (int i = 0; i < total_num; i++)
@@ -574,6 +601,7 @@ ICLayerM::ICLayerM(const string & _file, bool _read)
 		x0 = -12345;
 		y0 = -12345;
 		s0 = -54321;
+		version = ICLayerM_GENERATE_VERSION;
 	}		
 }
 
@@ -620,6 +648,7 @@ void ICLayerM::putBlockNumWidth(int bx, int by, int width)
 	}
 	vector<int> bias_num;
 	vector<int> img_len;
+	
 	head.num_block_x = bx;
 	head.num_block_y = by;
 	head.block_w = width;
@@ -630,8 +659,11 @@ void ICLayerM::putBlockNumWidth(int bx, int by, int width)
 	for (int i = 0, j = 0; i < bias.size(); j += bias_num[i++])
 		bias[i] = &bias_storage[j];
 	img_len.assign(head.total_num, 0);
+	head.num_block_x = version << 24 | bx;
 	fout.write((char*)&head, sizeof(head)); //write header
+	head.num_block_x = bx;
 	fout.write((char*)&img_len[0], sizeof(unsigned) * head.total_num); //write all image len as 0
+	
 	x0 = 0;
 	y0 = 0;
 	s0 = 0;
@@ -649,6 +681,13 @@ int ICLayerM::addRawImg(vector<uchar> & buff, int x, int y, int)
 		return -1;
 	}	
 	qDebug("add image (%d, %d, %d)", x0, y0, s0);
+	if (version >= 1) {
+		if (buff.size() < 128)
+			qFatal("error, file length=%d, too small", buff.size());
+		int magic = s0 * head.total_num + y * head.num_block_y + x;
+		encrypt((char*)&buff[0], 112, magic);
+		encrypt((char*)&buff[0] + buff.size() - 16, 16, magic);
+	}
 	fout.write((char*)&buff[0], buff.size());
 	bias_storage[idx0 + 1] = bias_storage[idx0] + buff.size();
 	idx0++;
@@ -682,11 +721,25 @@ int ICLayerM::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsign
 	if (fin.is_open()) {
 		fin.seekg(bias[ovr][idx], ios::beg);
 		fin.read((char*)&buff[reserved], len);
+		if (version >= 1) {
+			if (len < 128)
+				qFatal("error, getRawImgByIdx len=%d", len);
+			int magic = ovr * head.total_num + (y << ovr) * head.num_block_y + (x << ovr);
+			decrypt((char*)&buff[reserved], 112, magic);
+			decrypt((char*)&buff[0] + buff.size() - 16, 16, magic);
+		}
 	}
 	else {
 		unsigned long long pos = fout.tellp();
 		fout.seekg(bias[ovr][idx], ios::beg);
 		fout.read((char*)&buff[reserved], len);
+		if (version >= 1) {
+			if (len < 128)
+				qFatal("error, getRawImgByIdx len=%d", len);
+			int magic = ovr * head.total_num + (y << ovr) * head.num_block_y + (x << ovr);
+			decrypt((char*)&buff[reserved], 112, magic);
+			decrypt((char*)&buff[0] + buff.size() - 16, 16, magic);
+		}
 		fout.seekp(pos);
 	}
 	return 0;
@@ -776,7 +829,12 @@ void ICLayerM::close()
 		for (unsigned i = 0; i < img_len.size(); i++)
 			img_len[i] = bias_storage[i + 1] - bias_storage[i];
 		fout.seekp(sizeof(head), ios::beg);
-		fout.write((char*)&img_len[0], sizeof(unsigned) * head.total_num);
+		if (version >= 1) {
+			encrypt((char*)&img_len[0], sizeof(unsigned)* head.total_num, 0x87654321);
+			fout.write((char*)&img_len[0], sizeof(unsigned)* head.total_num);
+			decrypt((char*)&img_len[0], sizeof(unsigned)* head.total_num, 0x87654321);
+		} else
+			fout.write((char*)&img_len[0], sizeof(unsigned)* head.total_num);
 		fout.close();
 	}
 }

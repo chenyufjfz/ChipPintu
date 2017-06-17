@@ -10,6 +10,7 @@
 #include <QScopedPointer>
 using namespace std;
 
+
 //WEIGHT_FB is for find grid look forward & backward
 #define WEIGHT_FB 3
 //VIA_MAX_BIAS_PIXEL is max bias between via and grid, if exceed, warning message is generated

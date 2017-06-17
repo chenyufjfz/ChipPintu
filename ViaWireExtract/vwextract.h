@@ -7,10 +7,10 @@ using namespace std;
 using namespace cv;
 
 enum {
-	M_UNKNOW=0,	
+	M_UNKNOW = 0,
 	M_W,
 	M_V,
-	M_W_I,	
+	M_W_I,
 	M_V_I,
 	M_I,
 	M_W_V,
@@ -24,7 +24,6 @@ enum {
 	M_W_INL,
 	M_V_INL
 };
-
 
 class VWExtract : public ObjExtract
 {

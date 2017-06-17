@@ -121,27 +121,31 @@ public:
 	DeleteMe(int _a) { a = _a; }
 	~DeleteMe() { qDebug("%d is killed", a); }
 };
+void encrypt(char * a, int len, int magic);
+void decrypt(char * a, int len, int magic);
 int main(int argc, char *argv[])
 {
-    QCoreApplication a(argc, argv);
+	QCoreApplication a(argc, argv);
 	qInstallMessageHandler(myMessageOutput);
 
     BkImgInterface * bk_img_db = BkImgInterface::create_BkImgDB();
     
-    bk_img_db->open("F:/chenyu/work/ChipStitch/data/ADCLK/chip_a.prj", false);
-	//bk_img_db->addNewLayer("1.db", "F:/chenyu/work/ChipStitch/data/ADCLK/1/ST_", 1, 41, 1, 40); 
-	bk_img_db->addNewLayer("2.db", "F:/chenyu/work/ChipStitch/data/ADCLK/2/ST_", 1, 41, 1, 40);
-	bk_img_db->addNewLayer("3.db", "F:/chenyu/work/ChipStitch/data/ADCLK/3/ST_", 1, 41, 1, 40);
-	bk_img_db->addNewLayer("4.db", "F:/chenyu/work/ChipStitch/data/ADCLK/4/ST_", 1, 41, 1, 40);
-	bk_img_db->addNewLayer("5.db", "F:/chenyu/work/ChipStitch/data/ADCLK/5/ST_", 1, 41, 1, 40);
-	bk_img_db->addNewLayer("6.db", "F:/chenyu/work/ChipStitch/data/ADCLK/6/ST_", 1, 41, 1, 40);
-	bk_img_db->addNewLayer("7.db", "F:/chenyu/work/ChipStitch/data/ADCLK/7/ST_", 1, 41, 1, 40);
+    bk_img_db->open("C:/chenyu/data/chip_enc.prj", false);
+	//bk_img_db->addNewLayer("DF.db", "C:/chenyu/data/A1002/DF/DF_", 1, 84, 1, 80); 
+	bk_img_db->addNewLayer("ST.db", "C:/chenyu/data/A1002/ST/ST_", 1, 84, 1, 80);
+	bk_img_db->addNewLayer("PL.db", "C:/chenyu/data/A1002/PL/PL_", 1, 84, 1, 80);
+	bk_img_db->addNewLayer("M1.db", "C:/chenyu/data/A1002/M1/M1_", 1, 84, 1, 80);
+	bk_img_db->addNewLayer("M2.db", "C:/chenyu/data/A1002/M2/M2_", 1, 84, 1, 80);
+	bk_img_db->addNewLayer("M3.db", "C:/chenyu/data/A1002/M3/M3_", 1, 84, 1, 80);
+	bk_img_db->addNewLayer("M4.db", "C:/chenyu/data/A1002/M4/M4_", 1, 84, 1, 80);
+	bk_img_db->addNewLayer("M5.db", "C:/chenyu/data/A1002/M5/M5_", 1, 41, 1, 40);
+	bk_img_db->addNewLayer("M6.db", "C:/chenyu/data/A1002/M6/M6_", 1, 41, 1, 40);
 #if 1
-	bk_img_db->open("F:/chenyu/work/ChipStitch/data/ADCLK/chip_a.prj", true);
+	bk_img_db->open("C:/chenyu/data/chip_enc.prj", true);
 #else
 	bk_img_db->open("\\\\10.233.140.185/Linuxshare/imgdb/chip.prj", true);
 #endif
-	for (int l = 0; l < 5; l++) {
+	for (int l = 0; l < bk_img_db->getLayerNum(); l++) {
 		vector<uchar> buff;
 		for (int s = 0; s < 16; s++) {
 			char file_name[30];

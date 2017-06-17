@@ -1720,7 +1720,7 @@ void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 			}
 		}
 		if (max_sum < lmh[i].dis_min * stat[256])
-			qCritical("Error choose=%d, max_sum(%d) < dis_min(%d)", choose, max_sum, lmh[i].dis_min * stat[256]);
+			qCritical("Error choose=%d, max_sum(%d) < dis_min(%d)", choose, max_sum, (int) (lmh[i].dis_min * stat[256]));
 		
 		lmh[i].g0 = choose;
 		base = choose + (lmh[i].wsize - 1) / 2;
@@ -2049,6 +2049,8 @@ opt0:							vnum
 opt1:			percent	wide subtype
 opt2:			percent	wide subtype
 opt3:			percent	wide subtype
+opt4:			percent	wide subtype
+opt5:			percent	wide subtype
 percent is how much point for mask
 wide is radius * sqrt(2)
 method_opt
@@ -2061,7 +2063,7 @@ void coarse_via_search_mask(PipeData & d, ProcessParameter & cpara)
 	Mat & img = d.l[layer].img;
 	CV_Assert(img.type() == CV_8UC1);
 
-#define MAX_VIA_NUM 3
+#define MAX_VIA_NUM 5
 	int vnum = cpara.opt0 & 0xff;
 	int v_subtype[MAX_VIA_NUM] = { cpara.opt1 & 0xff, cpara.opt2 & 0xff, cpara.opt3 & 0xff };
 	int v_wide[MAX_VIA_NUM] = { cpara.opt1 >> 8 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt3 >> 8 & 0xff };
@@ -2138,11 +2140,13 @@ opt0:							vnum
 opt1:					subtype	type
 opt2:					subtype	type
 opt3:					subtype	type
+opt4:					subtype	type
+opt5:					subtype	type
 method_opt
 0: for gray level turn_points  input
 1: for via search mask input
-2: for via info output
-3: for shadow prob index
+2: for via info output output
+3: for shadow prob index input
 */
 void fine_via_search(PipeData & d, ProcessParameter & cpara)
 {
@@ -2298,13 +2302,15 @@ opt0:	cr_mask default_dir check_len vnum
 opt1:					subtype type
 opt2:					subtype	type
 opt3:					subtype	type
+opt4:					subtype	type
+opt5:					subtype	type
 vnum is via number
 default_dir is default dir when computing dir not deternmined
 check_len is used for computing dir range
 cr_mask is clear via mask
 method_opt
 0: for via info input
-1: for mask output
+1: for mask inout
 */
 void remove_via(PipeData & d, ProcessParameter & cpara)
 {
@@ -2771,9 +2777,9 @@ void fine_line_search(PipeData & d, ProcessParameter & cpara)
 /*
 		31..24 23..16   15..8   7..0
 opt0:							wnum
-opt1:	clong1	clong0	cwide	type
-opt2:	clong1	clong0	cwide	type		
-opt3:	clong1	clong0	cwide	type		
+opt1:	clong_heng clong_shu cwide	type
+opt2:	clong_heng clong_shu cwide	type		
+opt3:	clong_heng clong_shu cwide	type		
 opt4:			
 opt5:			
 opt6:			
