@@ -20,7 +20,7 @@
      <x>0</x>
      <y>0</y>
      <width>800</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -127,42 +127,42 @@
   </action>
   <action name="actionShow_Wire">
    <property name="checkable">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
-    <string>Show Wire</string>
+    <string>Show mark</string>
    </property>
   </action>
   <action name="actionShow_Via">
    <property name="checkable">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
-    <string>Show Via</string>
+    <string>Show mark1</string>
    </property>
   </action>
   <action name="actionShow_Wire_Edge">
    <property name="checkable">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
-    <string>Show Debug</string>
+    <string>Show mark2</string>
    </property>
   </action>
   <action name="actionShow_Via_Edge">
    <property name="checkable">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
-    <string>Show Via Edge</string>
+    <string>Show mark3</string>
    </property>
   </action>
   <action name="actionShow_Via_Wire_Edge">
    <property name="checkable">
-    <bool>true</bool>
+    <bool>false</bool>
    </property>
    <property name="text">
-    <string>Show Via Wire Edge</string>
+    <string>Show Original img</string>
    </property>
   </action>
   <action name="actionStart_Train">

@@ -50,15 +50,15 @@ private slots:
 
     void on_actionStart_Train_triggered();
 
-    void on_actionShow_Wire_triggered(bool checked);
+    void on_actionShow_Wire_triggered();
 
-    void on_actionShow_Via_triggered(bool checked);
+    void on_actionShow_Via_triggered();
 
-    void on_actionShow_Wire_Edge_triggered(bool checked);
+    void on_actionShow_Wire_Edge_triggered();
 
-    void on_actionShow_Via_Edge_triggered(bool checked);
+    void on_actionShow_Via_Edge_triggered();
 
-    void on_actionShow_Via_Wire_Edge_triggered(bool checked);
+	void on_actionShow_Via_Wire_Edge_triggered();
 
     void on_actionZoom_in_triggered();
 

@@ -96,11 +96,18 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	mark_color.resize(sizeof(mark_color_table) / (sizeof(unsigned) * 2));
 	for (int i = 0; i < mark_color.size(); i++)
 		mark_color[mark_color_table[i][1]] = mark_color_table[i][0];
-	vwe = VWExtract::create_extract(0);
 	cele = new CellExtract();
 	current_train = NULL;
+	vwe = NULL;
 }
 
+ViaWireEditView::~ViaWireEditView()
+{
+	if (cele != NULL)
+		delete cele;
+	if (vwe != NULL)
+		delete vwe;
+}
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 {
 	int wire_width = (obj.type == OBJ_LINE) ? 10 : 0;
@@ -382,10 +389,25 @@ void ViaWireEditView::start_cell_train(int , int , int , float _param1, float _p
 	current_train = cele;
 }
 
-void ViaWireEditView::set_wire_para(int _layer, int type, int opt0, int opt1, int opt2, int opt3,
-	int opt4, int opt5, int opt6, float opt_f0)
+void ViaWireEditView::set_wire_para(ExtractParam * ep, string action_name)
 {
-	vwe->set_train_param(_layer, type, opt0, opt1, opt2, opt3, opt4, opt5, opt6, opt_f0);
+	if (vwe != NULL)
+		delete vwe;
+	qInfo("Set param for action %s", action_name.c_str());
+	vwe = VWExtract::create_extract(0);
+	vector<ParamItem> params;
+	ep->get_param(action_name, params);
+	int ll = img_name[img_name.size() - 5] - '0';
+
+	for (int i = 0; i < params.size(); i++) {
+		params[i].pi[0] -= ll;
+		if (params[i].pi[0] < 0)
+			continue;
+		qInfo("Set params %x, %x, %x, %x, %x, %x, %x, %x, %x, %f", params[i].pi[0], params[i].pi[1], params[i].pi[2],
+			params[i].pi[3], params[i].pi[4], params[i].pi[5], params[i].pi[6], params[i].pi[7], params[i].pi[8], params[i].pf);
+		vwe->set_extract_param(params[i].pi[0], params[i].pi[1], params[i].pi[2], params[i].pi[3], params[i].pi[4],
+			params[i].pi[5], params[i].pi[6], params[i].pi[7], params[i].pi[8], params[i].pf);
+	}
 	current_train = vwe;
 }
 
@@ -399,72 +421,47 @@ void ViaWireEditView::extract()
     update();
 }
 
-void ViaWireEditView::show_mark(unsigned _mark_mask)
+void ViaWireEditView::show_debug(unsigned _mark_mask, bool _show_debug_en)
 {
 	if (current_train == NULL || bk_img.empty())
 		return;
 	mark_mask = _mark_mask;	
-	show_debug_en = false;
-	Mat mark = current_train->get_mark(layer);
-	if (bk_img[layer].width() != mark.cols || bk_img[layer].height() != mark.rows) {
-		QMessageBox::warning(this, "Warning", "click train or extract first!");
-		return;
-	}
-	if (mark_mask == 0) {
-		bk_img_mask = bk_img[layer];
-		update();
-		return;
-	}
-	else {		
-		bk_img_mask = bk_img[layer].copy();		
-	}
-	for (int y = 0; y < mark.rows; y++) {		
-		unsigned char * p_mark = mark.ptr<unsigned char>(y);
-		for (int x = 0; x < mark.cols; x++)
-			if ((mark_mask >> p_mark[x]) & 1) {
-				QRgb oc = bk_img_mask.pixel(x, y);
-				QRgb bc = mark_color[p_mark[x]];
-				QRgb nc = ((oc & 0xff) * 13 + (bc & 0xff) * 3) / 16;
-				nc += (((oc & 0xff00) * 13 + (bc & 0xff00) * 3) / 16) & 0xff00;
-				nc += (((oc & 0xff0000) * 13 + (bc & 0xff0000) * 3) / 16) & 0xff0000;
-				nc += oc & 0xff000000;
-				bk_img_mask.setPixel(x, y, nc);
-			}				
-	}
-	update();
-}
-
-void ViaWireEditView::show_debug(bool _show_debug_en)
-{
-	if (current_train == NULL || bk_img.empty())
-		return;
 	show_debug_en = _show_debug_en;
-	mark_mask = 0;
-	Mat mark1 = current_train->get_mark1(layer);
-	Mat mark2 = current_train->get_mark2(layer);
-	Mat mark3 = current_train->get_mark3(layer);
-
-	if (!show_debug_en) {
-		bk_img_mask = bk_img[layer];
-		update();
-		return;
+	
+	if (!_show_debug_en || _mark_mask > 3) {
+		bk_img_mask = bk_img[layer];		
 	}
-	else
+	else {
+		Mat mark;
+		switch (_mark_mask) {
+		case 0:
+			mark = current_train->get_mark(layer);
+			break;
+		case 1:
+			mark = current_train->get_mark1(layer);
+			break;
+		case 2:
+			mark = current_train->get_mark2(layer);
+			break;
+		case 3:
+			mark = current_train->get_mark3(layer);
+			break;
+		} 
+		if (bk_img[layer].width() != mark.cols || bk_img[layer].height() != mark.rows) {
+			QMessageBox::warning(this, "Warning", "click train or extract first!");
+			return;
+		}
 		bk_img_mask = bk_img[layer].copy();
-
-	for (int y = 0; y < mark1.rows; y++) {
-		unsigned char * p_mark1 = (!mark1.empty()) ? mark1.ptr<unsigned char>(y) : NULL;
-		unsigned char * p_mark2 = (!mark2.empty()) ? mark2.ptr<unsigned char>(y) : NULL;
-		unsigned char * p_mark3 = (!mark3.empty()) ? mark3.ptr<unsigned char>(y) : NULL;
-		if (p_mark1 != NULL || p_mark2 != NULL || p_mark3 != NULL)
-			for (int x = 0; x < mark1.cols; x++) {
+		for (int y = 0; y < mark.rows; y++) {
+			unsigned char * p_mark = mark.ptr<unsigned char>(y);
+			for (int x = 0; x < mark.cols; x++) {
 				QRgb oc = bk_img_mask.pixel(x, y);
-				QRgb nc = p_mark1 ? ((oc & 0xff) * 8 + p_mark1[x] * 8) / 16 : (oc & 0xfe) /2;
-				nc += p_mark2 ? (((oc & 0xff00) * 8 + (unsigned)p_mark2[x] * 256 * 8) / 16) & 0xff00 : (oc & 0xfe00) /2;
-				nc += p_mark3 ? (((oc & 0xff0000) * 8 + (unsigned)p_mark3[x] * 65536 * 8) / 16) & 0xff0000 : (oc & 0xfe0000) /2;
-				nc += oc & 0xff000000;
+				unsigned bc = p_mark[x];
+				QRgb nc = bc + (bc << 8) + (bc << 16);
+				nc += 0xff000000;
 				bk_img_mask.setPixel(x, y, nc);
 			}
+		}
 	}
 	update();
 }
@@ -631,7 +628,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
     }
 	if (bk_img.empty() || !bk_img[layer].valid(event->pos() / scale))
 		return;
-	QRgb color = bk_img[layer].pixel(event->pos() / scale);
+	QRgb color = bk_img_mask.pixel(event->pos() / scale);
 	char s[200];
 	if (current_train == NULL) 
 		sprintf(s, "c=%x", color);	
@@ -644,17 +641,8 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 				len += sprintf(s + len, "f%d=%f,", i, feature[i]);
 			}
 		}
-		unsigned m = 0;
-		int y = (event->pos()).y() / scale;
-		int x = (event->pos()).x() / scale;
-		Mat mark1 = current_train->get_mark1(layer);
-		Mat mark2 = current_train->get_mark2(layer);
-		Mat mark3 = current_train->get_mark3(layer);
-		m |= mark1.empty() ? 0 : mark1.at<unsigned char>(y, x);
-		m |= mark2.empty() ? 0 : (int) mark2.at<unsigned char>(y, x) << 8;
-		m |= mark3.empty() ? 0 : (int) mark3.at<unsigned char>(y, x) << 16;
 		
-		sprintf(s, "%s, c=%x, m=%x", s, color, m);
+		sprintf(s, "%s, c=%x", s, color);
 	}
     emit mouse_change(event->pos() / scale, QString(s));
 }
@@ -716,9 +704,7 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		layer = new_layer;
 		bk_img_mask = bk_img[layer];
 		if (show_debug_en)
-			show_debug(show_debug_en);
-		if (mark_mask != 0)
-			show_mark(mark_mask);
+            show_debug(mark_mask, show_debug_en);
 		update();
 		return;
 	}

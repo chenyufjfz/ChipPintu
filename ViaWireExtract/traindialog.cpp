@@ -11,13 +11,6 @@ TrainDialog::TrainDialog(QWidget *parent, int _train_what, int _feature, int _it
     ui->iter_num->setText(QString::number(_iter_num));
     ui->param1->setText(QString::number(_param1));
     ui->param3->setText(QString::number(_param3));
-    ui->via_wire->setChecked(false);
-    ui->cell->setChecked(false);
-
-    if (_train_what==0)
-        ui->via_wire->setChecked(true);
-    if (_train_what==1)
-        ui->cell->setChecked(true);
 }
 
 TrainDialog::~TrainDialog()
@@ -33,8 +26,4 @@ void TrainDialog::on_buttonBox_accepted()
     param1 = ui->param1->text().toFloat();
 
     feature =1;
-    if (ui->via_wire->isChecked())
-		train_what = 0;
-    if (ui->cell->isChecked())
-		train_what = 1;
 }

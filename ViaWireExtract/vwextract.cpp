@@ -3067,7 +3067,7 @@ void LayerBrickRuleMask::config(unsigned long long _rule)
 	via_extend_ovlap = rule & RULE_EXTEND_VIA_OVERLAP;
 }
 
-void process_tile(ProcessTileData & t3)
+static void process_tile(ProcessTileData & t3)
 {
 	CV_Assert(t3.lbrm->size() == t3.lpm->size() * 2 - 1 && t3.tt->d.size() == t3.lpm->size());
 	Mat prob;

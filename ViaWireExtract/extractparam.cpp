@@ -53,6 +53,10 @@ ExtractParam::ExtractParam()
 	depth = 0;
 }
 
+/*
+For ParamItem name, it will return one single param
+For ParamSet,it will expand param set to multiple params
+*/
 void ExtractParam::get_param(string name, vector<ParamItem> & _params)
 {
 	if (depth == 0)
@@ -76,12 +80,22 @@ void ExtractParam::get_param(string name, vector<ParamItem> & _params)
 	}
 }
 
+/*
+For ParamSet,it won't expand param set to multiple params
+*/
 void ExtractParam::get_param_sets(string name, vector<string> & names)
 {
 	names.clear();
 	map<string, ParamSet>::iterator it = param_sets.find(name);
 	if (it != param_sets.end())
 		names = it->second.names;
+}
+
+void ExtractParam::get_param_set_list(vector<string> & names)
+{
+	names.clear();
+	for (map<string, ParamSet>::iterator it = param_sets.begin(); it != param_sets.end(); it++)
+		names.push_back(it->first);
 }
 
 string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int pi5, int pi6, int pi7, int pi8, float pf0)
@@ -132,12 +146,12 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 		qCritical("set_param unknow method");
 		return "";
 	}
-	method_count[method]++;
 	stringstream stream;
 	stream << method_count[method];
 	string name = method_name[method] + '_' + stream.str();
 	ParamItem param(pi0, pi1, pi2, pi3, pi4, pi5, pi6, pi7, pi8, pf0);
 	params[name] = param;
+	method_count[method]++;
 	return name;
 }
 

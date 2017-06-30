@@ -87,19 +87,6 @@
    <property name="title">
     <string>Select Obj</string>
    </property>
-   <widget class="QRadioButton" name="via_wire">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>20</y>
-      <width>82</width>
-      <height>17</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Wire via</string>
-    </property>
-   </widget>
    <widget class="QRadioButton" name="cell">
     <property name="geometry">
      <rect>

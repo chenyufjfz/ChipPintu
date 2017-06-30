@@ -7,13 +7,14 @@
 #include <string>
 #include "vwextract2.h"
 #include "cellextract.h"
-
+#include "extractparam.h"
 
 class ViaWireEditView : public QWidget
 {
     Q_OBJECT
 public:
     explicit ViaWireEditView(QWidget *parent = 0);
+	~ViaWireEditView();
     double grid_high, grid_width, offset_y, offset_x;
 	int mark_state, mark_type2, layer;
 	unsigned mark_mask, show_debug_en;
@@ -32,10 +33,8 @@ public:
 	void erase_all_objects();
     void start_cell_train(int , int , int , float _param1,float _param2, float _param3);
     void extract();
-	void show_mark(unsigned _mark_mask);
-	void show_debug(bool _show_debug_en);
-	void set_wire_para(int _layer, int type, int opt0, int opt1, int opt2, int opt3, 
-		int opt4, int opt5, int opt6, float opt_f0);
+	void show_debug(unsigned _mark_mask, bool _show_debug_en);
+	void set_wire_para(ExtractParam * ep, string action_name);
 
     void set_scale(int _scale);
     int get_scale();

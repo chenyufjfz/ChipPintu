@@ -130,18 +130,21 @@ int main(int argc, char *argv[])
 
     BkImgInterface * bk_img_db = BkImgInterface::create_BkImgDB();
     
-    bk_img_db->open("C:/chenyu/data/chip_enc.prj", false);
-	//bk_img_db->addNewLayer("DF.db", "C:/chenyu/data/A1002/DF/DF_", 1, 84, 1, 80); 
-	bk_img_db->addNewLayer("ST.db", "C:/chenyu/data/A1002/ST/ST_", 1, 84, 1, 80);
-	bk_img_db->addNewLayer("PL.db", "C:/chenyu/data/A1002/PL/PL_", 1, 84, 1, 80);
-	bk_img_db->addNewLayer("M1.db", "C:/chenyu/data/A1002/M1/M1_", 1, 84, 1, 80);
-	bk_img_db->addNewLayer("M2.db", "C:/chenyu/data/A1002/M2/M2_", 1, 84, 1, 80);
-	bk_img_db->addNewLayer("M3.db", "C:/chenyu/data/A1002/M3/M3_", 1, 84, 1, 80);
-	bk_img_db->addNewLayer("M4.db", "C:/chenyu/data/A1002/M4/M4_", 1, 84, 1, 80);
-	bk_img_db->addNewLayer("M5.db", "C:/chenyu/data/A1002/M5/M5_", 1, 41, 1, 40);
-	bk_img_db->addNewLayer("M6.db", "C:/chenyu/data/A1002/M6/M6_", 1, 41, 1, 40);
+    bk_img_db->open("C:/chenyu/data/A09/chip.prj", false);
+	bk_img_db->addNewLayer("DF.db", "C:/chenyu/data/A09/DF/DF_", 1, 20, 1, 20); 
+	
+	/*bk_img_db->addNewLayer("ST.db", "C:/chenyu/data/A09/ST/ST_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("PL.db", "C:/chenyu/data/A09/PL/PL_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("PL_R1.db", "C:/chenyu/data/A09/PL_R1/PL_R1_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("M1.db", "C:/chenyu/data/A09/M1/M1_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("M2.db", "C:/chenyu/data/A09/M2/M2_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("M3.db", "C:/chenyu/data/A09/M3/M3_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("M4.db", "C:/chenyu/data/A09/M4/M4_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("M5.db", "C:/chenyu/data/A09/M5/M5_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("M6.db", "C:/chenyu/data/A09/M6/M6_", 1, 100, 1, 98);
+	bk_img_db->addNewLayer("M7.db", "C:/chenyu/data/A09/M7/M7_", 1, 100, 1, 98);*/
 #if 1
-	bk_img_db->open("C:/chenyu/data/chip_enc.prj", true);
+	bk_img_db->open("C:/chenyu/data/A09/chip.prj", true);
 #else
 	bk_img_db->open("\\\\10.233.140.185/Linuxshare/imgdb/chip.prj", true);
 #endif

@@ -2,6 +2,8 @@
 #define WIREVIAPARAMDIALOG_H
 
 #include <QDialog>
+#include <QListWidgetItem>
+#include "extractparam.h"
 
 namespace Ui {
 class WireViaParamDialog;
@@ -10,16 +12,20 @@ class WireViaParamDialog;
 class WireViaParamDialog : public QDialog
 {
     Q_OBJECT
+protected:
+	ExtractParam * ep;
 
 public:
-	explicit WireViaParamDialog(QWidget *parent, int _layer, int _type, int _opt0, int _opt1,
-		int _opt2, int _opt3, int _opt4, int _opt5, int _opt6, float _opt_f0);
+	explicit WireViaParamDialog(QWidget *parent, ExtractParam * _ep);
     ~WireViaParamDialog();
-    int layer, type, opt0, opt1, opt2, opt3, opt4, opt5, opt6;
-	float opt_f0;
+	string action_name;
 
 private slots:
     void on_buttonBox_accepted();
+
+    void on_actions_itemClicked(QListWidgetItem *item);
+
+    void on_param_items_itemClicked(QListWidgetItem *item);
 
 private:
     Ui::WireViaParamDialog *ui;

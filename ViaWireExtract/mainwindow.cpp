@@ -63,13 +63,6 @@ void MainWindow::on_actionLoad_Image_triggered()
                         "Images (*.png *.xpm *.jpg)");
 
 	vw_view->load_bk_image(image_file_name);
-	vw_view->set_wire_para(0, 4, 9, 16, RULE_END_WITH_VIA, RULE_END_WITH_VIA, 0.5, 0.5, 1, 0);
-	vw_view->set_wire_para(1, 10, 9, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
-		RULE_NO_hCONN, 0.5, 0.5, 2, 0);
-	vw_view->set_wire_para(2, 12, 10, 16, RULE_NO_LOOP | RULE_NO_HCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
-		RULE_NO_hCONN, 0.5, 0.5, 2, 0);
-	vw_view->set_wire_para(3, 12, 10, 16, RULE_NO_LOOP | RULE_NO_hCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA | RULE_EXTEND_VIA_OVERLAP | RULE_NO_ADJ_VIA_CONN,
-		0, 0.5, 0.5, 1, 0);
 }
 
 void MainWindow::on_actionGenerate_Grid_triggered()
@@ -154,46 +147,30 @@ void MainWindow::on_actionStart_Train_triggered()
     }
 }
 
-void MainWindow::on_actionShow_Wire_triggered(bool checked)
+void MainWindow::on_actionShow_Wire_triggered()
 {
-	if (checked)
-		vw_view_mask |= (1 << M_W);
-	else
-		vw_view_mask &= ~(1 << M_W);
-	vw_view->show_mark(vw_view_mask);
+	vw_view->show_debug(0, true);
 	
 }
 
-void MainWindow::on_actionShow_Via_triggered(bool checked)
+void MainWindow::on_actionShow_Via_triggered()
 {
-    if (checked)
-        vw_view_mask |= (1<<M_V);
-    else
-        vw_view_mask &= ~(1<<M_V);
-    vw_view->show_mark(vw_view_mask);
+	vw_view->show_debug(1, true);
 }
 
-void MainWindow::on_actionShow_Wire_Edge_triggered(bool checked)
+void MainWindow::on_actionShow_Wire_Edge_triggered()
 {
-	vw_view->show_debug(checked);
+	vw_view->show_debug(2, true);
 }
 
-void MainWindow::on_actionShow_Via_Edge_triggered(bool checked)
+void MainWindow::on_actionShow_Via_Edge_triggered()
 {
-    if (checked)
-        vw_view_mask |= (1<<M_V_I) | (1<<M_W_V);
-    else
-        vw_view_mask &= ~((1<<M_V_I) | (1<<M_W_V));
-	vw_view->show_mark(vw_view_mask);
+	vw_view->show_debug(3, true);
 }
 
-void MainWindow::on_actionShow_Via_Wire_Edge_triggered(bool checked)
+void MainWindow::on_actionShow_Via_Wire_Edge_triggered()
 {
-    if (checked)
-        vw_view_mask |= (1<<M_V_I_V) | (1<<M_V_I_W);
-    else
-        vw_view_mask &= ~((1<<M_V_I_V) | (1<<M_V_I_W));
-	vw_view->show_mark(vw_view_mask);
+	vw_view->show_debug(3, false);
 }
 
 
@@ -202,7 +179,7 @@ void MainWindow::on_actionShow_Select_triggered()
     ShowMaskDialog show_mask_dlg(this, vw_view_mask);
     if (show_mask_dlg.exec() == QDialog::Accepted) {
         vw_view_mask = show_mask_dlg.mask;
-		vw_view->show_mark(vw_view_mask);
+		vw_view->show_debug(vw_view_mask, false);
     }
 }
 
@@ -230,12 +207,12 @@ void MainWindow::on_actionZoom_out_triggered()
 
 void MainWindow::on_actionSet_Param_triggered()
 {
-	WireViaParamDialog wv_dlg(this, 0, 10, 9, 16, RULE_NO_LOOP | RULE_NO_UCONN | RULE_NO_TT_CONN | RULE_END_WITH_VIA, 0, 
-		0.5f, 0.5f, 0.5f, 0);
-    if (wv_dlg.exec() == QDialog::Accepted)
-		vw_view->set_wire_para(wv_dlg.layer, wv_dlg.type, wv_dlg.opt0, wv_dlg.opt1, wv_dlg.opt2, wv_dlg.opt3,
-			wv_dlg.opt4, wv_dlg.opt5, wv_dlg.opt6, wv_dlg.opt_f0);
-
+	ExtractParam ep;
+	ep.read_file("action.xml");
+	WireViaParamDialog wv_dlg(this, &ep);
+	if (wv_dlg.exec() == QDialog::Accepted)
+		vw_view->set_wire_para(&ep, wv_dlg.action_name);
+	
 }
 
 void MainWindow::on_actionExtract_triggered()

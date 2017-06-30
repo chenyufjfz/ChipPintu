@@ -8,10 +8,9 @@
 using namespace cv;
 using namespace std;
 
-
 void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
-{
-    static FILE * fp = NULL;
+{   
+	static FILE * fp = NULL;
     if (fp==NULL) {
         fp = fopen("log.txt", "wt");
         if (fp==NULL)
@@ -32,6 +31,7 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
             break;
         case QtWarningMsg:
             fprintf(fp, "<W>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+			fflush(fp);
             break;
         case QtCriticalMsg:
             fprintf(fp, "<E>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
@@ -83,6 +83,7 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
         break;
     case QtWarningMsg:
         fprintf(fp, "<W>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fflush(fp);
         break;
     case QtCriticalMsg:
         fprintf(fp, "<E>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
@@ -229,7 +230,7 @@ int test_extractparam()
 	ExtractParam ep, ep2;
 	vector<string> layer0, layer1, global;
 	vector<string> action;
-
+	/*
 	global.push_back(ep.set_param(-1, 0x00000000, 0x00002006, 0, 0, 0, 0, 0, 0, 0));
 	layer0.push_back(ep.set_param(0, 0x80020000, 64, 10, 3, 5 * 64, 0, 0, 0, 0));
 	layer0.push_back(ep.set_param(0, 0x80030000, 0x0a0c4000, 0x08083810, 0x0120b030, 0x00646432, 0x00646432, 0x00646432, 0, 0));
@@ -252,7 +253,7 @@ int test_extractparam()
 	action.push_back(ep.set_param_sets("layer1", layer1));
 	
 	ep.set_param_sets("action", action);
-	ep.write_file("action.xml");
+	ep.write_file("action.xml");*/
 	ep2.read_file("action.xml");
 	if (ep == ep2)
 		qInfo("test_extractparam success");
@@ -280,7 +281,7 @@ int main(int argc, char *argv[])
     MainWindow w;
 	
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	test_extractparam();
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();
@@ -289,6 +290,8 @@ int main(int argc, char *argv[])
 #endif
     w.show();
 
-    return a.exec();
+    int ret = a.exec();
+	qWarning("code exit with ret=%d", ret);
+	return ret;
 }
 
