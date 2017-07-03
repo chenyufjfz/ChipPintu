@@ -529,7 +529,7 @@ class ICLayerM : public ICLayerInterface
 {
 protected:
 	vector<unsigned long long> bias_storage; //pointer image offset from file.begin(), total_num+1
-	vector<unsigned long long *> bias;	
+	vector<unsigned long long *> bias;	//point to bias_storage, bias[0] point to scale 0
 	ifstream fin;
 	fstream fout;
 	int x0, y0, s0, idx0;
@@ -1042,7 +1042,12 @@ void ICLayerWr::generateDatabase(const string path, int from_row, int to_row, in
 	}
 	for (int y = from_row; y <= to_row; y++)
 		for (int x = from_col; x <= to_col; x++) {
+#if 1
 			sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y, x);
+#else
+			sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y % 4 + 1, x % 4 + 1);
+#endif
+			qInfo("read file %s", file_name);
 			ifstream infile(file_name, ifstream::binary);
 			infile.seekg(0, infile.end);
 			long size = infile.tellg();

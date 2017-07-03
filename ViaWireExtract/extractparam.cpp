@@ -201,14 +201,16 @@ void ExtractParam::read_file(string filename)
 		case Global: {
 				int debug_opt = (int)(*it)["debug_opt"];
 				int gs = (int) (*it)["gs"];
+				int border_size = (int)(*it)["border_size"];
 				int computer_border = (int)(*it)["computer_border"];
-				if (gs > 256 || computer_border > 256) {
-					qCritical("ParamItems file error, name=%s, gs=%d, computer_border=%d", name.c_str(), gs, computer_border);
+				if (gs > 256 || computer_border > 256 || border_size > 256) {
+					qCritical("ParamItems file error, name=%s, gs=%d, computer_border=%d, border_size=%d", 
+						name.c_str(), gs, computer_border, border_size);
 					check_pass = false;
 				}
 				param.pi[0] = -1;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
-				param.pi[2] = computer_border << 8 | gs;
+				param.pi[2] = border_size << 16 | computer_border << 8 | gs;
 			}
 			break;
 
@@ -553,6 +555,7 @@ void ExtractParam::read_file(string filename)
 				int opidx_via_info = (int)(*it)["opidx_via_info"];
 				int opidx_shadow_prob = (int)(*it)["opidx_shadow_prob"];
 				int vnum = (int)(*it)["vnum"];
+				int update_fv = (int)(*it)["update_fv"];
 				int subtype0 = (int)(*it)["subtype0"];
 				int type0 = (int)(*it)["type0"];
 				int subtype1 = (int)(*it)["subtype1"];
@@ -589,7 +592,7 @@ void ExtractParam::read_file(string filename)
 				}
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_FINE_VIA_SEARCH << 16 | opidx_shadow_prob << 12 | opidx_via_info << 8 | opidx_via_mask << 4 | opidx_tp;
-				param.pi[2] = vnum;
+				param.pi[2] = update_fv << 8 | vnum;
 				param.pi[3] = subtype0 << 8 | type0;
 				param.pi[4] = subtype1 << 8 | type1;
 				param.pi[5] = subtype2 << 8 | type2;
@@ -877,6 +880,7 @@ void ExtractParam::write_file(string filename)
 		case Global:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "gs" << (it->second.pi[2] & 0xff);
+			fs << "border_size" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "computer_border" << (it->second.pi[2] >> 8 & 0xff);
 			break;
 
@@ -1013,6 +1017,7 @@ void ExtractParam::write_file(string filename)
 			fs << "opidx_via_info" << (it->second.pi[1] >> 8 & 0xf);
 			fs << "opidx_shadow_prob" << (it->second.pi[1] >> 12 & 0xf);
 			fs << "vnum" << (it->second.pi[2] & 0xff);
+			fs << "update_fv" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "subtype0" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "type0" << (it->second.pi[3] & 0xff);
 			fs << "subtype1" << (it->second.pi[4] >> 8 & 0xff);

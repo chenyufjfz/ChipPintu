@@ -209,7 +209,7 @@ int wire_extract_test_pipeprocess()
 	vwe->set_extract_param(0, 0x80030000, 0x0a0c4000, 0x08083810, 0x0120b030, 0x00646432, 0x00646432, 0x00646432, 0, 0); //adjust_gray_lvl
 	vwe->set_extract_param(1, 0x80020000, 64, 10, 3, 5 * 64, 0, 0, 0, 0); //filter min
 	vwe->set_extract_param(1, 0x80030000, 0x0a0c4000, 0x080a3810, 0x0120b030, 0x00646432, 0x00646432, 0x00646416, 0, 0); //adjust_gray_lvl
-	vwe->set_extract_param(-1, 0x80000000, 0x00002006, 0, 0, 0, 0, 0, 0, 0); //set compute border and gs
+	vwe->set_extract_param(-1, 0x80000000, 0x00402006, 0, 0, 0, 0, 0, 0, 0); //set compute border and gs
 	vwe->set_extract_param(1, 0x80000000, 0x00000105, 0x06, 0x0a060a06, 0x0606, 0, 0, 0, 0);	//set M1 wire
 	vwe->set_extract_param(1, 0x80000000, 0x00000106, 0x06, 0x0a060a06, 0x0606, 0, 0, 0, 0);	//set M1 wire
 	vwe->set_extract_param(1, 0x80000000, 0x000101fe, 0x0c09, 0x0a0a0905, 0x010708, 0, 0, 0, 0); //set M1 via
@@ -231,7 +231,7 @@ int test_extractparam()
 	vector<string> layer0, layer1, global;
 	vector<string> action;
 	/*
-	global.push_back(ep.set_param(-1, 0x00000000, 0x00002006, 0, 0, 0, 0, 0, 0, 0));
+	global.push_back(ep.set_param(-1, 0x00000000, 0x00402006, 0, 0, 0, 0, 0, 0, 0));
 	layer0.push_back(ep.set_param(0, 0x80020000, 64, 10, 3, 5 * 64, 0, 0, 0, 0));
 	layer0.push_back(ep.set_param(0, 0x80030000, 0x0a0c4000, 0x08083810, 0x0120b030, 0x00646432, 0x00646432, 0x00646432, 0, 0));
 	layer1.push_back(ep.set_param(1, 0x80020000, 64, 10, 3, 5 * 64, 0, 0, 0, 0));

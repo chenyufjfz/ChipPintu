@@ -400,9 +400,11 @@ void ViaWireEditView::set_wire_para(ExtractParam * ep, string action_name)
 	int ll = img_name[img_name.size() - 5] - '0';
 
 	for (int i = 0; i < params.size(); i++) {
-		params[i].pi[0] -= ll;
-		if (params[i].pi[0] < 0)
-			continue;
+		if (params[i].pi[0] >= 0) {
+			params[i].pi[0] -= ll;
+			if (params[i].pi[0] < 0)
+				continue;
+		}
 		qInfo("Set params %x, %x, %x, %x, %x, %x, %x, %x, %x, %f", params[i].pi[0], params[i].pi[1], params[i].pi[2],
 			params[i].pi[3], params[i].pi[4], params[i].pi[5], params[i].pi[6], params[i].pi[7], params[i].pi[8], params[i].pf);
 		vwe->set_extract_param(params[i].pi[0], params[i].pi[1], params[i].pi[2], params[i].pi[3], params[i].pi[4],

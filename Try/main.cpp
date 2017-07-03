@@ -1,9 +1,10 @@
 #include <QCoreApplication>
 #include "iclayer.h"
+#include "opencv2/imgproc/imgproc.hpp"
 #include <QDateTime>
 #include <fstream>
 using namespace std;
-
+using namespace cv;
 
 void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
@@ -115,25 +116,57 @@ void test_one_layer()
 	}
 }
 
-class DeleteMe {
-public:
-	int a;
-	DeleteMe(int _a) { a = _a; }
-	~DeleteMe() { qDebug("%d is killed", a); }
+struct GenerateLayerParam{
+	string db_name;
+	string path_prefix;
+	int from_row, to_row, from_col, to_col;
 };
-void encrypt(char * a, int len, int magic);
-void decrypt(char * a, int len, int magic);
+
+class GenerateParam {
+public:
+	string prj_name;
+	vector<GenerateLayerParam> l;
+	GenerateParam() {
+		prj_name = "C:/chenyu/data/A09/chip.prj";
+	}
+	void read_file(string filename) {
+		FileStorage fs(filename, FileStorage::READ);
+		l.clear();
+
+		fs["prj_name"] >> prj_name;
+		FileNode layer_params = fs["LayerParams"];
+		for (FileNodeIterator it = layer_params.begin(); it != layer_params.end(); it++) {
+			GenerateLayerParam lpa;
+			lpa.db_name = (string)(*it)["db_name"];
+			lpa.path_prefix = (string)(*it)["path_prefix"];
+			lpa.from_row = (int)(*it)["from_row"];
+			lpa.to_row = (int)(*it)["to_row"];
+			lpa.from_col = (int)(*it)["from_col"];
+			lpa.to_col = (int)(*it)["to_col"];
+			l.push_back(lpa);
+		}
+	}
+} gen;
+
 int main(int argc, char *argv[])
 {
 	QCoreApplication a(argc, argv);
 	qInstallMessageHandler(myMessageOutput);
 
     BkImgInterface * bk_img_db = BkImgInterface::create_BkImgDB();
-    
-    bk_img_db->open("C:/chenyu/data/A09/chip.prj", false);
-	bk_img_db->addNewLayer("DF.db", "C:/chenyu/data/A09/DF/DF_", 1, 20, 1, 20); 
-	
-	/*bk_img_db->addNewLayer("ST.db", "C:/chenyu/data/A09/ST/ST_", 1, 100, 1, 98);
+	gen.read_file("config.xml");
+	qInfo("Start to generate %s", gen.prj_name.c_str());
+	bk_img_db->open(gen.prj_name, false);
+	for (int i = 0; i < gen.l.size(); i++) {
+		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d", 
+			gen.l[i].db_name.c_str(), gen.l[i].path_prefix.c_str(),	gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, gen.l[i].to_col);
+		bk_img_db->addNewLayer(gen.l[i].db_name, gen.l[i].path_prefix,
+			gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, gen.l[i].to_col);
+	}
+
+	/*
+	bk_img_db->addNewLayer("DF.db", "C:/chenyu/data/A09/DF/DF_", 1, 20, 1, 20);
+	bk_img_db->addNewLayer("ST.db", "C:/chenyu/data/A09/ST/ST_", 1, 100, 1, 98);
 	bk_img_db->addNewLayer("PL.db", "C:/chenyu/data/A09/PL/PL_", 1, 100, 1, 98);
 	bk_img_db->addNewLayer("PL_R1.db", "C:/chenyu/data/A09/PL_R1/PL_R1_", 1, 100, 1, 98);
 	bk_img_db->addNewLayer("M1.db", "C:/chenyu/data/A09/M1/M1_", 1, 100, 1, 98);
@@ -144,7 +177,7 @@ int main(int argc, char *argv[])
 	bk_img_db->addNewLayer("M6.db", "C:/chenyu/data/A09/M6/M6_", 1, 100, 1, 98);
 	bk_img_db->addNewLayer("M7.db", "C:/chenyu/data/A09/M7/M7_", 1, 100, 1, 98);*/
 #if 1
-	bk_img_db->open("C:/chenyu/data/A09/chip.prj", true);
+	bk_img_db->open(gen.prj_name, true);
 #else
 	bk_img_db->open("\\\\10.233.140.185/Linuxshare/imgdb/chip.prj", true);
 #endif

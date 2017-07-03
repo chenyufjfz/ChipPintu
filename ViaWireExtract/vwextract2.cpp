@@ -11,7 +11,6 @@
 #define CV_Assert(x) do {if (!(x)) {qFatal("Wrong at %s, %d", __FILE__, __LINE__);}} while(0)
 #endif
 
-#define BORDER_SIZE 64
 #define PARALLEL 0
 
 #define OPT_DEBUG_EN		0x8000
@@ -53,6 +52,27 @@
 #define DIR_RIGHT1_MASK		(1 << (DIR_RIGHT * 2))
 #define DIR_DOWN1_MASK		(1 << (DIR_DOWN * 2))
 #define DIR_LEFT1_MASK		(1 << (DIR_LEFT * 2))
+
+enum {
+	TYPE_GRAY_LEVEL,
+	TYPE_COARSE_WIRE,
+	TYPE_VIA_MASK,
+	TYPE_FINE_WIRE_MASK,
+	TYPE_VIA_LOCATION,
+	TYPE_SHADOW_PROB
+};
+
+enum {
+	VIA_SUBTYPE_2CIRCLE = 0,
+	VIA_SUBTYPE_3CIRCLE,
+	VIA_SUBTYPE_4CIRCLE,
+	VIA_SUBTYPE_2CIRCLEX,
+	VIA_SUBTYPE_3CIRCLEX,
+};
+
+enum {
+	WIRE_SUBTYPE_13RECT = 0
+};
 
 static const int dxy[4][2] = {
 		{ -1, 0 }, //up
@@ -401,26 +421,6 @@ public:
 
 } brick_conn;
 
-enum {
-	TYPE_GRAY_LEVEL,
-	TYPE_COARSE_WIRE,
-	TYPE_VIA_MASK,
-	TYPE_FINE_WIRE_MASK,
-	TYPE_VIA_LOCATION,
-	TYPE_SHADOW_PROB
-};
-
-enum {
-	VIA_SUBTYPE_2CIRCLE=0,
-	VIA_SUBTYPE_3CIRCLE,
-	VIA_SUBTYPE_4CIRCLE,
-	VIA_SUBTYPE_2CIRCLEX
-};
-
-enum {
-	WIRE_SUBTYPE_13RECT=0
-};
-
 /*     31..24  23..16   15..8   7..0
 opt0:		  subtype   type    shape
 opt1:				  remove_rd guard
@@ -744,6 +744,7 @@ public:
 	Mat ig, iig, lg, llg;
 	Mat prob;
 	int gs;
+	int border_size;
 	int img_pixel_x0, img_pixel_y0; // it is load image pixel zuobiao
 	struct {
 		int type;
@@ -757,9 +758,10 @@ public:
 	FinalWireLines fwl[2];
 	FinalVias fv;
 	//_gs * 2 <= _compute_border
-	void reinit(int _gs, int _compute_border) {
+	void reinit(int _gs, int _compute_border, int _border_size) {
 		gs = _gs;
 		compute_border = _compute_border;
+		border_size = _border_size;
 
 		prob.create((img.rows - 1) / gs + 1, (img.cols - 1) / gs + 1, CV_64FC2);
 		for (int y = 0; y < prob.rows; y++) {
@@ -812,7 +814,7 @@ struct PipeData {
 	vector<PipeDataPerLayer> l;
 	int x0, y0;
 	int gs;
-	int compute_border;
+	int compute_border, border_size;
 };
 
 enum {
@@ -1074,7 +1076,7 @@ public:
 It require internal circle =gray
 external circle = gray1
 */
-class TwoCircleCompute : public ViaComputeScore {
+class TwoCircleEECompute : public ViaComputeScore {
 protected:
 	int r, r1;
 	int gray, gray1;
@@ -1086,7 +1088,7 @@ protected:
 	Mat *llg;
 	
 public:
-	friend class TwoCirclelXCompute;
+    friend class TwoCirclelBSCompute;
 	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
 		layer = _layer;
 		d = &_d;
@@ -1112,13 +1114,13 @@ public:
 		int s = 0, ss = 0, s1 = 0, ss1 = 0;
 		for (int y = -r; y <= r; y++) {
 			int x = dx[abs(y)];
-			s += lg->at<unsigned>(y + y0, x + x0 + 1) - lg->at<unsigned>(y + y0, x0 - x);
-			ss += llg->at<unsigned>(y + y0, x + x0 + 1) - llg->at<unsigned>(y + y0, x0 - x);
+			s += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x);
+			ss += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
 		}
 		for (int y = -r1; y <= r1; y++) {
 			int x = dx1[abs(y)];
-			s1 += lg->at<unsigned>(y + y0, x + x0 + 1) - lg->at<unsigned>(y + y0, x0 - x);
-			ss1 += llg->at<unsigned>(y + y0, x + x0 + 1) - llg->at<unsigned>(y + y0, x0 - x);
+			s1 += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x);
+			ss1 += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
 		}
 		float f[4];
 		f[0] = s;
@@ -1127,7 +1129,7 @@ public:
 		f[3] = ss1 - ss;
 		unsigned score =((f[1] - f[0] * 2 * gray) * a + gray*gray) * b + ((f[3] - f[2] * 2 * gray1) * a1 + gray1*gray1) * b1;
 
-		CV_Assert(score < 65536 && f[1] >= f[0] * f[0] * a && f[2] >= 0 && f[3] >= f[2] * f[2] * a);
+		CV_Assert(score < 65536 && f[1] >= f[0] * f[0] * a && f[2] >= 0 && f[3] >= f[2] * f[2] * a1);
 		return score;
 	}
 };
@@ -1136,9 +1138,9 @@ public:
 It require internal circle =gray
 external circle <= gray1
 */
-class TwoCirclelXCompute : public ViaComputeScore {
+class TwoCirclelBSCompute : public ViaComputeScore {
 protected:
-	TwoCircleCompute tcc;
+    TwoCircleEECompute tcc;
 	Mat lg, llg;
 
 public:
@@ -1147,10 +1149,12 @@ public:
 		tcc.d = &_d;
 		Mat img, ig, iig;
 		img = _d.l[_layer].img.clone();
+		int m0 = min(vp.gray0, vp.gray1);
+		int m1 = max(vp.gray0, vp.gray1);
 		for (int y = 0; y < img.rows; y++) {
 			unsigned char * p_img = img.ptr<unsigned char>(y);
 			for (int x = 0; x < img.cols; x++)
-				p_img[x] = (p_img[x] < vp.gray1) ? 0 : p_img[x];
+				p_img[x] = (p_img[x] < m0) ? m0 : ((p_img[x] > m1) ? m1 : p_img[x]);
 		}
 		
 		integral_square(img, ig, iig, lg, llg, true);
@@ -1159,10 +1163,12 @@ public:
 		tcc.r = vp.rd0;
 		tcc.r1 = vp.rd1;
 		tcc.gray = vp.gray0;
-		tcc.gray1 = 0;
-		qInfo("TwoCircleXPrepare r0=%d,r1=%d,g0=%d,g1=%d", tcc.r, tcc.r1, tcc.gray, tcc.gray1);
+		tcc.gray1 = vp.gray1;
+		qInfo("TwoCircleXPrepare r0=%d,r1=%d,g0=%d,g1=%d", tcc.r, tcc.r1, vp.gray0, vp.gray1);
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
+		if (vp.gray1 >= vp.gray0)
+			qCritical("invalid gray1 >= gray0");
 		int n = compute_circle_dx(tcc.r, tcc.dx);
 		int n1 = compute_circle_dx(tcc.r1, tcc.dx1);
 		tcc.a = 1.0 / n;
@@ -1181,7 +1187,7 @@ It require internal circle =gray
 external circle = gray1
 most external circle = gray2
 */
-class ThreeCircleCompute : public ViaComputeScore {
+class ThreeCircleEEECompute : public ViaComputeScore {
 protected:
 	int r, r1, r2;
 	int gray, gray1, gray2;
@@ -1193,7 +1199,7 @@ protected:
 	Mat * llg;
 
 public:
-	friend class ThreeCircleXCompute;
+    friend class ThreeCircleBSSCompute;
 	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
 		layer = _layer;
 		d = &_d;
@@ -1261,9 +1267,9 @@ It require internal circle <=gray
 external circle = gray1
 most external circle <= gray
 */
-class ThreeCircleXCompute : public ViaComputeScore {
+class ThreeCircleBSSCompute : public ViaComputeScore {
 protected:
-	ThreeCircleCompute tcc;
+    ThreeCircleEEECompute tcc;
 	Mat lg, llg;
 
 public:
@@ -1272,10 +1278,18 @@ public:
 		tcc.d = &_d;
 		Mat img, ig, iig;
 		img = _d.l[_layer].img.clone();
+		int m0 = min(min(vp.gray0, vp.gray1), vp.gray2), m1;
+		if (m0 == vp.gray0)
+			m1 = min(vp.gray1, vp.gray2);
+		if (m0 == vp.gray1)
+			m1 = min(vp.gray0, vp.gray2);
+		if (m0 == vp.gray2)
+			m1 = min(vp.gray0, vp.gray1);
+		int m2 = max(max(vp.gray0, vp.gray1), vp.gray2);
 		for (int y = 0; y < img.rows; y++) {
 			unsigned char * p_img = img.ptr<unsigned char>(y);
 			for (int x = 0; x < img.cols; x++)
-				p_img[x] = (p_img[x] < vp.gray1) ? 0 : p_img[x];
+				p_img[x] = (p_img[x] < m0) ? m0 : ((p_img[x] < m1) ? m1 : ((p_img[x] > m2) ? m2 :p_img[x]));
 		}
 		integral_square(img, ig, iig, lg, llg, true);
 		tcc.lg = &lg;
@@ -1283,10 +1297,10 @@ public:
 		tcc.r = vp.rd0;
 		tcc.r1 = vp.rd1;
 		tcc.r2 = vp.rd2;
-		tcc.gray = 0;
+		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
-		tcc.gray2 = 0;
-		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d", tcc.r, tcc.r1, tcc.r2, tcc.gray, tcc.gray1, tcc.gray2);
+		tcc.gray2 = vp.gray2;
+		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d", tcc.r, tcc.r1, tcc.r2, vp.gray0, vp.gray1,vp.gray2);
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
 		if (tcc.r1 >= tcc.r2)
@@ -1303,11 +1317,11 @@ public:
 	}
 
 	unsigned compute(int x0, int y0) {
-		tcc.compute(x0, y0);
+		return tcc.compute(x0, y0);
 	}
 };
 
-class FourCircleCompute : public ViaComputeScore {
+class FourCircleEEEECompute : public ViaComputeScore {
 protected:
 	int r, r1, r2, r3;
 	int gray, gray1, gray2, gray3;
@@ -1357,23 +1371,23 @@ public:
 		int s2 = 0, ss2 = 0, s3 = 0, ss3 = 0;
 		for (int y = -r; y <= r; y++) {
 			int x = dx[abs(y)];
-			s += lg.at<unsigned>(y + y0, x + x0 + 1) - lg.at<unsigned>(y + y0, x0 - x);
-			ss += llg.at<unsigned>(y + y0, x + x0 + 1) - llg.at<unsigned>(y + y0, x0 - x);
+			s += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
+			ss += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
 		}
 		for (int y = -r1; y <= r1; y++) {
 			int x = dx1[abs(y)];
-			s1 += lg.at<unsigned>(y + y0, x + x0 + 1) - lg.at<unsigned>(y + y0, x0 - x);
-			ss1 += llg.at<unsigned>(y + y0, x + x0 + 1) - llg.at<unsigned>(y + y0, x0 - x);
+			s1 += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
+			ss1 += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
 		}
 		for (int y = -r2; y <= r2; y++) {
 			int x = dx2[abs(y)];
-			s2 += lg.at<unsigned>(y + y0, x + x0 + 1) - lg.at<unsigned>(y + y0, x0 - x);
-			ss2 += llg.at<unsigned>(y + y0, x + x0 + 1) - llg.at<unsigned>(y + y0, x0 - x);
+			s2 += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
+			ss2 += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
 		}
 		for (int y = -r3; y <= r3; y++) {
 			int x = dx3[abs(y)];
-			s3 += lg.at<unsigned>(y + y0, x + x0 + 1) - lg.at<unsigned>(y + y0, x0 - x);
-			ss3 += llg.at<unsigned>(y + y0, x + x0 + 1) - llg.at<unsigned>(y + y0, x0 - x);
+			s3 += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
+			ss3 += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
 		}
 		float f[8];
 		f[0] = s;
@@ -1400,19 +1414,23 @@ ViaComputeScore * ViaComputeScore::create_via_compute_score(int _layer, ViaParam
 	ViaComputeScore * vc = NULL;
 	switch (vp.subtype) {
 	case VIA_SUBTYPE_2CIRCLE:
-		vc = new TwoCircleCompute();
+        vc = new TwoCircleEECompute();
 		vc->prepare(_layer, vp, d);
 		break;
 	case VIA_SUBTYPE_3CIRCLE:
-		vc = new ThreeCircleCompute();
+        vc = new ThreeCircleEEECompute();
 		vc->prepare(_layer, vp, d);
 		break;
 	case VIA_SUBTYPE_4CIRCLE:
-		vc = new FourCircleCompute();
+        vc = new FourCircleEEEECompute();
 		vc->prepare(_layer, vp, d);
 		break;
 	case VIA_SUBTYPE_2CIRCLEX:
-		vc = new TwoCirclelXCompute();
+        vc = new TwoCirclelBSCompute();
+		vc->prepare(_layer, vp, d);
+		break;
+	case VIA_SUBTYPE_3CIRCLEX:
+        vc = new ThreeCircleBSSCompute();
 		vc->prepare(_layer, vp, d);
 		break;
 	default:
@@ -1808,7 +1826,7 @@ WireComputeScore * WireComputeScore::create_wire_compute_score(WireParameter &wp
 }
 
 /*		31..24  23..16   15..8   7..0
-opt0:				compute_border gs
+opt0:		border_size	compute_border gs
 */
 
 void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
@@ -1818,13 +1836,14 @@ void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
 	if (layer == -1) {
 		d.gs = cpara.opt0 & 0xff;
 		d.compute_border = cpara.opt0 >> 8 & 0xff;
-		qInfo("set gs=%d, compute_border=%d", d.gs, d.compute_border);
+		d.border_size = cpara.opt0 >> 16 & 0xff;
+		qInfo("set gs=%d, compute_border=%d, border_size=%d", d.gs, d.compute_border, d.border_size);
 
-		if (d.gs > 32 || d.gs<=3 || d.gs * 2 > d.compute_border) 
+		if (d.gs > 32 || d.gs<=3 || d.gs * 2 > d.compute_border || d.compute_border >= d.border_size) 
 			qCritical("gs invalid");
 		else {
 			for (int i = 0; i < d.l.size(); i++)
-				d.l[i].reinit(d.gs, d.compute_border);
+				d.l[i].reinit(d.gs, d.compute_border, d.border_size);
 		}
 		return;
 	}
@@ -1885,6 +1904,7 @@ static void imgpp_RGB2gray(PipeData & d, ProcessParameter & cpara)
  output d.img
  local_min = sort d.img gray in grid_win * grid , and then choose low min_dis gray
  filter_min = GaussianBlur(local_min, k_size)
+ k_size > grid, ksize<min(img.row,img.cols)
  d.img = d.img - filter_min 
 */
 static void imgpp_compute_min_stat(PipeData & d, ProcessParameter & cpara)
@@ -2003,6 +2023,7 @@ opt3:           k2       k1      k0      k0 is dark gray level compress rate, k1
 opt4:           k2       k1      k0      k0 is middle bright level compress rate, k1 & k2 is rate between middle bright and most bright
 opt5:           k2       k1      k0      k0 is most bright compress rate, k1 & k2 is rate between most bright
 sep_min & sep_max mins gray level difference
+sep_min better > wsize/2
 wsize means gray level window, e.g. [80,90] consider as GRAY_M0 level, wsize=10
 Choose gray level between [last gray level + sep_min, last gray level + sep_max], e.g. GRAY_M0 is in [GRAY_L0+sep_min, GRAY_L0+sep_max]
 normally choose k2 & k0 = 100, k1 < 100
@@ -2053,16 +2074,19 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	//following is compute lmh[0..2].g0
 	int base = 0;
 	for (int i = 0; i < 3; i++) {
-		int choose = base, max_sum = 0;
+		int choose = base + lmh[i].sep_min, max_sum = 0;
 		qInfo("imgpp_adjust_gray_lvl %d:sep_min=%d, sep_max=%d,wsize=%d,dis_min=%f,dis_max=%f, k0=%f, k1=%f, k2=%f", i, 
 			lmh[i].sep_min, lmh[i].sep_max, lmh[i].wsize, lmh[i].dis_min, lmh[i].dis_max, lmh[i].k0, lmh[i].k1, lmh[i].k2);
 		if (lmh[i].wsize > 100 || lmh[i].dis_min >= 1 || lmh[i].dis_max > 1 || lmh[i].k0 > 1) {
 			qCritical("imgpp_adjust_gray_lvl wrong para");
 			return;
 		}
-		for (int j = base + lmh[i].sep_min; j <= base + lmh[i].sep_max; j++) {
+		if (i > 0 && lmh[i].sep_min - lmh[i].wsize / 2 < 10)
+			qWarning("imgpp_adjust_gray_lvl Warning sep_min(%d) - wize(%d)/2 < 10", lmh[i].sep_min, lmh[i].wsize);
+		int th = lmh[i].dis_max * stat[256];
+		for (int j = base + lmh[i].sep_min; j <= min(255, base + lmh[i].sep_max); j++) {
 			int kb = max(base + 1, j - lmh[i].wsize / 2), ke = min(j + (lmh[i].wsize - 1) / 2, 255);
-			int sum = 0, th = lmh[i].dis_max * stat[256];
+			int sum = 0;
 			for (int k = kb; k <= ke; k++)
 				sum += stat[k];
 			if (sum > max_sum && sum < th) {
@@ -2072,7 +2096,12 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 		}
 		if (max_sum < lmh[i].dis_min * stat[256])
 			qCritical("Error choose=%d, max_sum(%d) < dis_min(%d)", choose, max_sum, (int) (lmh[i].dis_min * stat[256]));
-		
+		if (max_sum > th)
+			qCritical("Error choose=%d, max_sum(%d) > dis_max(%d)", choose, max_sum, th);
+		if (choose == base + lmh[i].sep_min)
+			qWarning("consider to make sep_min low, because choose%d = base(%d) + sep_min(%d)", choose, base, lmh[i].sep_min);
+		if (choose == base + lmh[i].sep_max)
+			qWarning("consider to make sep_max high, because choose%d = base(%d) + sep_max(%d)", choose, base, lmh[i].sep_max);
 		lmh[i].g0 = choose;
 		base = choose + (lmh[i].wsize - 1) / 2;
 	}
@@ -2084,12 +2113,12 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	m.create(11, 5, CV_32SC1);
 	m.at<int>(0, 0) = GRAY_ZERO;
 	m.at<int>(0, 1) = 0;
-	m.at<int>(0, 2) = 0;
-	m.at<int>(1, 1) = 1;
-	m.at<int>(1, 2) = 1;
+	m.at<int>(0, 2) = max(0, lmh[0].g0 - (int)(lmh[0].wsize * lmh[0].k0 / 2));;
+	m.at<int>(0, 3) = 0;
+	m.at<int>(0, 4) = 0;
 	m.at<int>(1, 0) = GRAY_L1;
 	m.at<int>(1, 1) = max(0, lmh[0].g0 - lmh[0].wsize / 2);
-	m.at<int>(1, 2) = max(0, lmh[0].g0 - (int) (lmh[0].wsize * lmh[0].k0 / 2));
+	m.at<int>(1, 2) = m.at<int>(0, 2);
 	m.at<int>(1, 3) = lmh[0].k0 * 100;
 	m.at<int>(1, 4) = lmh[0].k0 * 100;
 	m.at<int>(2, 0) = GRAY_L0;
@@ -2129,7 +2158,7 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	m.at<int>(8, 4) = lmh[2].k0 * 100;
 	m.at<int>(9, 0) = GRAY_H2;
 	m.at<int>(9, 1) = min(255, lmh[2].g0 + (lmh[2].wsize - 1) / 2);
-	m.at<int>(9, 2) = min(255, lmh[2].g0 + (int) ((lmh[2].wsize - 1) * lmh[2].k0 / 2));
+	m.at<int>(9, 2) = m.at<int>(8, 2);//min(255, lmh[2].g0 + (int) ((lmh[2].wsize - 1) * lmh[2].k0 / 2));
 	m.at<int>(9, 3) = 0;  //lmh[2].k1 * 100;
 	m.at<int>(9, 4) = 0;  //lmh[2].k2 * 100;
 	m.at<int>(10, 0) = GRAY_FULL;
@@ -2224,7 +2253,8 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			qCritical("coarse_line_search wrong para");
 			return;
 		}
-		
+		if (wpara[i].guard * 2 < w_inc0 || wpara[i].guard * 2 < w_inc1)
+			qWarning("guard(%d) is small compared to inc0(%d) & inc1(%d)", wpara[i].guard, w_inc0, w_inc1);
 		WireKeyPoint wire;		
 		switch (wpara[i].w_dir) {
 		case 0:
@@ -2377,7 +2407,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			}
 			else {
 				for (int yy = y1; yy <= y2; yy++) {
-					unsigned long long prob1 = prob.at<unsigned long long>(y, 2 * x);
+					unsigned long long prob1 = prob.at<unsigned long long>(yy, 2 * x);
 					if (prob1 < prob0 && PROB_SHAPE(prob1) == BRICK_I_90) {
 						if (abs(PROB_Y(prob1) - PROB_Y(prob0)) <= cr)
 							pass = false;
@@ -2436,7 +2466,7 @@ static void coarse_via_search_mask(PipeData & d, ProcessParameter & cpara)
 	}
 	for (int i = 0; i < vnum; i++) {
 		qInfo("%d: coarse_via_search_mask v_subtype=%d, wide=%d, percent=%d", i, v_subtype[i], v_wide[i], v_percent[i]);
-		if (v_wide[i] >= d.l[i].compute_border || v_percent[i] >= 50) {
+		if (v_wide[i] / 2 >= d.l[layer].compute_border || v_percent[i] >= 50) {
 			qCritical("coarse_via_search_mask wrong parameter");
 			return;
 		}
@@ -2654,7 +2684,7 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 		if (update_fv)
 			d.l[layer].viaset.push_back(QPoint(via_loc[i].xy.x, via_loc[i].xy.y));
 		if (cpara.method & OPT_DEBUG_EN)
-			circle(debug_draw, via_loc[i].xy, 5, Scalar::all(0));
+			circle(debug_draw, via_loc[i].xy, 2, Scalar::all(0), 2);
 	}
 	if (cpara.method & OPT_DEBUG_EN) {
 		d.l[layer].check_prob();
@@ -3204,10 +3234,10 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 	}
 
 	int fix_count = 0, noend_count = 0;
-	int x1 = BORDER_SIZE / d.l[layer].gs - 1;
-	int x2 = prob.cols - BORDER_SIZE / d.l[layer].gs;
-	int y1 = BORDER_SIZE / d.l[layer].gs - 1;
-	int y2 = prob.rows - BORDER_SIZE / d.l[layer].gs;
+	int x1 = d.l[layer].border_size / d.l[layer].gs - 1;
+	int x2 = prob.cols - d.l[layer].border_size / d.l[layer].gs;
+	int y1 = d.l[layer].border_size / d.l[layer].gs - 1;
+	int y2 = prob.rows - d.l[layer].border_size / d.l[layer].gs;
 	
 	mark = Scalar::all(0);
 	for (int y = y1; y <= y2; y++) {
@@ -3599,7 +3629,8 @@ Mat VWExtractPipe::get_mark(int layer)
 {	
 	if (private_data) {
 		PipeData * d = (PipeData *)private_data;
-		return d->l[layer].v[12].d;
+		if (layer < d->l.size())
+			return d->l[layer].v[12].d;
 	}
 	return Mat();
 }
@@ -3608,7 +3639,8 @@ Mat VWExtractPipe::get_mark1(int layer)
 {
 	if (private_data) {
 		PipeData * d = (PipeData *)private_data;
-		return d->l[layer].v[13].d;
+		if (layer < d->l.size())
+			return d->l[layer].v[13].d;
 	}
 	return Mat();
 }
@@ -3617,7 +3649,8 @@ Mat VWExtractPipe::get_mark2(int layer)
 {
 	if (private_data) {
 		PipeData * d = (PipeData *)private_data;
-		return d->l[layer].v[14].d;
+		if (layer < d->l.size())
+			return d->l[layer].v[14].d;
 	}
 	return Mat();
 }
@@ -3626,13 +3659,19 @@ Mat VWExtractPipe::get_mark3(int layer)
 {
 	if (private_data) {
 		PipeData * d = (PipeData *)private_data;
-		return d->l[layer].v[15].d;
+		if (layer < d->l.size())
+			return d->l[layer].v[15].d;
 	}
 	return Mat();
 }
 
 int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_sets)
 {
+	for (int i = 0; i < vwp.size(); i++)
+		qInfo("extract vw%d:l=0x%x,m=0x%x,mo=0x%x,o0=0x%x,o1=0x%x,o2=0x%x,o3=0x%x,o4=0x%x,o5=0x%x,o6=0x%x,i8=0x%x,f0=%f",
+		i, vwp[i].layer, vwp[i].method, vwp[i].method_opt, vwp[i].opt0, vwp[i].opt1, vwp[i].opt2,
+		vwp[i].opt3, vwp[i].opt4, vwp[i].opt5, vwp[i].opt6, vwp[i].opt_f0);
+
 	QDir *qdir = new QDir;
 	deldir("./DImg");
 	bool exist = qdir->exists("./DImg");
@@ -3705,6 +3744,16 @@ int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 
 int VWExtractPipe::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
 {
+	int BORDER_SIZE = 16;
+	for (int i = 0; i < vwp.size(); i++) {
+		vwp[i].method_opt &= ~OPT_DEBUG_EN;
+		qInfo("extract vw%d:l=0x%x,m=0x%x,mo=0x%x,o0=0x%x,o1=0x%x,o2=0x%x,o3=0x%x,o4=0x%x,o5=0x%x,o6=0x%x,i8=0x%x,f0=%f",
+			i, vwp[i].layer, vwp[i].method, vwp[i].method_opt, vwp[i].opt0, vwp[i].opt1, vwp[i].opt2,
+			vwp[i].opt3, vwp[i].opt4, vwp[i].opt5, vwp[i].opt6, vwp[i].opt_f0);	
+		if (vwp[i].layer == -1 && vwp[i].method == PP_SET_PARAM)
+			BORDER_SIZE = vwp[i].opt0 >> 16 & 0xff;;
+	}
+
 	//prepare process
 	vector<ProcessFunc> process_func(256, NULL);
 	for (int i = 0; i < sizeof(pipe_process_array) / sizeof(pipe_process_array[0]); i++)
