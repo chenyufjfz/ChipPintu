@@ -2537,6 +2537,7 @@ opt3:					subtype	type
 opt4:					subtype	type
 opt5:					subtype	type
 update means update to viaset
+via's guard + via's radius < w_long/2
 method_opt
 0: for gray level turn_points  input
 1: for via search mask input
@@ -2587,7 +2588,12 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 
 	for (int i = 0; i < vnum; i++) {
 		ViaParameter via_para;
-		via_para = d.l[layer].vw.get_vw_para(BRICK_VIA, v_type[i], v_subtype[i])->v;
+		VWParameter * vw = d.l[layer].vw.get_vw_para(BRICK_VIA, v_type[i], v_subtype[i]);
+		if (vw == NULL) {
+			qCritical("fine_via_search invalid via info %d, %d", v_type[i], v_subtype[i]);
+			return;
+		}
+		via_para = vw->v;
 		v_guard[i] = via_para.guard;
 		if (via_para.gray0 < sizeof(glv) / sizeof(glv[0]))
 			via_para.gray0 = glv[via_para.gray0];
@@ -2752,8 +2758,13 @@ static void remove_via(PipeData & d, ProcessParameter & cpara)
 	QScopedPointer<ViaRemove> vr[MAX_VIA_NUM];
 
 	for (int i = 0; i < vnum; i++) {
-		ViaParameter via_para;
-		via_para = d.l[layer].vw.get_vw_para(BRICK_VIA, v_type[i], v_subtype[i])->v;
+		ViaParameter via_para;		
+		VWParameter * vw = d.l[layer].vw.get_vw_para(BRICK_VIA, v_type[i], v_subtype[i]);
+		if (vw == NULL) {
+			qCritical("remove_via invalid via info %d, %d", v_type[i], v_subtype[i]);
+			return;
+		}
+		via_para = vw->v;
 		v_rr[i] = via_para.remove_rd;
 		vr[i].reset(ViaRemove::create_via_remove(via_para, d));
 	}
@@ -3069,7 +3080,12 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 
 	for (int i = 0; i < wnum; i++) {
 		WireParameter wire_para;
-		wire_para = d.l[layer].vw.get_vw_para(w_shape[i], w_type[i], w_subtype[i])->w;
+		VWParameter * vw = d.l[layer].vw.get_vw_para(w_shape[i], w_type[i], w_subtype[i]);
+		if (vw == NULL) {
+			qCritical("fine_line_search invalid wire info %d, %d %d", w_shape[i], w_type[i], w_subtype[i]);
+			return;
+		}
+		wire_para = vw->w;
 		wire_para.gray_i = gi;
 		wire_para.gray_w = gm;
 		wcs[i].reset(WireComputeScore::create_wire_compute_score(wire_para, d, layer));

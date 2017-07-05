@@ -9,6 +9,7 @@
 
 typedef long long int64;
 using namespace std;
+#define ENCRYPT_CHECK
 
 void encrypt(char * a, int len, int magic)
 {
@@ -653,11 +654,14 @@ void ICLayerM::putBlockNumWidth(int bx, int by, int width)
 	head.num_block_y = by;
 	head.block_w = width;
 	head.total_num = compute_bias_num(bias_num);
+	qDebug("ICLayerM putBlockNumWidth Total_num=%d", head.total_num);
 	bias_storage.assign(head.total_num + 1, 0);
 	bias_storage[0] = sizeof(head) + head.total_num * sizeof(unsigned);
 	bias.resize(bias_num.size());
-	for (int i = 0, j = 0; i < bias.size(); j += bias_num[i++])
+	for (int i = 0, j = 0; i < bias.size(); j += bias_num[i++]) {
 		bias[i] = &bias_storage[j];
+		qDebug("bias[%d]=%d", i, j);
+	}
 	img_len.assign(head.total_num, 0);
 	head.num_block_x = version << 24 | bx;
 	fout.write((char*)&head, sizeof(head)); //write header
@@ -685,11 +689,30 @@ int ICLayerM::addRawImg(vector<uchar> & buff, int x, int y, int)
 		if (buff.size() < 128)
 			qFatal("error, file length=%d, too small", buff.size());
 		int magic = s0 * head.total_num + y * head.num_block_y + x;
+#ifdef ENCRYPT_CHECK
+		unsigned char org_buf[128];
+		memcpy(org_buf, (char*)&buff[0], 112);
+		memcpy(&org_buf[112], (char*)&buff[0] + buff.size() - 16, 16);
+#endif
 		encrypt((char*)&buff[0], 112, magic);
 		encrypt((char*)&buff[0] + buff.size() - 16, 16, magic);
+#ifdef ENCRYPT_CHECK	
+		char dec_buf[128];
+		memcpy(dec_buf, (char*)&buff[0], 112);
+		decrypt(dec_buf, 112, magic);
+		memcpy(&dec_buf[112], (char*)&buff[0] + buff.size() - 16, 16);
+		decrypt((char*)& dec_buf[112], 16, magic);
+		if (memcmp(org_buf, dec_buf, 128) != 0)
+			qFatal("encrypt error x=%d, y=%d", x, y);
+		
+#endif
 	}
 	fout.write((char*)&buff[0], buff.size());
 	bias_storage[idx0 + 1] = bias_storage[idx0] + buff.size();
+#if 1
+	Q_ASSERT(idx0 + 1 < bias_storage.size());
+	qDebug("addRawImg x=%d, y=%d, bias[%d]=%lld, len=%d", x, y, idx0, bias_storage[idx0], buff.size());
+#endif
 	idx0++;
 	x0 += 1 << s0;
 	if (x0 >= head.num_block_x) {
@@ -717,6 +740,9 @@ int ICLayerM::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsign
 	int bx = ((head.num_block_x - 1) >> ovr) + 1;
 	int idx = y * bx + x;
 	int len = bias[ovr][idx + 1] - bias[ovr][idx];
+
+	qDebug("getRawImgByIdx x=%d, y=%d, bias=%lld, len=%d", x, y, bias[ovr][idx], len);
+
 	buff.resize(len + reserved);
 	if (fin.is_open()) {
 		fin.seekg(bias[ovr][idx], ios::beg);
@@ -1042,11 +1068,7 @@ void ICLayerWr::generateDatabase(const string path, int from_row, int to_row, in
 	}
 	for (int y = from_row; y <= to_row; y++)
 		for (int x = from_col; x <= to_col; x++) {
-#if 1
 			sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y, x);
-#else
-			sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y % 4 + 1, x % 4 + 1);
-#endif
 			qInfo("read file %s", file_name);
 			ifstream infile(file_name, ifstream::binary);
 			infile.seekg(0, infile.end);
