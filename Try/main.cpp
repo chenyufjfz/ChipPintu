@@ -94,32 +94,37 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 
 void test_one_layer()
 {
-	ICLayerWr new_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", false, false);
+	ICLayerWrInterface * new_db = ICLayerWrInterface::create("C:/chenyu/data/hanzhou/M1/PL.db", false);
 	//new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
-	new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 6, 1, 7);
-	ICLayerWr read_db("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", true, false);
+	new_db->generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 6, 1, 7);
+	delete new_db;
+	ICLayerWrInterface * read_db = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", false);
 	int bx, by, width;
-	read_db.getBlockNum(bx, by);
-	width = read_db.getBlockWidth();
+	read_db->getBlockNum(bx, by);
+	width = read_db->getBlockWidth();
 	qDebug("read new database, bx=%d, by=%d, w=%d", bx, by, width);
 	vector<uchar> buff;
 
 	for (int s = 1; s < 16; s++) {
 		char file_name[30];
 		sprintf(file_name, "%d.jpg", s);
-		read_db.getRawImgByIdx(buff, 0, 0, s, 0);
+		read_db->getRawImgByIdx(buff, 0, 0, s, 0);
 		if (buff.empty())
 			break;
 		ofstream fout(file_name, ofstream::binary);
 		fout.write((char*)&buff[0], buff.size());
 		fout.close();
 	}
+	delete read_db;
 }
 
 struct GenerateLayerParam{
 	string db_name;
 	string path_prefix;
 	int from_row, to_row, from_col, to_col;
+	int block_num_x, block_num_y;
+	double zoom;
+	float quality;
 };
 
 class GenerateParam {
@@ -143,6 +148,10 @@ public:
 			lpa.to_row = (int)(*it)["to_row"];
 			lpa.from_col = (int)(*it)["from_col"];
 			lpa.to_col = (int)(*it)["to_col"];
+			lpa.block_num_x = (int)(*it)["block_num_x"];
+			lpa.block_num_y = (int)(*it)["block_num_y"];
+			lpa.quality = (float)(*it)["quality"];
+			lpa.zoom = (double)(*it)["zoom"];
 			l.push_back(lpa);
 		}
 	}
@@ -158,10 +167,11 @@ int main(int argc, char *argv[])
 	qInfo("Start to generate %s", gen.prj_name.c_str());
 	bk_img_db->open(gen.prj_name, false);
 	for (int i = 0; i < gen.l.size(); i++) {
-		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d", 
-			gen.l[i].db_name.c_str(), gen.l[i].path_prefix.c_str(),	gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, gen.l[i].to_col);
-		bk_img_db->addNewLayer(gen.l[i].db_name, gen.l[i].path_prefix,
-			gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, gen.l[i].to_col);
+		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d, block_num_x=%d, block_num_y=%d, zoom=%f", 
+			gen.l[i].db_name.c_str(), gen.l[i].path_prefix.c_str(),	gen.l[i].from_row, gen.l[i].to_row, 
+			gen.l[i].from_col, gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].zoom);
+		bk_img_db->addNewLayer(gen.l[i].db_name, gen.l[i].path_prefix, gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, 
+			gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].zoom, gen.l[i].quality);
 	}
 
 	/*

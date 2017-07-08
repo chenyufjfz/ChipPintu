@@ -483,7 +483,7 @@ int CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_set
 typedef unsigned long long MapID;
 
 
-int CellExtract::train(vector<ICLayerWr *> & ic_layer, const std::vector<MarkObj> & obj_sets)
+int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, const std::vector<MarkObj> & obj_sets)
 {
     vector<unsigned> bins, th;
     Mat mark, img;
@@ -568,7 +568,7 @@ struct SearchResult {
     }
 };
 
-int CellExtract::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
+int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
 {
 	if (cell.empty()) {
 		qCritical("Cell must be traininged before extract");

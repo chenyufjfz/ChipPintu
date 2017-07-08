@@ -342,8 +342,8 @@ public:
 	Mat get_mark3(int layer);
 	int train(string, const std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
-	int train(vector<ICLayerWr *> &, const std::vector<MarkObj> &) { return 0; }
-	int extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
+	int train(vector<ICLayerWrInterface *> &, const std::vector<MarkObj> &) { return 0; }
+	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
 	void get_feature(int, int, int, vector<float> &) {}
 };
 /*
@@ -3414,7 +3414,7 @@ int VWExtractStat::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 	return 0;
 }
 
-int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
+int VWExtractStat::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
 {
 	vector<LayerBrickRuleMask> lbrm(lpm.size() * 2 - 1);
 	vector<LayerBrickRuleMask> warn_lbrm(lpm.size() * 2 - 1);
@@ -3611,14 +3611,14 @@ int VWExtractStat::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchAr
 			vector<int> gl_x, gl_y;
 			for (int x = sb.left(); x <= sb.right(); x++) {
 				int idx = x - sb.left();
-				int end = (x != sb.right()) ? (int) ts[idx].d[l].gl_x.size() - 2 : ts[idx].d[l].gl_x.size();
+				int end = (x != sb.right()) ? (int) ts[idx].d[l].gl_x.size() - 2 : (int) ts[idx].d[l].gl_x.size();
 				for (int i = 0; i < end; i++)
 					gl_x.push_back(sr.left() / scale + ts[idx].img_pixel_x0 + ts[idx].d[l].gl_x[i] + 2); //TODO: Check why +2?
 			}
 
 			for (int y = sb.top(); y <= sb.bottom(); y++) {
 				int idx = (y - sb.top()) * sb.width();
-				int end = (y != sb.bottom()) ? (int) ts[idx].d[l].gl_y.size() - 2 : ts[idx].d[l].gl_y.size();
+				int end = (y != sb.bottom()) ? (int) ts[idx].d[l].gl_y.size() - 2 : (int) ts[idx].d[l].gl_y.size();
 				for (int i = 0; i < end; i++)
 					gl_y.push_back(sr.top() / scale + ts[idx].img_pixel_y0 + ts[idx].d[l].gl_y[i] + 2); //TODO: check why + 2
 			}

@@ -1,7 +1,7 @@
 #include "traindialog.h"
 #include "ui_traindialog.h"
 
-TrainDialog::TrainDialog(QWidget *parent, int _train_what, int _feature, int _iter_num, float _param1,
+TrainDialog::TrainDialog(QWidget *parent, int , int , int _iter_num, float _param1,
                          float _param2, float _param3) :
     QDialog(parent),
     ui(new Ui::TrainDialog)

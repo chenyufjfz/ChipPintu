@@ -3758,7 +3758,7 @@ int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 }
 
 
-int VWExtractPipe::extract(vector<ICLayerWr *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
+int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
 {
 	int BORDER_SIZE = 16;
 	for (int i = 0; i < vwp.size(); i++) {

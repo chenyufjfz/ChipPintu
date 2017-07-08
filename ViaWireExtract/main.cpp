@@ -139,9 +139,10 @@ int cell_extract_test()
 	vector <MarkObj> obj_set; 
 
 	CellExtract ce;
-	ICLayerWr ic("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.db", true);
-    vector<ICLayerWr *> pic;
-    pic.push_back(&ic);
+	ICLayerWrInterface * ic = ICLayerWrInterface::create("C:/chenyu/data/hanzhou/M1/M1.db", true);
+	
+    vector<ICLayerWrInterface *> pic;
+    pic.push_back(ic);
 	ce.set_train_param(0, 0, 0, 0, 0, 0,  30, 300, 50, 0);
 	MarkObj obj;
 	vector<MarkObj> objs;
@@ -175,16 +176,16 @@ int cell_extract_test()
 int wire_extract_test()
 {
 	vector <MarkObj> objs;
-	ICLayerWr ic[4]; 
-	ic[0].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.db", true);
-	ic[1].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M2.db", true);
-	ic[2].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M3.db", true);
-	ic[3].create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.db", true);
-    vector<ICLayerWr *> pic;
-    pic.push_back(&ic[0]);
-    pic.push_back(&ic[1]);
-    pic.push_back(&ic[2]);
-	pic.push_back(&ic[3]);
+	ICLayerWrInterface * ic[4]; 
+	ic[0] = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M1.db", true);
+	ic[1] = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M2.db", true);
+	ic[2] = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M3.db", true);
+	ic[3] = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/M4.db", true);
+    vector<ICLayerWrInterface *> pic;
+    pic.push_back(ic[0]);
+    pic.push_back(ic[1]);
+    pic.push_back(ic[2]);
+	pic.push_back(ic[3]);
 
 	VWExtract * vwe = VWExtract::create_extract(0);
 	vwe->set_extract_param(0, 0, 0x1000409, RULE_END_WITH_VIA, 0, 16, 50, 50, 200, 0);
@@ -281,11 +282,11 @@ int main(int argc, char *argv[])
     MainWindow w;
 	
 	qInstallMessageHandler(myMessageOutput);
-#if 0
-	test_extractparam();
+#if 1
+	
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();
-	//cell_extract_test();
+	cell_extract_test();
 	return 0;
 #endif
     w.show();

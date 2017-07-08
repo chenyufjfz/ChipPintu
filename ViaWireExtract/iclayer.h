@@ -26,106 +26,73 @@ public:
     virtual ~ICLayerInterface() {}
 };
 
-/*
-It support multi-thread access when open as read, it use global lock for one layer
-IClayerWr has cache, and cache size is max_cache_size
-*/
-class ICLayerWr
+class ICLayerWrInterface
 {
 public:
-	ICLayerWr();
-	/*
-	Input: file, layer database name
-	Input: _read, read or write database
-	Input: _cache_enable, only valid when read, if need memory cache, 
-			0: don't need cache
-			1: default cache size
-			2: cache size is decided automatically
-			other: actual cache size
-	Input type: 0 default type
+	/*Input: file, it is layername
+	  Input: _read, 
+	  Input: _cache_size,
+		  0: don't need cache
+		  1: default cache size
+		  2: cache size is decided automatically
+		  other: actual cache size
+	  Input: dbtype, normally it is 0
+	  Input: wrtype, normally it is 0
+	  Input: _zoom
 	*/
-	ICLayerWr(const string file, bool _read, int _cache_size = 2, int type = 0);
-    ~ICLayerWr();
-	/*
-	When call create, ICLayerWr close associated ICLayerInterface and create new ICLayerInterface
-	Input: file, layer database name
-	Input: _read, read or write database
-	Input: _cache_enable, only valid when read, if need memory cache, 
-			0: don't need cache
-			1: default cache size
-			2: cache size is decided automatically
-			other: actual cache size
-	Input type: 0 default type
-	*/
-	void create(const string file, bool _read, int _cache_size = 2, int type = 0);
+	static ICLayerWrInterface * create(const string file, bool _read, double _zoom = 1.0, int _cache_size = 2, int dbtype = 0, int wrtype = 0);
 	//getBlockWidth can be called when read database
-    int getBlockWidth();
+	virtual int getBlockWidth() = 0;
 	//getBlockNum can be called when read database
-	void getBlockNum(int & bx, int &by);
+	virtual void getBlockNum(int & bx, int &by) = 0;
 	//getMaxScale can be called when read database
-	int getMaxScale();
+	virtual int getMaxScale() = 0;
 	/*
 	getRawImgByIdx can be called when read database
 	Output buff, Image encoded raw data
 	Input x, y, ovr, for raw image, ovr=0, for up_scale image, ovr=scale.
-		ovr =1, x=0, 2, 4..., y=0, 2, 4
-		ovr =2, x=0, 4, 8..., y=0, 4, 8
+	ovr =1, x=0, 2, 4..., y=0, 2, 4
+	ovr =2, x=0, 4, 8..., y=0, 4, 8
 	Input: reserved, it is reserved space at buff.begin
 	Input: need_cache, if true, put raw image into cache for next read fast
 	*/
-	int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved, bool need_cache=true);
+	virtual int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved, bool need_cache = true) = 0;
 	/*
-	generateDatabase can only be called when write database, it call close() after finish generation 
+	generateDatabase can only be called when write database, it call close() after finish generation
 	Input, path, filename prefix for source image file
-	Input, from_row, to_row, from_col, to_col, used to generate file name postfix 
+	Input, from_row, to_row, from_col, to_col, used to generate file name postfix
 	*/
-	void generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col);		
+	virtual void generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x = -1, int _block_num_y = -1, float quality = 0.9) = 0;
 	/*Only be called when open for read
 	Input: _delta_cache_size
 	*/
-	void adjust_cache_size(int _delta_cache_size);
-	string get_file_name();
-	friend class BkImg;
-protected:
+	virtual void adjust_cache_size(int _delta_cache_size) = 0;
 	/*
-	get_cache_stat can only be called when read database
+	Return file name of this layer
+	*/
+	virtual string get_file_name() = 0;
+	/*
+	get_cache_stat can only be called when read database, better not called from user directly
 	Output _cache_size, count in bytes
 	OUtput earlest_tm, earlest cache image time
 	*/
-	void get_cache_stat(int & _cache_size, QTime & earlest_tm);
+	virtual void get_cache_stat(int & _cache_size, QTime & earlest_tm) = 0;
 	/*
 	release cache until cache_size is lower than cache_limit and earlest_tm is later than tm
-	release_cache can only be called when read database
+	release_cache can only be called when read database, better not called from user directly
 	Input cache_limit, release cache image, so cache_size is lower than cache_limit
 	Input tm, release cache image before tm
 	*/
-	void release_cache(int cache_limit, QTime tm);
-	/*Only be called when open for read
+	virtual void release_cache(int cache_limit, QTime tm) = 0;
+	/*Only be called when open for read, better not called from user directly
 	Input: max_cache_size
 	*/
-	void set_cache_size(int _max_cache_size);
-	void close();
-	struct BkImgMeta{
-		unsigned long long id;
-		QTime tm;
-		BkImgMeta(unsigned long long _id) {
-			id = _id;
-			tm = QTime::currentTime();
-		}
-	};
-	struct BkImg {
-		list <BkImgMeta>::iterator plist;
-		unsigned char * data;
-		unsigned int len;
-	};	
-	
-    ICLayerInterface * layer;
-	map <unsigned long long, BkImg> cache_map;
-	list <BkImgMeta> cache_list;
-	QMutex mutex;
-	int cache_size, max_cache_size; //shall I add set_cache_size to set max_cache_size
-	bool read_write;
-	string file_name;
+	virtual void set_cache_size(int _max_cache_size) = 0;
+	/*
+	close is manged by BkImgInterface, better not called from user directly
+	*/
+	virtual void close() = 0;
+	virtual ~ICLayerWrInterface() {}
 };
 
 /* TODO need close()?
@@ -149,16 +116,16 @@ delete img_db
 3 Read by layer
 img_db = BkImgDBInterface::create_BkImgDB();
 img_db->open("chip.prj", true, cache_size);
-ICLayerWr * ic_layer = get_layer(1);
+ICLayerWrInterface * ic_layer = get_layer(1);
 ic_layer->getRawImgByIdx(buff, x, y, s, 0);
 ic_layer->adjust_cache_size(delta_size);
 ic_layer->getRawImgByIdx(buff, x, y, s, 0);
 delete img_db
 
-BkImgInterface has a variable named max_cache_size, sum of all ICLayerWr's cache_size is lower than max_cache_size.
-If user call getRawImgByIdx, both BkImgInterface's max_cache_size and ICLayerWr's cache_size take effect, 
- since BkImg create ICLayerWr with cache_size big enough, so normally BkImgInterface's max_cache_size take main effect.
-If user call get_layer() and then call ICLayerWr->getRawImgByIdx, only ICLayerWr's cache_size take effect.
+BkImgInterface has a variable named max_cache_size, sum of all ICLayerWrInterface's cache_size is lower than max_cache_size.
+If user call getRawImgByIdx, both BkImgInterface's max_cache_size and ICLayerWrInterface's cache_size take effect, 
+ since BkImg create ICLayerWrInterface with cache_size big enough, so normally BkImgInterface's max_cache_size take main effect.
+If user call get_layer() and then call ICLayerWrInterface->getRawImgByIdx, only ICLayerWrInterface's cache_size take effect.
 */
 class BkImgInterface
 {
@@ -182,13 +149,16 @@ public:
 	/*Only be called when open for write
 	If fail, return NULL
 	*/
-	virtual ICLayerWr * get_layer(int layer) = 0;
+	virtual ICLayerWrInterface * get_layer(int layer) = 0;
 	/*Only be called when open for write
 	Input, filename, layer database filename 
 	Input, path, filename prefix for source image file
 	Input, from_row, to_row, from_col, to_col, used to generate file name postfix
+	Input, by, by, used to set block_x_num and block_y_num
+	Input, quality, used to set image quality
 	*/
-	virtual void addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col) = 0;
+	virtual void addNewLayer(const string filename, const string path, int from_row, int to_row, 
+		int from_col, int to_col, int bx, int by, double zoom, float quality) = 0;
 	virtual int open(const string prj, bool _read, int _max_cache_size=0) = 0;
 	/*Only be called when open for read
 	Input: _delta_cache_size

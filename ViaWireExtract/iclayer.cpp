@@ -6,9 +6,12 @@
 #include <stdio.h>
 #include <QMutexLocker>
 #include "lmdb.h"
-
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/highgui/highgui.hpp"
 typedef long long int64;
 using namespace std;
+using namespace cv;
+
 #define ENCRYPT_CHECK
 
 void encrypt(char * a, int len, int magic)
@@ -602,6 +605,7 @@ ICLayerM::ICLayerM(const string & _file, bool _read)
 		x0 = -12345;
 		y0 = -12345;
 		s0 = -54321;
+		idx0 = 0;
 		version = ICLayerM_GENERATE_VERSION;
 	}		
 }
@@ -654,7 +658,7 @@ void ICLayerM::putBlockNumWidth(int bx, int by, int width)
 	head.num_block_y = by;
 	head.block_w = width;
 	head.total_num = compute_bias_num(bias_num);
-	qDebug("ICLayerM putBlockNumWidth Total_num=%d", head.total_num);
+	qDebug("ICLayerM putBlockNumWidth bx=%d, by=%d, Total_num=%d", bx, by, head.total_num);
 	bias_storage.assign(head.total_num + 1, 0);
 	bias_storage[0] = sizeof(head) + head.total_num * sizeof(unsigned);
 	bias.resize(bias_num.size());
@@ -709,10 +713,10 @@ int ICLayerM::addRawImg(vector<uchar> & buff, int x, int y, int)
 	}
 	fout.write((char*)&buff[0], buff.size());
 	bias_storage[idx0 + 1] = bias_storage[idx0] + buff.size();
-#if 1
+
 	Q_ASSERT(idx0 + 1 < bias_storage.size());
 	qDebug("addRawImg x=%d, y=%d, bias[%d]=%lld, len=%d", x, y, idx0, bias_storage[idx0], buff.size());
-#endif
+
 	idx0++;
 	x0 += 1 << s0;
 	if (x0 >= head.num_block_x) {
@@ -787,6 +791,8 @@ void ICLayerM::close()
 			qCritical("When close, Image is added %d, expected %d", idx0, head.num_block_x * head.num_block_y);
 			return;
 		}
+		if (idx0 == 0)
+			return;
 		for (int s = 1; head.num_block_x > 1 << (s - 1) || head.num_block_y > 1 << (s - 1); s++)
 			for (int y = 0; y < head.num_block_y; y += 1 << s)
 				for (int x = 0; x < head.num_block_x; x += 1 << s) {
@@ -866,6 +872,73 @@ void ICLayerM::close()
 }
 
 #define CACHE_ENABLE_TH (256 * 1024)
+/*
+It support multi-thread access when open as read, it use global lock for one layer
+IClayerWr has cache, and cache size is max_cache_size
+*/
+class ICLayerWr : public ICLayerWrInterface
+{
+public:
+	ICLayerWr();
+	/*
+	Input: file, layer database name
+	Input: _read, read or write database
+	Input: _cache_enable, only valid when read, if need memory cache,
+	0: don't need cache
+	1: default cache size
+	2: cache size is decided automatically
+	other: actual cache size
+	Input type: 0 default type
+	*/
+	ICLayerWr(const string file, bool _read, int _cache_size = 2, int type = 0);
+	~ICLayerWr();
+	/*
+	When call create, ICLayerWr close associated ICLayerInterface and create new ICLayerInterface
+	Input: file, layer database name
+	Input: _read, read or write database
+	Input: _cache_size, only valid when read, if need memory cache,
+	0: don't need cache
+	1: default cache size
+	2: cache size is decided automatically
+	other: actual cache size
+	Input type: 0 default type
+	*/
+	void create(const string file, bool _read, int _cache_size = 2, int type = 0);
+	int getBlockWidth();
+	void getBlockNum(int & bx, int &by);
+	int getMaxScale();
+	int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved, bool need_cache = true);
+	void generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x = -1, int _block_num_y = -1, float quality = 0.9);
+	void adjust_cache_size(int _delta_cache_size);
+	string get_file_name();
+	void get_cache_stat(int & _cache_size, QTime & earlest_tm);
+	void release_cache(int cache_limit, QTime tm);
+	void set_cache_size(int _max_cache_size);
+	void close();
+	friend class ICLayerZoomWr;
+protected:
+	struct BkImgMeta{
+		unsigned long long id;
+		QTime tm;
+		BkImgMeta(unsigned long long _id) {
+			id = _id;
+			tm = QTime::currentTime();
+		}
+	};
+	struct BkImg {
+		list <BkImgMeta>::iterator plist;
+		unsigned char * data;
+		unsigned int len;
+	};
+
+	ICLayerInterface * layer;
+	map <unsigned long long, BkImg> cache_map;
+	list <BkImgMeta> cache_list;
+	QMutex mutex;
+	int cache_size, max_cache_size; //shall I add set_cache_size to set max_cache_size
+	bool read_write;
+	string file_name;
+};
 
 ICLayerWr::ICLayerWr()
 {
@@ -1057,7 +1130,7 @@ void ICLayerWr::release_cache(int cache_limit, QTime tm)
 	}
 }
 
-void ICLayerWr::generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col)
+void ICLayerWr::generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x, int _block_num_y, float)
 {
 	QMutexLocker locker(&mutex);
 	char file_name[500];
@@ -1066,11 +1139,27 @@ void ICLayerWr::generateDatabase(const string path, int from_row, int to_row, in
 		qCritical("generateDatabase can't be called when open read");
 		return;
 	}
+	if (_block_num_x == -1)
+		_block_num_x = to_col - from_col + 1;
+	if (_block_num_x != to_col - from_col + 1) {
+		qCritical("_block_num_x(%d) != to_col(%d) - from_col(%d) + 1", _block_num_x, to_col, from_col);
+		return;
+	}
+	if (_block_num_y == -1)
+		_block_num_y = to_row - from_row + 1;
+	if (_block_num_y != to_row - from_row + 1) {
+		qCritical("_block_num_y(%d) != to_row(%d) - from_row(%d) + 1", _block_num_y, to_row, from_row);
+		return;
+	}
+	qInfo("ICLayerWr::generateDatabase enter, frow=%d, trow=%d, fcol=%d, tcol=%d, bx=%d, by=%d",
+		from_row, to_row, from_col, to_col, _block_num_x, _block_num_y);
 	for (int y = from_row; y <= to_row; y++)
 		for (int x = from_col; x <= to_col; x++) {
 			sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y, x);
 			qInfo("read file %s", file_name);
 			ifstream infile(file_name, ifstream::binary);
+			if (infile.fail())
+				qFatal("file %s not exist", file_name);
 			infile.seekg(0, infile.end);
 			long size = infile.tellg();
 			infile.seekg(0);
@@ -1142,10 +1231,227 @@ void ICLayerWr::adjust_cache_size(int _delta_cache_size)
 	}
 }
 
+class ICLayerZoomWr : public ICLayerWrInterface
+{
+protected:
+	ICLayerWr * layer;
+	double zoom;
+	int block_num_x, block_num_y;
+
+public:
+	ICLayerZoomWr()
+	{
+		layer = new ICLayerWr();
+	}
+	/*
+	Input: file, layer database name
+	Input: _read, read or write database
+	Input: _cache_enable, only valid when read, if need memory cache,
+	0: don't need cache
+	1: default cache size
+	2: cache size is decided automatically
+	other: actual cache size
+	Input type: 0 default type
+	*/
+	ICLayerZoomWr(const string file, bool _read, int _cache_size = 2, int type = 0, double _zoom = 1)
+	{
+		zoom = _zoom;
+		layer = new ICLayerWr(file, _read, _cache_size, type);
+	}
+	~ICLayerZoomWr()
+	{
+		delete layer;
+	}
+	/*
+	When call create, ICLayerZoomWr close associated ICLayerInterface and create new ICLayerInterface
+	Input: file, layer database name
+	Input: _read, read or write database
+	Input: _cache_size, only valid when read, if need memory cache,
+	0: don't need cache
+	1: default cache size
+	2: cache size is decided automatically
+	other: actual cache size
+	Input type: 0 default type
+	*/
+	void create(const string file, bool _read, int _cache_size = 2, int type = 0, double _zoom = 1)
+	{
+		zoom = _zoom;
+		layer->create(file, _read, _cache_size, type);
+	}
+
+	int getBlockWidth()
+	{
+		return layer->getBlockWidth();
+	}
+
+	void getBlockNum(int & bx, int &by)
+	{
+		layer->getBlockNum(bx, by);
+	}
+
+	int getMaxScale()
+	{
+		return layer->getMaxScale();
+	}
+
+	int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved, bool need_cache = true) 
+	{
+		return layer->getRawImgByIdx(buff, x, y, ovr, reserved, need_cache);
+	}
+
+	void generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x = -1, int _block_num_y = -1, float quality = 0.9);
+	void adjust_cache_size(int _delta_cache_size) 
+	{
+		layer->adjust_cache_size(_delta_cache_size);
+	}
+
+	string get_file_name()
+	{
+		return layer->get_file_name();
+	}
+
+	void get_cache_stat(int & _cache_size, QTime & earlest_tm) 
+	{
+		layer->get_cache_stat(_cache_size, earlest_tm);
+	}
+	void release_cache(int cache_limit, QTime tm) 
+	{
+		layer->release_cache(cache_limit, tm);
+	}
+	void set_cache_size(int _max_cache_size) 
+	{
+		layer->set_cache_size(_max_cache_size);
+	}
+	void close()
+	{
+		layer->close();
+	}
+};
+
+void ICLayerZoomWr::generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x, int _block_num_y, float quality)
+{
+	char file_name[500];
+	vector<uchar> buff;
+	qInfo("ICLayerZoomWr::generateDatabase enter, frow=%d, trow=%d, fcol=%d, tcol=%d, bx=%d, by=%d, zoom=%f, quality=%f",
+		from_row, to_row, from_col, to_col, _block_num_x, _block_num_y, zoom, quality);
+	if (zoom >= 1 || zoom < 0)
+		qFatal("invalid zoom");
+	if (quality > 1 || quality < 0)
+		qFatal("invalid quality");
+	vector<int> quality_param(2);
+	quality_param[0] = CV_IMWRITE_JPEG_QUALITY;
+	quality_param[1] = quality * 100;
+	vector<Mat> row_buf0(to_col - from_col + 1), row_buf1(to_col - from_col + 1);
+	double rowz, colz; //Dest image size in origrinal picture
+	double y0 = 0, y1 = 0; //y1 is row_buf1 bottom line zuobiao
+	int width;
+	Mat matx, maty;
+	Mat left_img, up_img, leftup_img, image, black_img;
+	Mat img2x2;
+
+	for (int y = from_row, yy = 0; yy < _block_num_y; y++) {
+		if (y <= to_row) {//read row image from file
+			for (int x = from_col; x <= to_col; x++) {
+				sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y, x);
+				qInfo("read file %s", file_name);
+				ifstream infile(file_name, ifstream::binary);
+				if (infile.fail())
+					qFatal("file %s not exist", file_name);
+				infile.seekg(0, infile.end);
+				long size = infile.tellg();
+				infile.seekg(0);
+
+				buff.resize(size);
+				infile.read((char*)&buff[0], size);
+
+				image = imdecode(Mat(buff), CV_LOAD_IMAGE_UNCHANGED);
+				row_buf1[x - from_col] = image;
+				if (y == from_row && x == from_col) {
+					rowz = image.rows * zoom;
+					colz = image.cols * zoom;
+					width = image.rows;
+					if (image.rows != image.cols)
+						qFatal("image rows(%d) != cols(%d)", image.rows, image.cols);
+					if (_block_num_x == -1)
+						_block_num_x = (to_col - from_col + 1) * image.cols / zoom;
+					if (_block_num_y == -1)
+						_block_num_y = (to_row - from_row + 1) * image.rows / zoom;
+					layer->layer->putBlockNumWidth(_block_num_x, _block_num_y, image.cols);
+					matx.create(image.size(), CV_32FC1);
+					maty.create(image.size(), CV_32FC1);
+					black_img.create(image.size(), image.type());
+					black_img = Scalar::all(0);
+					img2x2.create(image.rows * 2, image.cols * 2, image.type());
+				}
+			}
+		}
+		else { //file row image with black
+			for (int x = 0; x < row_buf1.size(); x++)
+				row_buf1[x] = black_img;
+		}
+		y1 += row_buf1[0].rows;
+
+		if (y != from_row)	{			
+			for (; y0 + rowz < y1 && yy < _block_num_y; y0 += rowz, yy++) { // y0 begin at row_buf0
+				//Generate one row at dest database
+				int x1 = 0;
+				image = row_buf1[0];
+				up_img = row_buf0[0];
+				left_img = black_img;
+				leftup_img = black_img;
+				for (double x0 = 0, xx = 0; xx < _block_num_x; x0 += colz, xx++) {
+					if (x0 + colz >= x1) {
+						x1 += width;
+						left_img = image;
+						leftup_img = up_img;
+						if (x1 / width - 1 < row_buf1.size()) {
+							image = row_buf1[x1 / width - 1];
+							up_img = row_buf0[x1 / width - 1];
+						}
+						else {
+							image = black_img;
+							up_img = black_img;
+						}
+						Q_ASSERT(image.size() == left_img.size() && image.size() == leftup_img.size() && image.size() == up_img.size());
+						leftup_img.copyTo(img2x2(Rect(0, 0, image.cols, image.rows)));
+						up_img.copyTo(img2x2(Rect(image.cols, 0, image.cols, image.rows)));
+						left_img.copyTo(img2x2(Rect(0, image.rows, image.cols, image.rows)));
+						image.copyTo(img2x2(Rect(image.cols, image.rows, image.cols, image.rows)));
+					}
+					for (int i = 0; i < image.cols; i++)
+						matx.col(i) = (float)(x0 + zoom * i - (x1 - image.cols * 2));
+					for (int i = 0; i < image.rows; i++)
+						maty.row(i) = (float)(y0 + zoom * i - (y1 - image.rows * 2));
+					qInfo("copy from (lx=%.2f, ly=%.2f), (rx=%.2f, ry=%.2f)", x0, y0,
+						x0 + matx.at<float>(matx.rows - 1, matx.cols - 1) - matx.at<float>(0, 0), 
+						y0 + maty.at<float>(matx.rows - 1, matx.cols - 1) - maty.at<float>(0, 0));
+					Mat dst(image.size(), image.type());
+					remap(img2x2, dst, matx, maty, CV_INTER_LINEAR, BORDER_CONSTANT);
+					imencode(".jpg", dst, buff, quality_param);
+					layer->layer->addRawImg(buff, xx, yy, 0);
+				}
+			}
+		}		
+		row_buf1.swap(row_buf0);
+	}
+	layer->close();
+}
+
+ICLayerWrInterface * ICLayerWrInterface::create(const string file, bool _read, double _zoom, int _cache_size, int dbtype, int wrtype)
+{
+	if (wrtype == 0) {
+		if (_zoom == 1)
+			return new ICLayerWr(file, _read, _cache_size, dbtype);
+		else
+			return new ICLayerZoomWr(file, _read, _cache_size, dbtype, _zoom);
+	}
+	return NULL;
+}
+
 class BkImg : public BkImgInterface
 {
 protected:
-	vector<ICLayerWr *> bk_img_layers;
+	vector<ICLayerWrInterface *> bk_img_layers;
 	vector<string> layer_file;
 	string prj_file;
 	bool read_write;
@@ -1164,8 +1470,8 @@ public:
 	int getMaxScale();
 	int getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved, bool need_cache = true);
 	int getLayerNum();
-	ICLayerWr * get_layer(int layer);	
-	void addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col);
+	ICLayerWrInterface * get_layer(int layer);
+	void addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col, int bx, int by, double zoom, float quality);
 	int open(const string prj, bool _read, int _max_cache_size);
 	void set_cache_size(int _max_cache_size);
 	void adjust_cache_size(int _delta_cache_size);
@@ -1308,7 +1614,7 @@ int BkImg::getLayerNum()
 	return (int) layer_file.size();
 }
 
-ICLayerWr * BkImg::get_layer(int layer) {
+ICLayerWrInterface * BkImg::get_layer(int layer) {
 	QMutexLocker locker(&mutex);
 	if (!read_write) {
 		qCritical("get_layer not work for write mode");
@@ -1326,7 +1632,7 @@ ICLayerWr * BkImg::get_layer(int layer) {
 	}
 }
 
-void BkImg::addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col)
+void BkImg::addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col, int bx, int by, double zoom, float quality)
 {
 	QMutexLocker locker(&mutex);
 	if (read_write) {
@@ -1334,11 +1640,11 @@ void BkImg::addNewLayer(const string filename, const string path, int from_row, 
 		return;
 	}
 	layer_file.push_back(full_path_layer_file(filename));
-	ICLayerWr * new_db = new ICLayerWr(layer_file.back(), false);
+	ICLayerWrInterface * new_db = ICLayerWrInterface::create(layer_file.back(), false, zoom);
 	qInfo("Add layer %d=%s", layer_file.size() - 1, layer_file.back().c_str());
 	bk_img_layers.push_back(NULL);
 	locker.unlock();
-	new_db->generateDatabase(path, from_row, to_row, from_col, to_col);	
+	new_db->generateDatabase(path, from_row, to_row, from_col, to_col, bx, by, quality);	
 }
 
 int BkImg::open(const string prj, bool _read, int _max_cache_size)
@@ -1392,7 +1698,7 @@ void BkImg::close()
 		//write prj file
 		FILE *fp = fopen(prj_file.c_str(), "w");
 		for (int i = 0; i < layer_file.size(); i++)
-			fprintf(fp, "layer=%s\n", layer_file[i].substr(layer_file[i].find_last_of('/')+1).c_str());
+			fprintf(fp, "layer=%s\n", layer_file[i].substr(layer_file[i].find_last_of("\\/") + 1).c_str());
 		fclose(fp);
 	}
 	bk_img_layers.clear();

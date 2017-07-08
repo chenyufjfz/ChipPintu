@@ -457,7 +457,6 @@ void ViaWireEditView::show_debug(unsigned _mark_mask, bool _show_debug_en)
 		for (int y = 0; y < mark.rows; y++) {
 			unsigned char * p_mark = mark.ptr<unsigned char>(y);
 			for (int x = 0; x < mark.cols; x++) {
-				QRgb oc = bk_img_mask.pixel(x, y);
 				unsigned bc = p_mark[x];
 				QRgb nc = bc + (bc << 8) + (bc << 16);
 				nc += 0xff000000;
