@@ -27,7 +27,7 @@ public:
     virtual int extract(std::string file_name, QRect rect, std::vector<MarkObj> & obj_sets) = 0;
     virtual int train(std::vector<ICLayerWrInterface *> & ic_layer, const std::vector<MarkObj> & obj_sets) = 0;
     virtual int extract(std::vector<ICLayerWrInterface *> & ic_layer, const std::vector<SearchArea> & area_, std::vector<MarkObj> & obj_sets) = 0;
-    virtual void get_feature(int, int , int , std::vector<float> & ) = 0;
+    virtual void get_feature(int, int , int , std::vector<float> &, std::vector<int> & ) = 0;
     virtual cv::Mat get_mark(int) = 0;
 	virtual cv::Mat get_mark1(int) = 0;
 	virtual cv::Mat get_mark2(int) = 0;

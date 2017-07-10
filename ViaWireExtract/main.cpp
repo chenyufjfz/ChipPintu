@@ -282,7 +282,7 @@ int main(int argc, char *argv[])
     MainWindow w;
 	
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();

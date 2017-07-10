@@ -397,6 +397,7 @@ void ViaWireEditView::set_wire_para(ExtractParam * ep, string action_name)
 	vwe = VWExtract::create_extract(0);
 	vector<ParamItem> params;
 	ep->get_param(action_name, params);
+
 	int ll = img_name[img_name.size() - 5] - '0';
 
 	for (int i = 0; i < params.size(); i++) {
@@ -630,19 +631,24 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 	if (bk_img.empty() || !bk_img[layer].valid(event->pos() / scale))
 		return;
 	QRgb color = bk_img_mask.pixel(event->pos() / scale);
-	char s[200];
+	char s[500];
 	if (current_train == NULL) 
 		sprintf(s, "c=%x", color);	
 	else {		
 		int len = 0;
 		vector<float> feature;
-		current_train->get_feature(layer, (event->pos()).x() / scale, (event->pos()).y() / scale, feature);
+		vector<int> feature2;
+		current_train->get_feature(layer, (event->pos()).x() / scale, (event->pos()).y() / scale, feature, feature2);
 		if (!feature.empty()) {
 			for (int i = 0; i < feature.size(); i++) {
 				len += sprintf(s + len, "f%d=%f,", i, feature[i]);
 			}
 		}
-		
+		if (!feature2.empty()) {
+			for (int i = 0; i < feature2.size(); i++) {
+				len += sprintf(s + len, "i%d=%x,", i, feature2[i]);
+			}
+		}
 		sprintf(s, "%s, c=%x", s, color);
 	}
     emit mouse_change(event->pos() / scale, QString(s));

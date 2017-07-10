@@ -15,6 +15,7 @@ class VWExtractPipe : public VWExtract
 protected:
 	vector<ProcessParameter> vwp;
 	void * private_data;
+	int prev_layer;
 
 public:
 	VWExtractPipe();
@@ -29,7 +30,7 @@ public:
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
 	int train(vector<ICLayerWrInterface *> &, const std::vector<MarkObj> &) { return 0; }
 	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
-	void get_feature(int, int, int, std::vector<float> &) { return; }
+	void get_feature(int, int, int, std::vector<float> &, std::vector<int> &);
 };
 #endif // VWEXTRACT2_H
 

@@ -13,9 +13,6 @@ HEADERS += $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.h
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 
-Debug:LIBS += -L$$_PRO_FILE_PWD_/../lib/debug
-Release:LIBS += -L$$_PRO_FILE_PWD_/../lib/release
-
 
 Release:LIBS += -L$$_PRO_FILE_PWD_/../lib/release
 Release:LIBS += -lopencv_core249 -lopencv_highgui249 -lopencv_imgproc249

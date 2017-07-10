@@ -22,8 +22,12 @@ LIBS += -L$$_PRO_FILE_PWD_/../lib
 TEMPLATE = lib
 CONFIG += staticlib
 
-SOURCES += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.cpp
-HEADERS += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.h
+SOURCES += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.cpp \
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract2.cpp
+
+HEADERS += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.h \
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract2.h
+
 unix {
     target.path = /usr/lib
     INSTALLS += target

@@ -422,8 +422,8 @@ public:
 } brick_conn;
 
 /*     31..24  23..16   15..8   7..0
-opt0:		  subtype   type    shape
-opt1:				  remove_rd guard
+opt0:		0  subtype   type    shape
+opt1:		  arfactor remove_rd guard
 opt2:    rd3    rd2      rd1     rd0
 opt3:   gray3  gray2    gray1   gray0
 opt4:
@@ -434,6 +434,7 @@ struct ViaParameter {
 	int shape;
 	int type;
 	int subtype;
+	int arfactor; //area gamma factor
 	int guard; //guard radius
 	int remove_rd; //remove radius	
 	int rd0; //inter via radius
@@ -442,12 +443,13 @@ struct ViaParameter {
 	int rd3; //outter via radius
 	int gray0, gray1, gray2, gray3;	
 	int opt0, opt1, opt2;
+	
 	float optf;
 };
 
 /*     31..24  23..16   15..8   7..0
-opt0:		  subtype   type    shape
-opt1:							guard
+opt0:		0  subtype   type    shape
+opt1:				   arfactor guard
 opt2:  w_wide  w_wide1  w_high  w_high1
 opt3:					i_wide  i_high   
 opt4:           
@@ -458,6 +460,7 @@ struct WireParameter {
 	int shape;
 	int type;
 	int subtype;
+	int arfactor; //area gamma factor
 	int guard; //guard radius for unique
 	int w_wide, w_wide1, w_high, w_high1; //normally w_high1 <w_high & w_wide1 <w_wide, these is for wire
 	int i_wide, i_high;	//this is for insu
@@ -495,6 +498,7 @@ public:
 		case BRICK_I_0:
 		case BRICK_I_90:	
 			vw->w.guard = cpara.opt1 & 0xff;
+			vw->w.arfactor = cpara.opt1 >> 8 & 0xff;
 			vw->w.w_wide = cpara.opt2 >> 24 & 0xff;
 			vw->w.w_wide1 = cpara.opt2 >> 16 & 0xff;
 			vw->w.w_high = cpara.opt2 >> 8 & 0xff;
@@ -507,7 +511,8 @@ public:
 
 		case BRICK_VIA:			
 			vw->v.guard = cpara.opt1 & 0xff;
-			vw->v.remove_rd = cpara.opt1 >> 8 & 0xff;			
+			vw->v.remove_rd = cpara.opt1 >> 8 & 0xff;	
+			vw->v.arfactor = cpara.opt1 >> 16 & 0xff;
 			vw->v.rd0 = cpara.opt2 & 0xff;
 			vw->v.rd1 = cpara.opt2 >> 8 & 0xff;
 			vw->v.rd2 = cpara.opt2 >> 16 & 0xff;
@@ -530,10 +535,12 @@ public:
 #define MAKE_PROB(s, x, y) ((unsigned long long)(s) << 32 | (y) << 16 | (x))
 #define PROB_X(p) ((int)((p) & 0xffff))
 #define PROB_Y(p) ((int)((p) >> 16 & 0xffff))
+#define PROB_XY(p) ((int)((p) & 0xffffffff))
 #define PROB_S(p) ((unsigned)((p) >> 32 & 0xffffffff))
 #define PROB_SHAPE(p) ((unsigned)((p) >> 32 & 0xff))
 #define PROB_TYPE(p) ((unsigned)((p) >> 40 & 0xff))
 #define PROB_SCORE(p) ((unsigned)((p) >> 48 & 0xffffffff))
+#define S_SCORE(p) ((int)((p) >> 16 & 0xffff))
 #define MAKE_S(score, type, shape) ((unsigned)(score) << 16 | (unsigned)(type) << 8 | (shape))
 #define PROB_TYPESHAPE(p) ((unsigned)((p) >> 32 & 0xffff))
 #define SET_PROB_TYPE(p, t) (p = (p & 0xffff00ffffffffffULL) | (unsigned long long) (t) << 40)
@@ -813,8 +820,6 @@ public:
 struct PipeData {
 	vector<PipeDataPerLayer> l;
 	int x0, y0;
-	int gs;
-	int compute_border, border_size;
 };
 
 enum {
@@ -1099,15 +1104,19 @@ public:
 		r1 = vp.rd1;
 		gray = vp.gray0;
 		gray1 = vp.gray1;
-		qInfo("TwoCirclePrepare r0=%d,r1=%d,g0=%d,g1=%d", r, r1, gray, gray1);
+		float gamma = vp.arfactor / 100.0;
+		qInfo("TwoCirclePrepare r0=%d,r1=%d,g0=%d,g1=%d, gamma=%f", r, r1, gray, gray1, gamma);
 		if (r >= r1)
-			qCritical("invalid r0 and r1");
+			qCritical("invalid r0 and r1");		
 		int n = compute_circle_dx(r, dx);		
 		int n1 = compute_circle_dx(r1, dx1);
 		a = 1.0 / n;
 		a1 = 1.0 / (n1 - n);
 		b = (float) n / n1;
 		b1 = 1 - b;
+		float arf = pow(n1, 2 * gamma);
+		b = b * arf;
+		b1 = b1 * arf;
 	}
 
 	unsigned compute(int x0, int y0) {		
@@ -1127,7 +1136,7 @@ public:
 		f[1] = ss;
 		f[2] = s1 - s;
 		f[3] = ss1 - ss;
-		unsigned score =((f[1] - f[0] * 2 * gray) * a + gray*gray) * b + ((f[3] - f[2] * 2 * gray1) * a1 + gray1*gray1) * b1;
+		unsigned score =sqrt(((f[1] - f[0] * 2 * gray) * a + gray*gray) * b + ((f[3] - f[2] * 2 * gray1) * a1 + gray1*gray1) * b1);
 
 		CV_Assert(score < 65536 && f[1] >= f[0] * f[0] * a && f[2] >= 0 && f[3] >= f[2] * f[2] * a1);
 		return score;
@@ -1164,7 +1173,8 @@ public:
 		tcc.r1 = vp.rd1;
 		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
-		qInfo("TwoCircleXPrepare r0=%d,r1=%d,g0=%d,g1=%d", tcc.r, tcc.r1, vp.gray0, vp.gray1);
+		float gamma = vp.arfactor / 100.0;
+		qInfo("TwoCircleXPrepare r0=%d,r1=%d,g0=%d,g1=%d, gamma=%f", tcc.r, tcc.r1, vp.gray0, vp.gray1, gamma);
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
 		if (vp.gray1 >= vp.gray0)
@@ -1175,6 +1185,9 @@ public:
 		tcc.a1 = 1.0 / (n1 - n);
 		tcc.b = (float)n / n1;
 		tcc.b1 = 1 - tcc.b;
+		float arf = pow(n1, 2 * gamma);
+		tcc.b = tcc.b * arf;
+		tcc.b1 = tcc.b1 * arf;
 	}
 
 	unsigned compute(int x0, int y0) {
@@ -1212,7 +1225,8 @@ public:
 		gray = vp.gray0;
 		gray1 = vp.gray1;
 		gray2 = vp.gray2;
-		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d", r, r1, r2, gray, gray1, gray2);
+		float gamma = vp.arfactor / 100.0;
+		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d, gamma=%f", r, r1, r2, gray, gray1, gray2, gamma);
 		if (r >= r1)
 			qCritical("invalid r0 and r1");
 		if (r1 >= r2)
@@ -1226,6 +1240,10 @@ public:
 		b = (float)n / n2;
 		b1 = (float)(n1 - n) / n2;
 		b2 = (float)(n2 - n1) / n2;
+		float arf = pow(n2, 2 * gamma);
+		b = b * arf;
+		b1 = b1 * arf;
+		b2 = b2 * arf;
 	}
 
 	unsigned compute(int x0, int y0) {
@@ -1254,9 +1272,9 @@ public:
 		f[5] = ss2 - ss1;
 		CV_Assert(f[2] >= 0 && f[4] >= 0);
 		CV_Assert(f[1] >= f[0] * f[0] * a && f[3] >= f[2] * f[2] * a1 && f[5] >= f[4] * f[4] * a2);
-		unsigned score = ((f[1] - f[0] * 2 * gray) * a + gray*gray) * b + 
+		unsigned score = sqrt(((f[1] - f[0] * 2 * gray) * a + gray*gray) * b + 
 			((f[3] - f[2] * 2 * gray1) * a1 + gray1*gray1) * b1 +
-			((f[5] - f[4] * 2 * gray2) * a2 + gray2*gray2) * b2;
+			((f[5] - f[4] * 2 * gray2) * a2 + gray2*gray2) * b2);
 		CV_Assert(score < 65536);
 		return score;
 	}
@@ -1300,7 +1318,8 @@ public:
 		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
 		tcc.gray2 = vp.gray2;
-		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d", tcc.r, tcc.r1, tcc.r2, vp.gray0, vp.gray1,vp.gray2);
+		float gamma = vp.arfactor / 100.0;
+		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d, gamma=%f", tcc.r, tcc.r1, tcc.r2, vp.gray0, vp.gray1,vp.gray2, gamma);
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
 		if (tcc.r1 >= tcc.r2)
@@ -1314,6 +1333,10 @@ public:
 		tcc.b = (float)n / n2;
 		tcc.b1 = (float)(n1 - n) / n2;
 		tcc.b2 = (float)(n2 - n1) / n2;
+		float arf = pow(n2, 2 * gamma);
+		tcc.b = tcc.b * arf;
+		tcc.b1 = tcc.b1 * arf;
+		tcc.b2 = tcc.b2 * arf;
 	}
 
 	unsigned compute(int x0, int y0) {
@@ -1343,7 +1366,8 @@ public:
 		gray1 = vp.gray1;
 		gray2 = vp.gray2;
 		gray3 = vp.gray3;
-		qInfo("FourCirclePrepare r0=%d,r1=%d,r2=%d,r3=%d,g0=%d,g1=%d,g2=%d,g3=%d", r, r1, r2, r3, gray, gray1, gray2, gray3);
+		float gamma = vp.arfactor / 100.0;
+		qInfo("FourCirclePrepare r0=%d,r1=%d,r2=%d,r3=%d,g0=%d,g1=%d,g2=%d,g3=%d, gamma=%f", r, r1, r2, r3, gray, gray1, gray2, gray3, gamma);
 		int n = compute_circle_dx(r, dx);
 		int n1 = compute_circle_dx(r1, dx1);
 		int n2 = compute_circle_dx(r2, dx2);
@@ -1362,6 +1386,11 @@ public:
 		b1 = (float)(n1 - n) / n3;
 		b2 = (float)(n2 - n1) / n3;
 		b3 = (float)(n3 - n2) / n3;
+		float arf = pow(n3, 2 * gamma);
+		b = b * arf;
+		b1 = b1 * arf;
+		b2 = b2 * arf;
+		b3 = b3 * arf;
 	}
 
 	unsigned compute(int x0, int y0) {
@@ -1400,10 +1429,10 @@ public:
 		f[7] = ss3 - ss2;
 		CV_Assert(f[0] >= 0 && f[2] >= 0 && f[4] >= 0);
 		CV_Assert(f[1] >= f[0] * f[0] * a && f[3] >= f[2] * f[2] * a1 && f[5] >= f[4] * f[4] * a2 && f[7] >= f[6] * f[6] * a3);
-		unsigned score = ((f[1] - f[0] * 2 * gray) * a + gray*gray) * b + 
+		unsigned score = sqrt(((f[1] - f[0] * 2 * gray) * a + gray*gray) * b + 
 			((f[3] - f[2] * 2 * gray1) * a1 + gray1*gray1) * b1 +
 			((f[5] - f[4] * 2 * gray2) * a2 + gray2*gray2) * b2 + 
-			((f[7] - f[6] * 2 * gray3) * a3 + gray3*gray3) * b3;
+			((f[7] - f[6] * 2 * gray3) * a3 + gray3*gray3) * b3);
 		CV_Assert(score < 65536);
 		return score;
 	}
@@ -1567,6 +1596,7 @@ struct ShapeConst {
 	int sel[13];
 	int shape;
 	float a[13]; //a is each rec_area / total_area
+	float arf;
 } shape[] = {
 	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_ONE_POINT, { 0 } },
 	{ { 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_i_0, { 0 } },
@@ -1620,6 +1650,9 @@ protected:
 
 public:
 	void prepare(WireParameter & _wp, PipeData & d, int layer) {
+		float gamma = wp.arfactor / 100.0;
+		qInfo("Wire_13Rect Prepare w=%d,h=%d,w1=%d,h1=%d,i_w=%d,i_h=%d gamma=%f", wp.w_wide, wp.w_high,  
+			wp.w_wide1, wp.w_high1, wp.i_wide, wp.i_high, gamma);
 		reset_offset = true;
 		wp = _wp;
 		area_1[0] = wp.w_wide * wp.w_high1;
@@ -1667,6 +1700,7 @@ public:
 
 			for (int j = 0; j < 13; j++)
 				shape[i].a[j] = shape[i].use[j] * area_1[j] / area;
+			shape[i].arf = pow(area, 2 * gamma);
 		}
 
 		for (int i = 0; i < 13; i++)
@@ -1733,11 +1767,20 @@ public:
 			unsigned score = 0;
 			for (int j = 0; j < 13; j++)
 				score += part[shape[i].sel[j]][j] * shape[i].a[j];
-			score = MAKE_S(score, wp.type, shape[i].shape);
+			score = score * shape[i].arf;
+			score = MAKE_PROB(score, wp.type, shape[i].shape); //save sqrt call times
 			push_min(ret, score);
 		}
-		ret.first = MAKE_PROB(ret.first, x0, y0);
-		ret.second = MAKE_PROB(ret.second, x0, y0);
+		unsigned score = PROB_S(ret.first);
+		score = sqrt((float) score);
+		CV_Assert(score < 65536);
+		score = MAKE_S(score, PROB_X(ret.first), PROB_Y(ret.first));
+		ret.first = MAKE_PROB(score, x0, y0);
+		score = PROB_S(ret.second);
+		score = sqrt((float)score);
+		CV_Assert(score < 65536);
+		score = MAKE_S(score, PROB_X(ret.second), PROB_Y(ret.second));
+		ret.second = MAKE_PROB(score, x0, y0);
 		return ret;
 	}
 
@@ -1825,26 +1868,25 @@ WireComputeScore * WireComputeScore::create_wire_compute_score(WireParameter &wp
 	return wc;
 }
 
-/*		31..24  23..16   15..8   7..0
-opt0:		border_size	compute_border gs
+/*		31..24  23..16		15..8		7..0
+opt0:	  1  border_size compute_border gs
 */
 
 void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
 {
 	int layer = cpara.layer;
 	qInfo("set param for layer %d", layer);
-	if (layer == -1) {
-		d.gs = cpara.opt0 & 0xff;
-		d.compute_border = cpara.opt0 >> 8 & 0xff;
-		d.border_size = cpara.opt0 >> 16 & 0xff;
-		qInfo("set gs=%d, compute_border=%d, border_size=%d", d.gs, d.compute_border, d.border_size);
+	if (cpara.opt0 >> 24 == 1) {
+		int gs = cpara.opt0 & 0xff;
+		int compute_border = cpara.opt0 >> 8 & 0xff;
+		int border_size = cpara.opt0 >> 16 & 0xff;
+		qInfo("set gs=%d, compute_border=%d, border_size=%d", gs, compute_border, border_size);
 
-		if (d.gs > 32 || d.gs<=3 || d.gs * 2 > d.compute_border || d.compute_border >= d.border_size) 
+		if (gs > 32 || gs<=3 || gs * 2 > compute_border || compute_border >= border_size) 
 			qCritical("gs invalid");
-		else {
-			for (int i = 0; i < d.l.size(); i++)
-				d.l[i].reinit(d.gs, d.compute_border, d.border_size);
-		}
+		else
+			d.l[layer].reinit(gs, compute_border, border_size);
+		
 		return;
 	}
 	if (layer >= d.l.size() || layer < 0) {
@@ -2220,6 +2262,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 		int w_wide;
 		int i_wide;
 		int guard;
+		float gamma;
 	} wpara[] = {
 			{ cpara.opt2 >> 8 & 0xff, cpara.opt2 & 0xff , 0, 0, 0}, 
 			{ cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff , 0, 0, 0},
@@ -2233,6 +2276,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 		int type;
 		int shape1, shape2, shape3;
 		float a0, a1, a2;
+		float arf;
 	};
 	vector<WireKeyPoint> wires[2];
 	int w_check[2][256] = { 0 };
@@ -2246,8 +2290,9 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 		wpara[i].w_wide = (wpara[i].w_dir == 0) ? vw->w.w_wide : vw->w.w_high;
 		wpara[i].i_wide = (wpara[i].w_dir == 0) ? vw->w.i_wide : vw->w.i_high;
 		wpara[i].guard = vw->w.guard;
-		qInfo("%d:type=%d, dir=%d, w_wide=%d, i_wide=%d, guard=%d", i, wpara[i].w_type,
-			wpara[i].w_dir, wpara[i].w_wide, wpara[i].i_wide, wpara[i].guard);
+		wpara[i].gamma = vw->w.arfactor / 100.0;
+		qInfo("%d:type=%d, dir=%d, w_wide=%d, i_wide=%d, guard=%d, gamma=%f", i, wpara[i].w_type,
+			wpara[i].w_dir, wpara[i].w_wide, wpara[i].i_wide, wpara[i].guard, wpara[i].gamma);
 		if (wpara[i].w_dir > 3 || wpara[i].w_wide + wpara[i].i_wide >= d.l[layer].compute_border || 
 			wpara[i].guard >= wpara[i].w_wide / 2 + wpara[i].i_wide - 1) {
 			qCritical("coarse_line_search wrong para");
@@ -2270,6 +2315,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			wire.a0 = 1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0);
 			wire.a1 = (float)wpara[i].w_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
 			wire.a2 = (float)wpara[i].i_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
+			wire.arf = pow(((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0), 2 * wpara[i].gamma);
 			wire.shape1 = BRICK_I_0;
 			wire.shape2 = BRICK_II_0;
 			wire.shape3 = BRICK_II_180;
@@ -2290,6 +2336,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			wire.a0 = 1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1);
 			wire.a1 = (float)wpara[i].w_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
 			wire.a2 = (float)wpara[i].i_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
+			wire.arf = pow(((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1), 2 * wpara[i].gamma);
 			wire.shape1 = BRICK_I_90;
 			wire.shape2 = BRICK_II_90;
 			wire.shape3 = BRICK_II_270;
@@ -2358,6 +2405,10 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 					score3 = MAKE_S(score3, w[i].type, w[i].shape3);
 					score4 = MAKE_S(score4, w[i].type, BRICK_III);
 					s0 = min(min(min(score1, score0), min(score2, score3)), min(score4, s0));
+					unsigned score = S_SCORE(s0);
+					score = sqrt(score * w[i].arf);
+					CV_Assert(score < 65536);
+					SET_PROB_SCORE(s0, score);
 					for (int j = 0; j < 8; j++) {
 						w[i].p_ig[j] += dx;
 						w[i].p_iig[j] += dx;
@@ -3608,6 +3659,7 @@ static void process_tile(ProcessTileData & t)
 VWExtractPipe::VWExtractPipe()
 {
 	private_data = NULL;
+	prev_layer = -1;
 }
 
 VWExtractPipe::~VWExtractPipe()
@@ -3631,7 +3683,10 @@ int VWExtractPipe::set_train_param(int layer, int type, int pi1, int pi2, int pi
 	cpara.opt5 = pi6;
 	cpara.opt6 = pi7;
 	cpara.opt_f0 = pf1;
-	cpara.layer = layer;
+	cpara.layer = (layer < 0) ? prev_layer : layer;
+	if (cpara.layer < 0)
+		qCritical("layer=%d < 0", layer);
+	prev_layer = cpara.layer;
 	vwp.push_back(cpara);
 	return 0;
 }
@@ -3679,6 +3734,27 @@ Mat VWExtractPipe::get_mark3(int layer)
 			return d->l[layer].v[15].d;
 	}
 	return Mat();
+}
+
+void VWExtractPipe::get_feature(int layer, int x, int y, std::vector<float> &, std::vector<int> & f)
+{
+	if (private_data) {
+		PipeData * d = (PipeData *)private_data;
+		if (layer < d->l.size()) {
+			f.resize(4);
+			Mat & prob = d->l[layer].prob;
+			if (d->l[layer].prob.empty())
+				return;
+			x = x / d->l[layer].gs;
+			y = y / d->l[layer].gs;
+			unsigned long long prob0 = prob.at<unsigned long long>(y, x * 2);
+			unsigned long long prob1 = prob.at<unsigned long long>(y, x * 2 + 1);
+			f[0] = PROB_S(prob0);
+			f[1] = PROB_XY(prob0);
+			f[2] = PROB_S(prob1);
+			f[3] = PROB_XY(prob1);
+		}			
+	}
 }
 
 int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_sets)

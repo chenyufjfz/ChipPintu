@@ -68,8 +68,9 @@ public:
 	void get_param_set_list(vector<string> & names);
 	string set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int pi5, int pi6, int pi7, int pi8, float pf0);
 	string set_param_sets(string name, vector<string> & _param_set);
-	void read_file(string filename);
+	bool read_file(string filename);
 	void write_file(string filename);
+	void clear();
 	bool operator==(ExtractParam & ep);
 	bool operator!=(ExtractParam & ep) {
 		return !(*this == ep);

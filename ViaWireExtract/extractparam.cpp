@@ -16,7 +16,7 @@ using namespace cv;
 #define PP_ASSEMBLE				10
 
 enum {
-	Global=0,
+	LayerInfo=0,
 	ViaInfo,
 	WireInfo,
 	Rgb2Gray,
@@ -32,7 +32,7 @@ enum {
 };
 
 string method_name[] = {
-	"Global",
+	"LayerInfo",
 	"ViaInfo",
 	"WireInfo",
 	"Rgb2Gray",
@@ -104,7 +104,7 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 	switch (method) {
 	case PP_SET_PARAM:
 		if (pi0 == -1)
-			method = Global;
+			method = LayerInfo;
 		else {
 			if ((pi2 & 0xff) == 0xfe)
 				method = ViaInfo;
@@ -173,9 +173,11 @@ string ExtractParam::set_param_sets(string name, vector<string> & _param_set)
 	return name;
 }
 
-void ExtractParam::read_file(string filename)
+bool ExtractParam::read_file(string filename)
 {
 	FileStorage fs(filename, FileStorage::READ);
+	if (!fs.isOpened())
+		return false;
 	params.clear();
 	param_sets.clear();
 	memset(method_count, 0, sizeof(method_count));
@@ -198,7 +200,8 @@ void ExtractParam::read_file(string filename)
 			continue;
 		}
 		switch (method) {
-		case Global: {
+		case LayerInfo: {
+				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
 				int gs = (int) (*it)["gs"];
 				int border_size = (int)(*it)["border_size"];
@@ -208,9 +211,9 @@ void ExtractParam::read_file(string filename)
 						name.c_str(), gs, computer_border, border_size);
 					check_pass = false;
 				}
-				param.pi[0] = -1;
+				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
-				param.pi[2] = border_size << 16 | computer_border << 8 | gs;
+				param.pi[2] = 1 << 24 | border_size << 16 | computer_border << 8 | gs;
 			}
 			break;
 
@@ -222,6 +225,7 @@ void ExtractParam::read_file(string filename)
 				int subtype = (int)(*it)["subtype"];
 				int guard = (int)(*it)["guard"];
 				int remove_rd = (int)(*it)["remove_rd"];
+				int arfactor = (int)(*it)["arfactor"];
 				int rd0 = (int)(*it)["rd0"];
 				int rd1 = (int)(*it)["rd1"];
 				int rd2 = (int)(*it)["rd2"];
@@ -235,14 +239,14 @@ void ExtractParam::read_file(string filename)
 						name.c_str(), shape, type, subtype);
 					check_pass = false;
 				}
-				if (remove_rd > 255 || guard > 255) {
-					qCritical("ParamItems file error, name=%s remove_rd=%d, guard=%d", name.c_str(), remove_rd, guard);
+				if (arfactor > 255 || remove_rd > 255 || guard > 255) {
+					qCritical("ParamItems file error, name=%s remove_rd=%d, arfactor=%d, guard=%d", name.c_str(), remove_rd, arfactor, guard);
 					check_pass = false;
 				}
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
 				param.pi[2] = subtype << 16 | type << 8 | shape;
-				param.pi[3] = remove_rd << 8 | guard;
+				param.pi[3] = arfactor << 16 | remove_rd << 8 | guard;
 				if (rd3 > 255 || rd2 > 255 || rd1 > 255 || rd0 > 255) {
 					qCritical("ParamItems file error, name=%s rd0=%d, rd1=%d, rd2=%d, rd3=%d", 
 						name.c_str(), rd0, rd1, rd2, rd3);
@@ -266,6 +270,7 @@ void ExtractParam::read_file(string filename)
 				int type = (int)(*it)["type"];
 				int subtype = (int)(*it)["subtype"];
 				int guard = (int)(*it)["guard"];
+				int arfactor = (int)(*it)["arfactor"];
 				int w_wide = (int)(*it)["w_wide"];
 				int w_wide1 = (int)(*it)["w_wide1"];
 				int w_high = (int)(*it)["w_high"];
@@ -277,8 +282,8 @@ void ExtractParam::read_file(string filename)
 						name.c_str(), shape, type, subtype);
 					check_pass = false;
 				}
-				if (guard > 255) {
-					qCritical("ParamItems file error, name=%s, guard=%d", name.c_str(), guard);
+				if (arfactor > 255 || guard > 255) {
+					qCritical("ParamItems file error, name=%s, arfactor=%d, guard=%d", name.c_str(), arfactor, guard);
 					check_pass = false;
 				}
 				if (w_wide > 255 || w_wide1 > 255 || w_high > 255 || w_high1 > 255) {
@@ -289,7 +294,7 @@ void ExtractParam::read_file(string filename)
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
 				param.pi[2] = subtype << 16 | type << 8 | shape;
-				param.pi[3] = guard;				
+				param.pi[3] = arfactor << 8 | guard;				
 				param.pi[4] = w_wide << 24 | w_wide1 << 16 | w_high << 8 | w_high1;
 				param.pi[5] = i_wide << 8 | i_high;
 			}
@@ -858,6 +863,7 @@ void ExtractParam::read_file(string filename)
 		set_param_sets(name, items);
 	}
 	fs.release();
+    return true;
 }
 
 void ExtractParam::write_file(string filename)
@@ -877,8 +883,9 @@ void ExtractParam::write_file(string filename)
 			continue;
 		}
 		switch (method) {
-		case Global:
+		case LayerInfo:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
 			fs << "gs" << (it->second.pi[2] & 0xff);
 			fs << "border_size" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "computer_border" << (it->second.pi[2] >> 8 & 0xff);
@@ -892,6 +899,7 @@ void ExtractParam::write_file(string filename)
 			fs << "subtype" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "guard" << (it->second.pi[3] & 0xff);
 			fs << "remove_rd" << (it->second.pi[3] >> 8 & 0xff);
+			fs << "arfactor" << (it->second.pi[3] >> 16 & 0xff);
 			fs << "rd0" << (it->second.pi[4] & 0xff);
 			fs << "rd1" << (it->second.pi[4] >> 8 & 0xff);
 			fs << "rd2" << (it->second.pi[4] >> 16 & 0xff);
@@ -909,6 +917,7 @@ void ExtractParam::write_file(string filename)
 			fs << "type" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "subtype" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "guard" << (it->second.pi[3] & 0xff);
+			fs << "arfactor" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "w_wide" << (it->second.pi[4] >> 24 & 0xff);
 			fs << "w_wide1" << (it->second.pi[4] >> 16 & 0xff);
 			fs << "w_high" << (it->second.pi[4] >> 8 & 0xff);
@@ -1130,6 +1139,14 @@ void ExtractParam::write_file(string filename)
 	}
 	fs << "]";
 	fs.release();
+}
+
+void ExtractParam::clear()
+{
+	params.clear();
+	param_sets.clear();
+	memset(method_count, 0, sizeof(method_count));
+	depth = 0;
 }
 
 bool ExtractParam::operator==(ExtractParam & ep)
