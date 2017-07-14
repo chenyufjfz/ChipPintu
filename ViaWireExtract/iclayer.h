@@ -40,7 +40,8 @@ public:
 	  Input: wrtype, normally it is 0
 	  Input: _zoom
 	*/
-	static ICLayerWrInterface * create(const string file, bool _read, double _zoom = 1.0, int _cache_size = 2, int dbtype = 0, int wrtype = 0);
+	static ICLayerWrInterface * create(const string file, bool _read, double _zoom = 1.0, double _offset_x = 0, double _offset_y = 0,
+		int _cache_size = 2, int dbtype = 0, int wrtype = 0);
 	//getBlockWidth can be called when read database
 	virtual int getBlockWidth() = 0;
 	//getBlockNum can be called when read database
@@ -158,7 +159,7 @@ public:
 	Input, quality, used to set image quality
 	*/
 	virtual void addNewLayer(const string filename, const string path, int from_row, int to_row, 
-		int from_col, int to_col, int bx, int by, double zoom, float quality) = 0;
+		int from_col, int to_col, int bx, int by, double zoom, double offset_x, double offset_y, float quality) = 0;
 	virtual int open(const string prj, bool _read, int _max_cache_size=0) = 0;
 	/*Only be called when open for read
 	Input: _delta_cache_size

@@ -125,6 +125,8 @@ struct GenerateLayerParam{
 	int block_num_x, block_num_y;
 	double zoom;
 	float quality;
+	double offset_x;
+	double offset_y;
 };
 
 class GenerateParam {
@@ -152,6 +154,8 @@ public:
 			lpa.block_num_y = (int)(*it)["block_num_y"];
 			lpa.quality = (float)(*it)["quality"];
 			lpa.zoom = (double)(*it)["zoom"];
+			lpa.offset_x = (double)(*it)["offset_x"];
+			lpa.offset_y = (double)(*it)["offset_y"];
 			l.push_back(lpa);
 		}
 	}
@@ -167,11 +171,11 @@ int main(int argc, char *argv[])
 	qInfo("Start to generate %s", gen.prj_name.c_str());
 	bk_img_db->open(gen.prj_name, false);
 	for (int i = 0; i < gen.l.size(); i++) {
-		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d, block_num_x=%d, block_num_y=%d, zoom=%f", 
+		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d, block_num_x=%d, block_num_y=%d, offset_x=%f, offset_y=%f, zoom=%f", 
 			gen.l[i].db_name.c_str(), gen.l[i].path_prefix.c_str(),	gen.l[i].from_row, gen.l[i].to_row, 
-			gen.l[i].from_col, gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].zoom);
+			gen.l[i].from_col, gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].offset_x, gen.l[i].offset_y, gen.l[i].zoom);
 		bk_img_db->addNewLayer(gen.l[i].db_name, gen.l[i].path_prefix, gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, 
-			gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].zoom, gen.l[i].quality);
+			gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].zoom, gen.l[i].offset_x, gen.l[i].offset_y, gen.l[i].quality);
 	}
 
 	/*
