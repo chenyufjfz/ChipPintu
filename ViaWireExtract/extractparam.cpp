@@ -226,6 +226,7 @@ bool ExtractParam::read_file(string filename)
 				int guard = (int)(*it)["guard"];
 				int remove_rd = (int)(*it)["remove_rd"];
 				int arfactor = (int)(*it)["arfactor"];
+				int pair_distance = (int)(*it)["pair_d"];
 				int rd0 = (int)(*it)["rd0"];
 				int rd1 = (int)(*it)["rd1"];
 				int rd2 = (int)(*it)["rd2"];
@@ -246,7 +247,7 @@ bool ExtractParam::read_file(string filename)
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
 				param.pi[2] = subtype << 16 | type << 8 | shape;
-				param.pi[3] = arfactor << 16 | remove_rd << 8 | guard;
+				param.pi[3] = pair_distance << 24 | arfactor << 16 | remove_rd << 8 | guard;
 				if (rd3 > 255 || rd2 > 255 || rd1 > 255 || rd0 > 255) {
 					qCritical("ParamItems file error, name=%s rd0=%d, rd1=%d, rd2=%d, rd3=%d", 
 						name.c_str(), rd0, rd1, rd2, rd3);
@@ -428,6 +429,7 @@ bool ExtractParam::read_file(string filename)
 				int debug_opt = (int)(*it)["debug_opt"];
 				int opidx_tp = (int)(*it)["opidx_tp"];
 				int opidx_shadow_prob = (int)(*it)["opidx_shadow_prob"];
+				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
 				int wlong0 = (int)(*it)["wlong0"];
 				int wlong1 = (int)(*it)["wlong1"];
 				int inc0 = (int)(*it)["inc0"];
@@ -446,8 +448,9 @@ bool ExtractParam::read_file(string filename)
 				int dir3 = (int)(*it)["dir3"];
 
 				param.pi[0] = layer;
-				if (opidx_tp >= 16 || opidx_shadow_prob >=16) {
-					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_shadow_prob=%d", name.c_str(), opidx_tp, opidx_shadow_prob);
+				if (opidx_tp >= 16 || opidx_shadow_prob >= 16 || opidx_rv_mask >=16) {
+					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_shadow_prob=%d, opidx_rv_mask=%d", 
+						name.c_str(), opidx_tp, opidx_shadow_prob, opidx_rv_mask);
 					check_pass = false;
 				}
 
@@ -474,7 +477,7 @@ bool ExtractParam::read_file(string filename)
 						name.c_str(), dir2, type2, dir3, type3);
 					check_pass = false;
 				}
-				param.pi[1] = debug_opt << 24 | PP_COARSE_LINE_SEARCH << 16 | opidx_shadow_prob << 4 | opidx_tp;
+				param.pi[1] = debug_opt << 24 | PP_COARSE_LINE_SEARCH << 16 | opidx_rv_mask << 8 | opidx_shadow_prob << 4 | opidx_tp;
 				param.pi[2] = inc1 << 24 | inc0 << 16 | wlong1 << 8 | wlong0;
 				param.pi[3] = update_prob << 24 | th1 << 16 | th0 << 8 | wnum;
 				param.pi[4] = dir0 << 8 | type0;
@@ -611,7 +614,7 @@ bool ExtractParam::read_file(string filename)
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
 				int opidx_via_info = (int)(*it)["opidx_via_info"];
-				int opidx_hl_mask = (int)(*it)["opidx_hl_mask"];
+				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
 				int vnum = (int)(*it)["vnum"];
 				int check_len = (int)(*it)["check_len"];
 				int default_dir = (int)(*it)["default_dir"];
@@ -627,9 +630,9 @@ bool ExtractParam::read_file(string filename)
 				int subtype4 = (int)(*it)["subtype4"];
 				int type4 = (int)(*it)["type4"];
 
-				if (opidx_hl_mask >= 16 || opidx_via_info >= 16) {
-					qCritical("ParamItems file error, name=%s, opidx_hl_mask=%d, opidx_via_info=%d",
-						name.c_str(), opidx_hl_mask, opidx_via_info);
+				if (opidx_rv_mask >= 16 || opidx_via_info >= 16) {
+					qCritical("ParamItems file error, name=%s, opidx_rv_mask=%d, opidx_via_info=%d",
+						name.c_str(), opidx_rv_mask, opidx_via_info);
 					check_pass = false;
 				}
 
@@ -656,7 +659,7 @@ bool ExtractParam::read_file(string filename)
 					check_pass = false;
 				}
 				param.pi[0] = layer;
-				param.pi[1] = debug_opt << 24 | PP_REMOVE_VIA << 16 | opidx_hl_mask << 4 | opidx_via_info;
+				param.pi[1] = debug_opt << 24 | PP_REMOVE_VIA << 16 | opidx_rv_mask << 4 | opidx_via_info;
 				param.pi[2] = clear_mask << 24 | default_dir << 16 | check_len << 8 | vnum;
 				param.pi[3] = subtype0 << 8 | type0;
 				param.pi[4] = subtype1 << 8 | type1;
@@ -746,8 +749,10 @@ bool ExtractParam::read_file(string filename)
 				int debug_opt = (int)(*it)["debug_opt"];
 				int opidx_tp = (int)(*it)["opidx_tp"];
 				int opidx_hl_mask = (int)(*it)["opidx_hl_mask"];
+				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
 				int wnum = (int)(*it)["wnum"];
 				int extend = (int)(*it)["extend"];
+				int cr_prob = (int)(*it)["clear_prob"];
 				int subtype0 = (int)(*it)["subtype0"];
 				int type0 = (int)(*it)["type0"];
 				int shape0 = (int)(*it)["shape0"];
@@ -760,10 +765,10 @@ bool ExtractParam::read_file(string filename)
 				int subtype3 = (int)(*it)["subtype3"];
 				int type3 = (int)(*it)["type3"];
 				int shape3 = (int)(*it)["shape3"];
-
-				if (opidx_tp >= 16 || opidx_hl_mask >= 16 || wnum >= 256 || extend >= 256) {
-					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_hl_mask=%d, wnum=%d, extend=%d",
-						name.c_str(), opidx_tp, opidx_hl_mask, wnum, extend);
+				
+				if (opidx_tp >= 16 || opidx_hl_mask >= 16 || opidx_rv_mask >=16 || wnum >= 256 || extend >= 256 || cr_prob >= 256) {
+					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_hl_mask=%d, opidx_rv_mask=%d, wnum=%d, extend=%d, cr_prob=%d",
+						name.c_str(), opidx_tp, opidx_hl_mask, opidx_rv_mask, wnum, extend, cr_prob);
 					check_pass = false;
 				}
 
@@ -792,8 +797,8 @@ bool ExtractParam::read_file(string filename)
 				}
 
 				param.pi[0] = layer;
-				param.pi[1] = debug_opt << 24 | PP_FINE_LINE_SEARCH << 16 | opidx_hl_mask << 4 | opidx_tp;
-				param.pi[2] = extend << 8 | wnum;
+				param.pi[1] = debug_opt << 24 | PP_FINE_LINE_SEARCH << 16 | opidx_rv_mask << 8 | opidx_hl_mask << 4 | opidx_tp;
+				param.pi[2] = cr_prob << 16 | extend << 8 | wnum;
 				param.pi[3] = subtype0 << 16 | type0 << 8 | shape0;
 				param.pi[4] = subtype1 << 16 | type1 << 8 | shape1;
 				param.pi[5] = subtype2 << 16 | type2 << 8 | shape2;
@@ -900,6 +905,7 @@ void ExtractParam::write_file(string filename)
 			fs << "guard" << (it->second.pi[3] & 0xff);
 			fs << "remove_rd" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "arfactor" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "pair_d" << (it->second.pi[3] >> 24 & 0xff);
 			fs << "rd0" << (it->second.pi[4] & 0xff);
 			fs << "rd1" << (it->second.pi[4] >> 8 & 0xff);
 			fs << "rd2" << (it->second.pi[4] >> 16 & 0xff);
@@ -978,6 +984,7 @@ void ExtractParam::write_file(string filename)
 			fs << "layer" << it->second.pi[0];
 			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
 			fs << "opidx_shadow_prob" << (it->second.pi[1] >> 4 & 0xf);
+			fs << "opidx_rv_mask" << (it->second.pi[1] >> 8 & 0xf);
 			fs << "wlong0" << (it->second.pi[2] & 0xff);
 			fs << "wlong1" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "inc0" << (it->second.pi[2] >> 16 & 0xff);
@@ -1043,7 +1050,7 @@ void ExtractParam::write_file(string filename)
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
 			fs << "opidx_via_info" << (it->second.pi[1] & 0xf);
-			fs << "opidx_hl_mask" << (it->second.pi[1] >> 4 & 0xf);
+			fs << "opidx_rv_mask" << (it->second.pi[1] >> 4 & 0xf);
 			fs << "vnum" << (it->second.pi[2] & 0xff);
 			fs << "check_len" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "default_dir" << (it->second.pi[2] >> 16 & 0xff);
@@ -1091,8 +1098,10 @@ void ExtractParam::write_file(string filename)
 			fs << "layer" << it->second.pi[0];
 			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
 			fs << "opidx_hl_mask" << (it->second.pi[1] >> 4 & 0xf);
+			fs << "opidx_rv_mask" << (it->second.pi[1] >> 8 & 0xff);
 			fs << "wnum" << (it->second.pi[2] & 0xff);
 			fs << "extend" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "clear_prob" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "subtype0" << (it->second.pi[3] >> 16 & 0xff);
 			fs << "type0" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "shape0" << (it->second.pi[3] & 0xff);

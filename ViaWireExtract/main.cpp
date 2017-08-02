@@ -228,41 +228,14 @@ int wire_extract_test_pipeprocess()
 
 int test_extractparam()
 {
-	ExtractParam ep, ep2;
+	ExtractParam ep;
 	vector<string> layer0, layer1, global;
 	vector<string> action;
-	/*
-	global.push_back(ep.set_param(-1, 0x00000000, 0x00402006, 0, 0, 0, 0, 0, 0, 0));
-	layer0.push_back(ep.set_param(0, 0x80020000, 64, 10, 3, 5 * 64, 0, 0, 0, 0));
-	layer0.push_back(ep.set_param(0, 0x80030000, 0x0a0c4000, 0x08083810, 0x0120b030, 0x00646432, 0x00646432, 0x00646432, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80020000, 64, 10, 3, 5 * 64, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80030000, 0x0a0c4000, 0x080a3810, 0x0120b030, 0x00646432, 0x00646432, 0x00646416, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80000000, 0x00000105, 0x06, 0x0a060a06, 0x0606, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80000000, 0x00000106, 0x06, 0x0a060a06, 0x0606, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80000000, 0x000101fe, 0x0c09, 0x0a0a0905, 0x010708, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80050001, 0x1, 0x0a0c01, 0, 0, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80040030, 0x10102020, 0x00101002, 0x0001, 0x0101, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80063210, 0x1, 0x0101, 0, 0, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80070002, 0x00001001, 0x0101, 0, 0, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80040030, 0x10102020, 0x01101002, 0x0001, 0x0101, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80080004, 0x0102, 0x02120105, 0x1000, 0x02120106, 0x1000, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x80090040, 0x1002, 0x000105, 0x000106, 0, 0, 0, 0, 0));
-	layer1.push_back(ep.set_param(1, 0x800a0000, 0x01, 0x20200301, 0, 0, 0, 0, 0, 0));
 
-	action.push_back(ep.set_param_sets("global", global));
-	action.push_back(ep.set_param_sets("layer0", layer0));
-	action.push_back(ep.set_param_sets("layer1", layer1));
-	
-	ep.set_param_sets("action", action);
-	ep.write_file("action.xml");*/
-	ep2.read_file("action.xml");
-	if (ep == ep2)
-		qInfo("test_extractparam success");
-	else
-		qCritical("test_extractparam fail");
+	ep.read_file("action.xml");
 
 	vector<ParamItem> params;
-	ep2.get_param("action", params);
+	ep.get_param("action", params);
 	vector <MarkObj> objs;
 	VWExtract * vwe = VWExtract::create_extract(0);
 
