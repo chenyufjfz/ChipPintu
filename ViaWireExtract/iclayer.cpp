@@ -1789,7 +1789,7 @@ QSharedPointer<BkImgInterface> BkImgRoMgr::open(const string prj, int _cache_siz
 			ret->adjust_cache_size(_cache_size);
 			return ret;
 		}
-		bk_imgs_opened.erase(prj);
+		bk_imgs_opened.erase(prj); //it is already released, delete it in map
     }
     ret = QSharedPointer<BkImgInterface>(BkImgInterface::create_BkImgDB());
     qInfo("Now open %s", prj.c_str());

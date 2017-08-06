@@ -3,6 +3,7 @@
 #include "mainwindow.h"
 #include <QApplication>
 #include <QDateTime>
+#include <set>
 #include "viawireeditview.h"
 #include "extractparam.h"
 using namespace cv;
@@ -172,7 +173,7 @@ int cell_extract_test()
 
     return 0;
 }
-
+/*
 int wire_extract_test()
 {
 	vector <MarkObj> objs;
@@ -199,7 +200,7 @@ int wire_extract_test()
 	search.push_back(SearchArea(QRect(QPoint(1427671, 674029), QPoint(1657047, 828653)), 0));
     vwe->extract(pic, search, objs);
 	return 0;
-}
+}*/
 
 int wire_extract_test_pipeprocess()
 {
@@ -249,17 +250,72 @@ int test_extractparam()
 	
 	return 0;
 }
+
+int test_extractparam2()
+{
+	ExtractParam ep;
+	vector<string> layer0, layer1, global;
+	vector<string> action;
+	BkImgRoMgr bkimg_faty;
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
+	vector<SearchArea> search;
+
+	ep.read_file("action.xml");
+	vector<ParamItem> params;
+	ep.get_param("action_via", params);
+	VWExtract * vwe = VWExtract::create_extract(0);
+
+	vector<ICLayerWrInterface *> pic;
+	
+	set<int> layer_sets;
+	vector<int> map_layer;
+	map<int, int> anti_map_layer;
+
+	for (int i = 0; i < params.size(); i++)
+		if (params[i].pi[0] >= 0)
+			layer_sets.insert(params[i].pi[0]);
+	for (set<int>::iterator it = layer_sets.begin(); it != layer_sets.end(); it++) {
+		anti_map_layer[*it] = map_layer.size();
+		map_layer.push_back(*it);
+		pic.push_back(bk_img->get_layer(*it));
+		if (pic.back() == NULL)
+			qFatal("vw_extract_req receive layer[%d]=%d, invalid", map_layer.size() - 1, *it);
+		else
+			qInfo("vw_extract_req receive layer[%d]=%d", map_layer.size() - 1, *it);
+	}
+
+	for (int l = 0; l < params.size(); l++) {
+		if (params[l].pi[0] >= 0) {
+			vwe->set_extract_param(anti_map_layer[params[l].pi[0]], params[l].pi[1], params[l].pi[2], params[l].pi[3], params[l].pi[4],
+				params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
+		}
+		else
+			vwe->set_extract_param(params[l].pi[0], params[l].pi[1], params[l].pi[2], params[l].pi[3], params[l].pi[4],
+			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
+
+		qInfo("extract l=%d, i0=%x,i1=%x,i2=%x,i3=%x,i4=%x,i5=%x,i6=%x,i7=%x,i8=%x,f=%f", params[l].pi[0],
+			params[l].pi[1], params[l].pi[2], params[l].pi[3], params[l].pi[4],
+			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
+	}
+	search.push_back(SearchArea(QRect(QPoint(1041905, 277592), QPoint(1178353, 410200)), 0));
+	//search.push_back(SearchArea(QRect(QPoint(1040881, 289829), QPoint(1395185, 526117)), 0));	
+	vector <MarkObj> objs;
+	vwe->extract(pic, search, objs);
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
 	
 	qInstallMessageHandler(myMessageOutput);
-#if 0
+#if 1
 	
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();
-	cell_extract_test();
+	//cell_extract_test();
+	test_extractparam2();
 	return 0;
 #endif
     w.show();

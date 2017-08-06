@@ -810,6 +810,7 @@ bool ExtractParam::read_file(string filename)
 			{
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
+				int opidx_via_info = (int)(*it)["opidx_via_info"];
 				int wnum = (int)(*it)["wnum"];
 				int type0 = (int)(*it)["type0"];
 				int cwide0 = (int)(*it)["cwide0"];
@@ -826,6 +827,11 @@ bool ExtractParam::read_file(string filename)
 
 				if (wnum > 255) {
 					qCritical("ParamItems file error, name=%s, wnum=%d", name.c_str(), wnum);
+					check_pass = false;
+				}
+
+				if (opidx_via_info >= 16) {
+					qCritical("ParamItems file error, name=%s, opidx_via_info=%d", name.c_str(), opidx_via_info);
 					check_pass = false;
 				}
 
@@ -848,7 +854,7 @@ bool ExtractParam::read_file(string filename)
 				}
 
 				param.pi[0] = layer;
-				param.pi[1] = debug_opt << 24 | PP_ASSEMBLE << 16;
+				param.pi[1] = debug_opt << 24 | PP_ASSEMBLE << 16 | opidx_via_info;
 				param.pi[2] = wnum;
 				param.pi[3] = clong_heng0 << 24 | clong_shu0 << 16 | cwide0 << 8 | type0;
 				param.pi[4] = clong_heng1 << 24 | clong_shu1 << 16 | cwide1 << 8 | type1;
@@ -1096,6 +1102,7 @@ void ExtractParam::write_file(string filename)
 		case FineLineSearch:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
+			fs << "opidx_via_info" << (it->second.pi[1] & 0xf);
 			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
 			fs << "opidx_hl_mask" << (it->second.pi[1] >> 4 & 0xf);
 			fs << "opidx_rv_mask" << (it->second.pi[1] >> 8 & 0xff);
