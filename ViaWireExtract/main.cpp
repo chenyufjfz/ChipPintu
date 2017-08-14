@@ -257,7 +257,11 @@ int test_extractparam2()
 	vector<string> layer0, layer1, global;
 	vector<string> action;
 	BkImgRoMgr bkimg_faty;
+#ifdef WIN32
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
+#else
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
+#endif
 	vector<SearchArea> search;
 
 	ep.read_file("action.xml");
@@ -297,8 +301,8 @@ int test_extractparam2()
 			params[l].pi[1], params[l].pi[2], params[l].pi[3], params[l].pi[4],
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
-	search.push_back(SearchArea(QRect(QPoint(1041905, 277592), QPoint(1178353, 410200)), 0));
-	//search.push_back(SearchArea(QRect(QPoint(1040881, 289829), QPoint(1395185, 526117)), 0));	
+	//search.push_back(SearchArea(QRect(QPoint(1030000, 260000), QPoint(1600000, 800000)), 0));
+	search.push_back(SearchArea(QRect(QPoint(1040881, 289829), QPoint(1395185, 526117)), 0));	
 	vector <MarkObj> objs;
 	vwe->extract(pic, search, objs);
 	return 0;

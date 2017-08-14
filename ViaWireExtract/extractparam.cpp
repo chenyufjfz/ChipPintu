@@ -566,14 +566,19 @@ bool ExtractParam::read_file(string filename)
 				int update_fv = (int)(*it)["update_fv"];
 				int subtype0 = (int)(*it)["subtype0"];
 				int type0 = (int)(*it)["type0"];
-				int subtype1 = (int)(*it)["subtype1"];
+				int th0 = (int)(*it)["th0"];
+				int subtype1 = (int)(*it)["subtype1"];				
 				int type1 = (int)(*it)["type1"];
+				int th1 = (int)(*it)["th1"];
 				int subtype2 = (int)(*it)["subtype2"];
 				int type2 = (int)(*it)["type2"];
+				int th2 = (int)(*it)["th2"];
 				int subtype3 = (int)(*it)["subtype3"];
 				int type3 = (int)(*it)["type3"];
+				int th3 = (int)(*it)["th3"];
 				int subtype4 = (int)(*it)["subtype4"];
 				int type4 = (int)(*it)["type4"];
+				int th4 = (int)(*it)["th4"];
 
 				if (opidx_tp >= 16 || opidx_via_mask >= 16 || opidx_via_info >= 16 || opidx_shadow_prob >= 16) {
 					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_via_mask=%d, opidx_via_info=%d, opidx_shadow_prob=%d", 
@@ -593,6 +598,12 @@ bool ExtractParam::read_file(string filename)
 					check_pass = false;
 				}
 
+				if (th0 > 255 || th1 > 255 || th2 > 255 || th3 > 255) {
+					qCritical("ParamItems file error, name=%s, th0=%d, th1=%d, th2=%d, th3=%d",
+						name.c_str(), th0, th1, th2, th3);
+					check_pass = false;
+				}
+
 				if (subtype4 > 255 || type4 > 255 || vnum > 255 ) {
 					qCritical("ParamItems file error, name=%s, subtype4=%d, type4=%d, vnum=%d",
 						name.c_str(), subtype4, type4, vnum);
@@ -601,11 +612,11 @@ bool ExtractParam::read_file(string filename)
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_FINE_VIA_SEARCH << 16 | opidx_shadow_prob << 12 | opidx_via_info << 8 | opidx_via_mask << 4 | opidx_tp;
 				param.pi[2] = update_fv << 8 | vnum;
-				param.pi[3] = subtype0 << 8 | type0;
-				param.pi[4] = subtype1 << 8 | type1;
-				param.pi[5] = subtype2 << 8 | type2;
-				param.pi[6] = subtype3 << 8 | type3;
-				param.pi[7] = subtype4 << 8 | type4;
+				param.pi[3] = th0 << 16 | subtype0 << 8 | type0;
+				param.pi[4] = th1 << 16 | subtype1 << 8 | type1;
+				param.pi[5] = th2 << 16 | subtype2 << 8 | type2;
+				param.pi[6] = th3 << 16 | subtype3 << 8 | type3;
+				param.pi[7] = th4 << 16 | subtype4 << 8 | type4;
 			}
 			break;
 
@@ -615,6 +626,7 @@ bool ExtractParam::read_file(string filename)
 				int debug_opt = (int)(*it)["debug_opt"];
 				int opidx_via_info = (int)(*it)["opidx_via_info"];
 				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
+				int opidx_tp = (int)(*it)["opidx_tp"];
 				int vnum = (int)(*it)["vnum"];
 				int check_len = (int)(*it)["check_len"];
 				int default_dir = (int)(*it)["default_dir"];
@@ -630,9 +642,9 @@ bool ExtractParam::read_file(string filename)
 				int subtype4 = (int)(*it)["subtype4"];
 				int type4 = (int)(*it)["type4"];
 
-				if (opidx_rv_mask >= 16 || opidx_via_info >= 16) {
-					qCritical("ParamItems file error, name=%s, opidx_rv_mask=%d, opidx_via_info=%d",
-						name.c_str(), opidx_rv_mask, opidx_via_info);
+				if (opidx_rv_mask >= 16 || opidx_via_info >= 16 || opidx_tp >= 16) {
+					qCritical("ParamItems file error, name=%s, opidx_rv_mask=%d, opidx_via_info=%d, opidx_tp=%d",
+						name.c_str(), opidx_rv_mask, opidx_via_info, opidx_tp);
 					check_pass = false;
 				}
 
@@ -695,8 +707,8 @@ bool ExtractParam::read_file(string filename)
 				int subtype2 = (int)(*it)["subtype2"];
 				int extend2 = (int)(*it)["extend2"];
 
-				if (opidx_hl_mask >= 16 || clear_mask >= 256 || wnum >= 256) {
-					qCritical("ParamItems file error, name=%s, opidx_hl_mask=%d, clear_mask=%d, wnum=%d",
+				if (opidx_hl_mask >= 16 ||  clear_mask >= 256 || wnum >= 256) {
+					qCritical("ParamItems file error, name=%s, opidx_hl_mask=%d, opidx_shadow_prob=%d, clear_mask=%d, wnum=%d",
 						name.c_str(), opidx_hl_mask, clear_mask, wnum);
 					check_pass = false;
 				}
@@ -732,7 +744,7 @@ bool ExtractParam::read_file(string filename)
 				}
 
 				param.pi[0] = layer;
-				param.pi[1] = debug_opt << 24 | PP_FINE_SEARCH_MASK << 16 | opidx_hl_mask;
+				param.pi[1] = debug_opt << 24 | PP_FINE_SEARCH_MASK << 16  | opidx_hl_mask;
 				param.pi[2] = clear_mask << 8 | wnum;
 				param.pi[3] = cwide0 << 24 | clong0 << 16 | type0 << 8 | shape0;
 				param.pi[4] = extend0 << 8 | subtype0;
@@ -750,6 +762,7 @@ bool ExtractParam::read_file(string filename)
 				int opidx_tp = (int)(*it)["opidx_tp"];
 				int opidx_hl_mask = (int)(*it)["opidx_hl_mask"];
 				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
+				int opidx_via_info = (int)(*it)["opidx_via_info"];
 				int wnum = (int)(*it)["wnum"];
 				int extend = (int)(*it)["extend"];
 				int cr_prob = (int)(*it)["clear_prob"];
@@ -766,9 +779,9 @@ bool ExtractParam::read_file(string filename)
 				int type3 = (int)(*it)["type3"];
 				int shape3 = (int)(*it)["shape3"];
 				
-				if (opidx_tp >= 16 || opidx_hl_mask >= 16 || opidx_rv_mask >=16 || wnum >= 256 || extend >= 256 || cr_prob >= 256) {
-					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_hl_mask=%d, opidx_rv_mask=%d, wnum=%d, extend=%d, cr_prob=%d",
-						name.c_str(), opidx_tp, opidx_hl_mask, opidx_rv_mask, wnum, extend, cr_prob);
+				if (opidx_tp >= 16 || opidx_hl_mask >= 16 || opidx_rv_mask >= 16 || opidx_via_info>=16 || wnum >= 256 || extend >= 256 || cr_prob >= 256) {
+					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_hl_mask=%d, opidx_rv_mask=%d, opidx_via_info=%d, wnum=%d, extend=%d, cr_prob=%d",
+						name.c_str(), opidx_tp, opidx_hl_mask, opidx_rv_mask, opidx_via_info, wnum, extend, cr_prob);
 					check_pass = false;
 				}
 
@@ -797,7 +810,7 @@ bool ExtractParam::read_file(string filename)
 				}
 
 				param.pi[0] = layer;
-				param.pi[1] = debug_opt << 24 | PP_FINE_LINE_SEARCH << 16 | opidx_rv_mask << 8 | opidx_hl_mask << 4 | opidx_tp;
+				param.pi[1] = debug_opt << 24 | PP_FINE_LINE_SEARCH << 16 | opidx_via_info << 12 | opidx_rv_mask << 8 | opidx_hl_mask << 4 | opidx_tp;
 				param.pi[2] = cr_prob << 16 | extend << 8 | wnum;
 				param.pi[3] = subtype0 << 16 | type0 << 8 | shape0;
 				param.pi[4] = subtype1 << 16 | type1 << 8 | shape1;
@@ -1042,14 +1055,19 @@ void ExtractParam::write_file(string filename)
 			fs << "update_fv" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "subtype0" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "type0" << (it->second.pi[3] & 0xff);
+			fs << "th0" << (it->second.pi[3] >> 16 & 0xff);
 			fs << "subtype1" << (it->second.pi[4] >> 8 & 0xff);
 			fs << "type1" << (it->second.pi[4] & 0xff);
+			fs << "th1" << (it->second.pi[4] >> 16 & 0xff);
 			fs << "subtype2" << (it->second.pi[5] >> 8 & 0xff);
 			fs << "type2" << (it->second.pi[5] & 0xff);
+			fs << "th2" << (it->second.pi[5] >> 16 & 0xff);
 			fs << "subtype3" << (it->second.pi[6] >> 8 & 0xff);
 			fs << "type3" << (it->second.pi[6] & 0xff);
+			fs << "th3" << (it->second.pi[6] >> 16 & 0xff);
 			fs << "subtype4" << (it->second.pi[7] >> 8 & 0xff);
 			fs << "type4" << (it->second.pi[7] & 0xff);
+			fs << "th4" << (it->second.pi[7] >> 16 & 0xff);
 			break;
 
 		case RemoveVia:
@@ -1106,6 +1124,7 @@ void ExtractParam::write_file(string filename)
 			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
 			fs << "opidx_hl_mask" << (it->second.pi[1] >> 4 & 0xf);
 			fs << "opidx_rv_mask" << (it->second.pi[1] >> 8 & 0xff);
+			fs << "opidx_via_info" << (it->second.pi[1] >> 12 & 0xff);
 			fs << "wnum" << (it->second.pi[2] & 0xff);
 			fs << "extend" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "clear_prob" << (it->second.pi[2] >> 16 & 0xff);

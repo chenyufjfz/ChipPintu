@@ -5,10 +5,11 @@
 #include <QPainter>
 #include <stdio.h>
 #include <QMutexLocker>
+#ifdef USE_MDB
 #include "lmdb.h"
+#endif
 #include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/highgui/highgui.hpp"
-typedef long long int64;
 using namespace std;
 using namespace cv;
 
@@ -37,7 +38,7 @@ void decrypt(char * a, int len, int magic)
 class ICLayer : public ICLayerInterface
 {
 protected:
-    vector<vector<int64> > bias;
+    vector<vector<long long> > bias;
     vector<vector<int> > len;
     vector<QPoint> corners;
     ifstream fin;
@@ -72,11 +73,11 @@ int ICLayer::readLayerFile(const string& file)
 
     int ovr_num = 5;
     
-	int64 block_bias = 3 * sizeof(int); //skip num_block_x, num_block_y, and width
+	long long block_bias = 3 * sizeof(int); //skip num_block_x, num_block_y, and width
 	int  head_sz = (ovr_num + 4)*sizeof(int);
 
     fin.seekg(0, ios::end);
-    int64 file_len = fin.tellg();
+    long long file_len = fin.tellg();
     fin.seekg(0, ios::beg);
 	fin.read((char*)&num_block_x, sizeof(int));
 	fin.read((char*)&num_block_y, sizeof(int));
@@ -87,12 +88,12 @@ int ICLayer::readLayerFile(const string& file)
         unsigned int block_len;
 		fin.read((char*)&block_len, sizeof(int));
 
-        vector<int64> bias_sub;//x=bias y=length;
+        vector<long long> bias_sub;//x=bias y=length;
         vector<int> len_sub;
         int bias_in = 0;
         for (int i = 0; i < ovr_num; i++)
         {
-            int64 bias_tmp;
+            long long bias_tmp;
             int len_tmp;
 			fin.read((char*)&len_tmp, sizeof(int));
             bias_tmp = block_bias + head_sz + bias_in;
@@ -235,7 +236,7 @@ void ICLayer::close()
 	if (fout.is_open())
 		fout.close();
 }
-
+#ifdef USB_MDB
 //ICLayerMdb can't be used for network file system
 class ICLayerMdb : public ICLayerInterface
 {
@@ -519,7 +520,7 @@ void ICLayerMdb::close()
 	qDebug("bracpage=%d, depth=%d, entry=%d, leafpage=%d, ovflpage=%d, psize=%d\n", mst.ms_branch_pages, mst.ms_depth,
 		mst.ms_entries, mst.ms_leaf_pages, mst.ms_overflow_pages, mst.ms_psize);
 }
-
+#endif
 
 //ICLayerM contain meta info in file header, it is mainly for network file system
 /*
@@ -996,9 +997,11 @@ void ICLayerWr::create(const string file, bool _read, int _cache_size, int type)
 	case 0:
 		layer = new ICLayerM(file, _read);
 		break;
+#ifdef USB_MDB
 	case 1:
 		layer = new ICLayerMdb(file, _read);
 		break;
+#endif
 	case 2:
 		layer = new ICLayer(file, _read);
 		break;
@@ -1072,7 +1075,6 @@ int ICLayerWr::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsig
 			return 0;
 		}
 	}
-	qDebug("get raw image, (%d,%d,%d)", x, y, ovr);
     ret = layer->getRawImgByIdx(buff, x, y, ovr, reserved);
 	if (ret == 0 && max_cache_size > CACHE_ENABLE_TH && need_cache) { //add to cache
 		BkImg img;
