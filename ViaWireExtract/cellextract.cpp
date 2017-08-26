@@ -497,9 +497,12 @@ int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, const std::vecto
                 qCritical("cell direction %d is wrong!", obj_sets[i].type3);
                 return -1;
             }
-            QRect rect(obj_sets[i].p0, obj_sets[i].p1);
-            int scale = 32768 / ic_layer[0]->getBlockWidth();
-			if (rect.height() / scale <= FEATURE0_SIZE * 3 || rect.width() / scale <= FEATURE0_SIZE * 3) {
+			int scale = 32768 / ic_layer[0]->getBlockWidth();
+			QPoint p0 = obj_sets[i].p0 / scale * scale;
+			QPoint p1 = obj_sets[i].p1 / scale * scale;
+            QRect rect(p0, p1);
+            
+			if (rect.height() / scale <= FEATURE0_SIZE * 3 && rect.width() / scale <= FEATURE0_SIZE * 3) {
 				qCritical("cell size (%d, %d) is small!", rect.height() / scale, rect.width() / scale);
 				return -1;
 			}

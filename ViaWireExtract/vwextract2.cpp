@@ -54,14 +54,18 @@
 #define DIR_DOWN1_MASK		(1 << (DIR_DOWN * 2))
 #define DIR_LEFT1_MASK		(1 << (DIR_LEFT * 2))
 
-#define CLEAR_VIA_COLOR				4
-#define CLEAR_REMOVE_VIA_MASK		2
-#define REMOVE_VIA_MASK				1
+#define CLEAR_REMOVE_VIA_MASK					2
+#define REMOVE_VIA_MASK							1
 
 #define COARSE_LINE_CLEAR_PROB					2
 #define COARSE_LINE_UPDATE_PROB					1
 #define COARSE_LINE_UPDATE_WITH_MASK			4
 
+#define FINE_LINE_SEARCH_CLEAR_PROB				1
+#define FINE_LINE_SEARCH_CLEAR_COLOR			2
+#define FINE_LINE_SEARCH_NO_VIA					4
+
+#define ASSEMBLE_LINE_NO_VIA					1
 typedef pair<unsigned long long, unsigned long long> PAIR_ULL;
 
 enum {
@@ -477,7 +481,7 @@ opt5:
 opt6:
 */
 struct ViaParameter {
-	int shape;
+	int pattern;
 	int type;
 	int subtype;
 	int pair_distance; //via pair distance
@@ -489,8 +493,7 @@ struct ViaParameter {
 	int rd2; //outter via radius
 	int rd3; //outter via radius
 	int gray0, gray1, gray2, gray3;	
-	int opt0, opt1, opt2;
-	
+	int opt0, opt1, opt2;	
 	float optf;
 };
 
@@ -504,7 +507,7 @@ opt5:
 opt6:
 */
 struct WireParameter {
-	int shape;
+	int pattern;
 	int type;
 	int subtype;
 	int arfactor; //area gamma factor
@@ -522,28 +525,26 @@ union VWParameter {
 class VWSet {
 	vector <VWParameter> vws;
 public:
-	VWParameter * get_vw_para(int shape, int type, int sub_type) {
+	VWParameter * get_vw_para(int pattern, int type, int sub_type) {
 		for (int i = 0; i < (int)vws.size(); i++)
-			if (vws[i].v.type == type && vws[i].v.shape == shape && vws[i].v.subtype == sub_type)
+			if (vws[i].v.type == type && vws[i].v.pattern == pattern && vws[i].v.subtype == sub_type)
 				return &vws[i];
 		return NULL;
 	}
 	void set_vw_para(ProcessParameter cpara) {
-		int shape = cpara.opt0 & 0xff;
+		int pattern = cpara.opt0 & 0xff;
 		int type = cpara.opt0 >> 8 & 0xff;
 		int sub_type = cpara.opt0 >> 16 & 0xff;
-		VWParameter * vw = get_vw_para(shape, type, sub_type);
+		VWParameter * vw = get_vw_para(pattern, type, sub_type);
 		if (vw == NULL) {
 			VWParameter v;
 			v.v.type = type;
-			v.v.shape = shape;
+			v.v.pattern = pattern;
 			v.v.subtype = sub_type;
 			vws.push_back(v);
-			vw = get_vw_para(shape, type, sub_type);
+			vw = get_vw_para(pattern, type, sub_type);
 		}
-		switch (shape) {
-		case BRICK_I_0:
-		case BRICK_I_90:	
+		if ((pattern & 0x80) == 0) {
 			vw->w.guard = cpara.opt1 & 0xff;
 			vw->w.arfactor = cpara.opt1 >> 8 & 0xff;
 			vw->w.w_wide = cpara.opt2 >> 24 & 0xff;
@@ -554,9 +555,7 @@ public:
 			vw->w.i_high = cpara.opt3 & 0xff;
 			qInfo("set_wire_para, guard=%d, w_wide=%d, w_wide1=%d, w_high=%d, w_high1=%d, i_wide=%d, i_high=%d",
 				vw->w.guard, vw->w.w_wide, vw->w.w_wide1, vw->w.w_high, vw->w.w_high1, vw->w.i_wide, vw->w.i_high);
-			break;
-
-		case BRICK_VIA:			
+		} else {		
 			vw->v.guard = cpara.opt1 & 0xff;
 			vw->v.remove_rd = cpara.opt1 >> 8 & 0xff;	
 			vw->v.arfactor = cpara.opt1 >> 16 & 0xff;
@@ -575,7 +574,6 @@ public:
 			vw->v.optf = cpara.opt_f0;
 			qInfo("set_via_para, guard=%d, remove_rd=%d, rd0=%d, rd1=%d, rd2=%d, rd3=%d",
 				vw->v.guard, vw->v.remove_rd, vw->v.rd0, vw->v.rd1, vw->v.rd2, vw->v.rd3);
-			break;
 		}
 	}
 };
@@ -852,6 +850,14 @@ public:
 	}
 };
 
+//obj_sets points unit is pixel
+#define OBJ_WIRE			0
+#define OBJ_VIA				1
+typedef void(*ObjProcessFunc)(CornerSets & obj_sets, int layer, int obj_type, ProcessParameter & cpara);
+struct ObjProcessHook {
+	ObjProcessFunc func;
+	ProcessParameter cpara;
+};
 class PipeDataPerLayer {
 public:
 	Mat img, raw_img;
@@ -1854,52 +1860,35 @@ public:
 
 
 struct ShapeConst {
-	int use[13];
 	int sel[13];
 	int shape;
-	float a[13]; //a is each rec_area / total_area
-	float arf;
 } shape[] = {
-	//  0  1  2  3  4  5  6  7  8  9 10 11 12      0  1  2  3  4  5  6  7  8  9 10 11 12  
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_ONE_POINT, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_i_0, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_i_90, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_i_180, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_i_270, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_I_0, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_I_90, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_L_0, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_L_90, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_L_180, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_L_270, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_T_0, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_T_90, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_T_180, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_T_270, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_X_0, { 0 } },
-	//  0  1  2  3  4  5  6  7  8  9 10 11 12      0  1  2  3  4  5  6  7  8  9 10 11 12  
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1 }, { 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1 }, { 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0 }, BRICK_HOLLOW, { 0 } },
-	{ { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_NO_WIRE, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, BRICK_FAKE_VIA, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1 }, BRICK_FAKE_VIA, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0 }, BRICK_FAKE_VIA, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1 }, BRICK_FAKE_VIA, { 0 } },
-	{ { 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0 }, BRICK_FAKE_VIA, { 0 } },
-	//  0  1  2  3  4  5  6  7  8  9 10 11 12      0  1  2  3  4  5  6  7  8  9 10 11 12  
+	//  0  1  2  3  4  5  6  7  8  9 10 11 12  
+	{ { 2, 0, 2, 0, 1, 0, 2, 0, 2, 0, 0, 0, 0 }, BRICK_ONE_POINT },
+	{ { 1, 1, 2, 0, 1, 0, 2, 0, 2, 0, 0, 0, 0 }, BRICK_i_0 },
+	{ { 2, 0, 2, 0, 1, 1, 1, 0, 2, 0, 0, 0, 0 }, BRICK_i_90 },
+	{ { 2, 0, 2, 0, 1, 0, 2, 1, 1, 0, 0, 0, 0 }, BRICK_i_180 },
+	{ { 2, 0, 1, 1, 1, 0, 2, 0, 2, 0, 0, 0, 0 }, BRICK_i_270 },
+	{ { 1, 1, 2, 0, 1, 0, 2, 1, 1, 0, 0, 0, 0 }, BRICK_I_0 },
+	{ { 2, 0, 1, 1, 1, 1, 1, 0, 2, 0, 0, 0, 0 }, BRICK_I_90 },
+	{ { 1, 1, 2, 0, 1, 1, 1, 0, 2, 0, 0, 0, 0 }, BRICK_L_0 },
+	{ { 2, 0, 2, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_L_90 },
+	{ { 2, 0, 1, 1, 1, 0, 2, 1, 1, 0, 0, 0, 0 }, BRICK_L_180 },
+	{ { 1, 1, 1, 1, 1, 0, 2, 0, 2, 0, 0, 0, 0 }, BRICK_L_270 },
+	{ { 1, 1, 2, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_T_0 },
+	{ { 2, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_T_90 },
+	{ { 1, 1, 1, 1, 1, 0, 2, 1, 1, 0, 0, 0, 0 }, BRICK_T_180 },
+	{ { 1, 1, 1, 1, 1, 1, 1, 0, 2, 0, 0, 0, 0 }, BRICK_T_270 },
+	{ { 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0 }, BRICK_X_0 },
+	//  0  1  2  3  4  5  6  7  8  9 10 11 12  
+	{ { 2, 2, 2, 2, 0, 2, 2, 2, 2, 0, 0, 0, 0 }, BRICK_HOLLOW },
+	{ { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, BRICK_NO_WIRE },
+	{ { 2, 1, 2, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1 }, BRICK_FAKE_VIA },
+	{ { 2, 1, 2, 0, 1, 1, 2, 1, 2, 0, 1, 0, 1 }, BRICK_FAKE_VIA },
+	{ { 2, 1, 2, 1, 1, 0, 2, 1, 2, 1, 0, 1, 0 }, BRICK_FAKE_VIA },
+	{ { 2, 0, 2, 1, 1, 1, 2, 1, 2, 0, 0, 1, 1 }, BRICK_FAKE_VIA },
+	{ { 2, 1, 2, 1, 1, 1, 2, 0, 2, 1, 1, 0, 0 }, BRICK_FAKE_VIA },
+	//  0  1  2  3  4  5  6  7  8  9 10 11 12  
 };
 
 class Wire_13RectCompute : public WireComputeScore {
@@ -1910,6 +1899,8 @@ protected:
 	int searchx_extend, searchy_extend;
 	int gs, compute_border;
 	WireParameter wp;
+	float a[13]; //a is each rec_area / total_area
+	float arf;
 
 public:
 	int prepare(WireParameter & _wp, PipeData & d, int layer) {
@@ -1971,15 +1962,14 @@ public:
 			return -1;
 		}
 
-		for (int i = 0; i < sizeof(shape) / sizeof(shape[0]); i++) {
-			float area = 0;
-			for (int j = 0; j < 13; j++)
-				area += shape[i].use[j] * area_1[j];
+		float area = 0;
+		for (int j = 0; j < 13; j++)
+			area += area_1[j];
 
-			for (int j = 0; j < 13; j++)
-				shape[i].a[j] = shape[i].use[j] * area_1[j] / area;
-			shape[i].arf = pow(area, 2 * gamma);
-		}
+		for (int j = 0; j < 13; j++)
+			a[j] = area_1[j] / area;
+		arf = pow(area, 2 * gamma);
+
 
 		for (int i = 0; i < 13; i++)
 			area_1[i] = 1 / area_1[i];
@@ -1996,7 +1986,7 @@ public:
 		PAIR_ULL ret = make_pair(0xffffffffffffffffULL, 0xffffffffffffffffULL);
 		unsigned s[24], sq[24];
 		int sum[13], ssum[13];
-		float part[2][13];
+		float part[3][13];
 		const unsigned * p_ig, *p_iig;
 		if (reset_offset) {
 			reset_offset = false;
@@ -2040,13 +2030,14 @@ public:
 		for (int i = 0; i < 13; i++) {
 			part[0][i] = (ssum[i] - gi*sum[i] * 2) * area_1[i] + gii;
 			part[1][i] = (ssum[i] - gm*sum[i] * 2) * area_1[i] + gmm;
+			part[2][i] = min(part[0][i], part[1][i]);
 		}
 		
 		for (int i = 0; i < sizeof(shape) / sizeof(shape[0]); i++) {
 			unsigned long long score = 0;
 			for (int j = 0; j < 13; j++)
-				score += part[shape[i].sel[j]][j] * shape[i].a[j];
-			score = score * shape[i].arf;
+				score += part[shape[i].sel[j]][j] * a[j];
+			score = score * arf;
 			score = MAKE_PROB(score, wp.type, shape[i].shape); //save sqrt call times
 			push_min(ret, score);
 		}
@@ -2221,7 +2212,10 @@ static void imgpp_RGB2gray(PipeData & d, ProcessParameter & cpara)
 {
 	int layer = cpara.layer;
 	Mat & img = d.l[layer].img;
-	CV_Assert(img.type() == CV_8UC3);
+	if (img.type() != CV_8UC3) {
+		qCritical("imgpp_RGB2gray wrong image type(%x) !=%x", img.type(), CV_8UC3);
+		return;
+	}
 	int total = cpara.opt0 + cpara.opt1 + cpara.opt2;
 	qInfo("RGB2gray, c0=%d, c1=%d, c2=%d", cpara.opt0, cpara.opt1, cpara.opt2);
 	if (total <= 0 || cpara.opt0 < 0 || cpara.opt1 < 0 || cpara.opt2 < 0) {
@@ -2557,10 +2551,10 @@ struct WireKeyPoint {
 /*     31..24 23..16   15..8   7..0
 opt0:   inc1   inc0   w_long1 w_long0 
 opt1:	up_prob	th1     th0	  w_num
-opt2:                  w_dir  w_type    
-opt3:                  w_dir  w_type    
-opt4:                  w_dir  w_type    
-opt5:                  w_dir  w_type    
+opt2:         w_pattern w_dir  w_type    
+opt3:         w_pattern w_dir  w_type    
+opt4:         w_pattern w_dir  w_type 
+opt5:         w_pattern w_dir  w_type    
 dir=0 is shuxian, 1 is hengxian.
 long0 & long1 decides detect rect, inc0 & & inc1 reduce compute time
 th0 & th1 is maximum deviation
@@ -2603,23 +2597,24 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 	}	
 	
 	struct WireDetectInfo {
+		int w_pattern;
 		int w_dir;
 		int w_type;
 		int w_wide;
 		int i_wide;
 		float gamma;
 	} wpara[] = {
-			{ cpara.opt2 >> 8 & 0xff, cpara.opt2 & 0xff , 0, 0, 0}, 
-			{ cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff , 0, 0, 0},
-			{ cpara.opt4 >> 8 & 0xff, cpara.opt4 & 0xff , 0, 0, 0},
-			{ cpara.opt5 >> 8 & 0xff, cpara.opt5 & 0xff , 0, 0, 0},
+			{ cpara.opt2 >> 16 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt2 & 0xff, 0, 0, 0}, 
+			{ cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff, 0, 0, 0 },
+			{ cpara.opt4 >> 16 & 0xff, cpara.opt4 >> 8 & 0xff, cpara.opt4 & 0xff, 0, 0, 0 },
+			{ cpara.opt5 >> 16 & 0xff, cpara.opt5 >> 8 & 0xff, cpara.opt5 & 0xff, 0, 0, 0 },
 	};
 
 	vector<WireKeyPoint> wires[2];
 	int w_check[2][256] = { 0 };
 	int x0 = w_long1 / 2, y0 = w_long0 / 2;
 	for (int i = 0; i < w_num; i++) {
-		VWParameter * vw = d.l[layer].vw.get_vw_para((wpara[i].w_dir == 0) ? BRICK_I_0 : BRICK_I_90, wpara[i].w_type, WIRE_SUBTYPE_13RECT);
+		VWParameter * vw = d.l[layer].vw.get_vw_para(wpara[i].w_pattern, wpara[i].w_type, WIRE_SUBTYPE_13RECT);
 		if (vw == NULL) {
 			qCritical("coarse_line_search invalid wire info %d, %d", wpara[i].w_dir, wpara[i].w_type);
 			return;
@@ -2627,8 +2622,8 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 		wpara[i].w_wide = (wpara[i].w_dir == 0) ? vw->w.w_wide : vw->w.w_high;
 		wpara[i].i_wide = (wpara[i].w_dir == 0) ? vw->w.i_wide : vw->w.i_high;
 		wpara[i].gamma = vw->w.arfactor / 100.0;
-		qInfo("%d:type=%d, dir=%d, w_wide=%d, i_wide=%d, gamma=%f", i, wpara[i].w_type,
-			wpara[i].w_dir, wpara[i].w_wide, wpara[i].i_wide, wpara[i].gamma);
+		qInfo("%d:type=%d, dir=%d, pattern=%d, w_wide=%d, i_wide=%d, gamma=%f", i, wpara[i].w_type,
+			wpara[i].w_dir, wpara[i].w_pattern, wpara[i].w_wide, wpara[i].i_wide, wpara[i].gamma);
 		if (wpara[i].w_dir > 3) {
 			qCritical("coarse_line_search w_dir(%d) error", wpara[i].w_dir);
 			return;
@@ -2737,8 +2732,9 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				CV_Assert(y + w[i].offset[j].y >= 0 && y + w[i].offset[j].y < ig.rows && x0 + w[i].offset[j].x >= 0);
 				}
 			for (int x = x0; x < img.cols - x0; x += dx) {
-				unsigned s0 = 0xffffffff;
+				unsigned s0 = MAKE_S(0xffff, 0xff, BRICK_III);;
 				for (unsigned i = 0; i < w.size(); i++) {
+					unsigned s1 = 0xffffffff;
 					int sum0 = w[i].p_ig[5][0] + w[i].p_ig[0][0] - w[i].p_ig[1][0] - w[i].p_ig[4][0];
 					int sum1 = w[i].p_ig[1][0] + w[i].p_ig[6][0] - w[i].p_ig[2][0] - w[i].p_ig[5][0];
 					int sum2 = w[i].p_ig[2][0] + w[i].p_ig[7][0] - w[i].p_ig[3][0] - w[i].p_ig[6][0];
@@ -2762,7 +2758,17 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 					score2 = MAKE_S(score2, i, w[i].shape2);
 					score3 = MAKE_S(score3, i, w[i].shape3);
 					score4 = MAKE_S(score4, i, BRICK_III);
-					s0 = min(min(min(score1, score0), min(score2, score3)), min(score4, s0));					
+					s1 = min(min(min(score1, score0), min(score2, score3)), score4);
+					if (S_SHAPE(s0) == BRICK_I_0 || S_SHAPE(s0) == BRICK_I_90) {
+						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90)
+							s0 = min(s0, s1);
+					}
+					else {
+						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90)
+							s0 = s1;
+						else
+							s0 = min(s0, s1);
+					}
 					for (int j = 0; j < 8; j++) {
 						w[i].p_ig[j] += dx;
 						w[i].p_iig[j] += dx;
@@ -2971,11 +2977,11 @@ struct ViaInfo {
 /*
         31..24 23..16   15..8   7..0
 opt0:				  update_fv vnum
-opt1:			  th   subtype  type
-opt2:			  th   subtype  type
-opt3:			  th   subtype  type
-opt4:			  th   subtype  type
-opt5:			  th   subtype  type
+opt1:	pattern th   subtype  type
+opt2:	pattern th   subtype  type
+opt3:	pattern th   subtype  type
+opt4:	pattern th   subtype  type
+opt5:	pattern th   subtype  type
 update means update to viaset
 via's guard + via's radius < w_long/2
 method_opt
@@ -3024,13 +3030,14 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 	int v_type[MAX_VIA_NUM] = { cpara.opt1 & 0xff, cpara.opt2 & 0xff, cpara.opt3 & 0xff };
 	int v_subtype[MAX_VIA_NUM] = { cpara.opt1 >> 8 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt3 >> 8 & 0xff };
 	int v_th[MAX_VIA_NUM] = { cpara.opt1 >> 16 & 0xff, cpara.opt2 >> 16 & 0xff, cpara.opt3 >> 16 & 0xff };
+	int v_pattern[MAX_VIA_NUM] = { cpara.opt1 >> 24 & 0xff, cpara.opt2 >> 24 & 0xff, cpara.opt3 >> 24 & 0xff };
 	int v_guard[MAX_VIA_NUM];
 	int v_pair_d[MAX_VIA_NUM];
 	QScopedPointer<ViaComputeScore> vcs[MAX_VIA_NUM];
 
 	for (int i = 0; i < vnum; i++) {
 		ViaParameter via_para;
-		VWParameter * vw = d.l[layer].vw.get_vw_para(BRICK_VIA, v_type[i], v_subtype[i]);
+		VWParameter * vw = d.l[layer].vw.get_vw_para(v_pattern[i], v_type[i], v_subtype[i]);
 		if (vw == NULL) {
 			qCritical("fine_via_search invalid via info %d, %d", v_type[i], v_subtype[i]);
 			return;
@@ -3046,8 +3053,8 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 			via_para.gray2 = glv[via_para.gray2];
 		if (via_para.gray3 < sizeof(glv) / sizeof(glv[0]))
 			via_para.gray3 = glv[via_para.gray3];
-		qInfo("%d: fine_via_search v_type=%d, v_subtype=%d, th=%d, g0=%d, g1=%d, g2=%d, g3=%d", i, v_type[i], 
-			v_subtype[i], v_th[i], via_para.gray0, via_para.gray1, via_para.gray2, via_para.gray3);
+		qInfo("%d: fine_via_search type=%d, subtype=%d, pattern=%d, th=%d, g0=%d, g1=%d, g2=%d, g3=%d", i, v_type[i], 
+			v_subtype[i], v_pattern[i], v_th[i], via_para.gray0, via_para.gray1, via_para.gray2, via_para.gray3);
 		vcs[i].reset(ViaComputeScore::create_via_compute_score(layer, via_para, d));
 	}
 	d.l[layer].validate_ig();
@@ -3166,15 +3173,15 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 /*
         31..24 23..16   15..8   7..0
 opt0:	cr_mask default_dir check_len vnum
-opt1:					subtype type
-opt2:					subtype	type
-opt3:					subtype	type
-opt4:					subtype	type
-opt5:					subtype	type
+opt1:			pattern	subtype type
+opt2:			pattern	subtype	type
+opt3:			pattern	subtype	type
+opt4:			pattern	subtype	type
+opt5:			pattern	subtype	type
 vnum is via number
 default_dir is default dir when computing dir not deternmined
 check_len is used for computing dir range
-cr_mask is Remove via option, remove image or mask
+cr_mask is Remove via option, REMOVE_VIA_MASK means mark mask
 method_opt
 0: for via info input
 1: for mask output
@@ -3213,14 +3220,16 @@ static void remove_via(PipeData & d, ProcessParameter & cpara)
 	}
 	int v_type[MAX_VIA_NUM] = { cpara.opt1 & 0xff, cpara.opt2 & 0xff, cpara.opt3 & 0xff };
 	int v_subtype[MAX_VIA_NUM] = { cpara.opt1 >> 8 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt3 >> 8 & 0xff };
+	int v_pattern[MAX_VIA_NUM] = { cpara.opt1 >> 16 & 0xff, cpara.opt2 >> 16 & 0xff, cpara.opt3 >> 16 & 0xff };
 	int v_rr[MAX_VIA_NUM];
 	QScopedPointer<ViaRemove> vr[MAX_VIA_NUM];
 
 	for (int i = 0; i < vnum; i++) {
 		ViaParameter via_para;		
-		VWParameter * vw = d.l[layer].vw.get_vw_para(BRICK_VIA, v_type[i], v_subtype[i]);
+		qInfo("remove_via type=%d, subtype=%d, pattern=%d", v_type[i], v_subtype[i], v_pattern[i]);
+		VWParameter * vw = d.l[layer].vw.get_vw_para(v_pattern[i], v_type[i], v_subtype[i]);
 		if (vw == NULL) {
-			qCritical("remove_via invalid via info %d, %d", v_type[i], v_subtype[i]);
+			qCritical("remove_via invalid via info %d, %d, %d", v_type[i], v_subtype[i], v_pattern[i]);
 			return;
 		}
 		via_para = vw->v;
@@ -3296,23 +3305,6 @@ static void remove_via(PipeData & d, ProcessParameter & cpara)
 	d.l[layer].ig_valid = false;
 	if (cr_mask & REMOVE_VIA_MASK)
 		d.l[layer].v[idx1].d = mask;
-
-	if (cr_mask & CLEAR_VIA_COLOR) {
-		int idx2 = cpara.method_opt >> 8 & 0xf;
-		if (d.l[layer].v[idx2].type != TYPE_GRAY_LEVEL) {
-			qCritical("remove_via gray level idx2[%d]=%d, error", idx2, d.l[layer].v[idx2].type);
-			return;
-		}
-		int gm;
-		gm = find_index(d.l[layer].v[idx2].d, (int)GRAY_M0);
-		gm = d.l[layer].v[idx2].d.at<int>(gm, 2);
-		qInfo("remove_via, clear via color, gm=%d", gm);
-		for (int y = 0; y < img.rows; y++) {
-			unsigned char * p_img = img.ptr<unsigned char>(y);
-			for (int x = 0; x < img.cols; x++)
-				p_img[x] = (p_img[x] > gm) ? gm : p_img[x];
-		}
-	}
 }
 
 struct WireMaskInfo {
@@ -3512,11 +3504,14 @@ static void hotpoint2fine_search_stmask(PipeData & d, ProcessParameter & cpara)
 /*
 		31..24  23..16   15..8  7..0
 opt0:			cr_prob  extend wnum
-opt1:			subtype  type  shape	
-opt2:			subtype  type  shape
-opt3:			subtype  type  shape
-opt4:			subtype  type  shape
+opt1:			subtype  type  pattern	
+opt2:			subtype  type  pattern
+opt3:			subtype  type  pattern
+opt4:			subtype  type  pattern
 cr_prob is clear coarse prob first
+     FINE_LINE_SEARCH_CLEAR_PROB   
+	 FINE_LINE_SEARCH_CLEAR_COLOR
+	 FINE_LINE_SEARCH_NO_VIA
 wnum is wire type num
 extend is if it needs to search extend
 method_opt
@@ -3541,14 +3536,20 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 		return;
 	}
 	Mat mask = d.l[layer].v[idx1].d.clone();
+	Mat via_mask(mask.rows, mask.cols, CV_8UC1);
 
-	int idx2 = cpara.method_opt >> 8 & 0xf;
-	if (d.l[layer].v[idx2].type != TYPE_REMOVE_VIA_MASK) {
-		qCritical("fine_line_search mask idx2[%d]=%d, error", idx2, d.l[layer].v[idx2].type);
-		return;
+	int cr_prob = cpara.opt0 >> 16 & 0xff;
+	if ((cr_prob & FINE_LINE_SEARCH_NO_VIA) ==0) {
+		int idx2 = cpara.method_opt >> 8 & 0xf;
+		if (d.l[layer].v[idx2].type != TYPE_REMOVE_VIA_MASK) {
+			qCritical("fine_line_search mask idx2[%d]=%d, error", idx2, d.l[layer].v[idx2].type);
+			return;
+		}
+		via_mask = d.l[layer].v[idx2].d;
 	}
-	
-	Mat via_mask = d.l[layer].v[idx2].d;
+	else
+		via_mask = Scalar::all(0);
+
 	if (mask.rows != img.rows || mask.cols != img.cols) {
 		qCritical("fine_line_search, mask.size(%d,%d)!=img.size(%d,%d)", mask.rows, mask.cols, img.rows, img.cols);
 		return;
@@ -3568,25 +3569,27 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 	gm = d.l[layer].v[idx].d.at<int>(gm, 2);
 	int wnum = cpara.opt0 & 0xff;
 	int extend = cpara.opt0 >> 8 & 0xff;
-	int cr_prob = cpara.opt0 >> 16 & 0xff;
+	
 	qInfo("fine_line_search, l=%d, wnum=%d, gi=%d, gm=%d, extend=%d, cr_prob=%d", layer, wnum, gi, gm, extend, cr_prob);
 
-	if (cr_prob) { //clear prob if needed
-		int idx3 = cpara.method_opt >> 12 & 0xf;
-		if (d.l[layer].v[idx3].type != TYPE_VIA_LOCATION) {
-			qCritical("fine_line_search mask idx3[%d]=%d, error", idx3, d.l[layer].v[idx3].type);
-			return;
-		}
-		Mat & via_m = d.l[layer].v[idx3].d;
-		for (int i = 0; i < via_m.rows; i++) {
-			int type = via_m.at<int>(i, 0);
-			int x = via_m.at<int>(i, 2);
-			int y = via_m.at<int>(i, 3);
-			int y0 = y / d.l[layer].gs, x0 = x / d.l[layer].gs;
-			unsigned long long * p_prob = d.l[layer].prob.ptr<unsigned long long>(y0, x0);
-			if (PROB_SHAPE(p_prob[0]) != BRICK_VIA) { //mark BRICK_VIA with via info
-				p_prob[1] = p_prob[0];
-				p_prob[0] = MAKE_PROB(MAKE_S(1, type, BRICK_VIA), x, y);
+	if (cr_prob & FINE_LINE_SEARCH_CLEAR_PROB) { //clear prob if needed		
+		if ((cr_prob & FINE_LINE_SEARCH_NO_VIA) == 0) {
+			int idx3 = cpara.method_opt >> 12 & 0xf;
+			if (d.l[layer].v[idx3].type != TYPE_VIA_LOCATION) {
+				qCritical("fine_line_search mask idx3[%d]=%d, error", idx3, d.l[layer].v[idx3].type);
+				return;
+			}
+			Mat & via_m = d.l[layer].v[idx3].d;
+			for (int i = 0; i < via_m.rows; i++) {
+				int type = via_m.at<int>(i, 0);
+				int x = via_m.at<int>(i, 2);
+				int y = via_m.at<int>(i, 3);
+				int y0 = y / d.l[layer].gs, x0 = x / d.l[layer].gs;
+				unsigned long long * p_prob = d.l[layer].prob.ptr<unsigned long long>(y0, x0);
+				if (PROB_SHAPE(p_prob[0]) != BRICK_VIA) { //mark BRICK_VIA with via info
+					p_prob[1] = p_prob[0];
+					p_prob[0] = MAKE_PROB(MAKE_S(1, type, BRICK_VIA), x, y);
+				}
 			}
 		}
 		for (int y = 0; y < d.l[layer].prob.rows; y++) {
@@ -3614,6 +3617,18 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 				}
 		}
 	}
+
+
+	if (cr_prob & FINE_LINE_SEARCH_CLEAR_COLOR) {		
+		qInfo("fine_line_search, clear color, gi=%d, gm=%d", gi, gm);
+		for (int y = 0; y < img.rows; y++) {
+			unsigned char * p_img = img.ptr<unsigned char>(y);
+			for (int x = 0; x < img.cols; x++)
+				p_img[x] = (p_img[x] > gm) ? gm : ((p_img[x] < gi) ? gi : p_img[x]);
+		}
+		d.l[layer].ig_valid = false;
+	}
+	
 #define MAX_WIRE_NUM 4
 	if (wnum > MAX_WIRE_NUM) {
 		qCritical("fine_line_search, wnum too big");
@@ -3621,15 +3636,15 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 	}
 	int w_type[MAX_WIRE_NUM] = { cpara.opt1 >> 8 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt3 >> 8 & 0xff, cpara.opt4 >> 8 & 0xff };
 	int w_subtype[MAX_WIRE_NUM] = { cpara.opt1 >> 16 & 0xff, cpara.opt2 >> 16 & 0xff, cpara.opt3 >> 16 & 0xff, cpara.opt4 >> 16 & 0xff };
-	int w_shape[MAX_WIRE_NUM] = { cpara.opt1 & 0xff, cpara.opt2 & 0xff, cpara.opt3 & 0xff, cpara.opt4 & 0xff };
+	int w_pattern[MAX_WIRE_NUM] = { cpara.opt1 & 0xff, cpara.opt2 & 0xff, cpara.opt3 & 0xff, cpara.opt4 & 0xff };
 	int w_guard[MAX_WIRE_NUM];
 	QScopedPointer<WireComputeScore> wcs[MAX_WIRE_NUM];
 
 	for (int i = 0; i < wnum; i++) {
 		WireParameter wire_para;
-		VWParameter * vw = d.l[layer].vw.get_vw_para(w_shape[i], w_type[i], w_subtype[i]);
+		VWParameter * vw = d.l[layer].vw.get_vw_para(w_pattern[i], w_type[i], w_subtype[i]);
 		if (vw == NULL) {
-			qCritical("fine_line_search invalid wire info %d, %d %d", w_shape[i], w_type[i], w_subtype[i]);
+			qCritical("fine_line_search invalid wire info pattern=%d, type=%d, subtype=%d", w_pattern[i], w_type[i], w_subtype[i]);
 			return;
 		}
 		wire_para = vw->w;
@@ -3895,7 +3910,7 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 
 /*
 		31..24 23..16   15..8   7..0
-opt0:							wnum
+opt0:					flag	wnum
 opt1:	clong_heng clong_shu cwide	type
 opt2:	clong_heng clong_shu cwide	type		
 opt3:	clong_heng clong_shu cwide	type		
@@ -3912,14 +3927,18 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 	Mat & prob = d.l[layer].prob;	
 	
 	int wnum = cpara.opt0 & 0xff;
-	qInfo("assemble_line l=%d, wnum=%d", layer, wnum);
+	int flag = cpara.opt0 >> 8 & 0xff;
+	qInfo("assemble_line l=%d, flag=%d, wnum=%d", layer, flag, wnum);
 	Mat mark(prob.rows, prob.cols, CV_8UC1);	
-	int idx = cpara.method_opt & 0xf;
-	if (d.l[layer].v[idx].type != TYPE_VIA_LOCATION) {
-		qCritical("assemble_line idx[%d]=%d, error", idx, d.l[layer].v[idx].type);
-		return;
+	Mat via_loc;
+	if ((flag & ASSEMBLE_LINE_NO_VIA) == 0) {
+		int idx = cpara.method_opt & 0xf;
+		if (d.l[layer].v[idx].type != TYPE_VIA_LOCATION) {
+			qCritical("assemble_line idx[%d]=%d, error", idx, d.l[layer].v[idx].type);
+			return;
+		}
+		via_loc = d.l[layer].v[idx].d;
 	}
-	Mat & via_loc = d.l[layer].v[idx].d;
 #define MAX_WIRE_NUM 6
 	int wtype[MAX_WIRE_NUM] = { cpara.opt1 & 0xff, cpara.opt2 & 0xff, cpara.opt3 & 0xff, cpara.opt4 & 0xff, cpara.opt5 & 0xff };
 	int cwide[MAX_WIRE_NUM] = { cpara.opt1 >> 8 & 0xff, cpara.opt2 >> 8 & 0xff, 
@@ -4290,6 +4309,68 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 	}
 }
 
+/*
+		31..24 23..16   15..8   7..0
+opt0:					filt_method process_method
+opt1:							len	
+opt2:							dir
+method_opt
+idx: via info
+*/
+static void filter_obj(CornerSets & obj_sets, int layer, int obj_type, ProcessParameter & cpara)
+{
+	int filt_method = cpara.opt0 >> 8 & 0xff;
+	
+	if (obj_type == OBJ_WIRE && layer==cpara.layer) {		
+		switch (filt_method) {
+		case 0: //filter wire by length
+			{
+				int len = cpara.opt1, dir;
+				if (abs(obj_sets.cs.back().x() - obj_sets.cs[0].x()) < abs(obj_sets.cs.back().y() - obj_sets.cs[0].y()))
+					dir = 0;
+				else
+					dir = 1;
+				if (dir == cpara.opt2 && abs(obj_sets.cs.back().x() - obj_sets.cs[0].x()) < len 
+					&& abs(obj_sets.cs.back().y() - obj_sets.cs[0].y()) < len)
+					obj_sets.cs.clear();
+			}
+			break;
+		default:
+			qCritical("filter_obj wrong filt_method(%d)", filt_method);
+		}		
+	}
+}
+
+#define OP_FILTER 0
+struct ObjProcess {
+	int method;
+	ObjProcessFunc process_func;
+} obj_process_array[] = {
+	OP_FILTER, filter_obj
+};
+/*
+        31..24 23..16   15..8   7..0
+opt0:							process_method
+cwide, clong_heng clong_shu is for connectivity. Normally cwide <=3
+method_opt
+idx: via info
+*/
+static ObjProcessHook obj_process_translate(ProcessParameter & cpara)
+{
+	ObjProcessHook hook;
+	hook.func = NULL;
+	hook.cpara = cpara;
+	int process_method = cpara.opt0 & 0xff;
+	for (int i = 0; i < sizeof(obj_process_array) / sizeof(obj_process_array[0]); i++) {
+		if (obj_process_array[i].method == process_method) {
+			qInfo("hook obj process method %d, opt1=%d, opt2=%d", obj_process_array[i].method, cpara.opt1, cpara.opt2);
+			hook.func = obj_process_array[i].process_func;
+			break;
+		}
+	}
+	return hook;
+}
+
 #define PP_SET_PARAM			0
 #define PP_RGB2GRAY				1
 #define PP_COMPUTE_MIN_STAT		2
@@ -4301,7 +4382,7 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 #define PP_FINE_SEARCH_MASK		8
 #define PP_FINE_LINE_SEARCH		9
 #define PP_ASSEMBLE				10
-
+#define PP_OBJ_PROCESS			254
 
 typedef void(*ProcessFunc)(PipeData & d, ProcessParameter & cpara);
 struct PipeProcess {
@@ -4318,7 +4399,7 @@ struct PipeProcess {
 		{ PP_REMOVE_VIA, remove_via },
 		{ PP_FINE_SEARCH_MASK, hotpoint2fine_search_stmask },
 		{ PP_FINE_LINE_SEARCH, fine_line_search },		
-		{ PP_ASSEMBLE, assemble_line}		
+		{ PP_ASSEMBLE, assemble_line },
 };
 
 class ProcessTileData {
@@ -4333,6 +4414,7 @@ public:
 	}
 };
 
+//Process tile for all layer
 static void process_tile(ProcessTileData & t)
 {
 	vector<ProcessParameter> & vwp = *(t.vwp);
@@ -4340,11 +4422,12 @@ static void process_tile(ProcessTileData & t)
 	PipeData & d = *(t.d);
 	for (int i = 0; i < vwp.size(); i++) {
 		int method = vwp[i].method & 0xff;
-		if (process_func[method] == NULL) {
+		if (process_func[method] == NULL && method != PP_OBJ_PROCESS) {
 			qCritical("process func method %d invalid", method);
 			return;
 		}
-		process_func[method](d, vwp[i]);
+		if (process_func[method] != NULL)
+			process_func[method](d, vwp[i]);
 	}
 }
 
@@ -4447,13 +4530,21 @@ void VWExtractPipe::get_feature(int layer, int x, int y, std::vector<float> &, s
 	}
 }
 
-int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_sets)
+int VWExtractPipe::extract(string file_name, QRect, vector<MarkObj> & obj_sets)
 {
-	for (int i = 0; i < vwp.size(); i++)
+	vector<ObjProcessHook> obj_process;
+	int im_dec_flag[100] = { 0 };
+	for (int i = 0; i < vwp.size(); i++) {
 		qInfo("extract vw%d:l=0x%x,m=0x%x,mo=0x%x,o0=0x%x,o1=0x%x,o2=0x%x,o3=0x%x,o4=0x%x,o5=0x%x,o6=0x%x,i8=0x%x,f0=%f",
-		i, vwp[i].layer, vwp[i].method, vwp[i].method_opt, vwp[i].opt0, vwp[i].opt1, vwp[i].opt2,
-		vwp[i].opt3, vwp[i].opt4, vwp[i].opt5, vwp[i].opt6, vwp[i].opt_f0);
-
+			i, vwp[i].layer, vwp[i].method, vwp[i].method_opt, vwp[i].opt0, vwp[i].opt1, vwp[i].opt2,
+			vwp[i].opt3, vwp[i].opt4, vwp[i].opt5, vwp[i].opt6, vwp[i].opt_f0);
+		if ((vwp[i].method & 0xff) == PP_RGB2GRAY) {
+			qInfo("Layer %d is color RGB", vwp[i].layer);
+			im_dec_flag[vwp[i].layer] = 1;
+		}
+		if ((vwp[i].method & 0xff) == PP_OBJ_PROCESS)
+			obj_process.push_back(obj_process_translate(vwp[i]));
+	}
 	QDir *qdir = new QDir;
 	deldir("./DImg");
 	bool exist = qdir->exists("./DImg");
@@ -4483,7 +4574,7 @@ int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 	unsigned char ll = file_name[file_name.size() - 5];
 	for (int i = 0; i < layer_num; i++) {
 		file_name[file_name.size() - 5] = i + ll;
-		Mat img = imread(file_name, 0);
+		Mat img = imread(file_name, im_dec_flag[i]);
 		if (!img.empty())
 			d->l[i].set_raw_img(img);
 		else {
@@ -4509,7 +4600,9 @@ int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 
 			for (int j = 0; j < d->l[l].fwl[dir].lines.size(); j++) {
 				CornerSets & wl = d->l[l].fwl[dir].lines[j];
-				for (int i = 0; i < wl.cs.size() - 1; i++) {
+				for (int i = 0; i < (int)obj_process.size(); i++)
+					obj_process[i].func(wl, l, OBJ_WIRE, obj_process[i].cpara);
+				for (int i = 0; i < (int) wl.cs.size() - 1; i++) {
 					MarkObj wire;
 					wire.type = OBJ_LINE;
 					wire.type2 = LINE_WIRE_AUTO_EXTRACT;
@@ -4543,6 +4636,8 @@ int VWExtractPipe::extract(string file_name, QRect, std::vector<MarkObj> & obj_s
 int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
 {
 	int BORDER_SIZE = 16;
+	int im_dec_flag[100] = { 0 };
+	vector<ObjProcessHook> obj_process;
 	QDir *qdir = new QDir;
 	deldir("./DImg");
 	bool exist = qdir->exists("./DImg");
@@ -4560,11 +4655,14 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 			vwp[i].opt3, vwp[i].opt4, vwp[i].opt5, vwp[i].opt6, vwp[i].opt_f0);	
 		if ((vwp[i].opt0 >> 24) == 1 && (vwp[i].method & 0xff) == PP_SET_PARAM)
 			BORDER_SIZE = vwp[i].opt0 >> 16 & 0xff;
+		if ((vwp[i].method & 0xff) == PP_RGB2GRAY) {
+			qInfo("Layer %d is color RGB", vwp[i].layer);
+			im_dec_flag[vwp[i].layer] = 1;
+		}
+		if ((vwp[i].method & 0xff) == PP_OBJ_PROCESS)
+			obj_process.push_back(obj_process_translate(vwp[i]));
 	}
-#if SAVE_RST_TO_FILE
-	FILE * fp;
-	fp = fopen("result.txt", "w");
-#endif
+
 	//prepare process
 	vector<ProcessFunc> process_func(256, NULL);
 	for (int i = 0; i < sizeof(pipe_process_array) / sizeof(pipe_process_array[0]); i++)
@@ -4601,6 +4699,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		int by = sr.bottom() - ((sb.bottom() + 1) << 15);
 		int cl = 1;
 		int cl_num;
+		QPoint sr_tl_pixel = sr.topLeft() / scale;
 		for (int xay = sb.left() + sb.top(); xay <= sb.right() + sb.bottom(); xay++) {
 			for (int i = 0; i < diag_line[cl].size(); i++) //release current diag_line memory
 				for (int j = 0; j < diag_line[cl][i].l.size(); j++)
@@ -4660,7 +4759,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 					for (int l = 0; l < layer_num; l++) {
 						int ewide = (x0 == sb.left()) ? 0 : BORDER_SIZE * 2;
 						int ehight = (y0 == sb.top()) ? 0 : BORDER_SIZE * 2;
-						Mat img(height[0] + height[1] + height[2] + ehight, wide[0] + wide[1] + wide[2] + ewide, CV_8U);
+						Mat img(height[0] + height[1] + height[2] + ehight, wide[0] + wide[1] + wide[2] + ewide, im_dec_flag[l] ? CV_8UC3 : CV_8U);
 						if (ewide == 0 && ehight == 0) {
 							d->l[l].img_pixel_x0 = 0;
 							d->l[l].img_pixel_y0 = 0;
@@ -4726,7 +4825,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 										qCritical("load image error at l=%d, (%d,%d)", l, x, y);
 										return -1;
 									}
-									Mat image = imdecode(Mat(encode_img), 0);
+									Mat image = imdecode(Mat(encode_img), im_dec_flag[l]);
 									if (image.rows != image.cols) {
 										qCritical("load image rows!=cols at l=%d, (%d,%d)", l, x, y);
 										return -1;
@@ -4773,6 +4872,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 				ptd_sets[i].d = &diag_line[cl][i];
 			}
 #if PARALLEL 
+			//each thread process all layer on same tile
 			QtConcurrent::blockingMap<vector <ProcessTileData> >(ptd_sets, process_tile);
 #else
 			for (int i = 0; i < ptd_sets.size(); i++)
@@ -4829,17 +4929,26 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 								wl.cs.back().x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
 								wl.cs[0].y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
 								wl.cs.back().y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
+								(wl.cs[0].x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
+								wl.cs.back().x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
+								cpd.y0 == sb.bottom()) ||
+								(wl.cs[0].y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
+								wl.cs.back().y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
+								cpd.x0 == sb.right()) ||
 								(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {
+								//call hook to do obj process
+								for (int i = 0; i < (int)obj_process.size(); i++)
+									obj_process[i].func(wl, l, OBJ_WIRE, obj_process[i].cpara);
 								//3.4 for internal points, push to output
-								for (int i = 0; i < wl.cs.size() - 1; i++) {
+								for (int i = 0; i < (int) wl.cs.size() - 1; i++) {
 									MarkObj wire;
 									wire.type = OBJ_LINE;
 									wire.type2 = LINE_WIRE_AUTO_EXTRACT;
 									wire.type3 = l;
 									wire.state = 0;
 									wire.prob = 1;
-									wire.p0 = wl.cs[i];
-									wire.p1 = wl.cs[i+1];
+									wire.p0 = wl.cs[i] + sr_tl_pixel;
+									wire.p1 = wl.cs[i+1] + sr_tl_pixel;
 									obj_sets.push_back(wire);
 								}
 							}
@@ -4868,6 +4977,8 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 						QPoint & point = cpd.l[l].fv.cs[j];
 						if ((point.x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
 							point.y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
+							(point.x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 && cpd.y0 == sb.bottom()) ||
+							(point.y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 && cpd.x0 == sb.right()) ||
 							(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {
 							//3.4 for internal points, push to output
 							MarkObj via;
@@ -4876,8 +4987,8 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 							via.type3 = l;
 							via.state = 0;
 							via.prob = 1;
-							via.p0 = point;
-							via.p1 = point;
+							via.p0 = point + sr_tl_pixel;
+							via.p1 = point + sr_tl_pixel;
 							obj_sets.push_back(via);
 						}
 						else
@@ -4887,23 +4998,26 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 				}
 			}
 		}
-		for (int i = 0; i < obj_sets.size(); i++) {
-			obj_sets[i].p0 = obj_sets[i].p0 * scale + sr.topLeft();
-			obj_sets[i].p1 = obj_sets[i].p1 * scale + sr.topLeft();
-		}
-#if SAVE_RST_TO_FILE
-		for (int i = 0; i < obj_sets.size(); i++) {
-			unsigned t = obj_sets[i].type;
-			t = (t << 8) | obj_sets[i].type2;
-			t = (t << 8) | obj_sets[i].type3;
-			fprintf(fp, "t=%d, (%d,%d)->(%d,%d)\n", t, obj_sets[i].p0.x(), obj_sets[i].p0.y(),
-				obj_sets[i].p1.x(), obj_sets[i].p1.y());
-		}
-#endif
 	}
+
 #if SAVE_RST_TO_FILE
+	FILE * fp;
+	fp = fopen("result.txt", "w");
+	for (int i = 0; i < obj_sets.size(); i++) {
+		unsigned t = obj_sets[i].type;
+		t = (t << 8) | obj_sets[i].type2;
+		t = (t << 8) | obj_sets[i].type3;
+		fprintf(fp, "t=%d, (%d,%d)->(%d,%d)\n", t, obj_sets[i].p0.x(), obj_sets[i].p0.y(),
+			obj_sets[i].p1.x(), obj_sets[i].p1.y());
+	}
 	fclose(fp);
-#endif
+#endif	
+
+	for (int i = 0; i < obj_sets.size(); i++) {
+		obj_sets[i].p0 = obj_sets[i].p0 * scale;
+		obj_sets[i].p1 = obj_sets[i].p1 * scale;
+	}
+	
 	return 0;
 }
 

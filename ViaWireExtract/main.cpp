@@ -140,7 +140,7 @@ int cell_extract_test()
 	vector <MarkObj> obj_set; 
 
 	CellExtract ce;
-	ICLayerWrInterface * ic = ICLayerWrInterface::create("C:/chenyu/data/hanzhou/M1/M1.db", true);
+	ICLayerWrInterface * ic = ICLayerWrInterface::create("C:/chenyu/data/A1002/PL.db", true);
 	
     vector<ICLayerWrInterface *> pic;
     pic.push_back(ic);
@@ -150,11 +150,12 @@ int cell_extract_test()
 	obj.type = OBJ_AREA;
 	obj.type2 = AREA_CELL;
 	obj.type3 = POWER_UP_L;
-	obj.p0 = QPoint(1520896,234899);
-	obj.p1 = QPoint(1534975,239059);
+	obj.p0 = QPoint(1309832,629791);
+	obj.p1 = QPoint(1311175,634110);
 	obj.state = 0;
 	objs.push_back(obj);
     ce.train(pic, objs);
+	/*
 	vector<SearchArea> search;
 	search.push_back(SearchArea(QRect(QPoint(1463296, 229374), QPoint(1654911, 234621)), POWER_UP | POWER_DOWN));
 	search.push_back(SearchArea(QRect(QPoint(1463296, 234494), QPoint(1654911, 239741)), POWER_UP | POWER_DOWN));
@@ -170,7 +171,7 @@ int cell_extract_test()
 	search.push_back(SearchArea(QRect(QPoint(1463296, 285694), QPoint(1654911, 290941)), POWER_UP | POWER_DOWN));
 	search.push_back(SearchArea(QRect(QPoint(1463296, 290814), QPoint(1654911, 296061)), POWER_UP | POWER_DOWN));
     ce.extract(pic, search, objs);
-
+	*/
     return 0;
 }
 /*
@@ -266,7 +267,7 @@ int test_extractparam2()
 
 	ep.read_file("action.xml");
 	vector<ParamItem> params;
-	ep.get_param("action_via", params);
+	ep.get_param("action_all_layer", params);
 	VWExtract * vwe = VWExtract::create_extract(0);
 
 	vector<ICLayerWrInterface *> pic;
@@ -314,7 +315,7 @@ int main(int argc, char *argv[])
     MainWindow w;
 	
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();

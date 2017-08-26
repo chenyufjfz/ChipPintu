@@ -14,7 +14,7 @@ using namespace cv;
 #define PP_FINE_SEARCH_MASK		8
 #define PP_FINE_LINE_SEARCH		9
 #define PP_ASSEMBLE				10
-
+#define PP_OBJ_PROCESS			254
 enum {
 	LayerInfo=0,
 	ViaInfo,
@@ -28,7 +28,8 @@ enum {
 	RemoveVia,
 	HotlineMask,
 	FineLineSearch,
-	AssembleLine
+	AssembleLine,
+	FilterObj
 };
 
 string method_name[] = {
@@ -44,7 +45,8 @@ string method_name[] = {
 	"RemoveVia",
 	"HotlineMask",
 	"FineLineSearch",
-	"AssembleLine"
+	"AssembleLine",
+	"FilterObj"
 };
 
 ExtractParam::ExtractParam()
@@ -106,7 +108,7 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 		if (pi0 == -1)
 			method = LayerInfo;
 		else {
-			if ((pi2 & 0xff) == 0xfe)
+			if ((pi2 & 0x80) == 0x80)
 				method = ViaInfo;
 			else
 				method = WireInfo;
@@ -141,6 +143,10 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 		break;
 	case PP_ASSEMBLE:
 		method = AssembleLine;
+		break;
+	case PP_OBJ_PROCESS:
+		if ((pi2 & 0xff) ==0)
+			method = FilterObj;
 		break;
 	default:
 		qCritical("set_param unknow method");
@@ -267,7 +273,7 @@ bool ExtractParam::read_file(string filename)
 			{
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
-				int shape = (int)(*it)["shape"];
+				int pattern = (int)(*it)["pattern"];
 				int type = (int)(*it)["type"];
 				int subtype = (int)(*it)["subtype"];
 				int guard = (int)(*it)["guard"];
@@ -278,9 +284,9 @@ bool ExtractParam::read_file(string filename)
 				int w_high1 = (int)(*it)["w_high1"];
 				int i_wide = (int)(*it)["i_wide"];
 				int i_high = (int)(*it)["i_high"];
-				if (shape > 255 || type > 255 || subtype > 255) {
-					qCritical("ParamItems file error, name=%s, shape=%d, type=%d, subtype=%d", 
-						name.c_str(), shape, type, subtype);
+				if (pattern > 255 || type > 255 || subtype > 255) {
+					qCritical("ParamItems file error, name=%s, pattern=%d, type=%d, subtype=%d", 
+						name.c_str(), pattern, type, subtype);
 					check_pass = false;
 				}
 				if (arfactor > 255 || guard > 255) {
@@ -294,7 +300,7 @@ bool ExtractParam::read_file(string filename)
 				}
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
-				param.pi[2] = subtype << 16 | type << 8 | shape;
+				param.pi[2] = subtype << 16 | type << 8 | pattern;
 				param.pi[3] = arfactor << 8 | guard;				
 				param.pi[4] = w_wide << 24 | w_wide1 << 16 | w_high << 8 | w_high1;
 				param.pi[5] = i_wide << 8 | i_high;
@@ -440,12 +446,16 @@ bool ExtractParam::read_file(string filename)
 				int update_prob = (int)(*it)["update_prob"];
 				int type0 = (int)(*it)["type0"];
 				int dir0 = (int)(*it)["dir0"];
+				int pattern0 = (int)(*it)["pattern0"];
 				int type1 = (int)(*it)["type1"];
 				int dir1 = (int)(*it)["dir1"];
+				int pattern1 = (int)(*it)["pattern1"];
 				int type2 = (int)(*it)["type2"];
 				int dir2 = (int)(*it)["dir2"];
+				int pattern2 = (int)(*it)["pattern2"];
 				int type3 = (int)(*it)["type3"];
 				int dir3 = (int)(*it)["dir3"];
+				int pattern3 = (int)(*it)["pattern3"];
 
 				param.pi[0] = layer;
 				if (opidx_tp >= 16 || opidx_shadow_prob >= 16 || opidx_rv_mask >=16) {
@@ -480,10 +490,10 @@ bool ExtractParam::read_file(string filename)
 				param.pi[1] = debug_opt << 24 | PP_COARSE_LINE_SEARCH << 16 | opidx_rv_mask << 8 | opidx_shadow_prob << 4 | opidx_tp;
 				param.pi[2] = inc1 << 24 | inc0 << 16 | wlong1 << 8 | wlong0;
 				param.pi[3] = update_prob << 24 | th1 << 16 | th0 << 8 | wnum;
-				param.pi[4] = dir0 << 8 | type0;
-				param.pi[5] = dir1 << 8 | type1;
-				param.pi[6] = dir2 << 8 | type2;
-				param.pi[7] = dir3 << 8 | type3;
+				param.pi[4] = pattern0 << 16 | dir0 << 8 | type0;
+				param.pi[5] = pattern1 << 16 | dir1 << 8 | type1;
+				param.pi[6] = pattern2 << 16 | dir2 << 8 | type2;
+				param.pi[7] = pattern3 << 16 | dir3 << 8 | type3;
 			}
 			break;
 
@@ -567,18 +577,23 @@ bool ExtractParam::read_file(string filename)
 				int subtype0 = (int)(*it)["subtype0"];
 				int type0 = (int)(*it)["type0"];
 				int th0 = (int)(*it)["th0"];
+				int pattern0 = (int)(*it)["pattern0"];
 				int subtype1 = (int)(*it)["subtype1"];				
 				int type1 = (int)(*it)["type1"];
 				int th1 = (int)(*it)["th1"];
+				int pattern1 = (int)(*it)["pattern1"];
 				int subtype2 = (int)(*it)["subtype2"];
 				int type2 = (int)(*it)["type2"];
 				int th2 = (int)(*it)["th2"];
+				int pattern2 = (int)(*it)["pattern2"];
 				int subtype3 = (int)(*it)["subtype3"];
 				int type3 = (int)(*it)["type3"];
 				int th3 = (int)(*it)["th3"];
+				int pattern3 = (int)(*it)["pattern3"];
 				int subtype4 = (int)(*it)["subtype4"];
 				int type4 = (int)(*it)["type4"];
 				int th4 = (int)(*it)["th4"];
+				int pattern4 = (int)(*it)["pattern4"];
 
 				if (opidx_tp >= 16 || opidx_via_mask >= 16 || opidx_via_info >= 16 || opidx_shadow_prob >= 16) {
 					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_via_mask=%d, opidx_via_info=%d, opidx_shadow_prob=%d", 
@@ -586,21 +601,33 @@ bool ExtractParam::read_file(string filename)
 					check_pass = false;
 				}
 
-				if (subtype1 > 255 || type1 > 255 || subtype0 > 255 || type0 > 255) {
-					qCritical("ParamItems file error, name=%s, subtype1=%d, type1=%d, subtype0=%d, type0=%d",
-						name.c_str(), subtype1, type1, subtype0, type0);
+				if (pattern0 > 255 || th0 > 255 || subtype0 > 255 || type0 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern0=%d, th0=%d, subtype0=%d, type0=%d",
+						name.c_str(), pattern0, th0, subtype0, type0);
 					check_pass = false;
 				}
 
-				if (subtype2 > 255 || type2 > 255 || subtype3 > 255 || type3 > 255) {
-					qCritical("ParamItems file error, name=%s, subtype2=%d, type2=%d, subtype3=%d, type3=%d",
-						name.c_str(), subtype2, type2, subtype3, type3);
+				if (pattern1 > 255 || th1 > 255 || subtype1 > 255 || type1 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern1=%d, th1=%d, subtype1=%d, type1=%d",
+						name.c_str(), pattern1, th1, subtype1, type1);
 					check_pass = false;
 				}
 
-				if (th0 > 255 || th1 > 255 || th2 > 255 || th3 > 255) {
-					qCritical("ParamItems file error, name=%s, th0=%d, th1=%d, th2=%d, th3=%d",
-						name.c_str(), th0, th1, th2, th3);
+				if (pattern2 > 255 || th2 > 255 || subtype2 > 255 || type2 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern2=%d, th2=%d, subtype2=%d, type2=%d",
+						name.c_str(), pattern2, th2, subtype2, type2);
+					check_pass = false;
+				}
+
+				if (pattern3 > 255 || th3 > 255 || subtype3 > 255 || type3 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern3=%d, th3=%d, subtype3=%d, type3=%d",
+						name.c_str(), pattern3, th3, subtype3, type3);
+					check_pass = false;
+				}
+
+				if (pattern4 > 255 || th4 > 255 || subtype4 > 255 || type4 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern4=%d, th4=%d, subtype4=%d, type4=%d",
+						name.c_str(), pattern4, th4, subtype4, type4);
 					check_pass = false;
 				}
 
@@ -612,11 +639,11 @@ bool ExtractParam::read_file(string filename)
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_FINE_VIA_SEARCH << 16 | opidx_shadow_prob << 12 | opidx_via_info << 8 | opidx_via_mask << 4 | opidx_tp;
 				param.pi[2] = update_fv << 8 | vnum;
-				param.pi[3] = th0 << 16 | subtype0 << 8 | type0;
-				param.pi[4] = th1 << 16 | subtype1 << 8 | type1;
-				param.pi[5] = th2 << 16 | subtype2 << 8 | type2;
-				param.pi[6] = th3 << 16 | subtype3 << 8 | type3;
-				param.pi[7] = th4 << 16 | subtype4 << 8 | type4;
+				param.pi[3] = pattern0 << 24 | th0 << 16 | subtype0 << 8 | type0;
+				param.pi[4] = pattern1 << 24 | th1 << 16 | subtype1 << 8 | type1;
+				param.pi[5] = pattern2 << 24 | th2 << 16 | subtype2 << 8 | type2;
+				param.pi[6] = pattern3 << 24 | th3 << 16 | subtype3 << 8 | type3;
+				param.pi[7] = pattern4 << 24 | th4 << 16 | subtype4 << 8 | type4;
 			}
 			break;
 
@@ -633,14 +660,19 @@ bool ExtractParam::read_file(string filename)
 				int clear_mask = (int)(*it)["clear_mask"];
 				int subtype0 = (int)(*it)["subtype0"];
 				int type0 = (int)(*it)["type0"];
+				int pattern0 = (int)(*it)["pattern0"];
 				int subtype1 = (int)(*it)["subtype1"];
 				int type1 = (int)(*it)["type1"];
+				int pattern1 = (int)(*it)["pattern1"];
 				int subtype2 = (int)(*it)["subtype2"];
 				int type2 = (int)(*it)["type2"];
+				int pattern2 = (int)(*it)["pattern2"];
 				int subtype3 = (int)(*it)["subtype3"];
 				int type3 = (int)(*it)["type3"];
+				int pattern3 = (int)(*it)["pattern3"];
 				int subtype4 = (int)(*it)["subtype4"];
 				int type4 = (int)(*it)["type4"];
+				int pattern4 = (int)(*it)["pattern4"];
 
 				if (opidx_rv_mask >= 16 || opidx_via_info >= 16 || opidx_tp >= 16) {
 					qCritical("ParamItems file error, name=%s, opidx_rv_mask=%d, opidx_via_info=%d, opidx_tp=%d",
@@ -653,31 +685,44 @@ bool ExtractParam::read_file(string filename)
 						name.c_str(), clear_mask, default_dir, check_len, vnum);
 					check_pass = false;
 				}
-				if (subtype1 > 255 || type1 > 255 || subtype0 > 255 || type0 > 255) {
-					qCritical("ParamItems file error, name=%s, subtype1=%d, type1=%d, subtype0=%d, type0=%d",
-						name.c_str(), subtype1, type1, subtype0, type0);
+				if (pattern0 > 255 || subtype0 > 255 || type0 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern0=%d, subtype0=%d, type0=%d",
+						name.c_str(), pattern0, subtype0, type0);
 					check_pass = false;
 				}
 
-				if (subtype2 > 255 || type2 > 255 || subtype3 > 255 || type3 > 255) {
-					qCritical("ParamItems file error, name=%s, subtype2=%d, type2=%d, subtype3=%d, type3=%d",
-						name.c_str(), subtype2, type2, subtype3, type3);
+				if (pattern1 > 255 || subtype1 > 255 || type1 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern1=%d, subtype1=%d, type1=%d",
+						name.c_str(), pattern1, subtype1, type1);
 					check_pass = false;
 				}
 
-				if (subtype4 > 255 || type4 > 255) {
-					qCritical("ParamItems file error, name=%s, subtype4=%d, type4=%d, vnum=%d",
-						name.c_str(), subtype4, type4, vnum);
+				if (pattern2 > 255 || subtype2 > 255 || type2 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern2=%d, subtype2=%d, type2=%d",
+						name.c_str(), pattern2, subtype2, type2);
 					check_pass = false;
 				}
+
+				if (pattern3 > 255 || subtype3 > 255 || type3 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern3=%d, subtype3=%d, type3=%d",
+						name.c_str(), pattern3, subtype3, type3);
+					check_pass = false;
+				}
+
+				if (pattern4 > 255 || subtype4 > 255 || type4 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern4=%d, subtype4=%d, type4=%d",
+						name.c_str(), pattern4, subtype4, type4);
+					check_pass = false;
+				}
+
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_REMOVE_VIA << 16 | opidx_rv_mask << 4 | opidx_via_info;
 				param.pi[2] = clear_mask << 24 | default_dir << 16 | check_len << 8 | vnum;
-				param.pi[3] = subtype0 << 8 | type0;
-				param.pi[4] = subtype1 << 8 | type1;
-				param.pi[5] = subtype2 << 8 | type2;
-				param.pi[6] = subtype3 << 8 | type3;
-				param.pi[7] = subtype4 << 8 | type4;
+				param.pi[3] = pattern0 << 16 | subtype0 << 8 | type0;
+				param.pi[4] = pattern1 << 16 | subtype1 << 8 | type1;
+				param.pi[5] = pattern2 << 16 | subtype2 << 8 | type2;
+				param.pi[6] = pattern3 << 16 | subtype3 << 8 | type3;
+				param.pi[7] = pattern4 << 16 | subtype4 << 8 | type4;
 			}
 			break;
 
@@ -768,16 +813,16 @@ bool ExtractParam::read_file(string filename)
 				int cr_prob = (int)(*it)["clear_prob"];
 				int subtype0 = (int)(*it)["subtype0"];
 				int type0 = (int)(*it)["type0"];
-				int shape0 = (int)(*it)["shape0"];
+				int pattern0 = (int)(*it)["pattern0"];
 				int subtype1 = (int)(*it)["subtype1"];
 				int type1 = (int)(*it)["type1"];
-				int shape1 = (int)(*it)["shape1"];
+				int pattern1 = (int)(*it)["pattern1"];
 				int subtype2 = (int)(*it)["subtype2"];
 				int type2 = (int)(*it)["type2"];
-				int shape2 = (int)(*it)["shape2"];
+				int pattern2 = (int)(*it)["pattern2"];
 				int subtype3 = (int)(*it)["subtype3"];
 				int type3 = (int)(*it)["type3"];
-				int shape3 = (int)(*it)["shape3"];
+				int pattern3 = (int)(*it)["pattern3"];
 				
 				if (opidx_tp >= 16 || opidx_hl_mask >= 16 || opidx_rv_mask >= 16 || opidx_via_info>=16 || wnum >= 256 || extend >= 256 || cr_prob >= 256) {
 					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_hl_mask=%d, opidx_rv_mask=%d, opidx_via_info=%d, wnum=%d, extend=%d, cr_prob=%d",
@@ -785,37 +830,37 @@ bool ExtractParam::read_file(string filename)
 					check_pass = false;
 				}
 
-				if (shape0 > 255 || subtype0 > 255 || type0 > 255) {
-					qCritical("ParamItems file error, name=%s, shape0=%d, subtype0=%d, type0=%d",
-						name.c_str(), shape0, subtype0, type0);
+				if (pattern0 > 255 || subtype0 > 255 || type0 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern0=%d, subtype0=%d, type0=%d",
+						name.c_str(), pattern0, subtype0, type0);
 					check_pass = false;
 				}
 
-				if (shape1 > 255 || subtype1 > 255 || type1 > 255) {
-					qCritical("ParamItems file error, name=%s, shape1=%d, subtype1=%d, type1=%d",
-						name.c_str(), shape1, subtype1, type1);
+				if (pattern1 > 255 || subtype1 > 255 || type1 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern1=%d, subtype1=%d, type1=%d",
+						name.c_str(), pattern1, subtype1, type1);
 					check_pass = false;
 				}
 
-				if (shape2 > 255 || subtype2 > 255 || type2 > 255) {
-					qCritical("ParamItems file error, name=%s, shape2=%d, subtype2=%d, type2=%d",
-						name.c_str(), shape2, subtype2, type2);
+				if (pattern2 > 255 || subtype2 > 255 || type2 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern2=%d, subtype2=%d, type2=%d",
+						name.c_str(), pattern2, subtype2, type2);
 					check_pass = false;
 				}
 
-				if (shape3 > 255 || subtype3 > 255 || type3 > 255) {
-					qCritical("ParamItems file error, name=%s, shape3=%d, subtype3=%d, type3=%d",
-						name.c_str(), shape3, subtype3, type3);
+				if (pattern3 > 255 || subtype3 > 255 || type3 > 255) {
+					qCritical("ParamItems file error, name=%s, pattern3=%d, subtype3=%d, type3=%d",
+						name.c_str(), pattern3, subtype3, type3);
 					check_pass = false;
 				}
 
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_FINE_LINE_SEARCH << 16 | opidx_via_info << 12 | opidx_rv_mask << 8 | opidx_hl_mask << 4 | opidx_tp;
 				param.pi[2] = cr_prob << 16 | extend << 8 | wnum;
-				param.pi[3] = subtype0 << 16 | type0 << 8 | shape0;
-				param.pi[4] = subtype1 << 16 | type1 << 8 | shape1;
-				param.pi[5] = subtype2 << 16 | type2 << 8 | shape2;
-				param.pi[6] = subtype3 << 16 | type3 << 8 | shape3;
+				param.pi[3] = subtype0 << 16 | type0 << 8 | pattern0;
+				param.pi[4] = subtype1 << 16 | type1 << 8 | pattern1;
+				param.pi[5] = subtype2 << 16 | type2 << 8 | pattern2;
+				param.pi[6] = subtype3 << 16 | type3 << 8 | pattern3;
 			}
 			break;
 
@@ -823,8 +868,9 @@ bool ExtractParam::read_file(string filename)
 			{
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
-				int opidx_via_info = (int)(*it)["opidx_via_info"];
+				int opidx_via_info = (int)(*it)["opidx_via_info"];				
 				int wnum = (int)(*it)["wnum"];
+				int flag = (int)(*it)["flag"];
 				int type0 = (int)(*it)["type0"];
 				int cwide0 = (int)(*it)["cwide0"];
 				int clong_shu0 = (int)(*it)["clong_shu0"];
@@ -838,8 +884,8 @@ bool ExtractParam::read_file(string filename)
 				int clong_shu2 = (int)(*it)["clong_shu2"];
 				int clong_heng2 = (int)(*it)["clong_heng2"];
 
-				if (wnum > 255) {
-					qCritical("ParamItems file error, name=%s, wnum=%d", name.c_str(), wnum);
+				if (wnum > 255 || flag > 255) {
+					qCritical("ParamItems file error, name=%s, wnum=%d, flag=%d", name.c_str(), wnum, flag);
 					check_pass = false;
 				}
 
@@ -868,10 +914,29 @@ bool ExtractParam::read_file(string filename)
 
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_ASSEMBLE << 16 | opidx_via_info;
-				param.pi[2] = wnum;
+				param.pi[2] = flag << 8 | wnum;
 				param.pi[3] = clong_heng0 << 24 | clong_shu0 << 16 | cwide0 << 8 | type0;
 				param.pi[4] = clong_heng1 << 24 | clong_shu1 << 16 | cwide1 << 8 | type1;
 				param.pi[5] = clong_heng2 << 24 | clong_shu2 << 16 | cwide2 << 8 | type2;
+			}
+			break;
+
+		case FilterObj:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int filter_method = (int)(*it)["filter_method"];
+				int opt1 = (int)(*it)["opt1"];
+				int opt2 = (int)(*it)["opt2"];
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_OBJ_PROCESS << 16;
+				param.pi[2] = filter_method << 8;
+				param.pi[3] = opt1;
+				param.pi[4] = opt2;
+				if (filter_method > 255) {
+					qCritical("ParamItems file error, name=%s, filter=%d", name.c_str(), filter_method);
+					check_pass = false;
+				}
 			}
 			break;
 		}
@@ -938,7 +1003,7 @@ void ExtractParam::write_file(string filename)
 		case WireInfo:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
-			fs << "shape" << (it->second.pi[2] & 0xff);
+			fs << "pattern" << (it->second.pi[2] & 0xff);
 			fs << "type" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "subtype" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "guard" << (it->second.pi[3] & 0xff);
@@ -1014,12 +1079,16 @@ void ExtractParam::write_file(string filename)
 			fs << "update_prob" << (it->second.pi[3] >> 24 & 0xff);
 			fs << "type0" << (it->second.pi[4] & 0xff);
 			fs << "dir0" << (it->second.pi[4] >> 8 & 0xff);
+			fs << "pattern0" << (it->second.pi[4] >> 16 & 0xff);
 			fs << "type1" << (it->second.pi[5] & 0xff);
 			fs << "dir1" << (it->second.pi[5] >> 8 & 0xff);
+			fs << "pattern1" << (it->second.pi[5] >> 16 & 0xff);
 			fs << "type2" << (it->second.pi[6] & 0xff);
 			fs << "dir2" << (it->second.pi[6] >> 8 & 0xff);
+			fs << "pattern2" << (it->second.pi[6] >> 16 & 0xff);
 			fs << "type3" << (it->second.pi[7] & 0xff);
 			fs << "dir3" << (it->second.pi[7] >> 8 & 0xff);
+			fs << "pattern3" << (it->second.pi[7] >> 16 & 0xff);
 			break;
 
 		case CoarseViaSearch:
@@ -1056,18 +1125,23 @@ void ExtractParam::write_file(string filename)
 			fs << "subtype0" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "type0" << (it->second.pi[3] & 0xff);
 			fs << "th0" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "pattern0" << (it->second.pi[3] >> 24 & 0xff);
 			fs << "subtype1" << (it->second.pi[4] >> 8 & 0xff);
 			fs << "type1" << (it->second.pi[4] & 0xff);
 			fs << "th1" << (it->second.pi[4] >> 16 & 0xff);
+			fs << "pattern1" << (it->second.pi[4] >> 24 & 0xff);
 			fs << "subtype2" << (it->second.pi[5] >> 8 & 0xff);
 			fs << "type2" << (it->second.pi[5] & 0xff);
 			fs << "th2" << (it->second.pi[5] >> 16 & 0xff);
+			fs << "pattern2" << (it->second.pi[5] >> 24 & 0xff);
 			fs << "subtype3" << (it->second.pi[6] >> 8 & 0xff);
 			fs << "type3" << (it->second.pi[6] & 0xff);
 			fs << "th3" << (it->second.pi[6] >> 16 & 0xff);
+			fs << "pattern3" << (it->second.pi[6] >> 24 & 0xff);
 			fs << "subtype4" << (it->second.pi[7] >> 8 & 0xff);
 			fs << "type4" << (it->second.pi[7] & 0xff);
 			fs << "th4" << (it->second.pi[7] >> 16 & 0xff);
+			fs << "pattern4" << (it->second.pi[7] >> 24 & 0xff);
 			break;
 
 		case RemoveVia:
@@ -1081,14 +1155,19 @@ void ExtractParam::write_file(string filename)
 			fs << "clear_mask" << (it->second.pi[2] >> 24 & 0xff);
 			fs << "subtype0" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "type0" << (it->second.pi[3] & 0xff);
+			fs << "pattern0" << (it->second.pi[3] >> 16 & 0xff);
 			fs << "subtype1" << (it->second.pi[4] >> 8 & 0xff);
 			fs << "type1" << (it->second.pi[4] & 0xff);
+			fs << "pattern1" << (it->second.pi[4] >> 16 & 0xff);
 			fs << "subtype2" << (it->second.pi[5] >> 8 & 0xff);
 			fs << "type2" << (it->second.pi[5] & 0xff);
+			fs << "pattern2" << (it->second.pi[5] >> 16 & 0xff);
 			fs << "subtype3" << (it->second.pi[6] >> 8 & 0xff);
 			fs << "type3" << (it->second.pi[6] & 0xff);
+			fs << "pattern3" << (it->second.pi[6] >> 16 & 0xff);
 			fs << "subtype4" << (it->second.pi[7] >> 8 & 0xff);
 			fs << "type4" << (it->second.pi[7] & 0xff);
+			fs << "pattern4" << (it->second.pi[7] >> 16 & 0xff);
 			break;
 
 		case HotlineMask:
@@ -1130,22 +1209,23 @@ void ExtractParam::write_file(string filename)
 			fs << "clear_prob" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "subtype0" << (it->second.pi[3] >> 16 & 0xff);
 			fs << "type0" << (it->second.pi[3] >> 8 & 0xff);
-			fs << "shape0" << (it->second.pi[3] & 0xff);
+			fs << "pattern0" << (it->second.pi[3] & 0xff);
 			fs << "subtype1" << (it->second.pi[4] >> 16 & 0xff);
 			fs << "type1" << (it->second.pi[4] >> 8 & 0xff);
-			fs << "shape1" << (it->second.pi[4] & 0xff);
+			fs << "pattern1" << (it->second.pi[4] & 0xff);
 			fs << "subtype2" << (it->second.pi[5] >> 16 & 0xff);
 			fs << "type2" << (it->second.pi[5] >> 8 & 0xff);
-			fs << "shape2" << (it->second.pi[5] & 0xff);
+			fs << "pattern2" << (it->second.pi[5] & 0xff);
 			fs << "subtype3" << (it->second.pi[6] >> 16 & 0xff);
 			fs << "type3" << (it->second.pi[6] >> 8 & 0xff);
-			fs << "shape3" << (it->second.pi[6] & 0xff);
+			fs << "pattern3" << (it->second.pi[6] & 0xff);
 			break;
 
 		case AssembleLine:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
 			fs << "wnum" << (it->second.pi[2] & 0xff);
+			fs << "flag" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "type0" << (it->second.pi[3] & 0xff);
 			fs << "cwide0" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "clong_shu0" << (it->second.pi[3] >> 16 & 0xff);
@@ -1158,6 +1238,14 @@ void ExtractParam::write_file(string filename)
 			fs << "cwide2" << (it->second.pi[5] >> 8 & 0xff);
 			fs << "clong_shu2" << (it->second.pi[5] >> 16 & 0xff);
 			fs << "clong_heng2" << (it->second.pi[5] >> 24 & 0xff);
+			break;
+
+		case FilterObj:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "filter_method" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "opt1" << it->second.pi[3];
+			fs << "dir" << it->second.pi[4];
 			break;
 		}
 		fs << "}";
