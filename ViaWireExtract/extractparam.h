@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <math.h>
+#include <string.h>
 using namespace std;
 
 class ParamItem {
@@ -29,7 +31,7 @@ public:
 		for (int i = 0; i < sizeof(pi) / sizeof(pi[0]); i++)
 			if (pi[i] != item.pi[i])
 				return false;
-		return (abs(pf - item.pf) < 0.0001);
+        return (fabs(pf - item.pf) < 0.0001);
 	}
 	bool operator!=(const ParamItem & item) const {
 		return !(*this == item);

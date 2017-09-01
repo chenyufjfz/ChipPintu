@@ -303,19 +303,44 @@ int test_extractparam2()
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
 	//search.push_back(SearchArea(QRect(QPoint(1030000, 260000), QPoint(1600000, 800000)), 0));
-	search.push_back(SearchArea(QRect(QPoint(1040881, 289829), QPoint(1395185, 526117)), 0));	
+	search.push_back(SearchArea(QRect(QPoint(1040881, 289829), QPoint(1505185, 756117)), 0));
 	vector <MarkObj> objs;
 	vwe->extract(pic, search, objs);
 	return 0;
 }
+#ifdef Q_OS_WIN
+#include <Windows.h>
+#include <DbgHelp.h>
+void CreateMiniDump(PEXCEPTION_POINTERS pep, LPCTSTR strFileName)
+{ 
+	HANDLE hFile = CreateFile(strFileName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if ((hFile != NULL) && (hFile != INVALID_HANDLE_VALUE)) {
+		MINIDUMP_EXCEPTION_INFORMATION mdei;
+		mdei.ThreadId = GetCurrentThreadId();
+		mdei.ExceptionPointers = pep;
+		mdei.ClientPointers = FALSE;
+		MINIDUMP_TYPE mdt = (MINIDUMP_TYPE)(MiniDumpWithFullMemory | MiniDumpWithFullMemoryInfo | MiniDumpWithHandleData | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
+		BOOL rv = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile, mdt, (pep != 0) ? &mdei : 0, 0, 0);
+		CloseHandle(hFile);
+	}
+} 
 
+LONG __stdcall MyUnhandledExceptionFilter(PEXCEPTION_POINTERS pExceptionInfo)
+{
+	CreateMiniDump(pExceptionInfo, L"core.dmp");
+	qWarning("crash happen");
+	return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
-	
+#ifdef Q_OS_WIN
+	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
+#endif
 	qInstallMessageHandler(myMessageOutput);
-#if 0
+#if 1
 	
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();
