@@ -1,7 +1,32 @@
 #include "cellextract.h"
+#include <QDir>
 
 #define FEATURE0_SIZE 27
 #define FEATURE1_SIZE 16
+
+static string get_time_str()
+{
+	QDateTime t = QDateTime::currentDateTime();
+	return "./DImg/" + t.toString("hh.mm.ss.zzz").toStdString();
+}
+
+static void deldir(const string &path)
+{
+	if (path.empty())
+		return;
+
+	QDir dir(QString::fromStdString(path));
+	if (!dir.exists())
+		return;
+	dir.setFilter(QDir::AllEntries | QDir::NoDotAndDotDot);
+	QFileInfoList fileList = dir.entryInfoList(); //get all file info
+	foreach(QFileInfo file, fileList) {
+		if (file.isFile())
+			file.dir().remove(file.fileName());
+		else
+			deldir(file.absoluteFilePath().toStdString());
+	}
+}
 
 int cal_bins(Mat &img, QRect rect, vector<unsigned> &bins, int step=1)
 {
@@ -20,10 +45,25 @@ int cal_bins(Mat &img, QRect rect, vector<unsigned> &bins, int step=1)
 
 /*
 Use 2 julei
+input: bins
+input: init_num 2 junlei init_num normally is 0.5
+input: cut_via_ratio, cut via bins
 */
-static void cal_threshold(vector<unsigned> bins, unsigned init_num, vector<unsigned> & th)
+static void cal_threshold(vector<unsigned> bins, vector<unsigned> & th, float init_ratio = 0.5, float cut_via_ratio = 0.01)
 {
-    unsigned total1=0, sep, total2, old_sep=0xffffffff;
+	CV_Assert(cut_via_ratio < 0.05);
+	int total = 0, total1 = 0, sep, total2, old_sep = 0xffffffff;
+	for (sep = 0; sep < bins.size(); sep++) 
+		total += bins[sep];
+	
+	total1 = total * cut_via_ratio;
+	for (sep = bins.size() - 1; sep >= 0 && total1 >= 0; sep--) {
+		total1 -= bins[sep];
+		bins[sep] = 0;
+	}
+	total -= total1;
+	total1 = 0;
+	unsigned init_num = total * init_ratio;
     for (sep = 0; sep < bins.size(); sep++) {
         total1 += bins[sep];
         if (total1 > init_num)
@@ -271,14 +311,6 @@ void CellFeature::cal_feature(int * ig, int lsize, int _width, int _height, int 
     if (valid_area > height*width / 2)
         valid_area = height*width - valid_area;
     CV_Assert(valid_area > 0);
-
-    if (dir == POWER_LEFT || dir == POWER_RIGHT) {
-        width = _height;
-        height = _width;
-        int temp = wunit;
-        wunit = hunit;
-        hunit = temp;
-    }
 }
 
 float CellFeature::cmp(int *ig, int lsize, int & dir, float & m_score)
@@ -287,36 +319,19 @@ float CellFeature::cmp(int *ig, int lsize, int & dir, float & m_score)
     int sx = width / wunit - width % wunit;
     vector<int> tno;
 
-    CV_Assert(dir > 0 && dir < 256 && (dir <= 15 || (dir & 0xf) == 0));
+    CV_Assert(dir > 0 && dir < 256);
     CV_Assert(sy >= 0 && sx >= 0);
-    if (dir <= 15) {
-        int y, yy, h = hunit;
-        for (y = 0, yy = 0; y < height; yy++, y += h) {
-            if (yy >= sy)
-                h = hunit + 1;
-            int w = wunit, x, xx;
-            for (x = 0, xx = 0; x < width; xx++, x += w) {
-                if (xx >= sx)
-                    w = wunit + 1;
-                //calculate (x,y) (x+w, y+h)
-                tno.push_back(ig[y*lsize + x] + ig[(y + h)*lsize + x + w]
-                    - ig[y*lsize + x + w] - ig[(y + h)*lsize + x]);
-            }
-        }
-    }
-    else {
+    int y, yy, h = hunit;
+    for (y = 0, yy = 0; y < height; yy++, y += h) {
+        if (yy >= sy)
+            h = hunit + 1;
         int w = wunit, x, xx;
         for (x = 0, xx = 0; x < width; xx++, x += w) {
             if (xx >= sx)
                 w = wunit + 1;
-            int y, yy, h = hunit;
-            for (y = 0, yy = 0; y < height; yy++, y += h) {
-                if (yy >= sy)
-                    h = hunit + 1;
-                //calculate (y,x) (y+h, x+w)
-                tno.push_back(ig[x*lsize + y] + ig[(x + w)*lsize + y + h]
-                    - ig[x*lsize + y + h] - ig[(x + w)*lsize + y]);
-            }
+            //calculate (x,y) (x+w, y+h)
+            tno.push_back(ig[y*lsize + x] + ig[(y + h)*lsize + x + w]
+                - ig[y*lsize + x + w] - ig[(y + h)*lsize + x]);
         }
     }
 
@@ -338,6 +353,15 @@ float CellFeature::cmp(int *ig, int lsize, int & dir, float & m_score)
 
 int CellExtract::train(string file_name, const vector<MarkObj> & obj_sets)
 {
+	QDir *qdir = new QDir;
+	deldir("./DImg");
+	bool exist = qdir->exists("./DImg");
+	if (!exist) {
+		bool ok = qdir->mkdir("./DImg");
+		if (!ok)
+			qCritical("mkdir failed");
+	}
+	cell.clear();
     img = imread(file_name, 0);
     CV_Assert(img.type() == CV_8UC1);
     mark.create(img.rows, img.cols, CV_8UC1);
@@ -348,34 +372,27 @@ int CellExtract::train(string file_name, const vector<MarkObj> & obj_sets)
     vector<unsigned> bins, th;
     for (unsigned i = 0; i < obj_sets.size(); i++) {
         if (obj_sets[i].type == OBJ_AREA && obj_sets[i].type2 == AREA_CELL) {
-            if (obj_sets[i].type3 != POWER_UP && obj_sets[i].type3 != POWER_DOWN &&
-                obj_sets[i].type3 != POWER_LEFT && obj_sets[i].type3 != POWER_RIGHT) {
+            if (obj_sets[i].type3 != POWER_UP_L && obj_sets[i].type3 != POWER_DOWN_L &&
+				obj_sets[i].type3 != POWER_UP_R && obj_sets[i].type3 != POWER_DOWN_R &&
+                obj_sets[i].type3 != POWER_LEFT_U && obj_sets[i].type3 != POWER_RIGHT_U &&
+				obj_sets[i].type3 != POWER_LEFT_D && obj_sets[i].type3 != POWER_RIGHT_D) {
                 qCritical("cell direction %d is wrong!", obj_sets[i].type3);
                 return -1;
             }
             Mat ig;
             CellFeatures cf;
             QRect rect(obj_sets[i].p0, obj_sets[i].p1);
-            int total=cal_bins(img, rect, bins, 1);
-            cal_threshold(bins, total / 2, th);
+            int total=cal_bins(img, QRect(0,0,img.cols, img.rows), bins, 1);
+            cal_threshold(bins, th, 0.5, 0.02);
             qDebug("train, th0=%d, th1=%d, th2=%d", th[0], th[1], th[2]);
             threshold(img, mark, th[1], 1, THRESH_BINARY);
             integral(mark, ig, CV_32S);
+			imwrite(get_time_str() + "_train_cell.jpg", mark * 100);
             cf.feature[0].cal_feature(ig.ptr<int>(rect.y()) + rect.x(),
                 ig.cols, rect.width(), rect.height(), FEATURE0_SIZE, FEATURE0_SIZE, obj_sets[i].type3);
             cf.feature[1].cal_feature(ig.ptr<int>(rect.y()) + rect.x(),
                 ig.cols, rect.width(), rect.height(), FEATURE1_SIZE, FEATURE1_SIZE, obj_sets[i].type3);
             cell.push_back(cf);
-            /*vector<vector<Point> > contours;
-            vector<Vec4i> hierarchy;
-            vector<Mat> bgr;
-            Mat pic = Mat::zeros(img.rows, img.cols, CV_8UC3);
-            findContours(mark2, contours, hierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-            drawContours(pic, contours, -1, Scalar(255, 255, 255), 2);
-            split(pic, bgr);
-            mark1 = bgr[0];
-            threshold(img, mark2, th[1], 255, THRESH_BINARY);
-            mark3 = 0;*/
         }
     }
     return 0;
@@ -385,26 +402,25 @@ int CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_set
 {
     img = imread(file_name, 0);
     CV_Assert(img.type() == CV_8UC1);
+	int height = cell[0].feature[0].height;
+	int width = cell[0].feature[0].width;
+	if (rect.width() < width || rect.height() < height) {
+		rect = QRect(0, 0, img.cols, img.rows);
+	}
     Mat sml = Mat::zeros(rect.height(), rect.width(), CV_32FC3);
     Mat ig;
     int stepy = 2, stepx = 3;
-
+	
     qInfo("Allow total similar > %f, block similar < %f", 1 - param1, param2);
-
     vector<unsigned> bins, th;
     bins.resize(256, 0);
-    for (int y = rect.y(); y < rect.y() + rect.height(); y++) {
-        unsigned char * p_img = img.ptr<unsigned char>(y);
-        for (int x = rect.x(); x < rect.x() + rect.width(); x++)
-            bins[p_img[x]]++;
-    }
-    cal_threshold(bins, rect.height() * rect.width() / 2, th);
+	cal_bins(img, rect, bins, 1);
+    cal_threshold(bins, th, 0.5, 0.02);
     qDebug("extract, th0=%d, th1=%d, th2=%d", th[0], th[1], th[2]);
     threshold(img, mark, th[1], 1, THRESH_BINARY);
     integral(mark, ig, CV_32S);
-
-    int height = cell[0].feature[0].height;
-    int width = cell[0].feature[0].width;
+	imwrite(get_time_str() + "_extract_cell.jpg", mark * 100);
+    
     for (int y = rect.y(); y < rect.y() + rect.height() - height; y += stepy) {
         Vec3f * p_sml = sml.ptr<Vec3f>(y);
         for (int x = rect.x(); x < rect.x() + rect.width() - width; x += stepx) {
@@ -419,7 +435,7 @@ int CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_set
                 continue;
             }
             float diff, m;
-            int dir = 15;
+            int dir = 0xf0;
             diff = cell[0].feature[0].cmp(ig.ptr<int>(y)+x, ig.cols, dir, m);
             p_sml[x][0] = diff;
             p_sml[x][1] = m;
@@ -515,7 +531,7 @@ int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, const std::vecto
                     Mat image = imdecode(Mat(encode_img), 0);
                     CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
                     int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
-                    cal_threshold(bins, total / 2, th);
+                    cal_threshold(bins, th, 0.5, 0.02);
                     threshold(image, mark, th[1], 1, THRESH_BINARY);
 
                     QRect cr(xx << 15, yy << 15, 32768, 32768);
@@ -589,40 +605,24 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
 
 	//1 Do some check and sort area
     qInfo("Allow total similar th=%f, block similar th=%f. overlap > %f", 1 - param1, param2, param3);
-    if (area_[0].option & (POWER_UP | POWER_DOWN)) {
-        for (int i = 0; i < area_.size(); i++) {
-            qInfo("Receive search rect(%d,%d) (%d,%d), mask=%x", area_[i].rect.left(), area_[i].rect.top(),
-                  area_[i].rect.right(), area_[i].rect.bottom(), area_[i].option);
-            if (area_[i].rect.width() < cwide * scale || area_[i].rect.height() < chigh *scale)
-                qWarning("Rect(%d,%d) can't contain object (%d,%d)", area_[i].rect.width(), area_[i].rect.height(),
-                cwide, chigh);
+    for (int i = 0; i < area_.size(); i++) {
+        qInfo("Receive search rect(%d,%d) (%d,%d), mask=%x", area_[i].rect.left(), area_[i].rect.top(),
+              area_[i].rect.right(), area_[i].rect.bottom(), area_[i].option);
+        if (area_[i].rect.width() < cwide * scale || area_[i].rect.height() < chigh *scale)
+            qWarning("Rect(%d,%d) can't contain object (%d,%d)", area_[i].rect.width(), area_[i].rect.height(),
+            cwide, chigh);
+        else
+            if (area_[i].rect.right() >> 15 > block_x || area_[i].rect.height() >> 15 > block_y)
+                qWarning("Rect bottom right (%d,%d) exceed (%d,%d)", area_[i].rect.right(), area_[i].rect.height(),
+                block_x << 15, block_y << 15);
             else
-                if (area_[i].rect.right() >> 15 > block_x || area_[i].rect.height() >> 15 > block_y)
-                    qWarning("Rect bottom right (%d,%d) exceed (%d,%d)", area_[i].rect.right(), area_[i].rect.height(),
-                    block_x << 15, block_y << 15);
-                else
-                    area.push_back(area_[i]);
-        }
-        area.sort(comp_y);
+                area.push_back(area_[i]);
     }
-    else {
-        for (int i = 0; i < area_.size(); i++) {
-            qInfo("Receive search rect(%d,%d) (%d,%d)", area_[i].rect.left(), area_[i].rect.top(),
-                  area_[i].rect.right(), area_[i].rect.bottom());
-            if (area_[i].rect.width() < chigh * scale || area_[i].rect.height() < cwide * scale)
-                qWarning("Rect(%d,%d) can't contain object (%d,%d)", area_[i].rect.width(), area_[i].rect.height(),
-                    chigh, cwide);
-            else
-                if (area_[i].rect.right() >> 15 > block_x || area_[i].rect.height() >> 15 > block_y)
-                    qWarning("Rect bottom right (%d,%d) exceed (%d,%d)", area_[i].rect.right(), area_[i].rect.height(),
-                    block_x << 15, block_y << 15);
-                else
-            /*QRect search_rect(area_[i].rect.x(), area_[i].rect.y(),
-                area_[i].rect.width() - cell[0].feature[0].height + 1, area_[i].rect.height() - cell[0].feature[0].width + 1);*/
-                    area.push_back(area_[i]);
-        }
+    if (area_[0].option & (POWER_UP | POWER_DOWN))
+        area.sort(comp_y);    
+    else
         area.sort(comp_x);
-    }
+
 
     vector<SearchArea> nsech;
     list<SearchResult> result;
@@ -670,7 +670,7 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
                 Mat image = imdecode(Mat(encode_img), 0);
                 CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
                 int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
-                cal_threshold(bins, total / 2, th);
+                cal_threshold(bins, th, 0.5, 0.02);
                 threshold(image, mark, th[1], 1, THRESH_BINARY);
                 CV_Assert(mark.cols == image.cols && mark.rows == image.rows);
                 mark.copyTo(img(Rect(x, y, image.cols, image.rows)));
@@ -744,7 +744,7 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
                     Mat image = imdecode(Mat(encode_img), 0);
                     CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
                     int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
-                    cal_threshold(bins, total / 2, th);
+                    cal_threshold(bins, th, 0.5, 0.02);
                     threshold(image, mark, th[1], 1, THRESH_BINARY);
                     mark.copyTo(img(Rect(0, y, image.cols, image.rows)));
                 }

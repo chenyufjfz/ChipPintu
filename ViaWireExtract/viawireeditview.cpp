@@ -99,6 +99,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	cele = new CellExtract();
 	current_train = NULL;
 	vwe = NULL;
+	startTimer(2000);
 }
 
 ViaWireEditView::~ViaWireEditView()
@@ -382,9 +383,14 @@ void ViaWireEditView::erase_all_objects()
 void ViaWireEditView::start_cell_train(int , int , int , float _param1, float _param2, float _param3)
 {
 	cele->set_train_param(0, 0, 0, 0, 0, 0, _param1 * 100, _param2 * 100, _param3 * 100, 0);
+
 	for (int i = 0; i < obj_set.size(); i++)
-		if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA)
-			obj_set[i].type3 = POWER_UP;
+		if (obj_set[i].type2 == AREA_CELL && obj_set[i].type == OBJ_AREA) {
+			if (abs(obj_set[i].p0.x() - obj_set[i].p1.x()) > abs(obj_set[i].p0.y() - obj_set[i].p1.y()))
+				obj_set[i].type3 = POWER_UP_L;
+			else
+				obj_set[i].type3 = POWER_LEFT_U;
+		}
 	cele->train(img_name, obj_set);
 	current_train = cele;
 }
@@ -420,7 +426,7 @@ void ViaWireEditView::extract()
 		return;
     obj_set.clear();
     current_obj.type = OBJ_NONE;
-	current_train->extract(img_name, QRect(0, 0, 1020, 1020), obj_set);
+	current_train->extract(img_name, QRect(0, 0, 1, 1), obj_set);
     update();
 }
 
@@ -754,4 +760,9 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		}
 		update();
     }
+}
+
+void ViaWireEditView::timerEvent(QTimerEvent *event)
+{
+	qDebug("*#*#DumpMessage#*#*");
 }

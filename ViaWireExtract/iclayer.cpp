@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <stdio.h>
 #include <QMutexLocker>
+
 #ifdef USE_MDB
 #include "lmdb.h"
 #endif
@@ -875,7 +876,7 @@ void ICLayerM::close()
 #define CACHE_ENABLE_TH (256 * 1024)
 /*
 It support multi-thread access when open as read, it use global lock for one layer
-IClayerWr has cache, and cache size is max_cache_size
+IClayerWr is ICLayerInterface + cache, and cache size is max_cache_size
 */
 class ICLayerWr : public ICLayerWrInterface
 {
@@ -909,7 +910,7 @@ public:
 	void getBlockNum(int & bx, int &by);
 	int getMaxScale();
 	int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved, bool need_cache = true);
-	void generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x = -1, int _block_num_y = -1, float quality = 0.9);
+	void generateDatabase(GenerateDatabaseParam & gdp);
 	void adjust_cache_size(int _delta_cache_size);
 	string get_file_name();
 	void get_cache_stat(int & _cache_size, QTime & earlest_tm);
@@ -1132,8 +1133,16 @@ void ICLayerWr::release_cache(int cache_limit, QTime tm)
 	}
 }
 
-void ICLayerWr::generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x, int _block_num_y, float)
+void ICLayerWr::generateDatabase(GenerateDatabaseParam & gdp)
 {
+	string path = gdp.path;
+	int from_row = gdp.from_row;
+	int to_row = gdp.to_row;
+	int from_col = gdp.from_col;
+	int to_col = gdp.to_col;
+	int _block_num_x = gdp.block_num_x;
+	int _block_num_y = gdp.block_num_y;
+
 	QMutexLocker locker(&mutex);
 	char file_name[500];
 	vector<uchar> buff;
@@ -1277,6 +1286,9 @@ public:
 	2: cache size is decided automatically
 	other: actual cache size
 	Input type: 0 default type
+	zoom: normally it is <=1
+	offset_x, offset_y:: it is global image shirt
+
 	*/
 	void create(const string file, bool _read, int _cache_size = 2, int type = 0, double _zoom = 1, double _offset_x = 0, double _offset_y = 0)
 	{
@@ -1306,7 +1318,7 @@ public:
 		return layer->getRawImgByIdx(buff, x, y, ovr, reserved, need_cache);
 	}
 
-	void generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x = -1, int _block_num_y = -1, float quality = 0.9);
+	void generateDatabase(GenerateDatabaseParam & gdp);
 	void adjust_cache_size(int _delta_cache_size) 
 	{
 		layer->adjust_cache_size(_delta_cache_size);
@@ -1335,13 +1347,31 @@ public:
 	}
 };
 
-void ICLayerZoomWr::generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x, int _block_num_y, float quality)
+void ICLayerZoomWr::generateDatabase(GenerateDatabaseParam & gdp)
 {
+	string path = gdp.path;
+	int from_row = gdp.from_row;
+	int to_row = gdp.to_row;
+	int from_col = gdp.from_col;
+	int to_col = gdp.to_col;
+	int _block_num_x = gdp.block_num_x;
+	int _block_num_y = gdp.block_num_y;
+	int clip_left = gdp.clip_left;
+	int clip_right = gdp.clip_right;
+	int clip_up = gdp.clip_up;
+	int clip_down = gdp.clip_down;
+	float quality = gdp.quality;
+	int bundle_x = gdp.bundle_x;
+	int bundle_y = gdp.bundle_y;
+	int gen_image_width = gdp.gen_image_width;	
+	
 	char file_name[500];
 	vector<uchar> buff;
-	qInfo("ICLayerZoomWr::generateDatabase enter, frow=%d, trow=%d, fcol=%d, tcol=%d, bx=%d, by=%d, zoom=%f, quality=%f",
+	qInfo("ICLayerZoomWr::generateDatabase enter, frow=%d, trow=%d, fcol=%d, tcol=%d, bnum_x=%d, bnum_y=%d, zoom=%f, quality=%f",
 		from_row, to_row, from_col, to_col, _block_num_x, _block_num_y, zoom, quality);
-	if (zoom > 1 || zoom < 0)
+	qInfo("clip_l=%d, clip_r=%d, clip_u=%d, clip_d=%d, bundle_x=%d, bundle_y=%d, gen_width=%d", 
+		clip_left, clip_right, clip_up, clip_down, gen_image_width, bundle_x, bundle_y);
+	if (zoom > 1 || zoom <= 0.02)
 		qFatal("invalid zoom");
 	if (quality > 1 || quality < 0)
 		qFatal("invalid quality");
@@ -1350,48 +1380,76 @@ void ICLayerZoomWr::generateDatabase(const string path, int from_row, int to_row
 	quality_param[1] = quality * 100;
 	vector<Mat> row_buf0(to_col - from_col + 1), row_buf1(to_col - from_col + 1);
 	double rowz, colz; //Dest image size in origrinal picture
-	double y0, y1 = 0; //y1 is row_buf1 bottom line zuobiao
-	int width;
+	double y0, y1 = 0; //y1 is row_buf1 bottom line zuobiao in orignal picture
+	int width; //it is bundle image's width
+	int raw_cols, raw_rows; //it is raw image row - clip_up - clip_down
 	Mat matx, maty;
-	Mat left_img, up_img, leftup_img, image, black_img;
+	Mat black_img;
 	Mat img2x2;
 
-	for (int y = from_row, yy = 0; yy < _block_num_y; y++) {
-		if (y <= to_row) {//read row image from file
-			for (int x = from_col; x <= to_col; x++) {
-				sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y, x);
-				qInfo("read file %s", file_name);
-				ifstream infile(file_name, ifstream::binary);
-				if (infile.fail())
-					qFatal("file %s not exist", file_name);
-				infile.seekg(0, infile.end);
-				long size = infile.tellg();
-				infile.seekg(0);
+	for (int y = from_row, yy = 0; yy < _block_num_y || _block_num_y <=0; y += bundle_y) {
+		if (y <= to_row) {//read one row bundle image from file			
+			for (int x = from_col; x <= to_col; x += bundle_x) {
+				Mat raw_img, bundle_img;
+				//following compute one bundle imge
+				for (int by = 0; by < bundle_y; by++)
+				for (int bx = 0; bx < bundle_x; bx++) {					
+					if (y + by <= to_row && x + bx <= to_col) { //copy one raw image
+						sprintf(file_name, "%s%d_%d.jpg", path.c_str(), y + by, x + bx);
+						qInfo("read file %s", file_name);
+						ifstream infile(file_name, ifstream::binary);
+						if (infile.fail())
+							qFatal("file %s not exist", file_name);
+						infile.seekg(0, infile.end);
+						long size = infile.tellg();
+						infile.seekg(0);
 
-				buff.resize(size);
-				infile.read((char*)&buff[0], size);
+						buff.resize(size);
+						infile.read((char*)&buff[0], size);
 
-				image = imdecode(Mat(buff), CV_LOAD_IMAGE_UNCHANGED);
-				row_buf1[x - from_col] = image;
+						raw_img = imdecode(Mat(buff), CV_LOAD_IMAGE_UNCHANGED);
+						raw_img = raw_img(Rect(clip_left, clip_up, raw_img.cols - clip_left - clip_right,
+							raw_img.rows - clip_up - clip_down));
+						if (bx == 0 && by == 0) {
+							raw_cols = raw_img.cols;
+							raw_rows = raw_img.rows;
+							bundle_img.create(raw_rows * bundle_y, raw_cols * bundle_x, raw_img.type());
+						}
+						Rect dst_rect(bx * raw_cols, by * raw_rows, raw_cols, raw_rows);
+						raw_img.copyTo(bundle_img(dst_rect));
+					}
+					else { //copy black image
+						Rect dst_rect(bx * raw_cols, by * raw_rows, raw_cols, raw_rows);
+						bundle_img(dst_rect) = Scalar::all(0);
+					}
+				}
+#if 0
+				char test_name[100];
+				sprintf(test_name, "bundle_%d_%d.jpg", x, y);
+				imwrite(test_name, bundle_img);
+#endif
+				row_buf1[(x - from_col) / bundle_x] = bundle_img; //now one bundle_img is ready
 				if (y == from_row && x == from_col) {
-					rowz = image.rows * zoom;
-					colz = image.cols * zoom;
-					width = image.rows;
+					rowz = gen_image_width * zoom;
+					colz = gen_image_width * zoom;
+					width = bundle_img.cols;
+					qInfo("raw_rows=%d, raw_cols=%d, bundle_image's cols=%d, rows=%d, rowz=%d", 
+						raw_rows, raw_cols, bundle_img.cols, bundle_img.rows, rowz);
+					if (bundle_img.cols < colz || bundle_img.rows < rowz)
+						qFatal("bundle image cols(%d) or rows(%d) < rowz(%d)", bundle_img.cols, bundle_img.rows, rowz);
 					y0 = -offset_y;
-					if (image.rows != image.cols)
-						qFatal("image rows(%d) != cols(%d)", image.rows, image.cols);
-					if (_block_num_x == -1)
-						_block_num_x = (to_col - from_col + 1) * image.cols / zoom;
-					if (_block_num_y == -1)
-						_block_num_y = (to_row - from_row + 1) * image.rows / zoom;
-					layer->layer->putBlockNumWidth(_block_num_x, _block_num_y, image.cols);
-					matx.create(image.size(), CV_32FC1);
-					maty.create(image.size(), CV_32FC1);
-					black_img.create(image.size(), image.type());
+					if (_block_num_x <= 0)
+						_block_num_x = (to_col - from_col + 1) * raw_cols / colz + 1;
+					if (_block_num_y <= 0)
+						_block_num_y = (to_row - from_row + 1) * raw_rows / rowz + 1;
+					layer->layer->putBlockNumWidth(_block_num_x, _block_num_y, gen_image_width);
+					matx.create(gen_image_width, gen_image_width, CV_32FC1);
+					maty.create(gen_image_width, gen_image_width, CV_32FC1);
+					black_img.create(bundle_img.size(), bundle_img.type());
 					black_img = Scalar::all(0);
 					for (int x = 0; x < row_buf0.size(); x++)
 						row_buf0[x] = black_img;
-					img2x2.create(image.rows * 2, image.cols * 2, image.type());
+					img2x2.create(bundle_img.rows * 2, bundle_img.cols * 2, bundle_img.type());
 				}
 			}
 		}
@@ -1400,17 +1458,16 @@ void ICLayerZoomWr::generateDatabase(const string path, int from_row, int to_row
 				row_buf1[x] = black_img;
 		}
 		y1 += row_buf1[0].rows;
-					
+				
+		Mat image, left_img, up_img, leftup_img;
 		for (; y0 + rowz < y1 && yy < _block_num_y; y0 += rowz, yy++) { // y0 begin at row_buf0
 			//Generate one row at dest database
-			int x1 = 0;
-			//if (y == from_row && y0 + rowz < 0 || 
-			//	-offset_x + colz < 0) {
+			int x1 = 0; //x1 is right line zuobiao in original picture
+			//if (y == from_row && y0 + rowz < 0 || -offset_x + colz < 0) {
 			image = black_img;
 			up_img = black_img;
 			left_img = black_img;
-			leftup_img = black_img;
-			
+			leftup_img = black_img;			
 			
 			for (double x0 = -offset_x, xx = 0; xx < _block_num_x; x0 += colz, xx++) {
 				while (x0 + colz >= x1) {
@@ -1432,28 +1489,35 @@ void ICLayerZoomWr::generateDatabase(const string path, int from_row, int to_row
 						up_img = black_img;
 					}
 				}
-				Q_ASSERT(image.size() == left_img.size() && image.size() == leftup_img.size() && image.size() == up_img.size());
+				Q_ASSERT(image.size() == left_img.size() && image.size() == leftup_img.size() && image.size() == up_img.size() &&
+					image.rows * 2 == img2x2.rows && image.cols * 2 ==img2x2.cols);
 				leftup_img.copyTo(img2x2(Rect(0, 0, image.cols, image.rows)));
 				up_img.copyTo(img2x2(Rect(image.cols, 0, image.cols, image.rows)));
 				left_img.copyTo(img2x2(Rect(0, image.rows, image.cols, image.rows)));
 				image.copyTo(img2x2(Rect(image.cols, image.rows, image.cols, image.rows)));
 				
-				for (int i = 0; i < image.cols; i++)
+				for (int i = 0; i < gen_image_width; i++)
 					matx.col(i) = (float)(x0 + zoom * i - (x1 - image.cols * 2));
-				for (int i = 0; i < image.rows; i++)
+				for (int i = 0; i < gen_image_width; i++)
 					maty.row(i) = (float)(y0 + zoom * i - (y1 - image.rows * 2));
 				qInfo("copy from (lx=%.2f, ly=%.2f), (rx=%.2f, ry=%.2f)", x0, y0,
 					x0 + matx.at<float>(matx.rows - 1, matx.cols - 1) - matx.at<float>(0, 0), 
 					y0 + maty.at<float>(matx.rows - 1, matx.cols - 1) - maty.at<float>(0, 0));
-				Mat dst(image.size(), image.type());
+				Mat dst(gen_image_width, gen_image_width, image.type());
 				remap(img2x2, dst, matx, maty, CV_INTER_LINEAR, BORDER_CONSTANT);
+#if 0
+				if (yy == 0) {
+					char test_name[100];
+					sprintf(test_name, "img_%d.jpg", (int)xx);
+					imwrite(test_name, image);
+				}
+#endif
 				imencode(".jpg", dst, buff, quality_param);
 				layer->layer->addRawImg(buff, xx, yy, 0);
 			}
 		}
 		row_buf0.swap(row_buf1);
-	}		
-	
+	}			
 	
 	layer->close();
 }
@@ -1467,6 +1531,8 @@ ICLayerWrInterface * ICLayerWrInterface::create(const string file, bool _read, d
 		else
 			return new ICLayerZoomWr(file, _read, _cache_size, dbtype, _zoom, _offset_x, _offset_y);
 	}
+	if (wrtype == 1)
+		return new ICLayerZoomWr(file, _read, _cache_size, dbtype, _zoom, _offset_x, _offset_y);
 	return NULL;
 }
 
@@ -1493,8 +1559,7 @@ public:
 	int getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved, bool need_cache = true);
 	int getLayerNum();
 	ICLayerWrInterface * get_layer(int layer);
-	void addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col, 
-		int bx, int by, double zoom, double offset_x, double offset_y, float quality);
+	void addNewLayer(GenerateDatabaseParam & gdp);
 	int open(const string prj, bool _read, int _max_cache_size);
 	void set_cache_size(int _max_cache_size);
 	void adjust_cache_size(int _delta_cache_size);
@@ -1655,20 +1720,24 @@ ICLayerWrInterface * BkImg::get_layer(int layer) {
 	}
 }
 
-void BkImg::addNewLayer(const string filename, const string path, int from_row, int to_row, int from_col, int to_col, 
-	int bx, int by, double zoom, double offset_x, double offset_y, float quality)
+void BkImg::addNewLayer(GenerateDatabaseParam & gdp)
 {
+	string filename = gdp.db_name;
+	double zoom = gdp.zoom;
+	double offset_x = gdp.offset_x;
+	double offset_y = gdp.offset_y;
+
 	QMutexLocker locker(&mutex);
 	if (read_write) {
 		qCritical("addNewLayer not work for read mode");
 		return;
 	}
 	layer_file.push_back(full_path_layer_file(filename));
-	ICLayerWrInterface * new_db = ICLayerWrInterface::create(layer_file.back(), false, zoom, offset_x, offset_y);
+	ICLayerWrInterface * new_db = ICLayerWrInterface::create(layer_file.back(), false, zoom, offset_x, offset_y, 2, gdp.db_type, gdp.wr_type);
 	qInfo("Add layer %d=%s", layer_file.size() - 1, layer_file.back().c_str());
 	bk_img_layers.push_back(NULL);
 	locker.unlock();
-	new_db->generateDatabase(path, from_row, to_row, from_col, to_col, bx, by, quality);	
+	new_db->generateDatabase(gdp);	
 }
 
 int BkImg::open(const string prj, bool _read, int _max_cache_size)

@@ -22,6 +22,10 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
     datetime = QTime::currentTime();
     QString str_dt = datetime.toString("hh:mm:ss.zzz");
 
+	if (msg == "*#*#DumpMessage#*#*") {
+		fflush(fp);
+		return;
+	}
     if (context.function==NULL) {
         switch (type) {
         case QtDebugMsg:
@@ -259,7 +263,8 @@ int test_extractparam2()
 	vector<string> action;
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A12/chip.prj", 0);
+	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
 #endif
@@ -303,7 +308,7 @@ int test_extractparam2()
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
 	//search.push_back(SearchArea(QRect(QPoint(1030000, 260000), QPoint(1600000, 800000)), 0));
-	search.push_back(SearchArea(QRect(QPoint(1040881, 289829), QPoint(1505185, 756117)), 0));
+	search.push_back(SearchArea(QRect(QPoint(786080, 456896), QPoint(973472, 626624)), 0));
 	vector <MarkObj> objs;
 	vwe->extract(pic, search, objs);
 	return 0;
@@ -340,7 +345,7 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();

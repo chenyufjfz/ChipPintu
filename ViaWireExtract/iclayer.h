@@ -26,6 +26,53 @@ public:
     virtual ~ICLayerInterface() {}
 };
 
+/*
+Each raw image process
+1 clip, clip_left. clip_right, clip_up, clip_down
+  clip_image.cols = raw_image.cols - clip_left - clip_right,
+  clip_image.rows = new_image.rows - clip_up - clip_down
+2 bundle, bundle_x, bundle_y
+  bundle_image.cols = (raw_image.cols - clip_left - clip_right) * bundle_x
+  bundle_image.rows = (raw_image.cols - clip_up - clip_down) * bundle_y
+3 zoom
+4 cut to gen_image_width
+*/
+class GenerateDatabaseParam {
+public:
+	string db_name; //destination db file name
+	string path; //source image path
+	int from_row, to_row, from_col, to_col; //the filename range
+	int block_num_x; //final block num x
+	int block_num_y; //final block num y
+	int clip_left; //clip raw image left before zoom, alwasy > 0
+	int clip_right;//clip raw image right before zoom, alwasy > 0
+	int clip_up;//clip raw image up before zoom, alwasy > 0
+	int clip_down; //clip raw image down before zoom, alwasy > 0
+	int bundle_x, bundle_y; //it treat image as bundle
+	int gen_image_width;
+	int db_type; //normally it is 0
+	int wr_type; //if it is 0, choose ICLayerWr, if it is 1 choose ICLayerZoomWr
+	float quality;
+	double zoom; // zoom is destination image / source image, always <=1, >0
+	double offset_x, offset_y;
+	GenerateDatabaseParam() {
+		block_num_x = 0;
+		block_num_y = 0; 
+		quality = 0.7;
+		clip_left = 0;
+		clip_right = 0;
+		clip_up = 0;
+		clip_down = 0;
+		gen_image_width = 1024;
+		zoom = 1;
+		offset_x = 0;
+		offset_y = 0;
+		bundle_x = 1;
+		bundle_y = 1;
+		db_type = 0;
+		wr_type = 0;
+	}
+};
 class ICLayerWrInterface
 {
 public:
@@ -38,7 +85,8 @@ public:
 		  other: actual cache size
 	  Input: dbtype, normally it is 0
 	  Input: wrtype, normally it is 0
-	  Input: _zoom
+	  Input: _zoom, same as GenerateDatabaseParam zoom
+	  Input: _offset_x, _offset_y, same as GenerateDatabaseParam _offset_x, _offset_y
 	*/
 	static ICLayerWrInterface * create(const string file, bool _read, double _zoom = 1.0, double _offset_x = 0, double _offset_y = 0,
 		int _cache_size = 2, int dbtype = 0, int wrtype = 0);
@@ -63,7 +111,7 @@ public:
 	Input, path, filename prefix for source image file
 	Input, from_row, to_row, from_col, to_col, used to generate file name postfix
 	*/
-	virtual void generateDatabase(const string path, int from_row, int to_row, int from_col, int to_col, int _block_num_x = -1, int _block_num_y = -1, float quality = 0.9) = 0;
+	virtual void generateDatabase(GenerateDatabaseParam & gdp) = 0;
 	/*Only be called when open for read
 	Input: _delta_cache_size
 	*/
@@ -158,8 +206,7 @@ public:
 	Input, by, by, used to set block_x_num and block_y_num
 	Input, quality, used to set image quality
 	*/
-	virtual void addNewLayer(const string filename, const string path, int from_row, int to_row, 
-		int from_col, int to_col, int bx, int by, double zoom, double offset_x, double offset_y, float quality) = 0;
+	virtual void addNewLayer(GenerateDatabaseParam & gdp) = 0;
 	virtual int open(const string prj, bool _read, int _max_cache_size=0) = 0;
 	/*Only be called when open for read
 	Input: _delta_cache_size

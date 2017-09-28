@@ -60,6 +60,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event);
 	void keyPressEvent(QKeyEvent *e);
     void draw_obj(QPainter & painter, const MarkObj & obj);
+	void timerEvent(QTimerEvent *event);
 };
 
 #endif // VIAWIREEDITVIEW_H

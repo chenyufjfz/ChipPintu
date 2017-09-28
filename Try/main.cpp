@@ -96,7 +96,13 @@ void test_one_layer()
 {
 	ICLayerWrInterface * new_db = ICLayerWrInterface::create("C:/chenyu/data/hanzhou/M1/PL.db", false);
 	//new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
-	new_db->generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 6, 1, 7);
+	GenerateDatabaseParam gdp;
+	gdp.path = "F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_";
+	gdp.from_row = 1;
+	gdp.to_row = 6;
+	gdp.from_col = 1;
+	gdp.to_col = 7;
+	new_db->generateDatabase(gdp);
 	delete new_db;
 	ICLayerWrInterface * read_db = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", false);
 	int bx, by, width;
@@ -132,7 +138,7 @@ struct GenerateLayerParam{
 class GenerateParam {
 public:
 	string prj_name;
-	vector<GenerateLayerParam> l;
+	vector<GenerateDatabaseParam> l;
 	GenerateParam() {
 		prj_name = "C:/chenyu/data/A09/chip.prj";
 	}
@@ -140,22 +146,32 @@ public:
 		FileStorage fs(filename, FileStorage::READ);
 		l.clear();
 
+#define LET_N0(a, b) a = ((b)!=0) ? (b) : a;
 		fs["prj_name"] >> prj_name;
 		FileNode layer_params = fs["LayerParams"];
 		for (FileNodeIterator it = layer_params.begin(); it != layer_params.end(); it++) {
-			GenerateLayerParam lpa;
+			GenerateDatabaseParam lpa;
 			lpa.db_name = (string)(*it)["db_name"];
-			lpa.path_prefix = (string)(*it)["path_prefix"];
+			lpa.path = (string)(*it)["path_prefix"];
 			lpa.from_row = (int)(*it)["from_row"];
 			lpa.to_row = (int)(*it)["to_row"];
 			lpa.from_col = (int)(*it)["from_col"];
 			lpa.to_col = (int)(*it)["to_col"];
-			lpa.block_num_x = (int)(*it)["block_num_x"];
-			lpa.block_num_y = (int)(*it)["block_num_y"];
-			lpa.quality = (float)(*it)["quality"];
-			lpa.zoom = (double)(*it)["zoom"];
+			LET_N0(lpa.block_num_x, (int)(*it)["block_num_x"]);
+			LET_N0(lpa.block_num_y, (int)(*it)["block_num_y"]);
+			LET_N0(lpa.quality, (float)(*it)["quality"]);
+			LET_N0(lpa.zoom, (double)(*it)["zoom"]);
 			lpa.offset_x = (double)(*it)["offset_x"];
 			lpa.offset_y = (double)(*it)["offset_y"];
+			lpa.clip_left = (int)(*it)["clip_left"];
+			lpa.clip_right = (int)(*it)["clip_right"];
+			lpa.clip_up = (int)(*it)["clip_up"];
+			lpa.clip_down = (int)(*it)["clip_down"];
+			LET_N0(lpa.bundle_x, (int)(*it)["bundle_x"]);
+			LET_N0(lpa.bundle_y, (int)(*it)["bundle_y"]);
+			LET_N0(lpa.gen_image_width, (int)(*it)["gen_image_width"]);
+			lpa.db_type = (int)(*it)["db_type"];
+			LET_N0(lpa.wr_type, (int)(*it)["wr_type"]);
 			l.push_back(lpa);
 		}
 	}
@@ -172,10 +188,12 @@ int main(int argc, char *argv[])
 	bk_img_db->open(gen.prj_name, false);
 	for (int i = 0; i < gen.l.size(); i++) {
 		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d, block_num_x=%d, block_num_y=%d, offset_x=%f, offset_y=%f, zoom=%f", 
-			gen.l[i].db_name.c_str(), gen.l[i].path_prefix.c_str(),	gen.l[i].from_row, gen.l[i].to_row, 
-			gen.l[i].from_col, gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].offset_x, gen.l[i].offset_y, gen.l[i].zoom);
-		bk_img_db->addNewLayer(gen.l[i].db_name, gen.l[i].path_prefix, gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, 
-			gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].zoom, gen.l[i].offset_x, gen.l[i].offset_y, gen.l[i].quality);
+			gen.l[i].db_name.c_str(), gen.l[i].path.c_str(), gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, 
+			gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].offset_x, gen.l[i].offset_y, gen.l[i].zoom);
+		qInfo("clip_l=%d, clip_r=%d, clip_u=%d, clip_d=%d, bundle_x=%d, bundle_y=%d, gen_width=%d, quality=%f", 
+			gen.l[i].clip_left, gen.l[i].clip_right, gen.l[i].clip_up, gen.l[i].clip_down, gen.l[i].bundle_x, gen.l[i].bundle_y, 
+			gen.l[i].gen_image_width, gen.l[i].quality);
+		bk_img_db->addNewLayer(gen.l[i]);
 	}
 
 	/*
