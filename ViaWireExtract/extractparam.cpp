@@ -304,6 +304,15 @@ bool ExtractParam::read_file(string filename)
 				int i_high = (int)(*it)["i_high"];
 				int dis_vw0 = (int)(*it)["dis_vw0"];
 				int dis_vw1 = (int)(*it)["dis_vw1"];
+				int wgid0 = (int)(*it)["wgid0"];
+				int wgid1 = (int)(*it)["wgid1"];
+				int wgid2 = (int)(*it)["wgid2"];
+				int wgid3 = (int)(*it)["wgid3"];
+				int wgid4 = (int)(*it)["wgid4"];
+				int wgid5 = (int)(*it)["wgid5"];
+				int wgid6 = (int)(*it)["wgid6"];
+				int wgid7 = (int)(*it)["wgid7"];
+				int uni_id = (int)(*it)["uni_id"];
 				if (pattern > 255 || type > 255 || subtype > 255) {
 					qCritical("ParamItems file error, name=%s, pattern=%d, type=%d, subtype=%d", 
 						name.c_str(), pattern, type, subtype);
@@ -318,12 +327,30 @@ bool ExtractParam::read_file(string filename)
 						name.c_str(), w_wide, w_wide1, w_high, w_high1);
 					check_pass = false;
 				}
+				if (wgid0 > 255 || wgid1 > 255 || wgid2 > 255 || wgid3 > 255) {
+					qCritical("ParamItems file error, name=%s, wgid0=%d, wgid1=%d, wgid2=%d, wgid3=%d",
+						name.c_str(), wgid0, wgid1, wgid2, wgid3);
+					check_pass = false;
+				}
+				if (wgid4 > 255 || wgid5 > 255 || wgid6 > 255 || wgid7 > 255) {
+					qCritical("ParamItems file error, name=%s, wgid4=%d, wgid5=%d, wgid6=%d, wgid7=%d",
+						name.c_str(), wgid4, wgid5, wgid6, wgid7);
+					check_pass = false;
+				}
+				if (uni_id > 65535) {
+					qCritical("ParamItems file error, name=%s, uni_id=%d",
+						name.c_str(), uni_id);
+					check_pass = false;
+				}
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
 				param.pi[2] = subtype << 16 | type << 8 | pattern;
 				param.pi[3] = arfactor << 8 | guard;				
 				param.pi[4] = w_wide << 24 | w_wide1 << 16 | w_high << 8 | w_high1;
 				param.pi[5] = dis_vw0 << 24 | dis_vw1 << 16 | i_wide << 8 | i_high;
+				param.pi[6] = wgid3 << 24 | wgid2 << 16 | wgid1 << 8 | wgid0;
+				param.pi[7] = wgid7 << 24 | wgid6 << 16 | wgid5 << 8 | wgid4;
+				param.pi[8] = uni_id;
 			}
 			break;
 
@@ -464,15 +491,19 @@ bool ExtractParam::read_file(string filename)
 				int th = (int)(*it)["th"];
 				int search_opt = (int)(*it)["search_opt"];
 				int update_prob = (int)(*it)["update_prob"];
-				int type0 = (int)(*it)["type0"];
+				int subtype0 = (int)(*it)["subtype0"];
+				int type0 = (int)(*it)["type0"];				
 				int dir0 = (int)(*it)["dir0"];
 				int pattern0 = (int)(*it)["pattern0"];
+				int subtype1 = (int)(*it)["subtype1"];
 				int type1 = (int)(*it)["type1"];
 				int dir1 = (int)(*it)["dir1"];
 				int pattern1 = (int)(*it)["pattern1"];
+				int subtype2 = (int)(*it)["subtype2"];
 				int type2 = (int)(*it)["type2"];
 				int dir2 = (int)(*it)["dir2"];
 				int pattern2 = (int)(*it)["pattern2"];
+				int subtype3 = (int)(*it)["subtype3"];
 				int type3 = (int)(*it)["type3"];
 				int dir3 = (int)(*it)["dir3"];
 				int pattern3 = (int)(*it)["pattern3"];
@@ -496,24 +527,36 @@ bool ExtractParam::read_file(string filename)
 					check_pass = false;
 				}
 
-				if (dir0 > 255 || type0 > 255 || dir1 > 255 || type1 > 255) {
-					qCritical("ParamItems file error, name=%s, dir0=%d, type0=%d, dir1=%d, type1=%d",
-						name.c_str(), dir0, type0, dir1, type1);
+				if (dir0 > 255 || type0 > 255 || subtype0 > 255 || pattern0 > 255) {
+					qCritical("ParamItems file error, name=%s, dir0=%d, type0=%d, subtype0=%d, pattern0=%d",
+						name.c_str(), dir0, type0, subtype0, pattern0);
 					check_pass = false;
 				}
 
-				if (dir2 > 255 || type2 > 255 || dir3 > 255 || type3 > 255) {
-					qCritical("ParamItems file error, name=%s, dir0=%d, type0=%d, dir1=%d, type1=%d",
-						name.c_str(), dir2, type2, dir3, type3);
+				if (dir1 > 255 || type1 > 255 || subtype1 > 255 || pattern1 > 255) {
+					qCritical("ParamItems file error, name=%s, dir1=%d, type1=%d, subtype1=%d, pattern1=%d",
+						name.c_str(), dir1, type1, subtype1, pattern1);
+					check_pass = false;
+				}
+
+				if (dir2 > 255 || type2 > 255 || subtype2 > 255 || pattern2 > 255) {
+					qCritical("ParamItems file error, name=%s, dir2=%d, type2=%d, subtype2=%d, pattern2=%d",
+						name.c_str(), dir2, type2, subtype2, pattern2);
+					check_pass = false;
+				}
+
+				if (dir3 > 255 || type3 > 255 || subtype3 > 255 || pattern3 > 255) {
+					qCritical("ParamItems file error, name=%s, dir3=%d, type3=%d, subtype3=%d, pattern3=%d",
+						name.c_str(), dir3, type3, subtype3, pattern3);
 					check_pass = false;
 				}
 				param.pi[1] = debug_opt << 24 | PP_COARSE_LINE_SEARCH << 16 | opidx_rv_mask << 8 | opidx_shadow_prob << 4 | opidx_tp;
 				param.pi[2] = inc1 << 24 | inc0 << 16 | wlong1 << 8 | wlong0;
 				param.pi[3] = update_prob << 24 | search_opt << 16 | th << 8 | wnum;
-				param.pi[4] = pattern0 << 16 | dir0 << 8 | type0;
-				param.pi[5] = pattern1 << 16 | dir1 << 8 | type1;
-				param.pi[6] = pattern2 << 16 | dir2 << 8 | type2;
-				param.pi[7] = pattern3 << 16 | dir3 << 8 | type3;
+				param.pi[4] = subtype0 << 24 | pattern0 << 16 | dir0 << 8 | type0;
+				param.pi[5] = subtype1 << 24 | pattern1 << 16 | dir1 << 8 | type1;
+				param.pi[6] = subtype2 << 24 | pattern2 << 16 | dir2 << 8 | type2;
+				param.pi[7] = subtype3 << 24 | pattern3 << 16 | dir3 << 8 | type3;
 			}
 			break;
 
@@ -1102,6 +1145,15 @@ void ExtractParam::write_file(string filename)
 			fs << "i_high" << (it->second.pi[5] & 0xff);
 			fs << "dis_vw0" << (it->second.pi[5] >> 24 & 0xff);
 			fs << "dis_vw1" << (it->second.pi[5] >> 16 & 0xff);
+			fs << "wgid0" << (it->second.pi[6] & 0xff);
+			fs << "wgid1" << ((it->second.pi[6] >> 8) & 0xff);
+			fs << "wgid2" << ((it->second.pi[6] >> 16) & 0xff);
+			fs << "wgid3" << ((it->second.pi[6] >> 24) & 0xff);
+			fs << "wgid4" << (it->second.pi[7] & 0xff);
+			fs << "wgid5" << ((it->second.pi[7] >> 8) & 0xff);
+			fs << "wgid6" << ((it->second.pi[7] >> 16) & 0xff);
+			fs << "wgid7" << ((it->second.pi[7] >> 24) & 0xff);
+			fs << "uni_id" << (it->second.pi[8] & 0xffff);
 			break;
 
 		case Rgb2Gray:
@@ -1165,15 +1217,19 @@ void ExtractParam::write_file(string filename)
 			fs << "th" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "search_opt" << (it->second.pi[3] >> 16 & 0xff);
 			fs << "update_prob" << (it->second.pi[3] >> 24 & 0xff);
+			fs << "subtype0" << (it->second.pi[4] >> 24 & 0xff);
 			fs << "type0" << (it->second.pi[4] & 0xff);
 			fs << "dir0" << (it->second.pi[4] >> 8 & 0xff);
 			fs << "pattern0" << (it->second.pi[4] >> 16 & 0xff);
+			fs << "subtype1" << (it->second.pi[5] >> 24 & 0xff);
 			fs << "type1" << (it->second.pi[5] & 0xff);
 			fs << "dir1" << (it->second.pi[5] >> 8 & 0xff);
 			fs << "pattern1" << (it->second.pi[5] >> 16 & 0xff);
+			fs << "subtype2" << (it->second.pi[6] >> 24 & 0xff);
 			fs << "type2" << (it->second.pi[6] & 0xff);
 			fs << "dir2" << (it->second.pi[6] >> 8 & 0xff);
 			fs << "pattern2" << (it->second.pi[6] >> 16 & 0xff);
+			fs << "subtype3" << (it->second.pi[7] >> 24 & 0xff);
 			fs << "type3" << (it->second.pi[7] & 0xff);
 			fs << "dir3" << (it->second.pi[7] >> 8 & 0xff);
 			fs << "pattern3" << (it->second.pi[7] >> 16 & 0xff);

@@ -263,8 +263,8 @@ int test_extractparam2()
 	vector<string> action;
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A12/chip.prj", 0);
-	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
+	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A12/chip.prj", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
 #endif
@@ -278,20 +278,35 @@ int test_extractparam2()
 	vector<ICLayerWrInterface *> pic;
 	
 	set<int> layer_sets;
-	vector<int> map_layer;
-	map<int, int> anti_map_layer;
+	vector<int> map_layer; //map from 0, 1, 2 to actual layer
+	map<int, int> anti_map_layer; //map from ParamItem to layer 0, 1, 2
 
 	for (int i = 0; i < params.size(); i++)
 		if (params[i].pi[0] >= 0)
 			layer_sets.insert(params[i].pi[0]);
 	for (set<int>::iterator it = layer_sets.begin(); it != layer_sets.end(); it++) {
 		anti_map_layer[*it] = map_layer.size();
-		map_layer.push_back(*it);
-		pic.push_back(bk_img->get_layer(*it));
-		if (pic.back() == NULL)
-			qFatal("vw_extract_req receive layer[%d]=%d, invalid", map_layer.size() - 1, *it);
+		int l = -1;
+		for (int i = 0; i < bk_img->getLayerNum(); i++) {
+			string layer_name = bk_img->getLayerName(i);
+			int t = layer_name.find_last_of('.');
+			int h = layer_name.find_last_of('M', t);
+			string sub = layer_name.substr(h + 1, t - h - 1);
+			if (atoi(sub.c_str()) == *it) {
+				l = i;
+				break;
+			}
+		}
+		if (l >= 0) {
+			map_layer.push_back(l);
+			pic.push_back(bk_img->get_layer(l));
+			if (pic.back() == NULL)
+				qFatal("vw_extract_req receive layer[%d]=%d, invalid", map_layer.size() - 1, l);
+			else
+				qInfo("vw_extract_req receive layer[%d]=%d", map_layer.size() - 1, l);
+		}
 		else
-			qInfo("vw_extract_req receive layer[%d]=%d", map_layer.size() - 1, *it);
+			qFatal("vw_extract_req layer M%d not exist", *it);
 	}
 
 	for (int l = 0; l < params.size(); l++) {
@@ -308,12 +323,37 @@ int test_extractparam2()
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
 	//search.push_back(SearchArea(QRect(QPoint(1030000, 260000), QPoint(1600000, 800000)), 0));
-	search.push_back(SearchArea(QRect(QPoint(786080, 456896), QPoint(973472, 626624)), 0));
+	//search.push_back(SearchArea(QRect(QPoint(786080, 456896), QPoint(973472, 626624)), 0));
+	search.push_back(SearchArea(QRect(QPoint(1030000, 260000), QPoint(1600000, 800000)), 0));
 	vector <MarkObj> objs;
 	vwe->extract(pic, search, objs);
+	delete vwe;
+
+	FILE * fp;
+	int scale = 32768 / bk_img->getBlockWidth();
+	fp = fopen("result.txt", "w");
+	for (int i = 0; i < objs.size(); i++) {
+		unsigned t = objs[i].type;
+		if (t == OBJ_POINT) {
+			fprintf(fp, "via, l=%d, x=%d, y=%d\n", map_layer[objs[i].type3], objs[i].p0.x() / scale, objs[i].p0.y() / scale);
+		}
+		else {
+			fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d)\n", map_layer[objs[i].type3], objs[i].p0.x() / scale, objs[i].p0.y() / scale,
+				objs[i].p1.x() / scale, objs[i].p1.y() / scale);
+		}
+		continue;
+	}
+	fclose(fp);
 	return 0;
 }
 #ifdef Q_OS_WIN
+#ifdef QT_DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
 #include <Windows.h>
 #include <DbgHelp.h>
 void CreateMiniDump(PEXCEPTION_POINTERS pep, LPCTSTR strFileName)
@@ -342,10 +382,15 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
     MainWindow w;
 #ifdef Q_OS_WIN
+#ifdef QT_DEBUG
+	//_CrtSetBreakAlloc(36207);
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);  
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+#endif
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 0
+#if 1
 	
 	//wire_extract_test_pipeprocess();
 	//wire_extract_test();
@@ -359,4 +404,3 @@ int main(int argc, char *argv[])
 	qWarning("code exit with ret=%d", ret);
 	return ret;
 }
-

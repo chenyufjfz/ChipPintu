@@ -58,7 +58,7 @@ public:
 	GenerateDatabaseParam() {
 		block_num_x = 0;
 		block_num_y = 0; 
-		quality = 0.7;
+		quality = 0.7f;
 		clip_left = 0;
 		clip_right = 0;
 		clip_up = 0;
@@ -161,6 +161,7 @@ img_db->getBlockNum(bx, by);
 img_db->getRawImgByIdx(buff, l, x, y, s, 0);
 img_db->adjust_cache_size(delta_size);
 img_db->getRawImgByIdx(buff, l, x, y, s, 0);
+img_db->adjust_cache_size(-delta_size);
 delete img_db
 3 Read by layer
 img_db = BkImgDBInterface::create_BkImgDB();
@@ -169,6 +170,7 @@ ICLayerWrInterface * ic_layer = get_layer(1);
 ic_layer->getRawImgByIdx(buff, x, y, s, 0);
 ic_layer->adjust_cache_size(delta_size);
 ic_layer->getRawImgByIdx(buff, x, y, s, 0);
+ic_layer->adjust_cache_size(-delta_size);
 delete img_db
 
 BkImgInterface has a variable named max_cache_size, sum of all ICLayerWrInterface's cache_size is lower than max_cache_size.
@@ -195,6 +197,8 @@ public:
 	Input: need_cache, if true, put raw image into cache for next read fast*/
 	virtual int getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved, bool need_cache=true) = 0;
 	virtual int getLayerNum() = 0;
+	/*input layer l, return layername*/
+	virtual string getLayerName(int l) = 0;
 	/*Only be called when open for write
 	If fail, return NULL
 	*/

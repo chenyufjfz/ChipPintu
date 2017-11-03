@@ -185,13 +185,14 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 				if (obj.state == 2)
 					painter.drawEllipse(obj.p1, 2, 2);
 			}
-			//draw metal rect			
+			//draw metal rect
+			/*
 			painter.setPen(QPen(Qt::blue, 1, Qt::DotLine));
 			painter.setBrush(QBrush(Qt::NoBrush));
 			int rw = wire_width - wire_width / 2 - 1;
 			QPoint lt(min(obj.p0.x(), obj.p1.x()) - wire_width / 2, min(obj.p0.y(), obj.p1.y()) - wire_width / 2);
 			QPoint rb(max(obj.p0.x(), obj.p1.x()) + rw, max(obj.p0.y(), obj.p1.y()) + rw);
-            painter.drawRect(QRect(lt, rb-QPoint(1,1)));			
+            painter.drawRect(QRect(lt, rb-QPoint(1,1)));*/			
 		}
         break;
     case OBJ_POINT:
@@ -203,12 +204,13 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
                 painter.setPen(QPen(Qt::red, 1));
                 painter.setBrush(QBrush(Qt::red));
             }
-            painter.drawEllipse(obj.p1, 1, 1);
+            painter.drawEllipse(obj.p1, 2, 2);
 
 			//draw via circle
+			/*
 			painter.setPen(QPen(Qt::green, 1, Qt::DotLine));
 			painter.setBrush(QBrush(Qt::NoBrush));
-			painter.drawEllipse(obj.p1, via_radius, via_radius);
+			painter.drawEllipse(obj.p1, via_radius, via_radius);*/
         }
         break;
     }

@@ -57,13 +57,13 @@ static void cal_threshold(vector<unsigned> bins, vector<unsigned> & th, float in
 		total += bins[sep];
 	
 	total1 = total * cut_via_ratio;
-	for (sep = bins.size() - 1; sep >= 0 && total1 >= 0; sep--) {
+	for (sep = (int) bins.size() - 1; sep >= 0 && total1 >= 0; sep--) {
 		total1 -= bins[sep];
 		bins[sep] = 0;
 	}
 	total -= total1;
 	total1 = 0;
-	unsigned init_num = total * init_ratio;
+	int init_num = total * init_ratio;
     for (sep = 0; sep < bins.size(); sep++) {
         total1 += bins[sep];
         if (total1 > init_num)
@@ -76,11 +76,11 @@ static void cal_threshold(vector<unsigned> bins, vector<unsigned> & th, float in
         old_sep = sep;
         m1_l = 0, m1_r = 0;
         total1 = 0,	total2 = 0;
-        for (unsigned j = 0; j < sep; j++) {
+        for (int j = 0; j < sep; j++) {
             m1_l += bins[j] * j;
             total1 += bins[j];
         }
-        for (unsigned j = sep; j < bins.size(); j++) {
+        for (int j = sep; j < bins.size(); j++) {
             m1_r += bins[j] * j;
             total2 += bins[j];
         }
@@ -382,7 +382,7 @@ int CellExtract::train(string file_name, const vector<MarkObj> & obj_sets)
             Mat ig;
             CellFeatures cf;
             QRect rect(obj_sets[i].p0, obj_sets[i].p1);
-            int total=cal_bins(img, QRect(0,0,img.cols, img.rows), bins, 1);
+            cal_bins(img, QRect(0,0,img.cols, img.rows), bins, 2);
             cal_threshold(bins, th, 0.5, 0.02);
             qDebug("train, th0=%d, th1=%d, th2=%d", th[0], th[1], th[2]);
             threshold(img, mark, th[1], 1, THRESH_BINARY);
@@ -414,7 +414,7 @@ int CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_set
     qInfo("Allow total similar > %f, block similar < %f", 1 - param1, param2);
     vector<unsigned> bins, th;
     bins.resize(256, 0);
-	cal_bins(img, rect, bins, 1);
+	cal_bins(img, rect, bins, 2);
     cal_threshold(bins, th, 0.5, 0.02);
     qDebug("extract, th0=%d, th1=%d, th2=%d", th[0], th[1], th[2]);
     threshold(img, mark, th[1], 1, THRESH_BINARY);
@@ -530,7 +530,7 @@ int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, const std::vecto
                         return -2;
                     Mat image = imdecode(Mat(encode_img), 0);
                     CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
-                    int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
+                    cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
                     cal_threshold(bins, th, 0.5, 0.02);
                     threshold(image, mark, th[1], 1, THRESH_BINARY);
 
@@ -669,7 +669,7 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
                     return -2;
                 Mat image = imdecode(Mat(encode_img), 0);
                 CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
-                int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
+                cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
                 cal_threshold(bins, th, 0.5, 0.02);
                 threshold(image, mark, th[1], 1, THRESH_BINARY);
                 CV_Assert(mark.cols == image.cols && mark.rows == image.rows);
@@ -743,7 +743,7 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
                         return -2;
                     Mat image = imdecode(Mat(encode_img), 0);
                     CV_Assert(ic_layer[0]->getBlockWidth() == image.cols && image.cols == image.rows);
-                    int total = cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
+                    cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
                     cal_threshold(bins, th, 0.5, 0.02);
                     threshold(image, mark, th[1], 1, THRESH_BINARY);
                     mark.copyTo(img(Rect(0, y, image.cols, image.rows)));

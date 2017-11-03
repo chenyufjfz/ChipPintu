@@ -64,7 +64,8 @@ void MainWindow::on_actionLoad_Image_triggered()
                         "C:/chenyu/work/ChipPintu/images/",
                         "Images (*.png *.xpm *.jpg)");
 
-	vw_view->load_bk_image(image_file_name);
+	if (image_file_name.length()>0)
+		vw_view->load_bk_image(image_file_name);
 }
 
 void MainWindow::on_actionGenerate_Grid_triggered()

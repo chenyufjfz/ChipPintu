@@ -5,15 +5,23 @@
 #include <QScopedPointer>
 #include <QDir>
 #include <QtConcurrent>
+#include <set>
 
 #ifndef QT_DEBUG
 #undef CV_Assert
 #define CV_Assert(x) do {if (!(x)) {qFatal("Wrong at %s, %d", __FILE__, __LINE__);}} while(0)
 #endif
 
+#ifdef QT_DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
 #define PARALLEL 0
-#define SAVE_RST_TO_FILE	1
-#define DEBUG_LEFT_TOP_IMG  0
+#define SAVE_RST_TO_FILE	0
+#define DEBUG_LEFT_TOP_IMG  1
 
 #define OPT_DEBUG_EN		0x8000
 #define OPT_DEBUG_OUT_EN	0x4000
@@ -33,7 +41,21 @@
 #define BRICK_T_180			13
 #define BRICK_T_270			14
 #define BRICK_X_0			15
-#define BRICK_IN_USE		15
+#define BRICK_J_0			16
+#define BRICK_J_90			17
+#define BRICK_J_180			18
+#define BRICK_J_270			19
+#define BRICK_l_0			20
+#define BRICK_l_90			21
+#define BRICK_l_180			22
+#define BRICK_l_270			23
+#define BRICK_Z_0			24
+#define BRICK_Z_90			25
+#define BRICK_P_0			26
+#define BRICK_P_90			27
+#define BRICK_P_180			28
+#define BRICK_P_270			29
+#define BRICK_IN_USE		29
 #define BRICK_ONE_POINT		64
 #define BRICK_II_0			65
 #define BRICK_II_90			66
@@ -46,15 +68,26 @@
 #define BRICK_INVALID		255
 
 #define MIN_SCORE			10
+#define VIA_NEAR_IV_SCORE	9
+#define VIA_NEAR_NO_WIRE_SCORE	8
+#define VIA_NEAR_WIRE_SCORE 1
 #define DIR_UP				0
 #define DIR_RIGHT			1
 #define DIR_DOWN			2
 #define DIR_LEFT			3
+#define DIR_UPLEFT			7
+#define DIR_UPRIGHT			4
+#define DIR_DOWNRIGHT		5
+#define DIR_DOWNLEFT		6
 
-#define DIR_UP1_MASK		(1 << (DIR_UP * 2))
-#define DIR_RIGHT1_MASK		(1 << (DIR_RIGHT * 2))
-#define DIR_DOWN1_MASK		(1 << (DIR_DOWN * 2))
-#define DIR_LEFT1_MASK		(1 << (DIR_LEFT * 2))
+#define DIR_UP1_MASK		(1 << DIR_UP)
+#define DIR_RIGHT1_MASK		(1 << DIR_RIGHT)
+#define DIR_DOWN1_MASK		(1 << DIR_DOWN)
+#define DIR_LEFT1_MASK		(1 << DIR_LEFT)
+#define DIR_UPLEFT_MASK		(1 << DIR_UPLEFT)
+#define DIR_UPRIGHT_MASK	(1 << DIR_UPRIGHT)
+#define DIR_DOWNLEFT_MASK	(1 << DIR_DOWNLEFT)
+#define DIR_DOWNRIGHT_MASK	(1 << DIR_DOWNRIGHT)
 
 #define CLEAR_REMOVE_VIA_MASK					2
 #define REMOVE_VIA_MASK							1
@@ -74,6 +107,7 @@
 
 #define CHECK_VW_HOTLINE_CLEAR_MASK				1
 #define CHECK_VW_SEARCH_CLEAR_COLOR				2
+#define ASSEMBLE_FIX_DISTANCE					2
 typedef pair<unsigned long long, unsigned long long> PAIR_ULL;
 
 enum {
@@ -94,7 +128,8 @@ enum {
 };
 
 enum {
-	WIRE_SUBTYPE_13RECT = 0
+	WIRE_SUBTYPE_13RECT = 0,
+	WIRE_SUBTYPE_25RECT
 };
 
 
@@ -112,13 +147,27 @@ enum {
 	GRAY_FULL
 };
 
-static const int dxy[4][2] = {
+static const int dxy[8][2] = {
 		{ -1, 0 }, //up
 		{ 0, 1 }, //right
 		{ 1, 0 }, //down
-		{ 0, -1 } //left
+		{ 0, -1 }, //left
+		{ -1, 1 }, //upright
+		{ 1, 1 }, //downright
+		{ 1, -1 }, //downleft
+		{ -1, -1 } //upleft
 };
 
+static const int dir_1[8] = {
+	DIR_DOWN,
+	DIR_LEFT,
+	DIR_UP,
+	DIR_RIGHT,
+	DIR_DOWNLEFT,
+	DIR_UPLEFT,
+	DIR_UPRIGHT,
+	DIR_DOWNRIGHT
+};
 static struct Brick {
 	int a[3][3];
 	int shape;
@@ -232,199 +281,103 @@ static struct Brick {
 				{ 1, 1, 1 },
 				{ 0, 1, 0 } },
 				DIR_UP1_MASK | DIR_DOWN1_MASK | DIR_LEFT1_MASK | DIR_RIGHT1_MASK
+		},
+		{		{
+				{ 0, 1, 0 },
+				{ 0, 1, 0 },
+				{ 1, 0, 0 } },
+				DIR_UP1_MASK | DIR_DOWNLEFT_MASK
+		},
+		{		{
+				{ 1, 0, 0 },
+				{ 0, 1, 1 },
+				{ 0, 0, 0 } },
+				DIR_RIGHT1_MASK | DIR_UPLEFT_MASK
+		},
+		{		{
+				{ 0, 0, 1 },
+				{ 0, 1, 0 },
+				{ 0, 1, 0 } },
+				DIR_UPRIGHT_MASK | DIR_DOWN1_MASK
+		},
+		{		{
+				{ 0, 0, 0 },
+				{ 1, 1, 0 },
+				{ 0, 0, 1 } },
+				DIR_DOWNRIGHT_MASK | DIR_LEFT1_MASK
+		},
+		{		{
+				{ 0, 1, 0 },
+				{ 0, 1, 0 },
+				{ 0, 0, 1 } },
+				DIR_DOWNRIGHT_MASK | DIR_UP1_MASK
+		},
+		{		{
+				{ 0, 0, 0 },
+				{ 0, 1,	1 },
+				{ 1, 0, 0 } },
+				DIR_DOWNLEFT_MASK | DIR_RIGHT1_MASK
+		},
+		{		{
+				{ 1, 0, 0 },
+				{ 0, 1, 0 },
+				{ 0, 1, 0 } },
+				DIR_UPLEFT_MASK | DIR_DOWN1_MASK
+		},
+		{		{
+				{ 1, 0, 0 },
+				{ 0, 1, 0 },
+				{ 0, 1, 0 } },
+				DIR_UPLEFT_MASK | DIR_DOWN1_MASK
+		},
+		{		{
+				{ 0, 0, 1 },
+				{ 0, 1, 0 },
+				{ 1, 0, 0 } },
+				DIR_UPRIGHT_MASK | DIR_DOWNLEFT_MASK
+		},
+		{		{
+				{ 1, 0, 0 },
+				{ 0, 1, 0 },
+				{ 0, 0, 1 } },
+				DIR_UPLEFT_MASK | DIR_DOWNRIGHT_MASK
+		},
+		{		{
+				{ 0, 0, 1 },
+				{ 0, 1, 0 },
+				{ 0, 0, 0 } },
+				DIR_UPRIGHT_MASK
+		},
+		{		{
+				{ 0, 0, 0 },
+				{ 0, 1, 0 },
+				{ 0, 0, 1 } },
+				DIR_DOWNRIGHT_MASK
+		},
+		{		{
+				{ 0, 0, 0 },
+				{ 0, 1, 0 },
+				{ 1, 0, 0 } },
+				DIR_DOWNLEFT_MASK
+		},
+		{		{
+				{ 1, 0, 0 },
+				{ 0, 1, 0 },
+				{ 0, 0, 0 } },
+				DIR_UPLEFT_MASK
 		}
 };
 
-#define START_BRICK		1
-#define END_BRICK		2
 #define SUSPECT_BRICK	4
-#define UP_BORDER		0x10
-#define RIGHT_BORDER	0x20
-#define DOWN_BORDER		0x40
-#define LEFT_BORDER		0x80
+
 
 static class BrickConnect {
-public:
-	enum {
-		START_TRACE0,
-		START_TRACE1,
-		CONTINUE_TRACE1,
-		END_TRACE1,
-		END_START_TRACE1,
-		START_TRACE0_END_TRACE1,
-		START_TRACE0_END_START_TRACE1,
-		NO_NEED_TRACE,
-		FIX_TRACE
-	};
-
 protected:
-	unsigned long long bfm[2][64];
-	int action[2][BRICK_IN_USE + 1][BRICK_IN_USE + 1];
-	int bf[2][BRICK_IN_USE + 1][BRICK_IN_USE + 1];
+	unsigned long long bfm[8][64];
 	int sa[BRICK_IN_USE + 1][BRICK_IN_USE + 1];
 
 protected:
-	/*
-	Input, dir 0 is shu, 1 is heng
-	Input, brick0, is previous brick
-	Input, brick1, is current brick
-	Output, brick_fix, if return is FIX_TRACE, brick_fix is suggested brick
-	Return fix state
-	*/
-	int fix(int dir, int brick0, int brick1, int & brick_fix) {
-		bool check_fit = fit(dir, brick0, brick1);
-		if (dir == 0) {			
-			switch (brick1) {
-			case BRICK_I_0:
-				brick_fix = BRICK_i_180;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? CONTINUE_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0;
-					
-			case BRICK_i_0:
-				brick_fix = BRICK_i_180;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0_END_TRACE1;
-				
-			case BRICK_i_180:
-
-			case BRICK_T_90:
-			case BRICK_L_90:
-			case BRICK_L_180:
-				brick_fix = BRICK_i_0;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? START_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE1;
-				
-			case BRICK_NO_WIRE:
-			case BRICK_ONE_POINT:
-				brick_fix = BRICK_i_0;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? NO_NEED_TRACE : FIX_TRACE;
-				else
-					return NO_NEED_TRACE;			
-
-			case BRICK_X_0:
-			case BRICK_T_0:
-			case BRICK_T_180:
-				brick_fix = BRICK_i_180;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_START_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0_END_START_TRACE1;
-
-			case BRICK_T_270:
-			case BRICK_L_0:
-			case BRICK_L_270:
-				brick_fix = BRICK_i_180;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0_END_TRACE1;
-
-			case BRICK_I_90:
-			case BRICK_i_90:
-			case BRICK_i_270:
-				brick_fix = BRICK_i_0;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? NO_NEED_TRACE : FIX_TRACE;
-				else
-					return NO_NEED_TRACE;
-
-			case BRICK_VIA:
-				check_fit = fit(dir, brick0, BRICK_i_0);
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_TRACE1 : CONTINUE_TRACE1;
-				else
-					return START_TRACE0_END_TRACE1;
-
-			default:
-				qCritical("invalid brick %d", brick1);
-				return NO_NEED_TRACE;
-				break;
-			}
-		}
-		else {
-			switch (brick1) {
-			case BRICK_I_90:
-				brick_fix = BRICK_i_90;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? CONTINUE_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0;
-
-			case BRICK_i_270:
-				brick_fix = BRICK_i_90;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0_END_TRACE1;
-
-			case BRICK_i_90:
-
-			case BRICK_T_0:
-			case BRICK_L_0:
-			case BRICK_L_90:
-				brick_fix = BRICK_i_270;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? START_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE1;
-
-			case BRICK_NO_WIRE:
-			case BRICK_ONE_POINT:
-				brick_fix = BRICK_i_270;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? NO_NEED_TRACE : FIX_TRACE;
-				else
-					return NO_NEED_TRACE;
-
-			case BRICK_X_0:
-			case BRICK_T_270:
-			case BRICK_T_90:
-				brick_fix = BRICK_i_90;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_START_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0_END_START_TRACE1;
-
-			case BRICK_T_180:
-			case BRICK_L_180:
-			case BRICK_L_270:
-				brick_fix = BRICK_i_90;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_TRACE1 : FIX_TRACE;
-				else
-					return START_TRACE0_END_TRACE1;
-
-			case BRICK_I_0:
-			case BRICK_i_0:
-			case BRICK_i_180:
-				brick_fix = BRICK_i_270;
-				if (brick0 != BRICK_VIA)
-					return check_fit ? NO_NEED_TRACE : FIX_TRACE;
-				else
-					return NO_NEED_TRACE;
-
-			case BRICK_VIA:
-				check_fit = fit(dir, brick0, BRICK_i_270);
-				if (brick0 != BRICK_VIA)
-					return check_fit ? END_TRACE1 : CONTINUE_TRACE1;
-				else
-					return START_TRACE0_END_TRACE1;
-
-			default:
-				qCritical("invalid brick %d", brick1);
-				return NO_NEED_TRACE;
-				break;
-			}
-		}
-	}
-
+	
 	/*
 	input: brick0, brick1
 	output: brick0 + brick1
@@ -457,63 +410,61 @@ protected:
 				if (match)
 					return i;
 			}
-			CV_Assert(0);
 		}
 		return BRICK_FAKE_VIA;
 	}
 public:
+	//fit check if brick0's dir can be brick1
 	bool fit(int dir, int brick0, int brick1) {
-		if (dir == DIR_DOWN || dir == DIR_LEFT) {
-			swap(brick0, brick1);
-			dir = dir - 2;
-		}
-		if (brick0 == BRICK_ONE_POINT)
+		if (brick0 == BRICK_ONE_POINT || brick0 == BRICK_INVALID)
 			brick0 = BRICK_NO_WIRE;
-		if (brick1 == BRICK_ONE_POINT)
+		if (brick1 == BRICK_ONE_POINT || brick1 == BRICK_INVALID)
 			brick1 = BRICK_NO_WIRE;
 		if (brick0 < sizeof(bricks) / sizeof(bricks[0]) && brick1 < sizeof(bricks) / sizeof(bricks[0]))
 			return (bfm[dir][brick0] & 1ULL << brick1) ? true : false;
-		else {
+		else {			
+			if ((brick0 == BRICK_FAKE_VIA || brick0 == BRICK_VIA) && brick1 < sizeof(bricks) / sizeof(bricks[0])) {
+				int adir = dir_1[dir];
+				return bricks[brick1].a[1 + dxy[adir][0]][1 + dxy[adir][1]] ? true : false;
+			}
+			if ((brick1 == BRICK_FAKE_VIA || brick1 == BRICK_VIA) && brick0 < sizeof(bricks) / sizeof(bricks[0]))
+				return bricks[brick0].a[1 + dxy[dir][0]][1 + dxy[dir][1]] ? true : false;
 			if (brick0 == BRICK_FAKE_VIA || brick0 == BRICK_VIA || brick1 == BRICK_FAKE_VIA || brick1 == BRICK_VIA)
 				return true;
-			else
-				return false;
+			return false;
 		}			
 	}
 
 	BrickConnect() {
 		memset(bfm, 0, sizeof(bfm));
+		CV_Assert(sizeof(bricks) / sizeof(bricks[0]) == BRICK_IN_USE + 1 && sizeof(bricks) / sizeof(bricks[0]) < 64);
 		for (int i = 0; i < sizeof(bricks) / sizeof(bricks[0]); i++)
 			for (int j = 0; j < sizeof(bricks) / sizeof(bricks[0]); j++) {
-			if (bricks[i].a[2][1] == bricks[j].a[0][1])
-				bfm[0][i] |= 1ULL << j;
-			if (bricks[i].a[1][2] == bricks[j].a[1][0])
-				bfm[1][i] |= 1ULL << j;
+				if (bricks[i].a[0][0] == bricks[j].a[2][0] && bricks[i].a[0][1] == bricks[j].a[2][1] &&
+					bricks[i].a[0][2] == bricks[j].a[2][2]) {
+					bfm[DIR_UP][i] |= 1ULL << j;
+					bfm[DIR_DOWN][j] |= 1ULL << i;
+				}
+				if (bricks[i].a[0][2] == bricks[j].a[0][0] && bricks[i].a[1][2] == bricks[j].a[1][0] &&
+					bricks[i].a[2][2] == bricks[j].a[2][0]) {
+					bfm[DIR_RIGHT][i] |= 1ULL << j;
+					bfm[DIR_LEFT][j] |= 1ULL << i;
+				}
+				if (bricks[i].a[0][2] == bricks[j].a[2][0]) {
+					bfm[DIR_UPRIGHT][i] |= 1ULL << j;
+					bfm[DIR_DOWNLEFT][j] |= 1ULL << i;
+				}
+				if (bricks[i].a[2][2] == bricks[j].a[0][0]) {
+					bfm[DIR_DOWNRIGHT][i] |= 1ULL << j;
+					bfm[DIR_UPLEFT][j] |= 1ULL << i;
+				}
 			}
-
-		for (int dir = 0; dir < 2; dir++)
-			for (int i = 0; i <= BRICK_IN_USE; i++)
-			for (int j = 0; j <= BRICK_IN_USE; j++)
-				action[dir][i][j] = fix(dir, i, j, bf[dir][i][j]);	
 
 		for (int i = 0; i <= BRICK_IN_USE; i++)
 		for (int j = 0; j <= BRICK_IN_USE; j++)
 			sa[i][j] = shape_add(i, j);
 	}
-
-	int quick_fix(int dir, int brick0, int brick1, int & brick_fix) {
-		if (brick0 == BRICK_FAKE_VIA)
-			brick0 = BRICK_VIA;
-		if (brick1 == BRICK_FAKE_VIA)
-			brick1 = BRICK_VIA;
-		if (brick0 <= BRICK_IN_USE && brick1 <= BRICK_IN_USE) {
-			brick_fix = bf[dir][brick0][brick1];
-			return action[dir][brick0][brick1];
-		}
-		else
-			return fix(dir, brick0, brick1, brick_fix);
-	}
-
+	
 	int quick_shape_add(int brick0, int brick1) {
 		if (brick0 <= BRICK_IN_USE && brick1 <= BRICK_IN_USE)
 			return sa[brick0][brick1];
@@ -545,7 +496,10 @@ struct ViaParameter {
 	int rd2; //outter via radius
 	int rd3; //outter via radius
 	int gray0, gray1, gray2, gray3;	
-	int connect_d, cgray_d, cgray_ratio, connect_rd;
+	int connect_d; //for check_via_wire_connect via wire distance check 
+	int cgray_d; //for check_via_wire_connect via wire border check
+	int cgray_ratio; //for check_via_wire_connect via wire gray ratio
+	int connect_rd; //for check_via_wire_connect border
 	int opt0, opt1;
 	float optf;
 };
@@ -555,9 +509,9 @@ opt0:		0  subtype   type  pattern
 opt1:				   arfactor guard
 opt2:  w_wide  w_wide1  w_high  w_high1
 opt3:	 dis_vw0  dis_vw1 i_wide  i_high   
-opt4:           
-opt5:          
-opt6:
+opt4:   wgid3   wgid2   wgid1   wgid0
+opt5:   wgid7   wgid6   wgid5   wgid4     
+opt6:				  uni_id(h) uni_id(l)
 */
 struct WireParameter {
 	int pattern;
@@ -569,6 +523,7 @@ struct WireParameter {
 	int i_wide, i_high;	//this is for insu
 	int gray_w, gray_i; //this is not set by ProcessParameter
 	int dis_vw0, dis_vw1; //this is via wire distance, dis_vw0 is qiexiang
+    int wgid[8], uni_id;
 };
 
 union VWParameter {
@@ -598,7 +553,7 @@ public:
 			vws.push_back(v);
 			vw = get_vw_para(pattern, type, sub_type);
 		}
-		if (pattern < 192) {
+		if (pattern < 224) {
 			vw->w.guard = cpara.opt1 & 0xff;
 			vw->w.arfactor = cpara.opt1 >> 8 & 0xff;
 			vw->w.w_wide = cpara.opt2 >> 24 & 0xff;
@@ -609,9 +564,21 @@ public:
 			vw->w.i_high = cpara.opt3 & 0xff;
 			vw->w.dis_vw0 = cpara.opt3 >> 24 & 0xff;
 			vw->w.dis_vw1 = cpara.opt3 >> 16 & 0xff;
+            vw->w.wgid[0] = cpara.opt4 & 0xff;
+            vw->w.wgid[1] = cpara.opt4 >> 8 & 0xff;
+            vw->w.wgid[2] = cpara.opt4 >> 16 & 0xff;
+            vw->w.wgid[3] = cpara.opt4 >> 24 & 0xff;
+            vw->w.wgid[4] = cpara.opt5 & 0xff;
+            vw->w.wgid[5] = cpara.opt5 >> 8 & 0xff;
+            vw->w.wgid[6] = cpara.opt5 >> 16 & 0xff;
+            vw->w.wgid[7] = cpara.opt5 >> 24 & 0xff;
+			vw->w.uni_id = cpara.opt6 & 0xffff;
 			qInfo("set_wire_para, guard=%d, w_wide=%d, w_wide1=%d, w_high=%d, w_high1=%d, i_wide=%d, i_high=%d, dis_vw0=%d, dis_vw1=%d",
 				vw->w.guard, vw->w.w_wide, vw->w.w_wide1, vw->w.w_high, vw->w.w_high1, 
 				vw->w.i_wide, vw->w.i_high, vw->w.dis_vw0, vw->w.dis_vw1);
+			qInfo("set_wire_para, id0=%d, id1=%d, id2=%d, id3=%d, id4=%d, id5=%d, id6=%d, id7=%d, uni_id=%d",
+                vw->w.wgid[0], vw->w.wgid[1], vw->w.wgid[2], vw->w.wgid[3], vw->w.wgid[4],
+                vw->w.wgid[5], vw->w.wgid[6], vw->w.wgid[7], vw->w.uni_id);
 		} else {		
 			vw->v.guard = cpara.opt1 & 0xff;
 			vw->v.remove_rd = cpara.opt1 >> 8 & 0xff;	
@@ -645,7 +612,7 @@ public:
 #define PROB_S(p) ((unsigned)((p) >> 32 & 0xffffffff))
 #define PROB_SHAPE(p) ((unsigned)((p) >> 32 & 0xff))
 #define PROB_TYPE(p) ((unsigned)((p) >> 40 & 0xff))
-#define PROB_SCORE(p) ((int)((p) >> 48 & 0xffffffff))
+#define PROB_SCORE(p) ((int)((p) >> 48 & 0xffff))
 #define S_SCORE(p) ((int)((p) >> 16 & 0xffff))
 #define S_TYPE(p) ((unsigned)((p) >> 8 & 0xff))
 #define S_SHAPE(p) ((unsigned)((p) & 0xff))
@@ -751,18 +718,8 @@ public:
 	vector<unsigned long long> corner;
 	vector<int> state;
 	void push_brick(unsigned long long brick, int _state) {
-		if (!state.empty()) {
-			if (state.back() & START_BRICK)
-				CV_Assert(_state & END_BRICK);
-			if (state.back() & END_BRICK && !(state.back() & START_BRICK))
-				CV_Assert(_state & START_BRICK);
-		}
-		if (!corner.empty() && corner.back() == brick)
-			state[state.size() - 1] |= _state;
-		else {
-			corner.push_back(brick);
-			state.push_back(_state);
-		}
+		corner.push_back(brick);
+		state.push_back(_state);
 	}
 	void clear() {
 		corner.clear();
@@ -770,123 +727,485 @@ public:
 	}
 };
 
-class CornerSets {
-public:
-	vector<QPoint> cs;
-	int guard;
-
-	CornerSets()
-	{
-		guard = 6;
-	}
-
-	void set_guard(int _g) {
-		guard = _g;
-	}
-
-	bool merge(QPoint & co) {
-		for (int i = 0; i < (int)cs.size(); i++) {
-			if (abs(co.x() - cs[i].x()) < guard && abs(co.y() - cs[i].y()) < guard)
-				return true;
-		}
-		cs.push_back(co);
-		return false;
-	}
-
-	bool merge(CornerSets & fv) {
-		bool ret = false;
-		for (int i = 0; i < (int)fv.cs.size(); i++)
-			ret |= merge(fv.cs[i]);
-		return ret;
-	}
-	void clear() {
-		cs.clear();
+struct ViaInfo {
+	Point xy;
+	int type, subtype;
+	int via_adj_mask;
+	int extend_wire_mask; //it means via's dir has wire
+	int pair_d;
+	int pattern;
+	unsigned via_s;
+	int v_pair[4];
+	ViaInfo(Point _xy, int _type, int _subtype, int _pattern, int _pair_d, unsigned _via_s) {
+		xy = _xy;
+		type = _type;
+		subtype = _subtype;
+		pattern = _pattern;
+		pair_d = _pair_d;
+		via_adj_mask = 0;
+		extend_wire_mask = 0;
+		via_s = _via_s;
+		for (int i = 0; i < 4; i++)
+			v_pair[i] = -1;
 	}
 };
 
-bool comp_x(const QPoint &a, const QPoint &b)
-{
-	return a.x() < b.x();
-}
+typedef int PointLink;
 
-bool comp_y(const QPoint &a, const QPoint &b)
-{
-	return a.y() < b.y();
-}
+struct PointState {
+	Point xy;
+	unsigned state;
+	PointState(Point _xy, unsigned _state) {
+		xy = _xy;
+		state = _state;
+	}
+};
 
-class FinalWireLines {
+class FinalLine {
 public:
-	vector<QRect> rects;
-	vector<CornerSets> lines;
-	int guard;
+	vector<PointLink> plk;
+	vector<PointState> * ps;
+	FinalLine(vector<PointState> * _ps) {
+		ps = _ps;
+	}
+	FinalLine() {
+		ps = NULL;
+	}
+	Point point_at(int idx) const {
+		return ps[0][plk[idx]].xy;
+	}
+	unsigned state_at(int idx) const {
+		return ps[0][plk[idx]].state;
+	}
+	unsigned state_end() const {
+		return ps[0][plk.back()].state;
+	}
+	PointState & point_state_at(int idx) {
+		return ps[0][plk[idx]];
+	}
+	const PointState & point_state_at(int idx) const {
+		return ps[0][plk[idx]];
+	}
+	Point point_begin() const {
+		return ps[0][plk[0]].xy;
+	}
+	Point point_end() const {
+		return ps[0][plk.back()].xy;
+	}
+	PointState & point_state_end() {
+		return ps[0][plk.back()];
+	}
+	const PointState & point_state_end() const {
+		return ps[0][plk.back()];
+	}
+	int point_num() const {
+		return (int)plk.size();
+	}
+	bool empty() const {
+		return plk.empty();
+	}
+};
 
-	FinalWireLines()
+class FinalWireVias {
+public:
+	vector<PointState> points;
+	vector<FinalLine> lines[4];
+	vector<PointLink> crosspoints; //store link to points
+	vector<PointLink> vias; //store link to points
+	int guard; //guard is for line intersect guard
+	int guard0; //guard0 is for via merge
+	int guard1; //guard1 is for crosspoints
+#define POINT_(p) points[p].xy
+#define STATE_(p) points[p].state
+#define POINT_AT(l, i) l.point_at(i)
+#define POINT_END(l) l.point_end()
+#define POINT_BEGIN(l) l.point_begin()
+
+	FinalWireVias()
 	{
 		guard = 5;
+		guard0 = 5;
+		guard1 = 4;
+	}
+protected:
+	void add_to_line(FinalLine & l0, const FinalLine & l1, int l1_loc, int l0_loc = -1)
+	{
+		if (l1.ps == l0.ps) { //local
+			if (l0_loc < 0)
+				l0.plk.push_back(l1.plk[l1_loc]);
+			else
+				l0.plk.insert(l0.plk.begin() + l0_loc, l1.plk[l1_loc]);
+		}
+		else { //remote			
+			if (l0_loc < 0)
+				l0.plk.push_back((int) l0.ps->size());
+			else
+				l0.plk.insert(l0.plk.begin() + l0_loc, (int)l0.ps->size());
+			l0.ps->push_back(l1.point_state_at(l1_loc));
+		}
 	}
 	/*
-	inout: cl, it is input for new line and output merge line
-	in: dir, 0 is for shu line, 1 is for heng line
+	in: l0 for line 0, l1 for line 1
+	in: dir, 0 is for shu line, 1 is for heng line, 2 for /, 3 for \
+	Return true if l0 and l1 intersects by guard, l0 and li link points can be different
+	*/
+	bool intersects(FinalLine & l0, FinalLine & l1, int dir) {
+		switch (dir) {
+		case 0:
+			if (abs(POINT_BEGIN(l0).x - POINT_BEGIN(l1).x) > guard && abs(POINT_END(l0).x - POINT_BEGIN(l1).x) > guard)
+				return false;
+			if (POINT_BEGIN(l0).y - POINT_END(l1).y >= 0 || POINT_BEGIN(l1).y - POINT_END(l0).y >= 0)
+				return false;
+			return true;
+		case 1:
+			if (abs(POINT_BEGIN(l0).y - POINT_BEGIN(l1).y) > guard && abs(POINT_END(l0).y - POINT_BEGIN(l1).y) > guard)
+				return false;
+			if (POINT_BEGIN(l0).x - POINT_END(l1).x >= 0 || POINT_BEGIN(l1).x - POINT_END(l0).x >= 0)
+				return false;
+			return true;
+		case 2:
+			{
+				  int l0_z0 = POINT_BEGIN(l0).y + POINT_BEGIN(l0).x;
+				  int l1_z0 = POINT_BEGIN(l1).y + POINT_BEGIN(l1).x;
+				  int lb_z0 = POINT_END(l0).y + POINT_END(l0).x;
+				  if (abs(l0_z0 - l1_z0) > guard && abs(lb_z0 - l1_z0) > guard)
+					  return false;
+				  if (POINT_END(l1).x - POINT_BEGIN(l0).x >= 0 || POINT_END(l0).x - POINT_BEGIN(l1).x >= 0)
+					  return false;
+				  if (POINT_BEGIN(l0).y - POINT_END(l1).y >= 0 || POINT_BEGIN(l1).y - POINT_END(l0).y >= 0)
+					  return false;
+				  return true;
+			}
+		case 3:
+			{
+				  int l0_z90 = POINT_BEGIN(l0).y - POINT_BEGIN(l0).x;
+				  int l1_z90 = POINT_BEGIN(l1).y - POINT_BEGIN(l1).x;
+				  int lb_z90 = POINT_END(l0).y - POINT_END(l0).x;
+				  if (abs(l0_z90 - l1_z90) > guard && abs(lb_z90 - l1_z90) > guard)
+					  return false;
+				  if (POINT_BEGIN(l0).x - POINT_END(l1).x >= 0 || POINT_BEGIN(l1).x - POINT_END(l0).x >= 0)
+					  return false;
+				  if (POINT_BEGIN(l0).y - POINT_END(l1).y >= 0 || POINT_BEGIN(l1).y - POINT_END(l0).y >= 0)
+					  return false;
+				  return true;
+			}
+		}
+		return false;
+	}
+	
+	/*
+	in: l1
+	out: l0
+	copy l1 to l0, l0's link points is here, l1's link points is in remote
+	*/
+	void copyline(FinalLine & l0, const WireLine & wl, int x0, int y0, int dir) {
+		l0.plk.clear();
+		for (int i = 0; i < wl.corner.size(); i++) {
+			unsigned long long corner = wl.corner[i];
+			int cx = PROB_X(corner), cy = PROB_Y(corner);
+			if (i>0) {
+				if (dir == 1) //heng line
+					CV_Assert(l0.point_end().x < cx + x0);
+				else
+					CV_Assert(l0.point_end().y < cy + y0);
+			}
+			l0.plk.push_back((int) l0.ps->size());
+			l0.ps->push_back(PointState(Point(cx + x0, cy + y0), PROB_S(corner)));
+		}
+	}
+	/*
+	in: pt, via's location
+	in: stat, via prob
+	Return: via index
+	Search via for all nearest points inside local points
+	*/
+	int merge_via(Point pt, unsigned state)
+	{
+		int idx = -1;
+		vector<int> nv_near;
+		bool replace_or_new = false;
+		CV_Assert(S_SHAPE(state) == BRICK_VIA);
+		for (int i = 0; i < (int)points.size(); i++)
+		if (abs(pt.x - points[i].xy.x) <= guard0 && abs(pt.y - points[i].xy.y) <= guard0 ) {
+			if (S_SHAPE(points[i].state) == BRICK_VIA) { //find existing via
+				idx = i;
+				if (state < points[i].state) { //replace existing via
+					points[i] = PointState(pt, state);
+					replace_or_new = true;
+				}
+			}
+			else
+				nv_near.push_back(i);
+		}
+		if (idx < 0) { //there is no via nearby, add new view point
+			replace_or_new = true;
+			idx = (int) points.size();
+			vias.push_back(idx);
+			points.push_back(PointState(pt, state));	
+		}
+
+		if (replace_or_new)
+		for (int i = 0; i < (int)nv_near.size(); i++) { //replace all nearest points with this via
+			if (S_SCORE(points[nv_near[i]].state) >= MIN_SCORE) {
+				qWarning("Point (x=%d,y=%d) replace from %x to via %x", pt.x, pt.y, points[nv_near[i]].state, state);
+				points[nv_near[i]] = PointState(pt, state);
+			}
+			else { //TODO how to do with Reserved line
+			}
+		}
+		return idx;
+	}
+	
+	/*
+	inout: l0
+	in: l1
+	in: dir
+	merge l1 into l0, l0 can be empty, check l1 all brick shape, and add them with different strategy
+	*/
+	void merge_line_line(FinalLine & l0, const FinalLine & l1, int dir)
+	{
+		CV_Assert(l0.ps == &points);
+		bool l1_local = (l1.ps == &points);
+		for (int i = 0, j = 0; i < (int)l1.point_num(); i++) {			
+			Point o = l1.point_at(i);
+			unsigned shape = S_SHAPE(l1.state_at(i));
+			CV_Assert(shape <= BRICK_IN_USE || shape == BRICK_VIA || shape == BRICK_FAKE_VIA);
+			int idx = -1; //insert idx to l0 for l1.point(i) 
+			if (shape == BRICK_VIA) { //for via, search nearest via point
+				for (int k = 0; k < (int)vias.size(); k++) {
+					Point p = POINT_(vias[k]);
+					if (abs(o.x - p.x) <= guard0 && abs(o.y - p.y) <= guard0) { //find overlap via point						
+						idx = vias[k]; //use existing via point
+						o = p;
+						break;
+					}
+				}
+				if (idx < 0) { //if no existing point, add new via point
+					if (l1_local) {
+						idx = l1.plk[i];
+						vias.push_back(idx);
+					}
+					else {
+						idx = (int)points.size();
+						vias.push_back(idx);
+						points.push_back(l1.point_state_at(i));
+					}
+				}
+			}
+			else
+			if (shape >= BRICK_L_0 && shape <= BRICK_l_270) { //for L, T, +, j, l, check if any point overlap			
+				for (int k = 0; k < crosspoints.size(); k++) { 
+					Point p = POINT_(crosspoints[k]);
+					if (abs(o.x - p.x) <= guard1 && abs(o.y - p.y) <= guard1) { //if overlap
+						idx = crosspoints[k]; //l0 will add existing link
+						if (shape != S_SHAPE(STATE_(crosspoints[k])))
+							qWarning("Point(x=%d, y=%d) has two shape %d and %d", o.x, o.y, shape, S_SHAPE(STATE_(crosspoints[k])));
+						if (S_SCORE(l1.state_at(i)) < S_SCORE(STATE_(crosspoints[k]))) //if score is smaller, replace existing one
+							points[crosspoints[k]] = l1.point_state_at(i);						
+						else
+							o = p; //use existing point
+						break;
+					}
+				}
+				if (idx < 0) { //if no existing point, add new cross point
+					if (l1_local) {
+						idx = l1.plk[i];
+						crosspoints.push_back(idx);
+					}
+					else {
+						idx = (int)points.size();
+						crosspoints.push_back(idx);
+						points.push_back(l1.point_state_at(i));
+					}
+				}
+			}
+			else { //for l1.point(i) = I, i, Z, P
+				if (l0.empty())
+					idx = 0; 				
+				else {
+					idx = 0;
+					if (dir == 1) {
+						if (o.x >= l0.point_begin().x && o.x <= l0.point_end().x)
+							idx = -1;
+					}
+					else {
+						if (o.y >= l0.point_begin().y && o.y <= l0.point_end().y)
+							idx = -1;
+					}
+				}
+				if (idx == 0) {
+					if (l1_local)
+						idx = l1.plk[i];
+					else {
+						idx = (int)points.size();
+						points.push_back(l1.point_state_at(i));
+					}
+				}
+			}
+			if (idx >= 0)
+				CV_Assert(POINT_(idx) == o);
+			if (idx >= 0) {
+				for (; j < l0.point_num(); j++) //search l0 loc j to add new link idx
+					if (dir == 1) {
+						if (o.x < l0.point_at(j).x)
+							break;
+					}
+					else {
+						if (o.y < l0.point_at(j).y)
+							break;
+					}
+				if (j == 0 && l0.point_num() >=2) {
+					unsigned shape = S_SHAPE(l0.state_at(0));
+					if (shape == BRICK_I_90 || shape == BRICK_i_90 || shape == BRICK_i_270 ||
+						shape == BRICK_I_0 || shape == BRICK_i_0 || shape == BRICK_i_180 ||
+						shape == BRICK_Z_0 || shape == BRICK_P_0 || shape == BRICK_P_180 ||
+						shape == BRICK_Z_90 || shape == BRICK_P_90 || shape == BRICK_P_270) { //l0 head can be extended,
+						l0.plk[0] = idx; //replace head
+						idx = -1; //idx not need to be added
+					}
+				} 
+				if (j == l0.point_num() && l0.point_num() >= 2) {
+					unsigned shape = S_SHAPE(l0.state_end());
+					if (shape == BRICK_I_90 || shape == BRICK_i_90 || shape == BRICK_i_270 ||
+						shape == BRICK_I_0 || shape == BRICK_i_0 || shape == BRICK_i_180 ||
+						shape == BRICK_Z_0 || shape == BRICK_P_0 || shape == BRICK_P_180 ||
+						shape == BRICK_Z_90 || shape == BRICK_P_90 || shape == BRICK_P_270) {//l0 tail can be extended,
+						l0.plk.back() = idx; //replace tail
+						idx = -1; //idx not need to be added
+					}
+				} 
+				if (idx >= 0)
+					l0.plk.insert(l0.plk.begin() + j, idx);
+			}
+		}
+		for (int i = 1; i < l0.point_num() - 1; i++) {
+			unsigned shape = S_SHAPE(l0.state_at(i));
+			if (!(shape >= BRICK_L_0 && shape <= BRICK_l_270 || shape == BRICK_VIA || shape == BRICK_FAKE_VIA))
+				qCritical("merge_line_line shape =%d, error", shape);
+			if (dir == 1)
+				CV_Assert(l0.point_at(i).x >= l0.point_at(i - 1).x);
+			else
+				CV_Assert(l0.point_at(i).y >= l0.point_at(i - 1).y);
+		}
+			
+	}
+	/*
+	in: l1, l1 doesn't intersect with any Line here, so only check if it intersect with via points
+	out: l0
+	merge l1 to l0, will insert all intersected via to l0
+	*/
+	void merge_line_via(FinalLine & l0, const FinalLine & l1, int dir)
+	{
+		int cx, cy;
+		switch (dir) {
+		case 0: //down
+			cx = 1, cy = 0;
+			break;
+		case 1: //right
+			cx = 0, cy = 1;
+			break;
+		case 2: //downleft
+			cx = 1, cy = 1;
+			break;
+		case 3: //downright
+			cx = -1, cy = 1;
+			break;
+		}
+		l0.ps = &points;
+		l0.plk.clear();
+		for (int i = 0; i < (int) l1.point_num(); i++) {
+			if (S_SCORE(l1.state_at(i)) < MIN_SCORE && S_SHAPE(l1.state_at(i)) != BRICK_VIA) { //TODO how to do with Reserved line	
+				add_to_line(l0, l1, i);				
+				continue;
+			}
+			Point o = l1.point_at(i); //current point
+			Point lo; //last point
+			int c;
+			if (i > 0) {
+				lo = l1.point_at(i - 1);
+				c = cx * lo.x + cy *lo.y;
+				if (dir == 1) //check point order
+					CV_Assert(lo.x <= o.x);
+				else
+					CV_Assert(lo.y <= o.y);
+			}
+			int idx = -1; //insert idx to l0 for l1.point(i)
+			for (int j = 0; j < (int)vias.size(); j++) {
+				Point p = POINT_(vias[j]);
+				if (abs(o.x - p.x) <= guard0 && abs(o.y - p.y) <= guard0) { //if it's overlap via o
+					if (S_SHAPE(l1.state_at(i)) != BRICK_VIA)
+						qWarning("Point (x=%d,y=%d) replace from %x to via %x", o.x, o.y, l1.state_at(i), STATE_(vias[j]));
+					idx = vias[j];
+					continue;
+				}
+				if (abs(lo.x - p.x) <= guard0 && abs(lo.y - p.y) <= guard0) //if it's overlap via lo
+					continue;
+				if (i == 0)
+					continue;
+				if (abs(cx*p.x + cy*p.y - c) <= guard0) { //find [lo, o] intersect via point
+					if (dir==1) {
+						if (p.x < lo.x || p.x > o.x)
+							continue;
+					}
+					else {
+						if (p.y < lo.y || p.y > o.y)
+							continue;
+					}
+					qWarning("Insert via (x=%d, y=%d) to line (x=%d,y=%d), (x=%d,y=%d)", p.x, p.y, lo.x, lo.y, o.x, o.y);
+					l0.plk.push_back(vias[j]); //insert intersect via point
+				}
+			}
+			if (idx >= 0) 
+				l0.plk.push_back(idx);
+			else 
+				add_to_line(l0, l1, i);
+		}
+	}
+public:
+	/*
+	inout: l1, it is input for new line and output merge line
+	in: dir, 0 is for shu line, 1 is for heng line, 2 for /, 3 for \
 	Return true if merge happen, else return false
 	*/
-	bool merge(CornerSets & cc, int dir, int depth = 0) {
-		for (int i = 0; i < cc.cs.size(); i++)
-		if (dir == 0)
-			CV_Assert(cc.cs.back().y() >= cc.cs[i].y() && cc.cs[0].y() <= cc.cs[i].y());
+	bool merge_line(FinalLine & l2, int dir) {
+		FinalLine l0(&points);
+		merge_line_line(l0, l2, dir);
+		for (int i = 0; i < l0.plk.size(); i++) //doing some check
+		if (dir == 1) //heng line
+			CV_Assert(POINT_BEGIN(l0).x <= POINT_AT(l0, i).x && POINT_AT(l0, i).x <= POINT_END(l0).x);
 		else
-			CV_Assert(cc.cs.back().x() >= cc.cs[i].x() && cc.cs[0].x() <= cc.cs[i].x());
+			CV_Assert(POINT_BEGIN(l0).y <= POINT_AT(l0, i).y && POINT_AT(l0, i).y <= POINT_END(l0).y);
 
-		bool ret = false;
-		QRect cr(QPoint(min(cc.cs[0].x(), cc.cs.back().x()) - guard / 2, min(cc.cs[0].y(), cc.cs.back().y()) - guard / 2),
-			QPoint(max(cc.cs[0].x(), cc.cs.back().x()) + guard / 2, max(cc.cs[0].y(), cc.cs.back().y()) + guard / 2));		
+		bool ret = false;	
 
-		for (int i = 0; i < (int) rects.size(); i++) {
-			if (cr.left() > rects[i].right() || cr.right() < rects[i].left()) //quick check to save mips
-				continue;
-			if (cr.top() > rects[i].bottom() || cr.bottom() < rects[i].top()) //quick check to save mips
-				continue;
-			if (cr.intersects(rects[i])) {//if current line extend other line or overlap other line, merge other line to current line
+		for (int i = 0; i < (int) lines[dir].size(); i++) {			
+			if (intersects(l0, lines[dir][i], dir)) {//if current line extend other line or overlap other line, merge other line to current line
 				ret = true;
-				cc.merge(lines[i]);
-				if (dir == 0)
-					sort(cc.cs.begin(), cc.cs.end(), comp_y);
-				else
-					sort(cc.cs.begin(), cc.cs.end(), comp_x);
-				lines[i] = lines[lines.size() - 1];
-				rects[i] = rects[rects.size() - 1];
-				lines.pop_back();
-				rects.pop_back();
-				break;
+				merge_line_line(l0, lines[dir][i], dir);
+				lines[dir][i].plk.swap(lines[dir][lines[dir].size() - 1].plk); //lines[dir][i]=lines[dir][lines[dir].size() - 1]
+				lines[dir].pop_back();
 			}
 		}
 
-		if (ret)
-			merge(cc, dir, depth + 1);
-		if (depth == 0) {			
-			lines.push_back(cc);
-			QRect cr(QPoint(min(cc.cs[0].x(), cc.cs.back().x()) - guard / 2, min(cc.cs[0].y(), cc.cs.back().y()) - guard / 2),
-				QPoint(max(cc.cs[0].x(), cc.cs.back().x()) + guard / 2, max(cc.cs[0].y(), cc.cs.back().y()) + guard / 2));
-			rects.push_back(cr);
-		}
-		CV_Assert(lines.size() == rects.size());
+		FinalLine l1;
+		merge_line_via(l1, l0, dir);
+		lines[dir].push_back(l1);
+		
 		return ret;
 	}
 
-	void recal_rect()
+	void merge_vias(FinalWireVias &fwv)
 	{
-		rects.clear();
-		for (int i = 0; i < lines.size(); i++) {
-			CornerSets & cc = lines[i];
-			QRect cr(QPoint(min(cc.cs[0].x(), cc.cs.back().x()) - guard / 2, min(cc.cs[0].y(), cc.cs.back().y()) - guard / 2),
-				QPoint(max(cc.cs[0].x(), cc.cs.back().x()) + guard / 2, max(cc.cs[0].y(), cc.cs.back().y()) + guard / 2));
-			rects.push_back(cr);
+		for (int i = 0; i < (int)fwv.vias.size(); i++) {
+			PointState o = fwv.points[fwv.vias[i]];
+			merge_via(o.xy, o.state);
 		}
 	}
 
 	void set_guard(int _g) {
 		guard = _g;
 	}
-
+	
 	/*
 	in: wl it is input line
 	in: x0, y0 is image left-top zuobiao
@@ -894,49 +1213,34 @@ public:
 	Return true if merge happen, else return false
 	*/
 	bool push(WireLine & wl, int x0, int y0, int dir) {
-		bool ret = false;
-		CV_Assert(wl.corner.size() == wl.state.size());
-		CornerSets cc;
-		for (int c = 0; c < wl.corner.size(); c++) {
-			unsigned long long corner = wl.corner[c];			
-			int state = wl.state[c];			
-			cc.cs.push_back(QPoint(PROB_X(corner) + x0, PROB_Y(corner) + y0));
-			
-			if ((state & (START_BRICK | END_BRICK)) == END_BRICK) {
-				ret |= merge(cc, dir);
-				cc.clear();
-			}
-		}
+		bool ret = false;		
+		vector<PointState> pos;
+		FinalLine l0(&pos);
+		copyline(l0, wl, x0, y0, dir);		
+		ret = merge_line(l0, dir);
 		return ret;
+	}
+
+	void push(ViaInfo & v, int x0, int y0) {
+		merge_via(v.xy + Point(x0, y0), v.via_s);
+	}
+
+	Point via_at(int i) {
+		return points[vias[i]].xy;
+	}
+
+	int via_num() {
+		return (int) vias.size();
 	}
 };
 
 //obj_sets points unit is pixel
 #define OBJ_WIRE			0
 #define OBJ_VIA				1
-typedef void(*ObjProcessFunc)(CornerSets & obj_sets, int layer, int obj_type, ProcessParameter & cpara);
+typedef void(*ObjProcessFunc)(FinalWireVias & obj_sets, int layer, int obj_type, ProcessParameter & cpara);
 struct ObjProcessHook {
-	ObjProcessFunc func;
+	ObjProcessFunc func; //it process assemble_line output
 	ProcessParameter cpara;
-};
-
-struct ViaInfo {
-	Point xy;
-	int type, subtype;
-	int via_adj_mask;
-	int pair_d;
-	int pattern;
-	int v_pair[4];
-	ViaInfo(Point _xy, int _type, int _subtype, int _pattern, int _pair_d) {
-		xy = _xy;
-		type = _type;
-		subtype = _subtype;
-		pattern = _pattern;
-		pair_d = _pair_d;
-		via_adj_mask = 0;
-		for (int i = 0; i < 4; i++)
-			v_pair[i] = -1;
-	}
 };
 
 class PipeDataPerLayer {
@@ -954,11 +1258,9 @@ public:
 	VWSet vw;
 	bool ig_valid;
 	int compute_border;
-	vector<WireLine> lineset[2]; //assemble_line output
-	vector<QPoint> viaset; //fine_via_search output
-	vector<ViaInfo> via_info;
-	FinalWireLines fwl[2];
-	CornerSets fv;
+	vector<WireLine> lineset[4]; //assemble_line output
+	vector<ViaInfo> via_info; //fine_via_search output
+	FinalWireVias fwv;
 	//_gs * 2 <= _compute_border
 	PipeDataPerLayer() {
 		ig_valid = false;
@@ -1012,7 +1314,6 @@ public:
 		lg.release();
 		llg.release();
 		prob.release();
-		viaset.clear();
 		lineset[0].clear();
 		lineset[1].clear();
 		for (int i = 0; i < 16; i++)
@@ -1144,6 +1445,32 @@ static void mark_line(Mat & m, Point pt1, Point pt2, T mask) {
 	}
 }
 
+template<class T>
+static void mark_rect(Mat & m, Point pt1, Point pt2, T mask) {
+	switch (sizeof(T)) {
+	case 1:
+		CV_Assert(m.depth() == CV_8U || m.depth() == CV_8S);
+		break;
+	case 2:
+		CV_Assert(m.depth() == CV_16U || m.depth() == CV_16S);
+		break;
+	case 4:
+		CV_Assert(m.depth() == CV_32S || m.depth() == CV_32F);
+		break;
+	case 8:
+		CV_Assert(m.depth() == CV_64F);
+		break;
+	}
+	pt1.x = max(pt1.x, 0);
+	pt1.y = max(pt1.y, 0);
+	pt2.x = min(pt2.x, m.cols - 1);
+	pt2.y = min(pt2.y, m.rows - 1);
+	for (int y = pt1.y; y <= pt2.y; y++) {
+		T * pm = m.ptr<T>(y);
+		for (int x = pt1.x; x <= pt2.x; x++)
+			pm[x] |= mask;
+	}
+}
 /*
 input points
 output lut, 256 * 1
@@ -1632,7 +1959,6 @@ class ViaCircleRemove : public ViaRemove {
 protected:
 	int r;
 	int gd;
-	int connect_rd;
 	int w;
 	vector<int> d;
 	vector<int> d2;
@@ -1642,11 +1968,9 @@ public:
 	void prepare(ViaParameter &vp, PipeData &) {
 		r = vp.remove_rd;
 		gd = vp.guard;
-		connect_rd = vp.connect_rd;
 		w = 3;
 		compute_circle_dd(r, d);
 		compute_circle_dd(gd, d2);
-		compute_circle_dd(connect_rd, d3);
 		img_buf.create(2 * r + 1, 2 * r + 1, CV_8UC1);
 	}
 
@@ -1741,15 +2065,6 @@ public:
 			int x2 = x0 + d2[abs(y - y0)];
 			for (int x = x1; x <= x2; x++)
 				p_mask[x] |= 1;
-		}
-		if (gd <= connect_rd) { //TODO remove
-			for (int y = max(0, y0 - connect_rd); y <= min(mask.rows, y0 + connect_rd); y++) {
-				unsigned char * p_mask = mask.ptr<unsigned char>(y);
-				int x1 = max(0, x0 - d3[abs(y - y0)]);
-				int x2 = min(mask.cols, x0 + d3[abs(y - y0)]);
-				for (int x = x1; x <= x2; x++)
-					p_mask[x] |= 2;
-			}
 		}
 	}
 
@@ -1870,6 +2185,8 @@ public:
 					int lr_x = min(x0, x1) - r, lr_y = min(y0, y1) - r;
 					for (int x = min(x0, x1) - r; x <= max(x0, x1) + r; x++) {
 						int dy = d1[min(min(abs(x - x0), abs(x - x1)), r)];
+						if (pair_dir && (x - x0)*(x - x1) < 0)
+							dy = r;
 						int a = 0, b = 0;
 						for (int i = 1; i <= w; i++) {
 							a += img.at<unsigned char>(min(y0, y1) - dy - i, x);
@@ -1887,6 +2204,8 @@ public:
 					for (int y = min(y0, y1) - r; y <= max(y0, y1) + r; y++) {
 						unsigned char * p_img = img.ptr<unsigned char>(y);
 						int dx = d1[min(min(abs(y - y0), abs(y - y1)), r)];
+						if (!pair_dir && (y - y0)*(y - y1) < 0)
+							dx = r;
 						int a = 0, b = 0;
 						for (int i = 1; i <= w; i++) {
 							a += p_img[min(x0, x1) - dx - i];
@@ -1950,10 +2269,470 @@ public:
 	}
 	virtual int prepare(WireParameter & _wp, PipeData & d, int layer) = 0;
 	virtual PAIR_ULL compute(int x0, int y0, const Mat & img, const Mat & ig, const Mat & iig) = 0;
-	virtual int check_mark(int x0, int y0, const Mat & prob, Mat mask, int subtype, const Mat & already_mask) = 0;
+	virtual int check_mark(int x0, int y0, const Mat & prob, Mat & mask, int subtype, const Mat & already_mask) = 0;
 	virtual void check_via_wire_connect(Mat & remove_via_mask, Mat & prob, Mat & img, Mat & ig) = 0;
 };
 
+struct Wire25ShapeConst {
+	int group_id;
+	double ratio[25];
+	int shape;
+} wire_25_shape[] = {
+	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 00, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_NO_WIRE },
+	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_0 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_90 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_i_180 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_270 },
+	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_I_0 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_I_90 },
+	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_0 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_L_90 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_L_180 },
+	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 01, 01, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_270 },
+	{  0, { -1, -1, 01, -1, -1, -1, 01, 01, 00, -1, 00, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_II_0 },
+	{  0, { -1, -1, 00, -1, -1, -1, 01, 01, 01, -1, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_II_90 },
+	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, 00, -1, 00, 01, 01, -1, -1, -1, 01, -1, -1 }, BRICK_II_180 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 01, 01, 01, -1, -1, -1, 00, -1, -1 }, BRICK_II_270 },
+	{  0, { -1, -1, -1, -1, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, -1, -1, -1, -1 }, BRICK_FAKE_VIA },
+	{  0, { -1, -1, -1, -1, -1, -1, -1, 01, -1, -1, -1, 00, 00, 00, -1, -1, -1, 01, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  0, { -1, -1, -1, -1, -1, -1, -1, 00, -1, -1, -1, 01, 00, 01, -1, -1, -1, 00, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_ONE_POINT },
+	{  1, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_T_0 },
+	{  1, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_T_90 },
+	{  1, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 01, 01, 01, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_T_180 },
+	{  1, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_T_270 },
+	{  2, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 01, 01, 01, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_X_0 },
+	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
+	{  3, { -1, 00, 00, 00, -1, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, -1, 00, 00, 00, -1 }, BRICK_NO_WIRE },
+	{  3, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_0 },
+	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 00, 01, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_i_90 },
+	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_i_180 },
+	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, 01, 00, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_270 },
+	{  3, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_I_0 },
+	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_I_90 },
+	{  3, { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, 00, 01, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_L_0 },
+	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 00, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_L_90 },
+	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, 01, 00, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_L_180 },
+	{  3, { -1, 00, 01, 00, -1, 00, 00, 01, 00, -1, 01, 01, 01, 00, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_270 },
+	{  3, { -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1 }, BRICK_II_0 },
+	{  3, { -1, -1, -1, -1, -1, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_II_90 },
+	{  3, { -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1 }, BRICK_II_180 },
+	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, -1, -1, -1, -1, -1 }, BRICK_II_270 },
+	{  3, { -1, -1, -1, -1, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, -1, -1, -1, -1 }, BRICK_FAKE_VIA },
+	{  3, { -1, -1, -1, -1, -1, -1, -1, 01, -1, -1, -1, 00, 00, 00, -1, -1, -1, 01, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  3, { -1, -1, -1, -1, -1, -1, -1, 00, -1, -1, -1, 01, 00, 01, -1, -1, -1, 00, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_ONE_POINT },
+	{  4, { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, 00, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_T_0 },
+	{  4, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 00, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_T_90 },
+	{  4, { -1, 00, 01, 00, -1, 00, 00, 01, 00, -1, 01, 01, 01, 00, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_T_180 },
+	{  4, { -1, 00, 01, 00, -1, 00, 00, 01, 00, 00, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_T_270 },
+	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
+	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 00, .5, .9, 00, -1, -1, 01, .5, 00, -1, 01, -1, 00, -1, -1 }, BRICK_J_0 },
+	{  6, { 01, -1, 00, -1, -1, -1, 01, .5, 00, -1, 00, .5, .9, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_J_90 },
+	{  6, { -1, -1, 00, -1, 01, -1, 00, .5, 01, -1, -1, 00, .9, .5, 00, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_J_180 },
+	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, .9, .5, 00, -1, 00, .5, 01, -1, -1, -1, 00, -1, 01 }, BRICK_J_270 },
+	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .9, .5, 00, -1, 00, .5, 01, -1, -1, -1, 00, -1, 01 }, BRICK_l_0 },
+	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 00, .5, .9, 01, 01, -1, 01, .5, 00, -1, 01, -1, 00, -1, -1 }, BRICK_l_90 },
+	{  6, { 01, -1, 00, -1, -1, -1, 01, .5, 00, -1, 00, .5, .9, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_l_180 },
+	{  6, { -1, -1, 00, -1, 01, -1, 00, .5, 01, -1, 01, 01, .9, .5, 00, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_l_270 },
+	{  7, { -1, -1, -1, -1, 01, -1, 00, .5, 01, -1, -1, .5, .9, .5, -1, -1, 01, .5, 00, -1, 01, -1, -1, -1, -1 }, BRICK_Z_0 },
+	{  7, { 01, -1, -1, -1, -1, -1, 01, .5, 00, -1, -1, .5, .9, .5, -1, -1, 00, .5, 01, -1, -1, -1, -1, -1, 01 }, BRICK_Z_90 },
+	{  8, { -1, -1, 00, -1, 01, -1, 00, .5, 01, -1, -1, 00, .9, .5, 00, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_0 },
+	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, .5, 00, -1, 00, .5, 01, -1, -1, -1, 00, -1, 01 }, BRICK_P_90 },
+	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 00, .5, .9, 00, -1, -1, 01, .5, 00, -1, 01, -1, 00, -1, -1 }, BRICK_P_180 },
+	{  8, { 01, -1, 00, -1, -1, -1, 01, .5, 00, -1, 00, .5, .9, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_270 },
+	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
+	{ 20, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .9, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_0 },
+	{ 20, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_L_90 },
+	{ 20, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, .9, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_L_180 },
+	{ 20, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 01, 01, .9, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_270 },
+	{ 21, { -1, -1, 01, -1, -1, -1, 00, 01, .2, -1, -1, 00, 01, 01, 01, -1, 00, 01, .2, -1, -1, -1, 01, -1, -1 }, BRICK_T_0 },
+	{ 21, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, .2, 01, .2, -1, -1, -1, 01, -1, -1 }, BRICK_T_90 },
+	{ 21, { -1, -1, 01, -1, -1, -1, .2, 01, 00, -1, 01, 01, 01, 00, -1, -1, .2, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_T_180 },
+	{ 21, { -1, -1, 01, -1, -1, -1, .2, 01, .2, -1, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_T_270 },
+	{ 22, { -1, -1, 01, -1, -1, -1, .2, 01, .2, -1, -1, .2, 01, .2, -1, -1, .2, 01, .2, -1, -1, -1, 01, -1, -1 }, BRICK_I_0 },
+	{ 23, { -1, -1, -1, -1, -1, -1, .2, .2, .2, -1, 01, 01, 01, 01, 01, -1, .2, .2, .2, -1, -1, -1, -1, -1, -1 }, BRICK_I_90 },
+	{ -1, { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, BRICK_INVALID }
+	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
+};
+
+struct WirePartStat { //each shape's part expect stat value
+	int part, sum, sum2; //These para are compute during prepare, and after prepare they are fixed
+	int err; //this is update by compute, it means this part error
+	bool operator == (const WirePartStat & ano) {
+		return (part == ano.part && sum == ano.sum && sum2 == ano.sum2);
+	}
+};
+
+struct ShapeDeviation {
+	vector<int> si; //Wire25Stat index, each ShapeDeviation have 13 or 17 or 25 part(si)
+	int w25_shape_idx;
+};
+
+class Wire_25RectCompute : public WireComputeScore {
+protected:
+	int offset[36], dx[36], dy[36]; //offset is compute based on dx and dy
+	WireParameter wp;
+	vector<WirePartStat> stats; //each part expected value
+	vector<ShapeDeviation> sds; //each shape may have one or multipul ShapeDeviation
+	int mode, gs;
+	static map<int, int> wire_25_shape_map;
+	double arf;
+
+public:
+	int prepare(WireParameter & _wp, PipeData & d, int layer) {
+		if (wire_25_shape_map.empty()) {
+			int last_id = -100;
+			for (int i = 0; i < sizeof(wire_25_shape) / sizeof(wire_25_shape[0]); i++) {
+				if (wire_25_shape[i].group_id != last_id) {
+					wire_25_shape_map[wire_25_shape[i].group_id] = i;
+					last_id = wire_25_shape[i].group_id;
+				}
+				if (wire_25_shape[i].shape == BRICK_II_0 || wire_25_shape[i].shape == BRICK_II_90 ||
+					wire_25_shape[i].shape == BRICK_II_180 || wire_25_shape[i].shape == BRICK_II_270)
+					wire_25_shape[i].shape = BRICK_FAKE_VIA;
+			}
+		}
+		gs = d.l[layer].gs;
+		d.l[layer].validate_ig();
+		wp = _wp;
+		float gamma = wp.arfactor / 100.0;
+		qInfo("Wire_25Rect Prepare w=%d,h=%d,w1=%d,h1=%d,i_w=%d,i_h=%d gamma=%f", wp.w_wide, wp.w_high,
+			wp.w_wide1, wp.w_high1, wp.i_wide, wp.i_high, gamma);
+		if (gamma >= 1) {
+			qWarning("gamma(%f) >=1, force it to 1", gamma);
+			gamma = 1;
+		}
+		//following compute offset
+		dx[0] = -wp.w_wide1 - wp.i_wide - wp.w_wide / 2;
+		dx[1] = -wp.i_wide - wp.w_wide / 2;
+		dx[2] = -wp.w_wide / 2;
+		dx[3] = wp.w_wide - wp.w_wide / 2;
+		dx[4] = wp.w_wide - wp.w_wide / 2 + wp.i_wide;
+		dx[5] = wp.w_wide - wp.w_wide / 2 + wp.i_wide + wp.w_wide1;
+		if (abs(dx[0]) >= d.l[layer].compute_border || abs(dx[5]) >= d.l[layer].compute_border) {
+			qCritical("dx (%d, %d) exceed compute_border(%d)", dx[0], dx[5], d.l[layer].compute_border);
+			return -1;
+		}
+		for (int i = 6; i < 36; i++)
+			dx[i] = dx[i - 6];
+		dy[0] = -wp.w_high1 - wp.i_high - wp.w_high / 2;
+		dy[6] = -wp.i_high - wp.w_high / 2;
+		dy[12] = - wp.w_high / 2;
+		dy[18] = wp.w_high - wp.w_high / 2;
+		dy[24] = wp.w_high - wp.w_high / 2 + wp.i_high;
+		dy[30] = wp.w_high - wp.w_high / 2 + wp.i_high + wp.w_high1;
+		if (abs(dy[0]) >= d.l[layer].compute_border || abs(dy[30]) >= d.l[layer].compute_border) {
+			qCritical("dx (%d, %d) exceed compute_border(%d)", dy[0], dy[30], d.l[layer].compute_border);
+			return -1;
+		}
+		for (int i = 0; i < 36; i++)
+			dy[i] = dy[i / 6 * 6];
+		int area[25];
+		for (int i = 0, j = 0; i < 25; i++, j++) {
+			if (dx[j + 1] - dx[j] < 0)
+				j++;
+			area[i] = (dx[j + 1] - dx[j]) * (dy[j + 6] - dy[j]);
+		}
+		for (int i = 0; i < 36; i++)
+			offset[i] = (dy[i] * (int) d.l[layer].ig.step.p[0] + dx[i] * (int) d.l[layer].ig.step.p[1]) / sizeof(unsigned);
+		//following compute expected stats and init each shape part
+		stats.clear();
+		sds.clear();
+		mode = 0;
+		//stats 0..24 means each part minimum error
+		for (int i = 0; i < 25; i++) {
+			WirePartStat stat;
+			stat.part = i;
+			stat.sum = -1;
+			stat.sum2 = -1;
+			stats.push_back(stat);
+		}
+		for (int i = 0; i <= sizeof(wp.wgid) / sizeof(wp.wgid[0]); i++) {
+			int w = (i == sizeof(wp.wgid) / sizeof(wp.wgid[0])) ? wp.uni_id : wp.wgid[i];
+			if (i != 0 && w == 0)
+				continue;
+			map<int, int>::iterator idx = wire_25_shape_map.find(w);
+			if (idx == wire_25_shape_map.end()) {
+				qCritical("Wire_25Rect gid=%d not found", w);
+				continue;
+			}
+			for (int j = idx->second; wire_25_shape[j].group_id == w; j++) {
+				ShapeDeviation sd; 
+				sd.w25_shape_idx = j;
+				for (int k = 0; k < 25; k++) { //following add wire_25_shape[j] part stat to shape sd
+					if (wire_25_shape[j].ratio[k] < 0) { //<0 means don't care, choose minimum error to balance
+						sd.si.push_back(k);
+						continue;
+					}
+					//compute stat and check if it already exist, save computing
+					WirePartStat stat;
+					stat.part = k;
+					stat.sum = (wp.gray_i * (1 - wire_25_shape[j].ratio[k]) + wp.gray_w * wire_25_shape[j].ratio[k]) * area[k];
+					stat.sum2 = (wp.gray_i * wp.gray_i * (1 - wire_25_shape[j].ratio[k]) +
+						wp.gray_w * wp.gray_w * wire_25_shape[j].ratio[k]) * area[k];
+					vector<WirePartStat>::iterator it = find(stats.begin(), stats.end(), stat); //check if stat already exit
+					if (it == stats.end()) {
+						sd.si.push_back((int)stats.size());
+						stats.push_back(stat);
+						if (k == 0 || k == 4 || k == 20 || k == 24)
+							mode = 1;
+						if (k == 1 || k == 3 || k == 5 || k == 9 || k == 15 || k == 19 || k == 21 || k == 23)
+							mode = 2;
+					}
+					else
+						sd.si.push_back(it - stats.begin());
+					CV_Assert(stats[sd.si.back()] == stat);
+				}
+				sds.push_back(sd);
+			}
+		}
+		//for mode2, stats[sds[i].si[0]].part=0,stats[sds[i].si[1]].part=1,stats[sds[i].si[2]].part=2, 
+		if (mode == 1) { //for mode1, stats[sds[i].si[0]].part=0,stats[sds[i].si[1]].part=2,stats[sds[i].si[2]].part=4
+			for (int i = 0; i<(int)sds.size(); i++) {				
+				sds[i].si.erase(sds[i].si.begin() + 23);
+				sds[i].si.erase(sds[i].si.begin() + 21);
+				sds[i].si.erase(sds[i].si.begin() + 19);
+				sds[i].si.erase(sds[i].si.begin() + 15);
+				sds[i].si.erase(sds[i].si.begin() + 9);
+				sds[i].si.erase(sds[i].si.begin() + 5);
+				sds[i].si.erase(sds[i].si.begin() + 3);
+				sds[i].si.erase(sds[i].si.begin() + 1);
+			}
+		}
+
+		if (mode == 0) { //for mode0, stats[sds[i].si[0]].part=2,stats[sds[i].si[1]].part=6,stats[sds[i].si[2]].part=7
+			for (int i = 0; i<(int)sds.size(); i++) {
+				sds[i].si.erase(sds[i].si.begin() + 24);
+				sds[i].si.erase(sds[i].si.begin() + 23);
+				sds[i].si.erase(sds[i].si.begin() + 21);
+				sds[i].si.erase(sds[i].si.begin() + 20);
+				sds[i].si.erase(sds[i].si.begin() + 19);
+				sds[i].si.erase(sds[i].si.begin() + 15);
+				sds[i].si.erase(sds[i].si.begin() + 9);
+				sds[i].si.erase(sds[i].si.begin() + 5);
+				sds[i].si.erase(sds[i].si.begin() + 4);
+				sds[i].si.erase(sds[i].si.begin() + 3);
+				sds[i].si.erase(sds[i].si.begin() + 1);
+				sds[i].si.erase(sds[i].si.begin());
+			}
+		}
+		
+		int tot_area = 0;
+		tot_area = area[12] + 2 * area[7] + 2 * area[11] + 4 * area[6] + 2 * area[2] + 2 * area[10];
+		if (mode > 0)
+			tot_area +=  4 * area[0];
+		if (mode > 1)
+			tot_area += 4 * area[1] + 4 * area[5];
+		arf = 256.0 / (sqrt(tot_area) * (wp.gray_w - wp.gray_i) * (wp.gray_w - wp.gray_i));
+		return 0;
+	}
+
+	PAIR_ULL compute(int x0, int y0, const Mat &, const Mat & ig, const Mat & iig) {
+		PAIR_ULL ret = make_pair(0xffffffffffffffffULL, 0xffffffffffffffffULL);
+		unsigned s[36], s2[36];
+		const unsigned *p_ig = ig.ptr<unsigned>(y0, x0);
+		const unsigned *p_iig = iig.ptr<unsigned>(y0, x0);
+		for (int i = 0; i < 36; i++) {
+			s[i] = p_ig[offset[i]];
+			s2[i] = p_iig[offset[i]];
+		}
+		int sum[25], sum2[25], e[30], e2[30];
+		e[2] = s[8] - s[2], e2[2] = s2[8] - s2[2];
+		e[3] = s[9] - s[3], e2[3] = s2[9] - s2[3];
+		e[7] = s[13] - s[7], e2[7] = s2[13] - s2[7];
+		e[8] = s[14] - s[8], e2[8] = s2[14] - s2[8];
+		e[9] = s[15] - s[9], e2[9] = s2[15] - s2[9];
+		e[10] = s[16] - s[10], e2[10] = s2[16] - s2[10];
+		e[12] = s[18] - s[12], e2[12] = s2[18] - s2[12];
+		e[13] = s[19] - s[13], e2[13] = s2[19] - s2[13];
+		e[14] = s[20] - s[14], e2[14] = s2[20] - s2[14];
+		e[15] = s[21] - s[15], e2[15] = s2[21] - s2[15];
+		e[16] = s[22] - s[16], e2[16] = s2[22] - s2[16];
+		e[17] = s[23] - s[17], e2[17] = s2[23] - s2[17];
+		e[19] = s[25] - s[19], e2[19] = s2[25] - s2[19];
+		e[20] = s[26] - s[20], e2[20] = s2[26] - s2[20];
+		e[21] = s[27] - s[21], e2[21] = s2[27] - s2[21];
+		e[22] = s[28] - s[22], e2[22] = s2[28] - s2[22];
+		e[26] = s[32] - s[26], e2[26] = s2[32] - s2[26];
+		e[27] = s[33] - s[27], e2[27] = s2[33] - s2[27];
+
+		sum[2] = e[3] - e[2], sum2[2] = e2[3] - e2[2];
+		sum[6] = e[8] - e[7], sum2[6] = e2[8] - e2[7];
+		sum[7] = e[9] - e[8], sum2[7] = e2[9] - e2[8];
+		sum[8] = e[10] - e[9], sum2[8] = e2[10] - e2[9];
+		sum[10] = e[13] - e[12], sum2[10] = e2[13] - e2[12];
+		sum[11] = e[14] - e[13], sum2[11] = e2[14] - e2[13];
+		sum[12] = e[15] - e[14], sum2[12] = e2[15] - e2[14];
+		sum[13] = e[16] - e[15], sum2[13] = e2[16] - e2[15];
+		sum[14] = e[17] - e[16], sum2[14] = e2[17] - e2[16];
+		sum[16] = e[20] - e[19], sum2[16] = e2[20] - e2[19];
+		sum[17] = e[21] - e[20], sum2[17] = e2[21] - e2[20];
+		sum[18] = e[22] - e[21], sum2[18] = e2[22] - e2[21];
+		sum[22] = e[27] - e[26], sum2[22] = e2[27] - e2[26];
+#ifdef QT_DEBUG
+		CV_Assert(sum[2] >= 0 && sum2[2] >= 0 && sum[6] >= 0 && sum2[6] >= 0 && sum[7] >= 0 && sum2[7] >= 0 && sum[8] >= 0 && sum2[8] >= 0);
+		CV_Assert(sum[10] >= 0 && sum2[10] >= 0 && sum[11] >= 0 && sum2[11] >= 0 && sum[12] >= 0 && sum2[12] >= 0);
+		CV_Assert(sum[13] >= 0 && sum2[13] >= 0 && sum[14] >= 0 && sum2[14] >= 0 && sum[16] >= 0 && sum2[16] >= 0);
+		CV_Assert(sum[17] >= 0 && sum2[17] >= 0 && sum[18] >= 0 && sum2[18] >= 0 && sum[22] >= 0 && sum2[22] >= 0);
+#endif
+		if (mode > 0) {			
+			e[0] = s[6] - s[0], e2[0] = s2[6] - s2[0];
+			e[1] = s[7] - s[1], e2[1] = s2[7] - s2[1];
+			e[4] = s[10] - s[4], e2[4] = s2[10] - s2[4];
+			e[5] = s[11] - s[5], e2[5] = s2[11] - s2[5];
+			e[6] = s[12] - s[6], e2[6] = s2[12] - s2[6];
+			e[11] = s[17] - s[11], e2[11] = s2[17] - s2[11];
+			e[18] = s[24] - s[18], e2[18] = s2[24] - s2[18];
+			e[23] = s[29] - s[23], e2[23] = s2[29] - s2[23];
+			e[24] = s[30] - s[24], e2[24] = s2[30] - s2[24];
+			e[25] = s[31] - s[25], e2[25] = s2[31] - s2[25];
+			e[28] = s[34] - s[28], e2[28] = s2[34] - s2[28];
+			e[29] = s[35] - s[29], e2[29] = s2[35] - s2[29];
+
+			sum[0] = e[1] - e[0], sum2[0] = e2[1] - e2[0];			
+			sum[4] = e[5] - e[4], sum2[4] = e2[5] - e2[4];			
+			sum[20] = e[25] - e[24], sum2[20] = e2[25] - e2[24];			
+			sum[24] = e[29] - e[28], sum2[24] = e2[29] - e2[28];
+#ifdef QT_DEBUG
+			CV_Assert(sum[0] >= 0 && sum2[0] >= 0 && sum[4] >= 0 && sum2[4] >= 0 && sum[20] >= 0 && sum2[20] >= 0 && sum[24] >= 0 && sum2[24] >= 0);
+#endif
+			if (mode == 2) {
+				sum[1] = e[2] - e[1], sum2[1] = e2[2] - e2[1];
+				sum[3] = e[4] - e[3], sum2[3] = e2[4] - e2[3];
+				sum[5] = e[7] - e[6], sum2[5] = e2[7] - e2[6];
+				sum[9] = e[11] - e[10], sum2[9] = e2[11] - e2[10];
+				sum[15] = e[19] - e[18], sum2[15] = e2[19] - e2[18];
+				sum[19] = e[23] - e[22], sum2[19] = e2[23] - e2[22];
+				sum[21] = e[26] - e[25], sum2[21] = e2[26] - e2[25];
+				sum[23] = e[28] - e[27], sum2[23] = e2[28] - e2[27];
+#ifdef QT_DEBUG
+				CV_Assert(sum[1] >= 0 && sum2[1] >= 0 && sum[3] >= 0 && sum2[3] >= 0 && sum[5] >= 0 && sum2[5] >= 0);
+				CV_Assert(sum[9] >= 0 && sum2[9] >= 0 && sum[15] >= 0 && sum2[15] >= 0 && sum[19] >= 0 && sum2[19] >= 0);
+				CV_Assert(sum[21] >= 0 && sum2[21] >= 0 && sum[23] >= 0 && sum2[23] >= 0);
+#endif
+			}
+		}
+		for (int i = 0; i < 25; i++)
+			stats[i].err = 0x7fffffff;
+		for (int i = 25; i < (int)stats.size(); i++) {
+			int err = stats[i].sum - sum[stats[i].part];
+			err = err * err >> 2;
+			int err2 = abs(stats[i].sum2 - sum2[stats[i].part]);
+			stats[i].err = err + err2;
+			stats[stats[i].part].err = min(stats[stats[i].part].err, stats[i].err);
+		}
+
+		int minimum = 0x7fffffff, minimum2 = 0x7fffffff;
+		int bestshape = 0, bestshape2 = 0;
+		for (int i = 0; i < (int)sds.size(); i++) {
+			int tot_err = 0;
+			for (int j = 0; j < (int)sds[i].si.size(); j++)
+				tot_err += stats[sds[i].si[j]].err;
+			if (tot_err < minimum) {
+				minimum2 = minimum;
+				bestshape2 = bestshape;
+				minimum = tot_err;
+				bestshape = i;
+			}
+			else 
+				if (tot_err < minimum2) {
+					minimum2 = tot_err;
+					bestshape2 = i;
+				}
+		}
+		CV_Assert(minimum >= 0 && minimum2 >= 0);
+		int overlap_min = minimum, overlap_min2 = minimum2;
+		for (int j = 0; j < (int)sds[bestshape].si.size(); j++) {
+			CV_Assert(stats[sds[bestshape].si[j]].part == stats[sds[bestshape2].si[j]].part);
+			int shape_need = wire_25_shape[sds[bestshape].w25_shape_idx].ratio[stats[sds[bestshape2].si[j]].part];
+			int shape_need2 = wire_25_shape[sds[bestshape2].w25_shape_idx].ratio[stats[sds[bestshape].si[j]].part];
+			if (shape_need < 0 || shape_need2 < 0) {
+				overlap_min -= stats[sds[bestshape].si[j]].err;
+				overlap_min2 -= stats[sds[bestshape2].si[j]].err;
+			}
+		}
+				
+		if (overlap_min > overlap_min2) {
+			swap(minimum, minimum2);
+			swap(bestshape, bestshape2);
+		}
+		
+		minimum = minimum * arf;		
+		minimum2 = minimum2 * arf;
+		CV_Assert(minimum < 65536 && minimum2 < 65536);
+		minimum = max(MIN_SCORE, minimum);
+		minimum2 = max(MIN_SCORE, minimum2);
+		ret.first = MAKE_PROB(MAKE_S(minimum, wp.type, wire_25_shape[sds[bestshape].w25_shape_idx].shape), x0, y0);
+		ret.second = MAKE_PROB(MAKE_S(minimum2, wp.type, wire_25_shape[sds[bestshape2].w25_shape_idx].shape), x0, y0);
+		return ret;
+	}
+
+	int check_mark(int x0, int y0, const Mat & prob, Mat & mask, int type, const Mat & already_mask)
+	{
+		int ret = 0;
+		CV_Assert(prob.rows * gs >= mask.rows && prob.cols * gs >= mask.cols &&
+			mask.type() == CV_32SC1 && prob.type() == CV_64FC2);
+		unsigned long long prob0 = prob.at<unsigned long long>(y0, 2 * x0);
+		int b = PROB_SHAPE(prob0);
+		if (b > BRICK_IN_USE)
+			return ret;
+		int x = PROB_X(prob0), y = PROB_Y(prob0);
+		int xx[6], yy[6];
+		for (int dir = 0; dir < 8; dir++) {
+			if (!bricks[b].a[dxy[dir][0] + 1][dxy[dir][1] + 1])
+				continue;
+			for (int i = 0; i < sizeof(xx) / sizeof(xx[0]); i++) {
+				xx[i] = x;
+				yy[i] = y;
+			}
+			if (dir == DIR_UP || dir == DIR_UPRIGHT || dir == DIR_UPLEFT) {
+				yy[0] = y - wp.w_high / 2 - wp.i_high - wp.w_high1;
+				yy[1] = yy[0] - 1;
+				yy[2] = yy[0] - 2;
+				yy[3] = yy[0] + 1;
+				yy[4] = yy[0] + 2;
+				yy[5] = yy[0] + 3;
+			}
+			if (dir == DIR_RIGHT || dir == DIR_UPRIGHT || dir == DIR_DOWNRIGHT) {
+				xx[0] = x + wp.w_wide1 + wp.i_wide + wp.w_wide - wp.w_wide / 2;
+				xx[1] = xx[0] + 1;
+				xx[2] = xx[0] + 2;
+				xx[3] = xx[0] - 1;
+				xx[4] = xx[0] - 2;
+				xx[5] = xx[0] - 3;
+			}
+			if (dir == DIR_DOWN || dir == DIR_DOWNRIGHT || dir == DIR_DOWNLEFT) {
+				yy[0] = y + wp.w_high - wp.w_high / 2 + wp.i_high + wp.w_high1;
+				yy[1] = yy[0] + 1;
+				yy[2] = yy[0] + 2;
+				yy[3] = yy[0] - 1;
+				yy[4] = yy[0] - 2;
+				yy[5] = yy[0] - 3;
+			}
+			if (dir == DIR_LEFT || dir == DIR_UPLEFT || dir == DIR_DOWNLEFT) {
+				xx[0] = x - wp.w_wide / 2 - wp.i_wide - wp.w_wide1;
+				xx[1] = xx[0] - 1;
+				xx[2] = xx[0] - 2;
+				xx[3] = xx[0] + 1;
+				xx[4] = xx[0] + 2;
+				xx[5] = xx[0] + 3;			
+			}
+			for (int i = 0; i < 5; i++)
+			if (!(already_mask.at<int>(yy[i], xx[i]) & (1 << type))) {
+				mask.at<int>(yy[i], xx[i]) |= 1 << type;
+				ret++;
+			}
+		}
+		return ret;
+	}
+	void check_via_wire_connect(Mat & , Mat & , Mat & , Mat & )
+	{
+	}
+};
+
+map<int, int> Wire_25RectCompute::wire_25_shape_map;
 
 struct Wire13ShapeConst {
 	int sel[13];
@@ -2088,7 +2867,7 @@ public:
 		if (reset_offset) {
 			reset_offset = false;
 			for (int i = 0; i < 24; i++)
-				offset[i] = (dy[i] * ig.step.p[0] + dx[i] * ig.step.p[1]) / sizeof(unsigned);
+				offset[i] = (dy[i] * (int) ig.step.p[0] + dx[i] * (int) ig.step.p[1]) / sizeof(unsigned);
 		}
 		p_ig = ig.ptr<unsigned>(y0, x0);
 		p_iig = iig.ptr<unsigned>(y0, x0);
@@ -2153,7 +2932,7 @@ public:
 		return ret;
 	}
 
-	int check_mark(int x0, int y0, const Mat & prob, Mat mask, int type, const Mat & already_mask)
+	int check_mark(int x0, int y0, const Mat & prob, Mat & mask, int type, const Mat & already_mask)
 	{
 		int ret = 0;
 		CV_Assert(prob.rows * gs >= mask.rows && prob.cols * gs >= mask.cols && 
@@ -2168,8 +2947,9 @@ public:
 			if (!bricks[b].a[dxy[dir][0] + 1][dxy[dir][1] + 1])//if need to check extend
 				continue;			
 			//following check if extend is already computed
+#if 0	
 			bool check = false;
-#if 0			
+		
 			int extend = (dir == DIR_UP || dir == DIR_DOWN) ? searchy_extend : searchx_extend;
 			int xx0 = x0 + dxy[dir][1], yy0 = y0 + dxy[dir][0];
 			for (int i = 0; i < extend; i++) {
@@ -2199,9 +2979,10 @@ public:
 				xx0 += dxy[dir][1];
 				yy0 += dxy[dir][0];
 			}
-#endif	
+
 			if (check) //if already compute, continue
 				continue;
+#endif	
 			for (int i = 0; i < sizeof(xx) / sizeof(xx[0]); i++) {
 				xx[i] = x;
 				yy[i] = y;
@@ -2472,6 +3253,14 @@ WireComputeScore * WireComputeScore::create_wire_compute_score(WireParameter &wp
 			wc = NULL;
 		}			 
 		break;
+	case WIRE_SUBTYPE_25RECT:
+		wc = new Wire_25RectCompute;
+		ret = wc->prepare(wp, d, layer);
+		if (ret != 0) {
+			delete wc;
+			wc = NULL;
+		}
+		break;
 	default:
 		qCritical("WireComputeScore create failed, subtype=%d", wp.subtype);
 		break;
@@ -2482,7 +3271,6 @@ WireComputeScore * WireComputeScore::create_wire_compute_score(WireParameter &wp
 /*		31..24  23..16		15..8		7..0
 opt0:	  1  border_size compute_border gs
 */
-
 void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
 {
 	int layer = cpara.layer;
@@ -2644,6 +3432,7 @@ static void imgpp_compute_min_stat(PipeData & d, ProcessParameter & cpara)
 	switch (filter_method) {
 	case 0:
 		GaussianBlur(ipl_min, filter_min, Size(k_size, k_size), 0);
+		break;
 	default:
 		filter_min = ipl_min;
 	}
@@ -2856,10 +3645,10 @@ struct WireKeyPoint {
 /*     31..24 23..16   15..8   7..0
 opt0:   inc1   inc0   w_long1 w_long0 
 opt1:up_prob search_opt  th    w_num
-opt2:         w_pattern w_dir  w_type    
-opt3:         w_pattern w_dir  w_type    
-opt4:         w_pattern w_dir  w_type 
-opt5:         w_pattern w_dir  w_type    
+opt2: w_subtype w_pattern w_dir  w_type    
+opt3: w_subtype w_pattern w_dir  w_type    
+opt4: w_subtype w_pattern w_dir  w_type 
+opt5: w_subtype w_pattern w_dir  w_type    
 dir=0 is shuxian, 1 is hengxian.
 long0 & long1 decides detect rect, inc0 & & inc1 reduce compute time
 th is maximum deviation
@@ -2902,26 +3691,27 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 	}	
 	
 	struct WireDetectInfo {
+		int w_subtype;
 		int w_pattern;
 		int w_dir;
-		int w_type;
+		int w_type;		
 		int w_wide;
 		int i_wide;
 		float gamma;
 	} wpara[] = {
-			{ cpara.opt2 >> 16 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt2 & 0xff, 0, 0, 0}, 
-			{ cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff, 0, 0, 0 },
-			{ cpara.opt4 >> 16 & 0xff, cpara.opt4 >> 8 & 0xff, cpara.opt4 & 0xff, 0, 0, 0 },
-			{ cpara.opt5 >> 16 & 0xff, cpara.opt5 >> 8 & 0xff, cpara.opt5 & 0xff, 0, 0, 0 },
+		{ cpara.opt2 >> 24 & 0xff, cpara.opt2 >> 16 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt2 & 0xff, 0, 0, 0 },
+		{ cpara.opt3 >> 24 & 0xff, cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff, 0, 0, 0 },
+		{ cpara.opt4 >> 24 & 0xff, cpara.opt4 >> 16 & 0xff, cpara.opt4 >> 8 & 0xff, cpara.opt4 & 0xff, 0, 0, 0 },
+		{ cpara.opt5 >> 24 & 0xff, cpara.opt5 >> 16 & 0xff, cpara.opt5 >> 8 & 0xff, cpara.opt5 & 0xff, 0, 0, 0 },
 	};
 
 	vector<WireKeyPoint> wires[2];
 	int w_check[2][256] = { 0 };
 	int x0 = w_long1 / 2, y0 = w_long0 / 2;
 	for (int i = 0; i < w_num; i++) {
-		VWParameter * vw = d.l[layer].vw.get_vw_para(wpara[i].w_pattern, wpara[i].w_type, WIRE_SUBTYPE_13RECT);
+		VWParameter * vw = d.l[layer].vw.get_vw_para(wpara[i].w_pattern, wpara[i].w_type, wpara[i].w_subtype);
 		if (vw == NULL) {
-			qCritical("coarse_line_search invalid wire info dir=%d, type=%d, pattern=%d", wpara[i].w_dir, wpara[i].w_type, wpara[i].w_pattern);
+			qCritical("coarse_line_search invalid wire info pattern=%d, type=%d, subtype=%d", wpara[i].w_pattern, wpara[i].w_type, wpara[i].w_subtype);
 			return;
 		}
 		wpara[i].w_wide = (wpara[i].w_dir == 0) ? vw->w.w_wide : vw->w.w_high;
@@ -3083,6 +3873,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				unsigned type = S_TYPE(s0);
 				score = sqrt(score * w[type].arf);
 				CV_Assert(score < 65536);
+				score = (score < MIN_SCORE) ? MIN_SCORE : score;
 				s0 = MAKE_S(score, w[type].type, S_SHAPE(s0));
 
 				push_new_prob(prob, x, y, s0, d.l[layer].gs);
@@ -3398,18 +4189,19 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 						}
 					}
 				}
-				if (pass2) {				
+				if (pass) {
 					unsigned long long score = prob0;
 					SET_PROB_TYPE(score, v_type[gi]);
 					push_new_prob(d.l[layer].prob, score, d.l[layer].gs);
+					via_loc.push_back(ViaInfo(Point(PROB_X(prob0), PROB_Y(prob0)), v_type[gi], v_subtype[gi], v_pattern[gi], v_pair_d[gi], PROB_S(prob0)));
 				}
-				if (pass)
-					via_loc.push_back(ViaInfo(Point(PROB_X(prob0), PROB_Y(prob0)), v_type[gi], v_subtype[gi], v_pattern[gi], v_pair_d[gi]));
 			}
 	}
 
 	for (int i = 0; i < (int)via_loc.size(); i++) {
-		for (int j = 0; j < i; j++) {
+		for (int j = i - 1; j >= 0; j--) {
+			if (via_loc[i].xy.y - via_loc[j].xy.y > via_loc[i].pair_d + d.l[layer].gs)
+				break;
 			if (via_loc[i].xy.x - via_loc[j].xy.x < via_loc[i].pair_d && via_loc[i].xy.x > via_loc[j].xy.x
 				&& abs(via_loc[i].xy.y - via_loc[j].xy.y) < 3) {
 					via_loc[i].via_adj_mask |= 1 << DIR_LEFT;
@@ -3423,12 +4215,12 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 			if (via_loc[j].xy.x - via_loc[i].xy.x < via_loc[i].pair_d && via_loc[j].xy.x > via_loc[i].xy.x
 				&& abs(via_loc[i].xy.y - via_loc[j].xy.y) < 3) {
 				via_loc[i].via_adj_mask |= 1 << DIR_RIGHT;
-				via_loc[i].v_pair[DIR_RIGHT] = j;
-			}
-			if (via_loc[i].xy.y - via_loc[j].xy.y > via_loc[i].pair_d + d.l[layer].gs)
-				break;
+				via_loc[i].v_pair[DIR_RIGHT] = j;			
+			}			
 		}
 		for (int j = i + 1; j < (int)via_loc.size(); j++) {
+			if (via_loc[j].xy.y - via_loc[i].xy.y > via_loc[i].pair_d + d.l[layer].gs)
+				break;
 			if (via_loc[i].xy.x - via_loc[j].xy.x < via_loc[i].pair_d && via_loc[i].xy.x > via_loc[j].xy.x
 				&& abs(via_loc[i].xy.y - via_loc[j].xy.y) < 3) {
 				via_loc[i].via_adj_mask |= 1 << DIR_LEFT;
@@ -3443,9 +4235,7 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 				&& abs(via_loc[i].xy.x - via_loc[j].xy.x) < 3) {
 				via_loc[i].via_adj_mask |= 1 << DIR_DOWN;
 				via_loc[i].v_pair[DIR_DOWN] = j;
-			}
-			if (via_loc[j].xy.y - via_loc[i].xy.y > via_loc[i].pair_d + d.l[layer].gs)
-				break;
+			}			
 		}
 	}
 	Mat debug_draw;
@@ -3453,8 +4243,6 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 		debug_draw = img.clone();
 
 	for (int i = 0; i < (int)via_loc.size(); i++) {
-		if (update_fv)
-			d.l[layer].viaset.push_back(QPoint(via_loc[i].xy.x, via_loc[i].xy.y));
 		if (cpara.method & OPT_DEBUG_EN)
 			circle(debug_draw, via_loc[i].xy, 2, Scalar::all(0), 2);
 	}
@@ -3698,11 +4486,12 @@ static void hotpoint2fine_search_stmask(PipeData & d, ProcessParameter & cpara)
 			for (int x = 0; x < prob.cols; x++) {
 				int i;
 				for (i = 0; i < w[dir].size(); i++)
-					if (PROB_TYPESHAPE(p_prob[2 * x]) == w[dir][i].type_shape && (mark.at<unsigned char>(y,x) & 1) == 0)
+					if (PROB_TYPESHAPE(p_prob[2 * x]) == w[dir][i].type_shape && (mark.at<unsigned char>(y,x) & 1) == 0
+						&& PROB_SCORE(p_prob[2 * x]) >=MIN_SCORE)
 						break;
 				if (i == w[dir].size())
 					continue;
-				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]);
+				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]); //find hotline begining
 				mark.at<unsigned char>(y, x) |= 1;
 				mark_line(mask, Point(x0, y0), Point(x0, max(0, y0 - w[dir][i].extend)), w[dir][i].mask);
 				bool check;
@@ -3710,15 +4499,15 @@ static void hotpoint2fine_search_stmask(PipeData & d, ProcessParameter & cpara)
 					int x1 = max(x0 / d.l[layer].gs + w[dir][i].x1, 0), x2 = min(x0 / d.l[layer].gs + w[dir][i].x2, prob.cols - 1);
 					int y1 = max(y0 / d.l[layer].gs + w[dir][i].y1, 0), y2 = min(y0 / d.l[layer].gs + w[dir][i].y2, prob.rows - 1);
 					check = false;
-					for (int yy = y1; yy <= y2; yy++) {
+					for (int yy = y1; yy <= y2; yy++) { //search bottom for hotline
 						unsigned long long * p_prob2 = prob.ptr<unsigned long long>(yy);
 						for (int xx = x1; xx <= x2; xx++)
 							if (PROB_TYPESHAPE(p_prob2[2 * xx]) == w[dir][i].type_shape) {
 								if (abs(PROB_X(p_prob2[2 * xx]) - x0) <= w[dir][i].cx &&
 									abs(PROB_Y(p_prob2[2 * xx]) - y0) <= w[dir][i].cy) {
 									if (mark.at<unsigned char>(yy, xx) & 1) 
-										qWarning("hotpoint2fine_search_mask intersect at (x=%d,y=%d) for (x0=%d,y0=%d), maybe cwide=%d too big",
-											xx, yy, x0, y0, w[dir][i].cx);
+										qWarning("hotpoint2fine_search_mask intersect dir=0 at (x=%d,y=%d) for (x0=%d,y0=%d), maybe cwide=%d too big",
+										PROB_X(p_prob2[2 * xx]), PROB_Y(p_prob2[2 * xx]), x0, y0, w[dir][i].cx);
 									
 									mark.at<unsigned char>(yy, xx) |= 1;
 									check = true;
@@ -3742,11 +4531,12 @@ static void hotpoint2fine_search_stmask(PipeData & d, ProcessParameter & cpara)
 				unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
 				int i;
 				for (i = 0; i < w[dir].size(); i++)
-					if (PROB_TYPESHAPE(p_prob[2 * x]) == w[dir][i].type_shape && (mark.at<unsigned char>(y, x) & 2) == 0)
+					if (PROB_TYPESHAPE(p_prob[2 * x]) == w[dir][i].type_shape && (mark.at<unsigned char>(y, x) & 2) == 0
+						&& PROB_SCORE(p_prob[2 * x]) >= MIN_SCORE)
 						break;
 				if (i == w[dir].size())
 					continue;
-				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]);
+				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]); //find hotline begining
 				mark.at<unsigned char>(y, x) |= 2;
 				mark_line(mask, Point(x0, y0), Point(max(0, x0 - w[dir][i].extend), y0), w[dir][i].mask);
 				bool check;
@@ -3755,14 +4545,14 @@ static void hotpoint2fine_search_stmask(PipeData & d, ProcessParameter & cpara)
 					int y1 = max(y0 / d.l[layer].gs + w[dir][i].y1, 0), y2 = min(y0 / d.l[layer].gs + w[dir][i].y2, prob.rows - 1);
 					check = false;
 					for (int xx = x1; xx <= x2; xx++)
-						for (int yy = y1; yy <= y2; yy++) {
+						for (int yy = y1; yy <= y2; yy++) {  //search right for hotline
 							unsigned long long * p_prob2 = prob.ptr<unsigned long long>(yy);
 							if (PROB_TYPESHAPE(p_prob2[2 * xx]) == w[dir][i].type_shape) {
 								if (abs(PROB_X(p_prob2[2 * xx]) - x0) <= w[dir][i].cx &&
 									abs(PROB_Y(p_prob2[2 * xx]) - y0) <= w[dir][i].cy) {
 									if (mark.at<unsigned char>(yy, xx) & 2) {
-										qWarning("hotpoint2fine_search_mask intersect at (x=%d,y=%d) for (x0=%d,y0=%d), maybe cwide=%d too big",
-											xx, yy, x0, y0, w[dir][i].cy);
+										qWarning("hotpoint2fine_search_mask intersect at dir=1 (x=%d,y=%d) for (x0=%d,y0=%d), maybe cwide=%d too big",
+											PROB_X(p_prob2[2 * xx]), PROB_Y(p_prob2[2 * xx]), x0, y0, w[dir][i].cy);
 									}
 									mark.at<unsigned char>(yy, xx) |= 2;
 									check = true;
@@ -3832,6 +4622,9 @@ struct WireExtendShapeConst {
 } wire_extend_shape[] = {
 	//  0  1  2  3
 	{ { 0, 1, 0, 1 }, 1 },
+	{ { 1, 1, 0, 1 }, 2 },
+	{ { 0, 1, 1, 1 }, 2 },
+	{ { 1, 1, 1, 1 }, 5 },
 	{ { 2, 2, 2, 0 }, 0 },
 	{ { 2, 0, 2, 2 }, 0 },
 };
@@ -3843,7 +4636,7 @@ protected:
 	float arf; //a is each rec_area / total_area
 	int area[4]; //area is each rec_area;
 	int gi, gm;
-
+	int dym[4][2], dxm[4][2];
 public:
 	//it compute point offset for each area
 	void prepare(ViaParameter & v, WireExtendInfo & w, PipeDataPerLayer & d) {
@@ -3863,6 +4656,8 @@ public:
 		gm = w.gray_w;
 		for (int dir = 0; dir < 4; dir++) {
 			int dx[10], dy[10];
+			dxm[dir][0] = 0, dxm[dir][1] = 0;
+			dym[dir][0] = 0, dym[dir][1] = 0;
 			switch (dir) {
 			case DIR_UP:
 				dx[8] = -w.w_wide / 2, dy[8] = 0;
@@ -3913,8 +4708,13 @@ public:
 				dx[3] = dx[0], dy[3] = dy[7];
 				break;
 			}
-			for (int j = 0; j < 10; j++)
-				offset[dir][j] = (dy[j] * ig.step.p[0] + dx[j] * ig.step.p[1]) / sizeof(unsigned);
+			for (int j = 0; j < 10; j++) {
+				offset[dir][j] = (dy[j] * (int)ig.step.p[0] + dx[j] * (int)ig.step.p[1]) / (int) sizeof(unsigned);
+				dxm[dir][0] = min(dxm[dir][0], dx[j]);
+				dxm[dir][1] = max(dxm[dir][1], dx[j]);
+				dym[dir][0] = min(dym[dir][0], dy[j]);
+				dym[dir][1] = max(dym[dir][1], dy[j]);
+			}				
 		}
 		
 		area[0] = w.i_wide * w.w_len_far;
@@ -3940,6 +4740,8 @@ public:
 		
 		for (int i = 0; i < (int)bd.border_scan[dir].size(); i++) { //scan border
 			Point bp = via.xy + bd.border_scan[dir][i];
+			if (bp.x + dxm[dir][0] < 0 || bp.y + dym[dir][0] < 0 || bp.x + dxm[dir][1] >= ig.cols || bp.y + dym[dir][1] >= ig.rows)
+				continue;
 			p_ig = ig.ptr<unsigned>(bp.y, bp.x);
 			for (int j = 0; j < 10; j++)
 				s[j] = p_ig[offset[dir][j]];
@@ -3966,7 +4768,7 @@ public:
 				}
 			}
 			if (has_wire) { //if it has wire, update best wire value
-				min_score = min_score * arf * 8;
+				min_score = min_score * arf * 3 * has_wire;
 				CV_Assert(min_score < 65535);
 				min_score = MAKE_S(min_score, 0, (dir & 1) ? BRICK_I_90 : BRICK_I_0);
 				min_s = min(min_s, MAKE_PROB(min_score, bp.x + dxy[dir][1], bp.y + dxy[dir][0]));
@@ -3976,28 +4778,50 @@ public:
 	}
 
 	//Input: prob is destination brick, it can only be BRICK_I_0 or BRICK_I_90
-	void add_path(PipeDataPerLayer & d, const ViaInfo & via, unsigned long long prob) {
+	void add_path(PipeDataPerLayer & d, ViaInfo & via, unsigned long long prob) {
 		unsigned type = PROB_TYPE(prob);
+		CV_Assert(PROB_SHAPE(prob) == BRICK_I_0 || PROB_SHAPE(prob) == BRICK_I_90);
+		if (PROB_SHAPE(prob) == BRICK_I_0 && abs(via.xy.y - PROB_Y(prob)) < d.gs) {
+			if (via.xy.y > PROB_Y(prob))
+				SET_PROB_Y(prob, via.xy.y - d.gs);
+			else
+				SET_PROB_Y(prob, via.xy.y + d.gs);
+		}
+		if (PROB_SHAPE(prob) == BRICK_I_90 && abs(via.xy.x - PROB_X(prob)) < d.gs) {
+			if (via.xy.x > PROB_X(prob))
+				SET_PROB_X(prob, via.xy.x - d.gs);
+			else
+				SET_PROB_X(prob, via.xy.x + d.gs);
+		}
 		int dst_x = PROB_X(prob) / d.gs;
 		int dst_y = PROB_Y(prob) / d.gs;
 		int src_x = via.xy.x / d.gs;
 		int src_y = via.xy.y / d.gs;
 		int dx = (dst_x > src_x) ? 1 : ((dst_x == src_x) ? 0 : -1);
 		int dy = (dst_y > src_y) ? 1 : ((dst_y == src_y) ? 0 : -1);
+		if (dx > 0)
+			via.extend_wire_mask |= 1 << DIR_RIGHT;
+		if (dx < 0)
+			via.extend_wire_mask |= 1 << DIR_LEFT;
+		if (dy > 0)
+			via.extend_wire_mask |= 1 << DIR_DOWN;
+		if (dy < 0)
+			via.extend_wire_mask |= 1 << DIR_UP;
 		if (dx == 0 && dy == 0) {
 			qCritical("add path via_loc(x=%d,y=%d) in same grid as prob(x=%d,y=%d)", via.xy.x, via.xy.y, PROB_X(prob), PROB_Y(prob));
 			return;
 		}
 		int x1 = via.xy.x, y1 = via.xy.y; //x1, y1 is middle station		
 		if (dy != 0 && dx != 0) {
-			unsigned long long b0 = d.prob.at<unsigned long long>(src_y + dy, src_x);
-			unsigned long long b1 = d.prob.at<unsigned long long>(src_y, src_x + dx);
-			if (PROB_SHAPE(b0) != BRICK_INVALID) //up or down already has path
+			/*
+			unsigned long long b0 = d.prob.at<unsigned long long>(src_y + dy, src_x * 2);
+			unsigned long long b1 = d.prob.at<unsigned long long>(src_y, (src_x + dx) * 2);
+			if (PROB_SHAPE(b0) != BRICK_INVALID && PROB_SHAPE(b0) != BRICK_NO_WIRE) //up or down already has path
 				y1 = PROB_Y(prob); //go up or down first
 			else
-			if (PROB_SHAPE(b1) != BRICK_INVALID) //left or right already has path
+			if (PROB_SHAPE(b1) != BRICK_INVALID && PROB_SHAPE(b0) != BRICK_NO_WIRE) //left or right already has path
 				x1 = PROB_X(prob); //go left or right first
-			else //No path exist
+			else //No path exist*/
 			if (PROB_SHAPE(prob) == BRICK_I_0) //for BRICK_I_0, go left or right first
 				x1 = PROB_X(prob);
 			else
@@ -4017,7 +4841,7 @@ public:
 		int mid_y = y1 / d.gs;
 		CV_Assert(dx == 0 && dy != 0 || dy == 0 && dx != 0);
 		unsigned shape = (dx == 0) ? BRICK_I_0 : BRICK_I_90;
-		unsigned score = 1; // (dx == 0) ? ((dy < 0) ? DIR_DOWN : DIR_UP) : ((dx < 0) ? DIR_RIGHT : DIR_LEFT);
+		unsigned score = VIA_NEAR_WIRE_SCORE; // (dx == 0) ? ((dy < 0) ? DIR_DOWN : DIR_UP) : ((dx < 0) ? DIR_RIGHT : DIR_LEFT);
 		unsigned s = MAKE_S(score, type, shape);
 		while (1) { //1 mark BRICK_I from via to mid
 			x0 += dx;
@@ -4045,23 +4869,20 @@ public:
 		s = MAKE_S(score, type, shape);
 		add_new_shape(d.prob, x0, y0, s, d.gs);
 		shape = (dx == 0) ? BRICK_I_0 : BRICK_I_90;
-		score = 5;
 		s = MAKE_S(score, type, shape);
-		while (1) { //3 mark BRICK_I from mid to dst
+		while (x0 / d.gs != dst_x || y0 / d.gs != dst_y) { //3 mark BRICK_I from mid to dst
 			x0 += dx;
-			y0 += dy;
-			if (x0 / d.gs == dst_x && y0 / d.gs == dst_y)
-				break;
+			y0 += dy;			
 			add_new_shape(d.prob, x0, y0, s, d.gs);
 		}
 	}
 
-	void mark_extend(Mat & m, const ViaInfo & via, const WireExtendInfo & wire, unsigned long long prob, int dir) {
+	void mark_extend(Mat & m, Mat & , const ViaInfo & , const WireExtendInfo & wire, unsigned long long prob0, int dir, int ) {
 		Point pt1, pt2;
-		pt1.x = PROB_X(prob) + dxy[dir][1] * wire.extend;
-		pt1.y = PROB_Y(prob) + dxy[dir][0] * wire.extend;
-		pt2.x = PROB_X(prob) + dxy[dir][1] * (wire.extend + 3);
-		pt2.y = PROB_Y(prob) + dxy[dir][0] * (wire.extend + 3);
+		pt1.x = PROB_X(prob0) + dxy[dir][1] * wire.extend;
+		pt1.y = PROB_Y(prob0) + dxy[dir][0] * wire.extend;
+		pt2.x = PROB_X(prob0) + dxy[dir][1] * (wire.extend + 3);
+		pt2.y = PROB_Y(prob0) + dxy[dir][0] * (wire.extend + 3);
 		if (pt1.x >= 0 && pt1.y >= 0 && pt2.x >= 0 && pt2.y >= 0 &&
 			pt1.x < m.cols && pt1.y < m.rows && pt2.x < m.cols && pt2.y < m.rows)
 			mark_line(m, pt1, pt2, 1 << wire.w_type);
@@ -4093,7 +4914,7 @@ public:
 class SingleViaWireConnect : public ViaWireConnect {
 protected:
 	vector<ExtendWireConnect> ewc;
-	vector<Border> bd;
+	vector<Border> bd; //bd consists 4 straight line
 	ViaParameter v;
 	vector<WireExtendInfo> w;
 	float gray_th;
@@ -4111,8 +4932,8 @@ public:
 			for (int x = via_info[i].xy.x - v.connect_rd; x < via_info[i].xy.x + v.connect_rd + d.gs; x += d.gs) {
 				unsigned long long * p_prob = get_prob(d.prob, min(x, via_info[i].xy.x + v.connect_rd),
 					min(y, via_info[i].xy.y + v.connect_rd), d.gs);
-				if (PROB_SHAPE(p_prob[0]) != BRICK_VIA && PROB_SCORE(p_prob[0]) > 9)
-					SET_PROB_S(p_prob[0], 0x0009ffff);
+				if (PROB_SHAPE(p_prob[0]) != BRICK_VIA && PROB_SCORE(p_prob[0]) >= MIN_SCORE)
+					SET_PROB_S(p_prob[0], MAKE_S(VIA_NEAR_IV_SCORE, 0xff, BRICK_INVALID));
 			}
 		}
 		for (int i = -v.connect_rd; i <= v.connect_rd; i++) {
@@ -4179,6 +5000,7 @@ public:
 								if (bd.x >= x0 && bd.x <= x1)
 									circle_bd.push_back(bd);
 							}
+							break;
 						}
 						case DIR_LEFT:
 						case DIR_RIGHT:
@@ -4190,6 +5012,7 @@ public:
 								if (bd.y >= y0 && bd.y <= y1)
 									circle_bd.push_back(bd);
 							}
+							break;
 						}
 					}
 					//following check arc connect
@@ -4197,11 +5020,33 @@ public:
 						sel = -1;
 				}
 				if (sel >= 0) {
+					switch (dir) { //adjust min_s to align with via_info.xy
+					case DIR_UP:
+					case DIR_DOWN:
+						if (abs(via_info[i].xy.x - PROB_X(min_s) < 2))
+							SET_PROB_X(min_s, via_info[i].xy.x);						
+						break;
+					case DIR_LEFT:
+					case DIR_RIGHT:
+						if (abs(via_info[i].xy.y - PROB_Y(min_s) < 2))
+							SET_PROB_Y(min_s, via_info[i].xy.y);
+						break;
+					}
 					ewc[sel].add_path(d, via_info[i], min_s);
 					if (!hl_mask.empty())
-						ewc[sel].mark_extend(hl_mask, via_info[i], w[sel], min_s, dir);
+						ewc[sel].mark_extend(hl_mask, d.prob, via_info[i], w[sel], min_s, dir, d.gs);
 				}
-			}			
+			}
+			//add BRICK_NO_WIRE to noextend via side for disconnect protect
+			unsigned via_no_wire_score = MAKE_S(VIA_NEAR_NO_WIRE_SCORE, 0xff, BRICK_NO_WIRE);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_LEFT)) //if left has no wire
+				push_new_prob(d.prob, via_info[i].xy.x - d.gs, via_info[i].xy.y, via_no_wire_score, d.gs);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_RIGHT)) //if right has no wire
+				push_new_prob(d.prob, via_info[i].xy.x + d.gs, via_info[i].xy.y, via_no_wire_score, d.gs);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_UP)) //if up has no wire
+				push_new_prob(d.prob, via_info[i].xy.x, via_info[i].xy.y - d.gs, via_no_wire_score, d.gs);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_DOWN)) //if down has no wire
+				push_new_prob(d.prob, via_info[i].xy.x, via_info[i].xy.y + d.gs, via_no_wire_score, d.gs);
 		}		
 	}
 };
@@ -4214,7 +5059,7 @@ protected:
 	vector<WireExtendInfo> w;
 	float gray_th;
 	Mat img;
-	Border circle;
+	Border circle; //circle with radius = connect_rd
 
 public:
 	void prepare(ViaParameter & _v, PipeDataPerLayer & d) {
@@ -4228,26 +5073,30 @@ public:
 				unsigned long long * p_prob = get_prob(d.prob, min(x, via_info[i].xy.x + v.connect_rd),
 					min(y, via_info[i].xy.y + v.connect_rd), d.gs);
 				if (PROB_SHAPE(p_prob[0]) != BRICK_VIA && PROB_SCORE(p_prob[0]) > 9)
-					SET_PROB_S(p_prob[0], 0x0009ffff);
+					SET_PROB_S(p_prob[0], MAKE_S(VIA_NEAR_IV_SCORE, 0xff, BRICK_INVALID));				
 			}
 			
-			unsigned score = 1;
+			unsigned score = VIA_NEAR_WIRE_SCORE;
 			unsigned type = v.type;			
 			if (via_info[i].via_adj_mask & (1 << DIR_RIGHT)) { //put BRICK_I_90 to connect two via 
 				unsigned shape = BRICK_I_90;
 				unsigned s = MAKE_S(score, type, shape);
 				push_new_prob(d.prob, via_info[i].xy.x + d.gs, via_info[i].xy.y, s, d.gs);
+				via_info[i].extend_wire_mask |= 1 << DIR_RIGHT;
 				int j = via_info[i].v_pair[DIR_RIGHT];
 				CV_Assert(via_info[j].xy.x - via_info[i].xy.x >= d.gs * 2);
 				push_new_prob(d.prob, via_info[j].xy.x - d.gs, via_info[j].xy.y, s, d.gs);
+				via_info[j].extend_wire_mask |= 1 << DIR_LEFT;
 			}
-			if (via_info[i].via_adj_mask & (1 <<DIR_DOWN)) { //put BRICK_I_90 to connect two via 
+			if (via_info[i].via_adj_mask & (1 <<DIR_DOWN)) { //put BRICK_I_0 to connect two via 
 				unsigned shape = BRICK_I_0;
 				unsigned s = MAKE_S(score, type, shape);
 				push_new_prob(d.prob, via_info[i].xy.x, via_info[i].xy.y + d.gs, s, d.gs);
+				via_info[i].extend_wire_mask |= 1 << DIR_DOWN;
 				int j = via_info[i].v_pair[DIR_DOWN];
 				CV_Assert(via_info[j].xy.y - via_info[i].xy.y >= d.gs * 2);
 				push_new_prob(d.prob, via_info[j].xy.x, via_info[j].xy.y - d.gs, s, d.gs);
+				via_info[j].extend_wire_mask |= 1 << DIR_UP;
 			}
 		}
 
@@ -4301,13 +5150,13 @@ public:
 	void add_brick_hlmask(PipeDataPerLayer & d, Mat & hl_mask)	{
 		vector<ViaInfo> & via_info = d.via_info;
 		for (int i = 0; i < via_info.size(); i++) {
-			for (int dir = 0; dir <= 3; dir++) {
+			for (int dir = 0; dir <= 3; dir++) { //check if via's dir has wire
 				unsigned long long min_s = 0xffffffffffffffff;
 				int sel = -1;
 				if ((via_info[i].via_adj_mask & (1 << DIR_RIGHT | 1 << DIR_DOWN)) == 0 && via_info[i].via_adj_mask != 0)
 					continue; //neglect right and down pair_via, because it is handled by left and up pair_via
 				for (int j = 0; j < ewc.size(); j++) {
-					unsigned long long score;
+					unsigned long long score = 0xffffffffffffffff;
 					if (via_info[i].via_adj_mask == 0) { //single via
 						score = ewc[j].compute_prob(via_info[i], dir, bd[4][j]);
 						if (score != 0xffffffffffffffff)
@@ -4393,6 +5242,7 @@ public:
 									if (bd.x >= x0 && bd.x <= x1)
 										circle_bd.push_back(bd);
 								}
+								break;
 							}
 							case DIR_LEFT:
 							case DIR_RIGHT:
@@ -4404,6 +5254,7 @@ public:
 									if (bd.y >= y0 && bd.y <= y1)
 										circle_bd.push_back(bd);
 								}
+								break;
 							}
 							}
 					}
@@ -4423,11 +5274,16 @@ public:
 									if (bd.x >= x0 && bd.x <= x1)
 										circle_bd.push_back(bd);
 								}
+								break;
 							}
 						case DIR_LEFT:
 						case DIR_RIGHT:
 							{
+								int y0 = PROB_Y(min_s) - w[sel].w_wide / 2;
+								int y1 = PROB_Y(min_s) + (w[sel].w_wide - 1) / 2;
 								for (int k = via_info[i].xy.y - v.connect_rd; k <= via_info[j].xy.y + v.connect_rd; k++) {
+									if (k < y0 || k > y1)
+										continue;
 									int dy;
 									Point bd;
 									if (k <= (via_info[i].xy.y + via_info[j].xy.y) / 2) {
@@ -4441,6 +5297,7 @@ public:
 									bd.x += (dy >= circle.border_scan[dir].size()) ? 0 : circle.border_scan[dir][dy].x;
 									circle_bd.push_back(bd);
 								}
+								break;
 							}
 						}
 					}
@@ -4448,10 +5305,28 @@ public:
 						int j = via_info[i].v_pair[DIR_RIGHT];
 						CV_Assert(via_info[j].xy.x > via_info[i].xy.x);
 						switch (dir) {
+						case DIR_LEFT:
+						case DIR_RIGHT:
+							{
+								int yy = (dir == DIR_LEFT) ? via_info[i].xy.y : via_info[j].xy.y;
+								int y0 = max(yy - v.connect_rd, PROB_Y(min_s) - w[sel].w_wide / 2);
+								int y1 = min(yy + v.connect_rd, PROB_Y(min_s) + (w[sel].w_wide - 1) / 2);
+								for (int k = 0; k < (int)circle.border_scan[dir].size(); k++) {
+									Point bd = (dir == DIR_LEFT) ? via_info[i].xy + circle.border_scan[DIR_LEFT][k] :
+										via_info[j].xy + circle.border_scan[DIR_RIGHT][k];
+									if (bd.y >= y0 && bd.y <= y1)
+										circle_bd.push_back(bd);
+								}
+								break;
+							}
 						case DIR_UP:
 						case DIR_DOWN:
 							{
+								int x0 = PROB_X(min_s) - w[sel].w_wide / 2;
+								int x1 = PROB_X(min_s) + (w[sel].w_wide - 1) / 2;
 								for (int k = via_info[i].xy.x - v.connect_rd; k <= via_info[j].xy.x + v.connect_rd; k++) {
+									if (k < x0 || k > x1)
+										continue;
 									int dx; 
 									Point bd; 
 									if (k <= (via_info[i].xy.x + via_info[j].xy.x) / 2) {
@@ -4465,19 +5340,84 @@ public:
 									bd.y += (dx >= circle.border_scan[dir].size()) ? 0 : circle.border_scan[dir][dx].y;
 									circle_bd.push_back(bd);
 								}
+								break;
 							}
 						}
 					}
 					//following check arc connect
-					if (ExtendWireConnect::compute_connect_gray(img, circle_bd, dir, v.cgray_d) < gray_th)
+					float connect_gray = ExtendWireConnect::compute_connect_gray(img, circle_bd, dir, v.cgray_d);
+					if (connect_gray < gray_th)
 						sel = -1;
 				}
-				if (sel >= 0) {
-					ewc[sel].add_path(d, via_info[i], min_s);
+				if (sel >= 0) { 
+					int j = i;
+					int choose; //sel decide which via is to connect wire
+					if (via_info[i].via_adj_mask & 1 << DIR_RIGHT)
+						j = via_info[i].v_pair[DIR_RIGHT];
+					if (via_info[i].via_adj_mask & 1 << DIR_DOWN)
+						j = via_info[i].v_pair[DIR_DOWN];
+					//Following adjust min_s to align with via_info[i].xy, and choose sel
+					switch (dir) {
+					case DIR_UP:
+						if (abs(via_info[i].xy.x - PROB_X(min_s)) < 2) //set wire has same x as left-top via
+							SET_PROB_X(min_s, via_info[i].xy.x);
+						if ((via_info[i].via_adj_mask & 1 << DIR_RIGHT) && abs(via_info[j].xy.x - PROB_X(min_s)) < 2)
+							SET_PROB_X(min_s, via_info[j].xy.x);	//set wire has same x as right via
+						if (via_info[i].via_adj_mask & 1 << DIR_RIGHT) //if via is left-right pair, choose nearest x as sel
+							choose = (abs(via_info[i].xy.x - PROB_X(min_s)) < abs(via_info[j].xy.x - PROB_X(min_s))) ? i : j;
+						else
+							choose = i; //choose top via
+						break;
+					case DIR_DOWN:
+						if (abs(via_info[j].xy.x - PROB_X(min_s)) < 2) //set wire has same x as right-bot via
+							SET_PROB_X(min_s, via_info[j].xy.x);
+						if ((via_info[i].via_adj_mask & 1 << DIR_RIGHT) && abs(via_info[i].xy.x - PROB_X(min_s)) < 2)
+							SET_PROB_X(min_s, via_info[i].xy.x);	//set wire has same x as left via
+						if (via_info[i].via_adj_mask & 1 << DIR_RIGHT) //if via is left-right pair, choose nearest x as sel
+							choose = (abs(via_info[i].xy.x - PROB_X(min_s)) < abs(via_info[j].xy.x - PROB_X(min_s))) ? i : j;
+						else
+							choose = j; //choose bottom via
+						break;
+					case DIR_LEFT:
+						if (abs(via_info[i].xy.y - PROB_Y(min_s)) < 2) //set wire has same y as left-top via
+							SET_PROB_Y(min_s, via_info[i].xy.y);
+						if ((via_info[i].via_adj_mask & 1 << DIR_DOWN) && abs(via_info[j].xy.y - PROB_Y(min_s)) < 2)
+							SET_PROB_Y(min_s, via_info[j].xy.y);	//set wire has same y as bot via
+						if (via_info[i].via_adj_mask & 1 << DIR_DOWN) //if via is left-right pair, choose nearest x as sel
+							choose = (abs(via_info[i].xy.y - PROB_Y(min_s)) < abs(via_info[j].xy.y - PROB_Y(min_s))) ? i : j;
+						else
+							choose = i; //choose left via
+						break;
+					case DIR_RIGHT:
+						if (abs(via_info[j].xy.y - PROB_Y(min_s)) < 2) //set wire has same y as right-bot via
+							SET_PROB_Y(min_s, via_info[j].xy.y);
+						if ((via_info[i].via_adj_mask & 1 << DIR_DOWN) && abs(via_info[i].xy.y - PROB_Y(min_s)) < 2)
+							SET_PROB_Y(min_s, via_info[i].xy.y);	//set wire has same y as top via
+						if (via_info[i].via_adj_mask & 1 << DIR_DOWN) //if via is left-right pair, choose nearest x as sel
+							choose = (abs(via_info[i].xy.y - PROB_Y(min_s)) < abs(via_info[j].xy.y - PROB_Y(min_s))) ? i : j;
+						else
+							choose = j; //choose right via
+						break;
+					}
+					
+					ewc[sel].add_path(d, via_info[choose], min_s);
 					if (!hl_mask.empty())
-						ewc[sel].mark_extend(hl_mask, via_info[i], w[sel], min_s, dir);
+						ewc[sel].mark_extend(hl_mask, d.prob, via_info[i], w[sel], min_s, dir, d.gs);
 				}
 			}
+		}
+
+		for (int i = 0; i < via_info.size(); i++) {
+			//add BRICK_NO_WIRE to noextend via side for disconnect protect
+			unsigned via_no_wire_score = MAKE_S(VIA_NEAR_NO_WIRE_SCORE, 0xff, BRICK_NO_WIRE);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_LEFT)) //if left has no wire
+				push_new_prob(d.prob, via_info[i].xy.x - d.gs, via_info[i].xy.y, via_no_wire_score, d.gs);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_RIGHT)) //if right has no wire
+				push_new_prob(d.prob, via_info[i].xy.x + d.gs, via_info[i].xy.y, via_no_wire_score, d.gs);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_UP)) //if up has no wire
+				push_new_prob(d.prob, via_info[i].xy.x, via_info[i].xy.y - d.gs, via_no_wire_score, d.gs);
+			if (!(via_info[i].extend_wire_mask & 1 << DIR_DOWN)) //if down has no wire
+				push_new_prob(d.prob, via_info[i].xy.x, via_info[i].xy.y + d.gs, via_no_wire_score, d.gs);
 		}
 	}
 };
@@ -4505,7 +5445,7 @@ opt3:
 opt4:			
 check_opt is
 CHECK_VW_HOTLINE_CLEAR_MASK			clear hotline mask to 0
-CHECK_VW_SEARCH_CLEAR_COLOR			clip color to [gi, gm]
+CHECK_VW_SEARCH_CLEAR_COLOR			clip color to [0, gm - gi]
 0: for gray level turn_points input
 1: for search mask inout
 */
@@ -4545,7 +5485,12 @@ static void check_via_wire_connect(PipeData & d, ProcessParameter & cpara)
 		for (int y = 0; y < img.rows; y++) {
 			unsigned char * p_img = img.ptr<unsigned char>(y);
 			for (int x = 0; x < img.cols; x++)
-				p_img[x] = (p_img[x] > gm) ? gm : ((p_img[x] < gi) ? gi : p_img[x]);
+				p_img[x] = (p_img[x] > gm) ? gm - gi: ((p_img[x] < gi) ? 0 : p_img[x] - gi);
+		}
+		for (int i = 0; i < d.l[layer].v[idx].d.rows; i++) {
+			int color = d.l[layer].v[idx].d.at<int>(i, 2);
+			color = (color > gm) ? gm - gi : ((color < gi) ? 0 : color - gi);
+			d.l[layer].v[idx].d.at<int>(i, 2) = color;
 		}
 		d.l[layer].ig_valid = false;
 	}
@@ -4556,11 +5501,11 @@ static void check_via_wire_connect(PipeData & d, ProcessParameter & cpara)
 	qInfo("check_via_wire_connect v_pattern=%d, v_type=%d, v_subtype=%d, gi=%d, gm=%d", v_pattern, v_type, v_subtype, gi, gm);	
 	struct WireExtendInfo wei[] = {
 		{ cpara.opt1 >> 24 & 0xff, cpara.opt1 >> 16 & 0xff, cpara.opt1 >> 8 & 0xff, cpara.opt1 & 0xff, cpara.opt2 & 0xff,
-		cpara.opt2 >> 8 & 0xff, gi, gm },
+		cpara.opt2 >> 8 & 0xff, 0, gm - gi },
 		{ cpara.opt3 >> 24 & 0xff, cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff, cpara.opt4 & 0xff, 
-		cpara.opt4 >> 8 & 0xff, gi, gm },
+		cpara.opt4 >> 8 & 0xff, 0, gm - gi},
 		{ cpara.opt5 >> 24 & 0xff, cpara.opt5 >> 16 & 0xff, cpara.opt5 >> 8 & 0xff, cpara.opt5 & 0xff, cpara.opt6 & 0xff,
-		cpara.opt6 >> 8 & 0xff, gi, gm }
+		cpara.opt6 >> 8 & 0xff, 0, gm - gi}
 	};
 	//get via info
 	VWParameter * vwp = d.l[layer].vw.get_vw_para(v_pattern, v_type, v_subtype);
@@ -4602,7 +5547,9 @@ static void check_via_wire_connect(PipeData & d, ProcessParameter & cpara)
 					for (int i = 0; i < 3; i++)
 					for (int j = 0; j < 3; j++)
 						debug_draw.at<unsigned char>(y0 + i - 1, x0 + j - 1) = 255;
-				}			
+					if (shape == BRICK_FAKE_VIA)
+						debug_draw.at<unsigned char>(y0, x0) = 0;
+				}	
 			}
 		}
 		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "check_via_wire_connect.jpg", debug_draw);
@@ -4622,7 +5569,7 @@ opt3:			subtype  type  pattern
 opt4:			subtype  type  pattern
 search_opt is 
      FINE_LINE_SEARCH_CLEAR_PROB    clear coarse prob to 0xffffff00ffffffff
-	 FINE_LINE_SEARCH_CLEAR_COLOR   clip color to [gi, gm]
+	 FINE_LINE_SEARCH_CLEAR_COLOR   clip color to [0, gm - gi]
 	 FINE_LINE_SEARCH_NO_VIA        no via Mat
 	 FILE_LINE_SEARCH_CHECK_VIA_WIRE_CONNECT	check if via is connect to wire
 wnum is wire type num
@@ -4648,7 +5595,9 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 		return;
 	}
 	Mat mask = d.l[layer].v[idx1].d.clone();
-	Mat via_mask(mask.rows, mask.cols, CV_8UC1);
+	Mat via_mask;
+	Mat already_search(mask.rows, mask.cols, CV_32SC1);
+	already_search = Scalar::all(0);
 
 	int search_opt = cpara.opt0 >> 16 & 0xff;
 	if ((search_opt & FINE_LINE_SEARCH_NO_VIA) == 0) {
@@ -4659,9 +5608,10 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 		}
 		via_mask = d.l[layer].v[idx2].d;
 	}
-	else
+	else {
+		via_mask.create(mask.rows, mask.cols, CV_8UC1);
 		via_mask = Scalar::all(0);
-
+	}
 	if (mask.rows != img.rows || mask.cols != img.cols) {
 		qCritical("fine_line_search, mask.size(%d,%d)!=img.size(%d,%d)", mask.rows, mask.cols, img.rows, img.cols);
 		return;
@@ -4684,7 +5634,7 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 	qInfo("fine_line_search, l=%d, wnum=%d, gi=%d, gm=%d, cr_prob=%d", layer, wnum, gi, gm, search_opt);
 
 	if (search_opt & FINE_LINE_SEARCH_CLEAR_PROB) { //clear prob if needed		
-		if ((search_opt & FINE_LINE_SEARCH_NO_VIA) == 0) {
+		if ((search_opt & FINE_LINE_SEARCH_NO_VIA) == 0) { //following fill via_info to prob
 			vector<ViaInfo> & via_info = d.l[layer].via_info;
 			for (int i = 0; i < (int) via_info.size(); i++) {
 				int type = via_info[i].type;
@@ -4692,16 +5642,15 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 				int y = via_info[i].xy.y;
 				int y0 = y / d.l[layer].gs, x0 = x / d.l[layer].gs;
 				unsigned long long * p_prob = d.l[layer].prob.ptr<unsigned long long>(y0, x0);
-				if (PROB_SHAPE(p_prob[0]) != BRICK_VIA) { //mark BRICK_VIA with via info, via prob may be cleared by remove_via & coarse_line_search
-					p_prob[1] = p_prob[0];
-					p_prob[0] = MAKE_PROB(MAKE_S(1, type, BRICK_VIA), x, y);
-				}
+				//mark BRICK_VIA with via info, via prob may be cleared by remove_via & coarse_line_search				
+				p_prob[0] = MAKE_PROB(MAKE_S(1, type, BRICK_VIA), x, y);				
+				p_prob[1] = p_prob[0];
 			}
 		}
-		for (int y = 0; y < d.l[layer].prob.rows; y++) {
+		for (int y = 0; y < d.l[layer].prob.rows; y++) { //clear d.l[layer].prob
 			unsigned long long * p_prob = d.l[layer].prob.ptr<unsigned long long>(y);
 			for (int x = 0; x < d.l[layer].prob.cols * 2; x+=2)
-				if (PROB_SHAPE(p_prob[x]) != BRICK_VIA) { //if it is not VIA, Mark as NO_WIRE
+				if (PROB_SCORE(p_prob[x]) >= MIN_SCORE) { //if it is not reserved, Mark as NO_WIRE
 					p_prob[x] = 0xffffff00ffffffffULL; 
 					SET_PROB_X(p_prob[x], x / 2 * d.l[layer].gs + 1);
 					SET_PROB_Y(p_prob[x], y*d.l[layer].gs + 1);
@@ -4709,32 +5658,38 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 					SET_PROB_X(p_prob[x + 1], x / 2 * d.l[layer].gs + 1);
 					SET_PROB_Y(p_prob[x + 1], y*d.l[layer].gs + 1);
 				}
-				else {
-					int y0 = PROB_Y(p_prob[x]);
-					int x0 = PROB_X(p_prob[x]);
-					if (!(via_mask.at<unsigned char>(y0, x0) & 1)) { //if it is not via, Mark as NO_WIRE
-						p_prob[x] = 0xffffff00ffffffffULL;
-						SET_PROB_X(p_prob[x], x / 2 * d.l[layer].gs + 1);
-						SET_PROB_Y(p_prob[x], y*d.l[layer].gs + 1);
-						p_prob[x + 1] = 0xffffff00ffffffffULL;
-						SET_PROB_X(p_prob[x + 1], x / 2 * d.l[layer].gs + 1);
-						SET_PROB_Y(p_prob[x + 1], y*d.l[layer].gs + 1);
-					}
+				else { //add reserved to via_mask
+					Point p0(x / 2 * d.l[layer].gs, y * d.l[layer].gs);
+					Point p1 = p0 + Point(d.l[layer].gs - 1, d.l[layer].gs - 1);
+					mark_rect(via_mask, p0, p1, (char)1);
 				}
 		}
+		//now d.l[layer].prob contain only 0xffffff00ffffffff or Reserved prob(<MIN_SCORE, normally it is via or via nearby)
+		//Following mark prob within via_mask as Reserved if it is not reserved
+		for (int y = d.l[layer].compute_border; y < img.rows - d.l[layer].compute_border; y++) {
+			unsigned char * p_via_mask = via_mask.ptr<unsigned char>(y);
+			for (int x = d.l[layer].compute_border; x < img.cols - d.l[layer].compute_border; x++)
+			if (p_via_mask[x])
+				//normally reserved score is less than 9, so we push 9 will not overwrite existing value
+				push_new_prob(d.l[layer].prob, x, y, 0x0009ffff, d.l[layer].gs); 
+		}
+		
 	}
-
-
+	
 	if (search_opt & FINE_LINE_SEARCH_CLEAR_COLOR) {
 		qInfo("fine_line_search, clear color, gi=%d, gm=%d", gi, gm);
 		for (int y = 0; y < img.rows; y++) {
 			unsigned char * p_img = img.ptr<unsigned char>(y);
 			for (int x = 0; x < img.cols; x++)
-				p_img[x] = (p_img[x] > gm) ? gm : ((p_img[x] < gi) ? gi : p_img[x]);
+				p_img[x] = (p_img[x] > gm) ? gm - gi : ((p_img[x] < gi) ? 0 : p_img[x] - gi);
+			for (int i = 0; i < d.l[layer].v[idx].d.rows; i++) {
+				int color = d.l[layer].v[idx].d.at<int>(i, 2);
+				color = (color > gm) ? gm - gi : ((color < gi) ? 0 : color - gi);
+				d.l[layer].v[idx].d.at<int>(i, 2) = color;
+			}
 		}
 		d.l[layer].ig_valid = false;
 	}
-	d.l[layer].validate_ig();
 
 #define MAX_WIRE_NUM 4
 	if (wnum > MAX_WIRE_NUM) {
@@ -4755,8 +5710,8 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 			return;
 		}
 		wire_para = vw->w;
-		wire_para.gray_i = gi;
-		wire_para.gray_w = gm;
+		wire_para.gray_i = 0;
+		wire_para.gray_w = gm - gi;
 		wcs[i].reset(WireComputeScore::create_wire_compute_score(wire_para, d, layer));
 		w_guard[i] = wire_para.guard;
 	}
@@ -4764,8 +5719,7 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 	Mat new_prob0(d.l[layer].prob.rows, d.l[layer].prob.cols, CV_8UC1);
 	int mark_num = 100;
 	int loop_num = 0;
-	Mat already_search(mask.rows, mask.cols, CV_32SC1);
-	already_search = Scalar::all(0);
+	
 	Mat prob1 = d.l[layer].prob.clone(); //it contain full brick prob
 	while (mark_num != 0 && loop_num < 5) {
 		new_prob0 = Scalar::all(0);
@@ -4797,18 +5751,10 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 						&& PROB_TYPE(score_min[0]) == PROB_TYPE(score4fake_via)) {//BRICK_II can only take effect for same type
 							push_new_prob(prob1, score4fake_via, d.l[layer].gs);
 					}
-					if (PROB_SHAPE(score_min[0]) == BRICK_FAKE_VIA && PROB_SHAPE(score_min[1]) != BRICK_FAKE_VIA
+					if (PROB_SHAPE(score_min[0]) == BRICK_FAKE_VIA && PROB_SHAPE(score_min[1]) != BRICK_FAKE_VIA //BRICK_II can only take effect for same type
 						&& PROB_TYPE(score_min[0]) != PROB_TYPE(score_min[1])) {
 						swap(score_min[0], score_min[1]);
 						SET_PROB_SCORE(score_min[1], PROB_SCORE(score_min[0]) + 1);
-					}
-				} else 
-				if (p_via_mask[x] & 1) {
-					int y0 = y / d.l[layer].gs, x0 = x / d.l[layer].gs;
-					unsigned long long * p_prob = prob1.ptr<unsigned long long>(y0, x0);
-					if (PROB_SHAPE(p_prob[0]) != BRICK_VIA) { //if it is within via mask range, mark it BRICK_INVALID
-						p_prob[0] = MAKE_PROB(0x0009ffff, x, y);
-						p_prob[1] = p_prob[0];
 					}
 				}
 		}
@@ -4819,88 +5765,80 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 			unsigned long long * p_prob0 = d.l[layer].prob.ptr<unsigned long long>(y);
 			unsigned char * p_new_prob0 = new_prob0.ptr<unsigned char>(y);
 			for (int x = 0; x < prob1.cols * 2; x+=2) {
-				if (PROB_SHAPE(p_prob1[x]) != BRICK_VIA && PROB_S(p_prob1[x]) != 0xffffff00 &&
-					PROB_SHAPE(p_prob1[x]) != BRICK_HOLLOW && PROB_SHAPE(p_prob1[x]) != BRICK_ONE_POINT &&
-					PROB_SHAPE(p_prob1[x]) != BRICK_INVALID) { //following filter unique
+				int prob1_shape = PROB_SHAPE(p_prob1[x]);
+				if (PROB_SCORE(p_prob0[x]) >= MIN_SCORE && PROB_S(p_prob1[x]) != 0xffffff00 &&
+					prob1_shape != BRICK_HOLLOW && prob1_shape != BRICK_ONE_POINT && prob1_shape != BRICK_INVALID) { //following filter unique
 					CV_Assert(PROB_SHAPE(p_prob1[x]) <= BRICK_IN_USE || PROB_SHAPE(p_prob1[x]) == BRICK_FAKE_VIA);
 					bool pass = true;					
 					int idx = PROB_TYPE(p_prob1[x]);
 					int cr = w_guard[idx];
 					int guard = (cr - 1) / d.l[layer].gs + 1;
 					int y1 = max(y - guard, 0), y2 = min(y + guard, prob1.rows - 1);
-					int x1 = max(x / 2 - guard, 0), x2 = min(x / 2 + guard, prob1.cols - 1);
-					//2.1 check unique for brick i, T, L; NO_WIRE; 
-					if (PROB_SHAPE(p_prob1[x]) != BRICK_I_0 && PROB_SHAPE(p_prob1[x]) != BRICK_I_90 && PROB_SHAPE(p_prob1[x]) != BRICK_FAKE_VIA) {
+					int x1 = max(x / 2 - guard, 0), x2 = min(x / 2 + guard, prob1.cols - 1);					
+					//2.1 check unique for brick i, T, L, j, l; NO_WIRE; 
+					if (prob1_shape != BRICK_I_0 && prob1_shape != BRICK_I_90 &&
+						prob1_shape != BRICK_Z_0 && prob1_shape != BRICK_Z_90 &&
+						prob1_shape != BRICK_FAKE_VIA) {
 						for (int yy = y1; yy <= y2; yy++) {
 							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
 							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
-							if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW) { //Unique condition is it is minimal than nearyby brick
+							if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW
+								&& PROB_SHAPE(p_prob2[xx]) != BRICK_INVALID) { //Unique condition is it is minimal than nearyby brick
 								if (PROB_SHAPE(p_prob2[xx]) == BRICK_FAKE_VIA && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x]))
 									continue; //BRICK_II can only take effect for same type
-								if (abs(PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x])) <= cr &&
-									abs(PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x])) <= cr) {
+								int dx = PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x]);
+								int dy = PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x]);
+								if (abs(dx) <= cr && abs(dy) <= cr) {
+									if (PROB_SHAPE(p_prob2[xx]) == BRICK_I_0 && abs(dx)<=2) { //if BRICK_I_0 fits bypass
+										if (dy < 0 && brick_conn.fit(DIR_UP, prob1_shape, BRICK_I_0) ||
+											dy > 0 && brick_conn.fit(DIR_DOWN, prob1_shape, BRICK_I_0))
+										continue;
+									}
+									if (PROB_SHAPE(p_prob2[xx]) == BRICK_I_90 && abs(dy)<=2) { //if BRICK_I_90 fits bypass
+										if (dx < 0 && brick_conn.fit(DIR_LEFT, prob1_shape, BRICK_I_90) ||
+											dx > 0 && brick_conn.fit(DIR_RIGHT, prob1_shape, BRICK_I_90))
+										continue;
+									}
+									if (PROB_SHAPE(p_prob2[xx]) == BRICK_Z_0 && abs(dx + dy) <= 2) { //if BRICK_Z_0 fits bypass
+										if (dy < 0 && brick_conn.fit(DIR_UPRIGHT, prob1_shape, BRICK_Z_0) ||
+											dy > 0 && brick_conn.fit(DIR_DOWNLEFT, prob1_shape, BRICK_Z_0))
+											continue;
+									}
+									if (PROB_SHAPE(p_prob2[xx]) == BRICK_Z_90 && abs(dx - dy) <= 2) { //if BRICK_Z_90 fits bypass
+										if (dy < 0 && brick_conn.fit(DIR_UPLEFT, prob1_shape, BRICK_Z_90) ||
+											dy > 0 && brick_conn.fit(DIR_DOWNRIGHT, prob1_shape, BRICK_Z_90))
+											continue;
+									}
+									//else it is not unique
 									pass = false;
 									yy = y2;
-									break;
+									break;									
 								}
 							}
 						}
 					}
 					//2.2 check unique for BRICK_I_0
-					if (PROB_SHAPE(p_prob1[x]) == BRICK_I_0) {
-						for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
-						if (p_prob1[xx] < p_prob1[x] && PROB_SHAPE(p_prob1[xx]) != BRICK_HOLLOW) { //Unique condition is it is minimal than row brick
-							if (PROB_SHAPE(p_prob1[xx]) == BRICK_FAKE_VIA && PROB_TYPE(p_prob1[xx]) != PROB_TYPE(p_prob1[x]))
-								continue; //BRICK_II can only take effect for same type
-							if (abs(PROB_X(p_prob1[xx]) - PROB_X(p_prob1[x])) <= cr &&
-								abs(PROB_Y(p_prob1[xx]) - PROB_Y(p_prob1[x])) <= cr) {
-								pass = false;
-								break;
-							}
-						}
-						if (pass)
-						for (int yy = y1; yy <= y2; yy++) {
-							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
-							if (yy == y)
-								continue;
-							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
-							if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW 
-								&& PROB_SHAPE(p_prob2[xx]) != BRICK_I_0) { //Unique condition is it is minimal than nearyby non BRICK_I_O brick
-								if (PROB_SHAPE(p_prob2[xx]) == BRICK_FAKE_VIA && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x]))
-									continue; //BRICK_II can only take effect for same type
-								if (abs(PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x])) <= cr &&
-									abs(PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x])) <= cr) {
-									pass = false;
-									yy = y2;
-									break;
-								}
-							}
-						}
-					}
-					//2.3 check unique for BRICK_I_0
-					if (PROB_SHAPE(p_prob1[x]) == BRICK_I_90) {
-						for (int yy = y1; yy <= y2; yy++) { 
-							unsigned long long prob2 = prob1.at<unsigned long long>(yy, x);
-							if (prob2 < p_prob1[x] && PROB_SHAPE(prob2) != BRICK_HOLLOW) { //Unique condition is it is minimal than col brick
-								if (PROB_SHAPE(prob2) == BRICK_FAKE_VIA && PROB_TYPE(prob2) != PROB_TYPE(p_prob1[x]))
-									continue; //BRICK_II can only take effect for same type
-								if (abs(PROB_X(prob2) - PROB_X(p_prob1[x])) <= cr &&
-									abs(PROB_Y(prob2) - PROB_Y(p_prob1[x])) <= cr) {
-									pass = false;
-									break;
-								}
-							}
-						}
-						if (pass)
+					if (prob1_shape == BRICK_I_0) {
 						for (int yy = y1; yy <= y2; yy++) {
 							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
 							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
 							if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW
-								&& PROB_SHAPE(p_prob2[xx]) != BRICK_I_90) { //Unique condition is it is minimal than nearyby non BRICK_I_9O brick
+								&& PROB_SHAPE(p_prob2[xx]) != BRICK_INVALID) { //Unique condition is it is minimal than nearyby non BRICK_I_O brick
 								if (PROB_SHAPE(p_prob2[xx]) == BRICK_FAKE_VIA && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x]))
 									continue; //BRICK_II can only take effect for same type
-								if (abs(PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x])) <= cr &&
-									abs(PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x])) <= cr) {
+								int dx = PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x]);
+								int dy = PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x]);
+								if (abs(dx) <= cr && abs(dy) <= cr) {
+									if (yy == y && PROB_SHAPE(p_prob2[xx]) == BRICK_I_0) { //not allow two BRICK_I_0 exist at same row
+										pass = false;
+										yy = y2;
+										break;
+									}
+									if (abs(dx) <= 2) { //if BRICK_I_0 fits bypass
+										if (dy < 0 && brick_conn.fit(DIR_UP, prob1_shape, PROB_SHAPE(p_prob2[xx])) ||
+											dy > 0 && brick_conn.fit(DIR_DOWN, prob1_shape, PROB_SHAPE(p_prob2[xx])))
+											continue;
+									}
 									pass = false;
 									yy = y2;
 									break;
@@ -4908,12 +5846,99 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 							}
 						}
 					}
-					//2.4 check unique for brick ii; FAKE_VIA;
-					if (PROB_SHAPE(p_prob1[x]) == BRICK_FAKE_VIA) {
+					//2.3 check unique for BRICK_I_90
+					if (prob1_shape == BRICK_I_90) {
+						for (int yy = y1; yy <= y2; yy++) {
+							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
+							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
+							if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW
+								&& PROB_SHAPE(p_prob2[xx]) != BRICK_INVALID) { //Unique condition is it is minimal than nearyby non BRICK_I_9O brick
+								if (PROB_SHAPE(p_prob2[xx]) == BRICK_FAKE_VIA && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x]))
+									continue; //BRICK_II can only take effect for same type
+								int dx = PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x]);
+								int dy = PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x]);
+								if (abs(dx) <= cr && abs(dy) <= cr) {
+									if (xx == x && PROB_SHAPE(p_prob2[xx]) == BRICK_I_90) { //not allow two BRICK_I_90 exist at same col
+										pass = false;
+										yy = y2;
+										break;
+									}
+									if (abs(dy) <= 2) { //if BRICK_I_0 fits bypass
+										if (dx < 0 && brick_conn.fit(DIR_LEFT, prob1_shape, PROB_SHAPE(p_prob2[xx])) ||
+											dx > 0 && brick_conn.fit(DIR_RIGHT, prob1_shape, PROB_SHAPE(p_prob2[xx])))
+											continue;
+									}
+									pass = false;
+									yy = y2;
+									break;
+								}
+							}
+						}
+					}
+					//2.4 check unique for BRICK_Z_0
+					if (prob1_shape == BRICK_Z_0) {
+						for (int yy = y1; yy <= y2; yy++) {
+							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
+							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
+							if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW
+								&& PROB_SHAPE(p_prob2[xx]) != BRICK_INVALID) { //Unique condition is it is minimal than nearyby non BRICK_I_9O brick
+								if (PROB_SHAPE(p_prob2[xx]) == BRICK_FAKE_VIA && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x]))
+									continue; //BRICK_II can only take effect for same type
+								int dx = PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x]);
+								int dy = PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x]);
+								if (abs(dx) <= cr && abs(dy) <= cr) {
+									if (yy + xx == y + x && PROB_SHAPE(p_prob2[xx]) == BRICK_Z_0) { //not allow two BRICK_Z_0 exist at same /
+										pass = false;
+										yy = y2;
+										break;
+									}
+									if (abs(dx + dy) <= 2) { //if BRICK_Z_0 fits bypass
+										if (dy < 0 && brick_conn.fit(DIR_UPRIGHT, prob1_shape, PROB_SHAPE(p_prob2[xx])) ||
+											dy > 0 && brick_conn.fit(DIR_DOWNLEFT, prob1_shape, PROB_SHAPE(p_prob2[xx])))
+											continue;
+									}
+									pass = false;
+									yy = y2;
+									break;
+								}
+							}
+						}
+					}
+					//2.5 check unique for BRICK_Z_90
+					if (prob1_shape == BRICK_Z_90) {
+						for (int yy = y1; yy <= y2; yy++) {
+							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
+							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
+							if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW
+								&& PROB_SHAPE(p_prob2[xx]) != BRICK_INVALID) { //Unique condition is it is minimal than nearyby non BRICK_I_9O brick
+								if (PROB_SHAPE(p_prob2[xx]) == BRICK_FAKE_VIA && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x]))
+									continue; //BRICK_II can only take effect for same type
+								int dx = PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x]);
+								int dy = PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x]);
+								if (abs(dx) <= cr && abs(dy) <= cr) {
+									if (yy - xx == y - x && PROB_SHAPE(p_prob2[xx]) == BRICK_Z_90) { //not allow two BRICK_Z_0 exist at same /
+										pass = false;
+										yy = y2;
+										break;
+									}
+									if (abs(dx - dy) <= 2) { //if BRICK_Z_90 fits bypass
+										if (dy < 0 && brick_conn.fit(DIR_UPLEFT, prob1_shape, PROB_SHAPE(p_prob2[xx])) ||
+											dy > 0 && brick_conn.fit(DIR_DOWNRIGHT, prob1_shape, PROB_SHAPE(p_prob2[xx])))
+											continue;
+									}
+									pass = false;
+									yy = y2;
+									break;
+								}
+							}
+						}
+					}
+					//2.6 check unique for brick ii; FAKE_VIA;
+					if (prob1_shape == BRICK_FAKE_VIA) {
 						for (int yy = y1; yy <= y2; yy++) {
 							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
 							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2) {
-								if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW ||
+								if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW && PROB_SHAPE(p_prob2[xx]) != BRICK_INVALID ||
 									PROB_SHAPE(p_prob2[xx]) <= BRICK_IN_USE && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x])) { //Unique condition is it is minimal than nearyby brick
 									if (abs(PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x])) <= cr &&
 										abs(PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x])) <= cr) {
@@ -4926,26 +5951,25 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 						}
 					}
 
-					if (pass) {//if unique, copy to d.l[layer].prob,mark nearby NOWIRE brick BRICK_INVALID
-						unsigned long long prob0 = p_prob1[x];
-						p_new_prob0[x / 2] = (PROB_SHAPE(p_prob0[x]) != PROB_SHAPE(prob0));
-						p_prob0[x] = prob0;	
-						for (int yy = y1; yy <= y2; yy++) {
-							unsigned long long * p_prob2 = d.l[layer].prob.ptr<unsigned long long>(yy);
-							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
-							if (PROB_S(p_prob2[xx]) == 0xffffff00) 
-								SET_PROB_SHAPE(p_prob2[xx], BRICK_INVALID);							
-						}
+					if (pass) {//if unique, copy to d.l[layer].prob,
+						p_new_prob0[x / 2] = (PROB_SHAPE(p_prob0[x]) != prob1_shape);
+						p_prob0[x] = p_prob1[x];						
 					}
 					else { //if it is not unique, mark self as BRICK_INVALID
 						p_prob0[x] = p_prob1[x];
 						SET_PROB_SHAPE(p_prob0[x], BRICK_INVALID);
 					}
 				}
-				if (PROB_SHAPE(p_prob1[x]) == BRICK_HOLLOW || PROB_SHAPE(p_prob1[x]) == BRICK_ONE_POINT || 
-					PROB_SHAPE(p_prob1[x]) == BRICK_INVALID) { //if it is Hollow, OnePoint, mark as Invalid
-					p_prob0[x] = p_prob1[x];
-					SET_PROB_SHAPE(p_prob0[x], BRICK_INVALID);
+				if (PROB_SCORE(p_prob0[x]) > MIN_SCORE) {
+					if (PROB_SHAPE(p_prob1[x]) == BRICK_ONE_POINT || PROB_SHAPE(p_prob1[x]) == BRICK_INVALID) { 
+						//if it is OnePoint, mark as Invalid
+						p_prob0[x] = p_prob1[x];
+						SET_PROB_SHAPE(p_prob0[x], BRICK_INVALID);
+					}
+					if (PROB_SHAPE(p_prob1[x]) == BRICK_HOLLOW) {//if it is Hollow, mark it as NoWire
+						p_prob0[x] = p_prob1[x];
+						SET_PROB_SHAPE(p_prob0[x], BRICK_NO_WIRE);
+					}
 				}
 			}
 		}
@@ -4976,14 +6000,37 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 
 	for (int y = 0; y < d.l[layer].prob.rows; y++) {
 		unsigned long long * p_prob = d.l[layer].prob.ptr<unsigned long long>(y);
-		for (int x = 0; x < d.l[layer].prob.cols * 2; x+=2)
-		if (PROB_S(p_prob[x]) != 0xffffff00)
-			if (PROB_SHAPE(p_prob[x]) <= BRICK_IN_USE || PROB_SHAPE(p_prob[x]) == BRICK_FAKE_VIA) {
-				unsigned long long prob0 = p_prob[x];
+		for (int x = 0; x < d.l[layer].prob.cols * 2; x += 2) {
+			unsigned long long prob0 = p_prob[x];
+			if (PROB_S(prob0) != 0xffffff00 && PROB_SCORE(prob0) >= MIN_SCORE)
+			if (PROB_SHAPE(prob0) <= BRICK_IN_USE || PROB_SHAPE(prob0) == BRICK_FAKE_VIA) {
 				CV_Assert(PROB_TYPE(prob0) < MAX_WIRE_NUM);
-				SET_PROB_TYPE(prob0, w_type[PROB_TYPE(prob0)]);
+				int idx = PROB_TYPE(prob0);
+				int cr = w_guard[idx];
+				int guard = (cr - 1) / d.l[layer].gs + 1;
+				int y1 = max(y - guard, 0), y2 = min(y + guard, prob1.rows - 1);
+				int x1 = max(x / 2 - guard, 0), x2 = min(x / 2 + guard, prob1.cols - 1);
+				for (int yy = y1; yy <= y2; yy++) { //mark nearby NOWIRE brick BRICK_INVALID to avoid BRICK connect BRICK_NOWIRE
+					unsigned long long * p_prob2 = d.l[layer].prob.ptr<unsigned long long>(yy);
+					for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
+					if (PROB_S(p_prob2[xx]) == 0xffffff00)
+						SET_PROB_SHAPE(p_prob2[xx], BRICK_INVALID);
+				}
+				SET_PROB_TYPE(prob0, w_type[idx]);
 				p_prob[x] = prob0;
 			}
+			if (PROB_SCORE(prob0) < MIN_SCORE && (PROB_SHAPE(prob0) <= BRICK_IN_USE || PROB_SHAPE(prob0) == BRICK_FAKE_VIA)) {
+				int guard = 2;
+				int y1 = max(y - guard, 0), y2 = min(y + guard, prob1.rows - 1);
+				int x1 = max(x / 2 - guard, 0), x2 = min(x / 2 + guard, prob1.cols - 1);
+				for (int yy = y1; yy <= y2; yy++) { //mark nearby NOWIRE brick BRICK_INVALID to avoid BRICK connect BRICK_NOWIRE
+					unsigned long long * p_prob2 = d.l[layer].prob.ptr<unsigned long long>(yy);
+					for (int xx = 2 * x1; xx <= 2 * x2; xx += 2)
+					if (PROB_S(p_prob2[xx]) == 0xffffff00)
+						SET_PROB_SHAPE(p_prob2[xx], BRICK_INVALID);
+				}
+			}
+		}
 	}
 	
 #undef MAX_WIRE_NUM
@@ -5025,11 +6072,11 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 }
 
 /*
-		31..24 23..16   15..8   7..0
-opt0:					assemble_opt wnum
-opt1:	clong_heng clong_shu cwide	type
-opt2:	clong_heng clong_shu cwide	type		
-opt3:	clong_heng clong_shu cwide	type		
+		31..24 23..16 15..8 7..0
+opt0:				assemble_opt wnum
+opt1:			clong cwide type
+opt2:			clong cwide type		
+opt3:			clong cwide type		
 opt4:			
 opt5:			
 opt6:			
@@ -5039,36 +6086,27 @@ assemble_opt
 static void assemble_line(PipeData & d, ProcessParameter & cpara)
 {
 	int layer = cpara.layer;
-	Mat & prob = d.l[layer].prob;	
-	
+	Mat prob = d.l[layer].prob.clone();
+
 	int wnum = cpara.opt0 & 0xff;
 	int assemble_opt = cpara.opt0 >> 8 & 0xff;
-	qInfo("assemble_line l=%d, flag=%d, wnum=%d", layer, assemble_opt, wnum);
-	Mat mark(prob.rows, prob.cols, CV_8UC1);	
-	vector<ViaInfo> & via_info = d.l[layer].via_info;
-	
+	qInfo("assemble_line l=%d, flag=%d, wnum=%d", layer, assemble_opt, wnum);	
+
 #define MAX_WIRE_NUM 6
 	int wtype[MAX_WIRE_NUM] = { cpara.opt1 & 0xff, cpara.opt2 & 0xff, cpara.opt3 & 0xff, cpara.opt4 & 0xff, cpara.opt5 & 0xff };
-	int cwide[MAX_WIRE_NUM] = { cpara.opt1 >> 8 & 0xff, cpara.opt2 >> 8 & 0xff, 
+	int cwide[MAX_WIRE_NUM] = { cpara.opt1 >> 8 & 0xff, cpara.opt2 >> 8 & 0xff,
 		cpara.opt3 >> 8 & 0xff, cpara.opt4 >> 8 & 0xff, cpara.opt5 >> 8 & 0xff };
-	int clong0[MAX_WIRE_NUM] = { cpara.opt1 >> 16 & 0xff, cpara.opt2 >> 16 & 0xff,
+	int clong[MAX_WIRE_NUM] = { cpara.opt1 >> 16 & 0xff, cpara.opt2 >> 16 & 0xff,
 		cpara.opt3 >> 16 & 0xff, cpara.opt4 >> 16 & 0xff, cpara.opt5 >> 16 & 0xff };
-	int clong1[MAX_WIRE_NUM] = { cpara.opt1 >> 24 & 0xff, cpara.opt2 >> 24 & 0xff,
-		cpara.opt3 >> 24 & 0xff, cpara.opt4 >> 24 & 0xff, cpara.opt5 >> 24 & 0xff };
-
-	struct TraceState {
-		unsigned long long prev_brick;
-		int x, y;
-		bool found;
-	} trace;
-	WireLine cur_line;
+	int clg[MAX_WIRE_NUM];
 
 	for (int i = 0; i < wnum; i++) {
-		qInfo("assemble_line, type=%d, cwide=%d, clong0=%d, clong1=%d", wtype[i], cwide[i], clong0[i], clong1[i]);
+		qInfo("assemble_line, type=%d, cwide=%d, clong=%d", wtype[i], cwide[i], clong[i]);
 		if (cwide[i] > d.l[layer].gs) {
 			qCritical("invalid cwide");
 			return;
 		}
+		clg[i] = (clong[i] - 1) / d.l[layer].gs + 1;
 	}
 
 	int fix_count = 0, noend_count = 0;
@@ -5076,325 +6114,346 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 	int x2 = prob.cols - d.l[layer].border_size / d.l[layer].gs;
 	int y1 = d.l[layer].border_size / d.l[layer].gs - 1;
 	int y2 = prob.rows - d.l[layer].border_size / d.l[layer].gs;
-	
-	mark = Scalar::all(0);
+	if (x1 < 2 || y1 < 2) {
+		qCritical("border_size(%d) is too small compare to gs(%d)", d.l[layer].border_size, d.l[layer].gs);
+		return;
+	}
+	Mat link[8];
+	for (int dir = 0; dir < 8; dir++) {
+		link[dir].create(prob.rows, prob.cols, CV_32SC2);
+		link[dir] = Scalar::all(0);
+	}
+	int lnear[8][2] = {
+		{ DIR_LEFT, DIR_RIGHT },//up
+		{ DIR_UP, DIR_DOWN },	//right
+		{ DIR_LEFT, DIR_RIGHT },//down
+		{ DIR_UP, DIR_DOWN },	//left
+		{ DIR_LEFT, DIR_DOWN },	//right_up
+		{ DIR_LEFT, DIR_UP },	//right_down
+		{ DIR_RIGHT, DIR_UP },	//left_down
+		{ DIR_RIGHT, DIR_DOWN } //left_up
+	};
+	int cnear[8][2] = {
+		//y, x
+		{ 0, 1 },	//up
+		{ 1, 0 },	//right
+		{ 0, 1},	//down
+		{ 1, 0 },	//left
+		{ 1, 1 },	//right_up
+		{ 1, -1 },	//right_down
+		{ 1, 1 },	//left_down
+		{ 1, -1 }	//left_up
+	};
+
+	//1 following find link prob
 	for (int y = y1; y <= y2; y++) {
-		unsigned char * p_mark = mark.ptr<unsigned char>(y);
 		unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
-		for (int x = x1; x <= x2; x++) 
-			if (p_mark[x]==0) { 
-				unsigned long long prob0 = p_prob[2 * x];
-				int brick_fix;
-				if (PROB_SHAPE(prob0) != BRICK_NO_WIRE && PROB_SHAPE(prob0)!=BRICK_INVALID) { //scan to find one begining brick
-					CV_Assert(PROB_SHAPE(prob0) <= BRICK_IN_USE || PROB_SHAPE(prob0) == BRICK_FAKE_VIA || PROB_SHAPE(prob0) == BRICK_VIA);
-					if (brick_conn.quick_fix(0, BRICK_NO_WIRE, PROB_SHAPE(prob0), brick_fix) == brick_conn.NO_NEED_TRACE)
-						continue;
-					trace.prev_brick = 0;
-					SET_PROB_SHAPE(trace.prev_brick, BRICK_NO_WIRE);
-					SET_PROB_TYPE(trace.prev_brick, PROB_TYPE(prob0));
-					SET_PROB_X(trace.prev_brick, PROB_X(prob0));
-					SET_PROB_Y(trace.prev_brick, PROB_Y(prob0) - d.l[layer].gs);
-					
-					cur_line.clear();
-
-					int cw, cl;
-					for (int i = 0; i < wnum; i++)
-						if (wtype[i] == PROB_TYPE(prob0)) {
-							cw = cwide[i];
-							cl = clong0[i];
-							break;
-						}
-					int cl1 = (cl - 1) / d.l[layer].gs + 1;
-					bool in_trace = true;
-
-					while (in_trace) {
-						trace.found = false;
-						trace.x = PROB_X(trace.prev_brick) / d.l[layer].gs;
-						trace.y = PROB_Y(trace.prev_brick) / d.l[layer].gs;	
-						if (trace.y >= y2) 
-							in_trace = false;
-						
-						for (int yy = trace.y + 1; yy <= min(trace.y + cl1, y2); yy++)
-							for (int xx = max(x1, trace.x - 1); xx <= min(trace.x + 1, x2); xx++) { //search first non invalid BRICK 
-								prob0 = prob.at<unsigned long long>(yy, xx * 2);
-								if (abs(PROB_X(trace.prev_brick) - PROB_X(prob0)) <= cw && PROB_SHAPE(prob0)!= BRICK_INVALID) {
-									mark.at<unsigned char>(yy, xx) = 1;
-									trace.found = true;
-									yy = y2;
-									break;									
-								}
+		for (int x = x1; x <= x2; x++) {
+			unsigned long long prob0 = p_prob[2 * x];
+			int prob0_shape = PROB_SHAPE(prob0);					
+			if (prob0_shape <= BRICK_IN_USE && prob0_shape != BRICK_NO_WIRE) {
+				int prob0_y = PROB_Y(prob0);
+				int prob0_x = PROB_X(prob0);
+				int cw, cl;
+				for (int i = 0; i < wnum; i++)
+				if (wtype[i] == PROB_TYPE(prob0)) {
+					cw = cwide[i];
+					cl = clg[i];
+					break;
+				}				
+				for (int dir = 0; dir < 8; dir++)
+				if (bricks[prob0_shape].shape & 1 << dir) { //search link in dir
+					int check_value = cnear[dir][0] * prob0_y + cnear[dir][1] * prob0_x;
+					int y0 = y + dxy[dir][0];
+					int x0 = x + dxy[dir][1];
+					int *p_link = link[dir].ptr<int>(y, x);
+					bool found = false;
+					for (int len = 0; len < cl && !found; len++, y0 += dxy[dir][0], x0 += dxy[dir][1]) {
+						int xx[3] = { x0, x0 + dxy[lnear[dir][0]][1], x0 + dxy[lnear[dir][1]][1] }; //3 prob in dir
+						int yy[3] = { y0, y0 + dxy[lnear[dir][0]][0], y0 + dxy[lnear[dir][1]][0] }; //3 prob in dir
+						for (int i = 0; i < 3; i++) {
+							if (xx[i] < x1 || xx[i] > x2 || yy[i] < y1 || yy[i] > y2)
+								continue;
+							unsigned long long prob1 = prob.at<unsigned long long>(yy[i], xx[i] * 2);
+							int prob1_shape = PROB_SHAPE(prob1);
+							if (prob1_shape == BRICK_INVALID)
+								continue;
+							if (abs(check_value - cnear[dir][0] * PROB_Y(prob1) - cnear[dir][1] * PROB_X(prob1)) <= cw) { //found link prob
+								int *p_link1 = link[dir_1[dir]].ptr<int>(yy[i], xx[i]);
+								if (p_link[0] != 0) 
+								if (p_link[0] != yy[i] || p_link[1] != xx[i])
+									qWarning("assemble error link[%d](%d,%d)=(%d,%d), expected (%d,%d)", 
+										dir, y, x, p_link[0], p_link[1], yy[i], xx[i]);
+								p_link[0] = yy[i];
+								p_link[1] = xx[i];
+								p_link1[0] = y;
+								p_link1[1] = x;
+								found = true;
+								break;
 							}
-						if (!trace.found) { //it also add a BRICK_NO_WIRE ending for DOWN_BORDER line
-							noend_count++;
-							SET_PROB_X(prob0, PROB_X(trace.prev_brick));
-							SET_PROB_Y(prob0, PROB_Y(trace.prev_brick) + d.l[layer].gs);
-							SET_PROB_TYPE(prob0, PROB_TYPE(trace.prev_brick));
-							SET_PROB_SHAPE(prob0, BRICK_NO_WIRE);
-						}
-						
-						//now prob0 is most possible brick
-						if (PROB_TYPE(prob0) != PROB_TYPE(trace.prev_brick) && 
-							PROB_SHAPE(prob0) != BRICK_NO_WIRE && PROB_SHAPE(trace.prev_brick)!=BRICK_NO_WIRE)
-							qWarning("Tracking line 0 different type, x=%d, y=%d, prev_brick=%llx, prob0=%llx", 
-							PROB_X(trace.prev_brick), PROB_Y(trace.prev_brick), trace.prev_brick, prob0);
-						int fix_result = brick_conn.quick_fix(0, PROB_SHAPE(trace.prev_brick), PROB_SHAPE(prob0), brick_fix);
-						int need_fix = 0;
-						unsigned long long next_prob0;
-						int suspect_brick = 0;
-						int next_fix_result;
-						if (PROB_SHAPE(trace.prev_brick) == BRICK_VIA && PROB_SHAPE(prob0) == BRICK_VIA) {
-							int via_mask = 0;
-							if (!(assemble_opt & ASSEMBLE_LINE_NO_VIA))
-							for (int i = 0; i < via_info.size(); i++) {
-								if (PROB_X(trace.prev_brick) == via_info[i].xy.x &&
-									PROB_Y(trace.prev_brick) == via_info[i].xy.y &&
-									PROB_TYPE(trace.prev_brick) == via_info[i].type) {
-									via_mask = via_info[i].via_adj_mask;
-									break;
-								}
-							}
-							if ((via_mask & 1 << DIR_DOWN) == 0) {
-								fix_result = BrickConnect::FIX_TRACE;
-								brick_fix = BRICK_NO_WIRE;
-							}
-						}
-						if (fix_result == BrickConnect::FIX_TRACE) {
-							int nouse_brick_fix;
-							need_fix = 1;
-							next_prob0 = prob0;
-							fix_result = brick_conn.quick_fix(0, PROB_SHAPE(trace.prev_brick), brick_fix, nouse_brick_fix);
-							next_fix_result = brick_conn.quick_fix(0, brick_fix, PROB_SHAPE(prob0), nouse_brick_fix);
-							CV_Assert(fix_result != BrickConnect::FIX_TRACE && next_fix_result != BrickConnect::FIX_TRACE);
-							
-							fix_count++;
-							suspect_brick = SUSPECT_BRICK;
-
-							SET_PROB_SHAPE(prob0, brick_fix);
-							SET_PROB_X(prob0, (PROB_X(prob0) + PROB_X(trace.prev_brick)) / 2);
-							SET_PROB_Y(prob0, (PROB_Y(prob0) + PROB_Y(trace.prev_brick)) / 2);							
-						}
-						
-						
-						for (int i = 0; i <= need_fix; i++) {
-							CV_Assert(PROB_X(prob0) < d.l[layer].img.cols && PROB_Y(prob0) < d.l[layer].img.rows);
-							switch (fix_result) {
-							case BrickConnect::START_TRACE0:
-								cur_line.push_brick(trace.prev_brick, START_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::START_TRACE1:
-								cur_line.push_brick(prob0, START_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::CONTINUE_TRACE1:
-								break;
-
-							case BrickConnect::END_TRACE1:
-								cur_line.push_brick(prob0, END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::END_START_TRACE1:
-								cur_line.push_brick(prob0, START_BRICK | END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::START_TRACE0_END_TRACE1:
-								cur_line.push_brick(trace.prev_brick, START_BRICK | suspect_brick);
-								cur_line.push_brick(prob0, END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::START_TRACE0_END_START_TRACE1:
-								cur_line.push_brick(trace.prev_brick, START_BRICK | suspect_brick);
-								cur_line.push_brick(prob0, START_BRICK | END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::NO_NEED_TRACE:
-								if (i == need_fix)
-									in_trace = false;
-								break;
-
-							default:
-								qFatal("brick_conn fix have internal error");
-							}
-
-							trace.prev_brick = prob0;
-							prob0 = next_prob0;
-							fix_result = next_fix_result;
-							suspect_brick = 0;
 						}
 					}
-					d.l[layer].lineset[0].push_back(cur_line);
+					if (!found && y != y1 && y != y2 && x != x1 && x != x2)
+						noend_count++;
+					if (!found) { //connect nearby BRICK_INVALID as link
+						y0 = y + dxy[dir][0];
+						x0 = x + dxy[dir][1];
+						int *p_link1 = link[dir_1[dir]].ptr<int>(y0, x0);
+						p_link[0] = y0;
+						p_link[1] = x0;
+						p_link1[0] = y;
+						p_link1[1] = x;
+					}
 				}
 			}
+			if (prob0_shape == BRICK_FAKE_VIA) {//TODO
+
+			}
+		}
 	}
 
+	//2 following find adjust-line and change its x, y to fit degree 0, 45, 90, 135 policy
+	typedef vector<Point> LinePoint;
+	vector<LinePoint> lines[4]; //contain adjust line
+	Mat mark(prob.rows, prob.cols, CV_8UC1); //mark means which dir is adjusted
 	mark = Scalar::all(0);
-	for (int x = x1; x <= x2; x++) {
-		for (int y = y1; y <= y2; y++)
-			if (mark.at<unsigned char>(y, x) == 0) {
-				unsigned long long prob0 = prob.at<unsigned long long>(y, x * 2);
-				int brick_fix;
-				if (PROB_SHAPE(prob0) != BRICK_NO_WIRE && PROB_SHAPE(prob0) != BRICK_INVALID) {//scan to find one begining brick
-					CV_Assert(PROB_SHAPE(prob0) <= BRICK_IN_USE || PROB_SHAPE(prob0) == BRICK_FAKE_VIA || PROB_SHAPE(prob0) == BRICK_VIA);
-					if (brick_conn.quick_fix(1, BRICK_NO_WIRE, PROB_SHAPE(prob0), brick_fix) == brick_conn.NO_NEED_TRACE)
-						continue;
-					trace.prev_brick = 0;
-					SET_PROB_SHAPE(trace.prev_brick, BRICK_NO_WIRE);
-					SET_PROB_TYPE(trace.prev_brick, PROB_TYPE(prob0));
-					SET_PROB_X(trace.prev_brick, PROB_X(prob0) - d.l[layer].gs);
-					SET_PROB_Y(trace.prev_brick, PROB_Y(prob0));
 
-					cur_line.clear();
-
-					int cw, cl;
-					for (int i = 0; i < wnum; i++)
-						if (wtype[i] == PROB_TYPE(prob0)) {
-							cw = cwide[i];
-							cl = clong1[i];
-							break;
+	for (int i = 0; i < 4; i++) {
+		int dir = (i == 0) ? DIR_DOWN : ((i == 1) ? DIR_RIGHT : ((i == 2) ? DIR_DOWNLEFT : DIR_DOWNRIGHT));
+		for (int y = y1 - 1; y <= y2; y++) {
+			int * p_link = link[dir].ptr<int>(y);
+			for (int x = x1 - 1; x <= x2; x++) {				
+				if (p_link[x * 2] > 0) { //start to find a new_line
+					LinePoint new_line;
+					int x0 = x, y0 = y;			
+					do {
+						new_line.push_back(Point(x0, y0));
+						int *p_link1 = link[dir].ptr<int>(y0, x0);
+						y0 = p_link1[0];
+						x0 = p_link1[1];
+						p_link1[0] = -y0;
+						p_link1[1] = -x0;
+					} while (y0 > 0);
+					CV_Assert(new_line.size() >= 2);
+					int head = -1, len=0; //head >=0 len>0 means trace adjust-line
+					double sum = 0; //adjust-line x or y or x+y or x-y summary value
+					unsigned long long last_prob = prob.at<unsigned long long>(new_line[0].y, new_line[0].x * 2);
+					for (int k = 1; k <= (int)new_line.size(); k++) { //find adjust-lines inside new_line					
+						unsigned long long prob0;
+						if (k < new_line.size())
+							prob0 = prob.at<unsigned long long>(new_line[k].y, new_line[k].x * 2);
+						if (k < new_line.size() && brick_conn.fit(dir, PROB_SHAPE(last_prob), PROB_SHAPE(prob0))) {
+							if (head < 0) //start to trace adjust-line
+								head = k - 1;
 						}
-					int cl1 = (cl - 1) / d.l[layer].gs + 1;
-					bool in_trace = true;
-
-					while (in_trace) {
-						trace.found = false;
-						trace.x = PROB_X(trace.prev_brick) / d.l[layer].gs;
-						trace.y = PROB_Y(trace.prev_brick) / d.l[layer].gs;
-						if (trace.x >= x2)
-							in_trace = false;
-
-						for (int xx = trace.x + 1; xx <= min(trace.x + cl1, x2); xx++)
-							for (int yy = max(y1, trace.y - 1); yy <= min(y2, trace.y + 1); yy++) { //search first non invalid BRICK								
-								prob0 = prob.at<unsigned long long>(yy, xx * 2);
-								if (abs(PROB_Y(trace.prev_brick) - PROB_Y(prob0)) <= cw && PROB_SHAPE(prob0) != BRICK_INVALID) {
-									mark.at<unsigned char>(yy, xx) = 1;
-									trace.found = true;
-									xx = x2;
-									break;
+						else { //not fit, check if find a adjust-line
+							LinePoint adjust_line;
+							if (head >= 0) { //adjust-line find, it has at least 2 points
+								sum += cnear[dir][0] * PROB_Y(last_prob) + cnear[dir][1] * PROB_X(last_prob);
+								len++;
+								int avg = sum / len;								
+								for (int j = 0; j < len; j++, head++) { //change adjust-line x y to fit degree 0, 45, 90, 135 policy
+									unsigned long long * p_prob = prob.ptr<unsigned long long>(new_line[head].y, new_line[head].x);
+									unsigned char * p_mark = mark.ptr<unsigned char>(new_line[head].y, new_line[head].x);
+									adjust_line.push_back(new_line[head]);
+									p_mark[0] |= 1 << dir;
+									switch (dir) {
+									case DIR_DOWN:
+										SET_PROB_X(p_prob[0], avg);
+										break;
+									case DIR_RIGHT:
+										SET_PROB_Y(p_prob[0], avg);
+										break;
+									case DIR_DOWNLEFT:
+										if (p_mark[0] & DIR_DOWN1_MASK) 
+											SET_PROB_Y(p_prob[0], avg - PROB_X(p_prob[0]));
+										else
+											SET_PROB_X(p_prob[0], avg - PROB_Y(p_prob[0]));																			
+										break;
+									case DIR_DOWNRIGHT:
+										if (p_mark[0] & DIR_DOWN1_MASK)
+											SET_PROB_Y(p_prob[0], avg + PROB_X(p_prob[0]));
+										else 
+											if (p_mark[0] & DIR_DOWNLEFT_MASK) {
+												int a = PROB_X(p_prob[0]) + PROB_Y(p_prob[0]);												
+												SET_PROB_X(p_prob[0], (a - avg) / 2);
+												SET_PROB_Y(p_prob[0], (a + avg) / 2);
+											}
+											else
+												SET_PROB_X(p_prob[0], PROB_Y(p_prob[0]) - avg);
+										break;
+									}
 								}
+								lines[i].push_back(adjust_line);
+								sum = 0;
+								head = -1;
+								len = 0;
 							}
-						if (!trace.found) { //it also add a BRICK_NO_WIRE ending for DOWN_BORDER line
-							noend_count++;
-							SET_PROB_X(prob0, PROB_X(trace.prev_brick) + d.l[layer].gs);
-							SET_PROB_Y(prob0, PROB_Y(trace.prev_brick));
-							SET_PROB_TYPE(prob0, PROB_TYPE(trace.prev_brick));
-							SET_PROB_SHAPE(prob0, BRICK_NO_WIRE);
-						}
-						
-						//now prob0 is most possible brick
-						if (PROB_TYPE(prob0) != PROB_TYPE(trace.prev_brick) &&
-							PROB_SHAPE(prob0) != BRICK_NO_WIRE && PROB_SHAPE(trace.prev_brick) != BRICK_NO_WIRE)
-							qWarning("Tracking line 1, x=%d, y=%d, prev_brick=%llx, prob0=%llx",
-							PROB_X(trace.prev_brick), PROB_Y(trace.prev_brick), trace.prev_brick, prob0);
-						int fix_result = brick_conn.quick_fix(1, PROB_SHAPE(trace.prev_brick), PROB_SHAPE(prob0), brick_fix);
-						int need_fix = 0;
-						unsigned long long next_prob0;
-						int suspect_brick = 0;
-						int next_fix_result;
-						if (PROB_SHAPE(trace.prev_brick) == BRICK_VIA && PROB_SHAPE(prob0) == BRICK_VIA) {
-							int via_mask = 0;
-							if (!(assemble_opt & ASSEMBLE_LINE_NO_VIA))
-							for (int i = 0; i < via_info.size(); i++) {
-								if (PROB_X(trace.prev_brick) == via_info[i].xy.x &&
-									PROB_Y(trace.prev_brick) == via_info[i].xy.y &&
-									PROB_TYPE(trace.prev_brick) == via_info[i].type) {
-									via_mask = via_info[i].via_adj_mask;
-									break;
+							else { 
+								if (PROB_SHAPE(last_prob) <= BRICK_IN_USE && PROB_SHAPE(last_prob) != BRICK_NO_WIRE) { //now adjust_line is only one point
+									adjust_line.push_back(new_line[k - 1]);
+									lines[i].push_back(adjust_line);
 								}
-							}
-							if ((via_mask & 1 << DIR_RIGHT) == 0) {
-								fix_result = BrickConnect::FIX_TRACE;
-								brick_fix = BRICK_NO_WIRE;
+								//no need to push BRICK_VIA or BRICK_NO_WIRE
 							}
 						}
-						if (fix_result == BrickConnect::FIX_TRACE) {
-							int nouse_brick_fix;
-							need_fix = 1;
-							next_prob0 = prob0;
-							fix_result = brick_conn.quick_fix(1, PROB_SHAPE(trace.prev_brick), brick_fix, nouse_brick_fix);
-							next_fix_result = brick_conn.quick_fix(1, brick_fix, PROB_SHAPE(prob0), nouse_brick_fix);
-							CV_Assert(fix_result != BrickConnect::FIX_TRACE && next_fix_result != BrickConnect::FIX_TRACE);
-
-							fix_count++;
-							suspect_brick = SUSPECT_BRICK;
-							
-							SET_PROB_SHAPE(prob0, brick_fix);
-							SET_PROB_X(prob0, (PROB_X(prob0) + PROB_X(trace.prev_brick)) / 2);
-							SET_PROB_Y(prob0, (PROB_Y(prob0) + PROB_Y(trace.prev_brick)) / 2);							
+						if (head >= 0) { //trace adjust-line
+							sum += cnear[dir][0] * PROB_Y(last_prob) + cnear[dir][1] * PROB_X(last_prob);
+							len++;
 						}
-						
-						for (int i = 0; i <= need_fix; i++) {
-							CV_Assert(PROB_X(prob0) < d.l[layer].img.cols && PROB_Y(prob0) < d.l[layer].img.rows);
-							switch (fix_result) {
-							case BrickConnect::START_TRACE0:
-								cur_line.push_brick(trace.prev_brick, START_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::START_TRACE1:
-								cur_line.push_brick(prob0, START_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::CONTINUE_TRACE1:
-								break;
-
-							case BrickConnect::END_TRACE1:
-								cur_line.push_brick(prob0, END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::END_START_TRACE1:
-								cur_line.push_brick(prob0, START_BRICK | END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::START_TRACE0_END_TRACE1:
-								cur_line.push_brick(trace.prev_brick, START_BRICK | suspect_brick);
-								cur_line.push_brick(prob0, END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::START_TRACE0_END_START_TRACE1:
-								cur_line.push_brick(trace.prev_brick, START_BRICK | suspect_brick);
-								cur_line.push_brick(prob0, START_BRICK | END_BRICK | suspect_brick);
-								break;
-
-							case BrickConnect::NO_NEED_TRACE:
-								if (i==need_fix)
-									in_trace = false;
-								break;
-
-							default:
-								qFatal("brick_conn fix have internal error");
-							}
-
-							trace.prev_brick = prob0;
-							prob0 = next_prob0;
-							fix_result = next_fix_result;
-							suspect_brick = 0;
-						}
+						last_prob = prob0;
 					}
-					d.l[layer].lineset[1].push_back(cur_line);
+				}				
+			}			
+		}
+	}
+	
+	//3 now all adjust-line x, y is changed, add to lineset
+	for (int i = 0; i < 4; i++) {
+		int dir = (i == 0) ? DIR_DOWN : ((i == 1) ? DIR_RIGHT : ((i == 2) ? DIR_DOWNLEFT : DIR_DOWNRIGHT));
+		int adir = dir_1[dir];
+		int ignore_brick = (i == 0) ? BRICK_I_0 : ((i == 1) ? BRICK_I_90 : ((i == 2) ? BRICK_Z_0 : BRICK_Z_90));
+		for (int j = 0; j < (int)lines[i].size(); j++) {
+			WireLine cur_line;
+			unsigned long long prob0 = prob.at<unsigned long long>(lines[i][j][0].y, lines[i][j][0].x * 2);
+			if (PROB_SHAPE(prob0) < BRICK_IN_USE && bricks[PROB_SHAPE(prob0)].shape & 1 << adir) { //push fix brick at begining
+				unsigned long long fix = 0x0010ffff00000000;
+				SET_PROB_TYPE(fix, PROB_TYPE(prob0));
+				switch (dir) {
+				case DIR_DOWN:
+					SET_PROB_SHAPE(fix, BRICK_i_180);
+					SET_PROB_X(fix, PROB_X(prob0));
+					SET_PROB_Y(fix, PROB_Y(prob0) - ASSEMBLE_FIX_DISTANCE);
+					break;
+				case DIR_RIGHT:
+					SET_PROB_SHAPE(fix, BRICK_i_90);
+					SET_PROB_X(fix, PROB_X(prob0) - ASSEMBLE_FIX_DISTANCE);
+					SET_PROB_Y(fix, PROB_Y(prob0));
+					break;
+				case DIR_DOWNLEFT:
+					SET_PROB_SHAPE(fix, BRICK_P_180);
+					SET_PROB_X(fix, PROB_X(prob0) + ASSEMBLE_FIX_DISTANCE);
+					SET_PROB_Y(fix, PROB_Y(prob0) - ASSEMBLE_FIX_DISTANCE);
+					break;
+				case DIR_DOWNRIGHT:
+					SET_PROB_SHAPE(fix, BRICK_P_90);
+					SET_PROB_X(fix, PROB_X(prob0) - ASSEMBLE_FIX_DISTANCE);
+					SET_PROB_Y(fix, PROB_Y(prob0) - ASSEMBLE_FIX_DISTANCE);
+					break;
 				}
+				cur_line.push_brick(fix, 0);
+				fix_count++;
 			}
+			unsigned long long last_prob = 0;
+			for (int k = 0; k < (int)lines[i][j].size(); k++) {
+				prob0 = prob.at<unsigned long long>(lines[i][j][k].y, lines[i][j][k].x * 2);
+				if (ignore_brick == PROB_SHAPE(prob0))
+					continue;
+				bool pass = true;
+				bool exchange = true;
+				if (PROB_SHAPE(last_prob) == BRICK_VIA || PROB_SHAPE(prob0) == BRICK_VIA) { //adjust via x,y if VIA_NEAR_WIRE's x, y is adjusted 				
+					switch (dir) {
+					case DIR_DOWN:
+					case DIR_DOWNLEFT:
+					case DIR_DOWNRIGHT:
+						pass = (PROB_Y(last_prob) < PROB_Y(prob0));
+						exchange = (PROB_Y(last_prob) > PROB_Y(prob0));
+						CV_Assert(PROB_Y(last_prob) < PROB_Y(prob0) + 5);
+						break;
+					case DIR_RIGHT:
+						pass = (PROB_X(last_prob) < PROB_X(prob0));
+						exchange = (PROB_X(last_prob) > PROB_X(prob0));
+						CV_Assert(PROB_X(last_prob) < PROB_X(prob0) + 5);
+						break;
+					}
+					if (pass) 
+						cur_line.push_brick(prob0, 0);	
+					else {						
+						if (exchange) { //exchange via with other BRICK
+							cur_line.corner.back() = prob0;
+							cur_line.push_brick(last_prob, 0);							
+						} else { 
+							if (PROB_SHAPE(prob0) == BRICK_VIA)//replace
+								cur_line.corner.back() = prob0;
+						}					
+					}					
+				} else
+				{
+					switch (dir) {
+					case DIR_DOWN:
+					case DIR_DOWNLEFT:
+					case DIR_DOWNRIGHT:
+						pass = (PROB_Y(last_prob) < PROB_Y(prob0));
+						exchange = (PROB_Y(last_prob) > PROB_Y(prob0));
+						CV_Assert(PROB_Y(last_prob) < PROB_Y(prob0) + 5);
+						break;
+					case DIR_RIGHT:
+						pass = (PROB_X(last_prob) < PROB_X(prob0));
+						exchange = (PROB_X(last_prob) > PROB_X(prob0));
+						CV_Assert(PROB_X(last_prob) < PROB_X(prob0) + 5);
+						break;
+					}
+					if (pass) 
+						cur_line.push_brick(prob0, 0);	
+					else {			
+						qCritical("assemble dir=%d (x=%d,y=%d,s=0x%x) >= (%d,%d,0x%x)", dir, PROB_X(last_prob), 
+								PROB_Y(last_prob), PROB_S(last_prob), PROB_X(prob0), PROB_Y(prob0), PROB_S(prob0));
+						if (exchange) { //exchange prob with last_prob
+							cur_line.corner.back() = prob0;
+							cur_line.push_brick(last_prob, 0);							
+						} else { 
+							int shape0 = PROB_SHAPE(last_prob);
+							int shape1 = PROB_SHAPE(prob0);
+							SET_PROB_SHAPE(prob0, brick_conn.quick_shape_add(shape0, shape1));		
+							cur_line.corner.back() = prob0;
+						}					
+					}					
+				}
+				last_prob = prob0;
+			}
+			
+			if (PROB_SHAPE(prob0) < BRICK_IN_USE && bricks[PROB_SHAPE(prob0)].shape & 1 << dir) { //push fix brick at end
+				unsigned long long fix = 0x0010ffff00000000;
+				SET_PROB_TYPE(fix, PROB_TYPE(prob0));
+				switch (dir) {
+				case DIR_DOWN:
+					SET_PROB_SHAPE(fix, BRICK_i_0);
+					SET_PROB_X(fix, PROB_X(prob0));
+					SET_PROB_Y(fix, PROB_Y(prob0) + ASSEMBLE_FIX_DISTANCE);
+					break;
+				case DIR_RIGHT:
+					SET_PROB_SHAPE(fix, BRICK_i_270);
+					SET_PROB_X(fix, PROB_X(prob0) + ASSEMBLE_FIX_DISTANCE);
+					SET_PROB_Y(fix, PROB_Y(prob0));
+					break;
+				case DIR_DOWNLEFT:
+					SET_PROB_SHAPE(fix, BRICK_P_0);
+					SET_PROB_X(fix, PROB_X(prob0) - ASSEMBLE_FIX_DISTANCE);
+					SET_PROB_Y(fix, PROB_Y(prob0) + ASSEMBLE_FIX_DISTANCE);
+					break;
+				case DIR_DOWNRIGHT:
+					SET_PROB_SHAPE(fix, BRICK_P_270);
+					SET_PROB_X(fix, PROB_X(prob0) + ASSEMBLE_FIX_DISTANCE);
+					SET_PROB_Y(fix, PROB_Y(prob0) + ASSEMBLE_FIX_DISTANCE);
+					break;
+				}
+				fix_count++;
+				cur_line.push_brick(fix, 0);
+			}
+			d.l[layer].lineset[i].push_back(cur_line);
+		}
 	}
 #undef MAX_WIRE_NUM
 	qDebug("Assemble noend_count =%d, fix_count=%d", noend_count, fix_count);
 	if (cpara.method & OPT_DEBUG_EN) {
 		Mat debug_draw = d.l[layer].img.clone();
-		for (int dir = 0; dir < 2; dir++) {
+		for (int dir = 0; dir < 4; dir++) {
 			for (int i = 0; i < d.l[layer].lineset[dir].size(); i++)
 				for (int j = 0; j < d.l[layer].lineset[dir][i].corner.size(); j++) {
 					unsigned long long prob0 = d.l[layer].lineset[dir][i].corner[j];
 					int x0 = PROB_X(prob0), y0 = PROB_Y(prob0);
 					int shape = PROB_SHAPE(prob0);
-					int color = 0;
-					switch (d.l[layer].lineset[dir][i].state[j] & (START_BRICK | END_BRICK)) {
-					case START_BRICK:
-						color = 180;
-						break;
-					case END_BRICK:
-						color = 220;
-						break;
-					case START_BRICK | END_BRICK:
-						color = 255;
-						break;						
-					}
+					int color = 255;
 					if (shape <= BRICK_IN_USE) {
 						for (int y = 0; y < 3; y++)
 							for (int x = 0; x < 3; x++)
@@ -5425,22 +6484,22 @@ opt2:							dir
 method_opt
 idx: via info
 */
-static void filter_obj(CornerSets & obj_sets, int layer, int obj_type, ProcessParameter & cpara)
+static void filter_obj(FinalWireVias & obj_sets, int layer, int obj_type, ProcessParameter & cpara)
 {
 	int filt_method = cpara.opt0 >> 8 & 0xff;
-	
+
 	if (obj_type == OBJ_WIRE && layer==cpara.layer) {		
 		switch (filt_method) {
 		case 0: //filter wire by length
 			{
-				int len = cpara.opt1, dir;
-				if (abs(obj_sets.cs.back().x() - obj_sets.cs[0].x()) < abs(obj_sets.cs.back().y() - obj_sets.cs[0].y()))
-					dir = 0;
-				else
-					dir = 1;
-				if (dir == cpara.opt2 && abs(obj_sets.cs.back().x() - obj_sets.cs[0].x()) < len 
-					&& abs(obj_sets.cs.back().y() - obj_sets.cs[0].y()) < len)
-					obj_sets.cs.clear();
+				int len = cpara.opt1, dir = cpara.opt2 & 0xff;
+				vector<FinalLine> & l = obj_sets.lines[dir];
+				for (vector<FinalLine>::iterator it = l.begin(); it != l.end(); it++) {
+					Point p0 = it->point_begin();
+					Point p1 = it->point_end();
+					if (abs(p0.x - p1.x) < len && abs(p0.y - p1.y) < len) //filter wire which len is short
+						it->plk.clear();
+				}
 			}
 			break;
 		default:
@@ -5663,6 +6722,7 @@ int VWExtractPipe::extract(string file_name, QRect, vector<MarkObj> & obj_sets)
 		if (!ok)
 			qCritical("mkdir failed");
 	}
+	delete qdir;
 	PipeData * d;
 	if (private_data) {
 		d = (PipeData *)private_data;
@@ -5701,33 +6761,42 @@ int VWExtractPipe::extract(string file_name, QRect, vector<MarkObj> & obj_sets)
 	process_tile(ptd);
 
 	for (int l = 0; l < layer_num; l++) {
-		for (int dir = 0; dir < 2; dir++) {
+		for (int j = 0; j < (int)d->l[l].via_info.size(); j++)
+			d->l[l].fwv.push(d->l[l].via_info[j], 0, 0);
+		for (int dir = 0; dir < 4; dir++) {
 			for (int j = 0; j < d->l[l].lineset[dir].size(); j++) {
 				WireLine & wl = d->l[l].lineset[dir][j];
 				CV_Assert(wl.corner.size() == wl.state.size());
-				d->l[l].fwl[dir].push(wl, 0, 0, dir);
+				d->l[l].fwv.push(wl, 0, 0, dir);
 			}
-
-			for (int j = 0; j < d->l[l].fwl[dir].lines.size(); j++) {
-				CornerSets & wl = d->l[l].fwl[dir].lines[j];
-				for (int i = 0; i < (int)obj_process.size(); i++)
-					obj_process[i].func(wl, l, OBJ_WIRE, obj_process[i].cpara);
-				for (int i = 0; i < (int) wl.cs.size() - 1; i++) {
+		}
+		for (int i = 0; i < (int)obj_process.size(); i++)
+			obj_process[i].func(d->l[l].fwv, l, OBJ_WIRE, obj_process[i].cpara);
+	}
+		
+	for (int l = 0; l < layer_num; l++) {
+		for (int dir = 0; dir < 4; dir++) {
+			vector<FinalLine> & lines = d->l[l].fwv.lines[dir];
+			for (vector<FinalLine>::const_iterator it = lines.begin(); it != lines.end(); it++) {
+				Point p0 = it->point_at(0);
+				for (int i = 1; i < (int) it->point_num(); i++) {
 					MarkObj wire;
+					Point p1 = it->point_at(i);
 					wire.type = OBJ_LINE;
 					wire.type2 = LINE_WIRE_AUTO_EXTRACT;
 					wire.type3 = l;
 					wire.state = 0;
 					wire.prob = 1;
-					wire.p0 = wl.cs[i];
-					wire.p1 = wl.cs[i+1];
+					wire.p0 = QPoint(p0.x, p0.y);
+					wire.p1 = QPoint(p1.x, p1.y);
 					obj_sets.push_back(wire);
+					p0 = p1;
 				}
 			}
 		}
 
-		for (int j = 0; j < d->l[l].viaset.size(); j++) {
-			QPoint & point = d->l[l].viaset[j];
+		for (int j = 0; j < d->l[l].fwv.via_num(); j++) {
+			QPoint point(d->l[l].fwv.via_at(j).x, d->l[l].fwv.via_at(j).y);
 			MarkObj via;
 			via.type = OBJ_POINT;
 			via.type2 = POINT_VIA_AUTO_EXTRACT;
@@ -5756,6 +6825,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		if (!ok)
 			qCritical("mkdir failed");
 	}
+	delete qdir;
 	for (int i = 0; i < vwp.size(); i++) {
 #if !DEBUG_LEFT_TOP_IMG
 		vwp[i].method &= ~OPT_DEBUG_EN;
@@ -6008,87 +7078,93 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 					CV_Assert(cpd.x0 == upd->x0);
 				
 				for (int l = 0; l < layer_num; l++) {
-					for (int dir = 0; dir < 2; dir++) {
-						//3.1 copy left RIGHT_BORDER line to FinalWireLine
+					//3.1 copy left RIGHT_BORDER via to FinalVia
+					if (cpd.x0 > sb.left())
+						cpd.l[l].fwv.merge_vias(lpd->l[l].fwv);
+
+					//3.2 copy up DOWN_BORDER via to FinalVia
+					if (cpd.y0 > sb.top())
+						cpd.l[l].fwv.merge_vias(upd->l[l].fwv);
+
+					//3.3 push current via to FinalVia
+					for (int j = 0; j < cpd.l[l].via_info.size(); j++)
+						cpd.l[l].fwv.push(cpd.l[l].via_info[j], cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0);
+					
+					for (int dir = 0; dir < 4; dir++) {
+						//3.4 copy left RIGHT_BORDER line to FinalWireLine
 						if (cpd.x0 > sb.left())
-						for (int j = 0; j < lpd->l[l].fwl[dir].lines.size(); j++) {
-							CornerSets & line = lpd->l[l].fwl[dir].lines[j];
-							if (line.cs[0].x() >= cpd.l[l].img_pixel_x0 ||
-								line.cs.back().x() >= cpd.l[l].img_pixel_x0 )
-								cpd.l[l].fwl[dir].merge(line, dir);
+						for (int j = 0; j < lpd->l[l].fwv.lines[dir].size(); j++) {
+							FinalLine & line = lpd->l[l].fwv.lines[dir][j];
+							if (!line.empty())
+							if (line.point_begin().x >= cpd.l[l].img_pixel_x0 ||
+								line.point_end().x >= cpd.l[l].img_pixel_x0)
+								cpd.l[l].fwv.merge_line(line, dir);
 						}
-						//3.2 copy up DOWN_BORDER line to FinalWireLine
+						//3.5 copy up DOWN_BORDER line to FinalWireLine
 						if (cpd.y0 > sb.top())
-						for (int j = 0; j < upd->l[l].fwl[dir].lines.size(); j++) {
-							CornerSets & line = upd->l[l].fwl[dir].lines[j];
-							if (line.cs[0].y() >= cpd.l[l].img_pixel_y0 ||
-								line.cs.back().y() >= cpd.l[l].img_pixel_y0)
-								cpd.l[l].fwl[dir].merge(line, dir);
+						for (int j = 0; j < upd->l[l].fwv.lines[dir].size(); j++) {
+							FinalLine & line = upd->l[l].fwv.lines[dir][j];
+							if (!line.empty())
+							if (line.point_begin().y >= cpd.l[l].img_pixel_y0 ||
+								line.point_end().y >= cpd.l[l].img_pixel_y0)
+								cpd.l[l].fwv.merge_line(line, dir);
 						}
-						//3.3 push current line to FinalWireLine
+						//3.6 push current line to FinalWireLine
 						for (int j = 0; j < cpd.l[l].lineset[dir].size(); j++) {
 							WireLine & wl = cpd.l[l].lineset[dir][j];
 							CV_Assert(wl.corner.size() == wl.state.size());
-							cpd.l[l].fwl[dir].push(wl, cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0, dir);
+							cpd.l[l].fwv.push(wl, cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0, dir);
 						}
+					}
+					//call hook to do obj process
+					for (int i = 0; i < (int)obj_process.size(); i++)
+						obj_process[i].func(cpd.l[l].fwv, l, OBJ_WIRE, obj_process[i].cpara);
+				}
 
-						vector<CornerSets> border_lines;
-						for (int j = 0; j < cpd.l[l].fwl[dir].lines.size(); j++) {
-							CornerSets & wl = cpd.l[l].fwl[dir].lines[j];
-							if ((wl.cs[0].x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-								wl.cs.back().x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-								wl.cs[0].y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
-								wl.cs.back().y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
-								(wl.cs[0].x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-								wl.cs.back().x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
+				for (int l = 0; l < layer_num; l++) {
+					for (int dir = 0; dir < 4; dir++) {
+						vector<FinalLine> border_lines;
+						for (int j = 0; j < cpd.l[l].fwv.lines[dir].size(); j++) {
+							FinalLine & wl = cpd.l[l].fwv.lines[dir][j];
+							if ((wl.point_begin().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
+								wl.point_end().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
+								wl.point_begin().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
+								wl.point_end().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
+								(wl.point_begin().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
+								wl.point_end().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
 								cpd.y0 == sb.bottom()) ||
-								(wl.cs[0].y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
-								wl.cs.back().y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
+								(wl.point_begin().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
+								wl.point_end().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
 								cpd.x0 == sb.right()) ||
-								(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {
-								//call hook to do obj process
-								for (int i = 0; i < (int)obj_process.size(); i++)
-									obj_process[i].func(wl, l, OBJ_WIRE, obj_process[i].cpara);
+								(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {								
 								//3.4 for internal points, push to output
-								for (int i = 0; i < (int) wl.cs.size() - 1; i++) {
+								for (int i = 0; i < (int) wl.point_num() - 1; i++) {
 									MarkObj wire;
 									wire.type = OBJ_LINE;
 									wire.type2 = LINE_WIRE_AUTO_EXTRACT;
 									wire.type3 = l;
 									wire.state = 0;
 									wire.prob = 1;
-									wire.p0 = wl.cs[i] + sr_tl_pixel;
-									wire.p1 = wl.cs[i+1] + sr_tl_pixel;
+									QPoint p0(wl.point_at(i).x, wl.point_at(i).y);
+									QPoint p1(wl.point_at(i+1).x, wl.point_at(i+1).y);
+									wire.p0 = p0 + sr_tl_pixel;
+									wire.p1 = p1 + sr_tl_pixel;
 									obj_sets.push_back(wire);
 								}
 							}
 							else //for border ppints, leave it for future merge
 								border_lines.push_back(wl);
 						}
-						cpd.l[l].fwl[dir].lines.swap(border_lines);
-						cpd.l[l].fwl[dir].recal_rect();
+						cpd.l[l].fwv.lines[dir].swap(border_lines);
 					}
-					//3.5 copy left RIGHT_BORDER via to FinalVia
-					if (cpd.x0 > sb.left())
-						cpd.l[l].fv.merge(lpd->l[l].fv);
 					
-					//3.6 copy up DOWN_BORDER via to FinalVia
-					if (cpd.y0 > sb.top())
-						cpd.l[l].fv.merge(upd->l[l].fv);
-					
-					//3.7 push current via to FinalVia
-					for (int j = 0; j < cpd.l[l].viaset.size(); j++) {
-						QPoint & point = cpd.l[l].viaset[j];
-						point = point + QPoint(cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0);
-						cpd.l[l].fv.merge(point);
-					}
-					vector<QPoint> border_vias;
-					for (int j = 0; j < cpd.l[l].fv.cs.size(); j++) {
-						QPoint & point = cpd.l[l].fv.cs[j];
-						if ((point.x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-							point.y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
-							(point.x() < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 && cpd.y0 == sb.bottom()) ||
-							(point.y() < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 && cpd.x0 == sb.right()) ||
+					vector<int> border_vias;
+					for (int j = 0; j < cpd.l[l].fwv.via_num(); j++) {
+						Point point = cpd.l[l].fwv.via_at(j);
+						if ((point.x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
+							point.y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
+							(point.x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 && cpd.y0 == sb.bottom()) ||
+							(point.y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 && cpd.x0 == sb.right()) ||
 							(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {
 							//3.4 for internal points, push to output
 							MarkObj via;
@@ -6097,14 +7173,14 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 							via.type3 = l;
 							via.state = 0;
 							via.prob = 1;
-							via.p0 = point + sr_tl_pixel;
-							via.p1 = point + sr_tl_pixel;
+							via.p0 = QPoint(point.x, point.y) + sr_tl_pixel;
+							via.p1 = QPoint(point.x, point.y) + sr_tl_pixel;
 							obj_sets.push_back(via);
 						}
 						else
-							border_vias.push_back(point);
+							border_vias.push_back(cpd.l[l].fwv.vias[j]);
 					}
-					cpd.l[l].fv.cs.swap(border_vias);
+					cpd.l[l].fwv.vias.swap(border_vias);
 				}
 			}
 		}
@@ -6123,10 +7199,6 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 				obj_sets[i].p1.x(), obj_sets[i].p1.y());
 		}
 		continue;
-		t = (t << 8) | obj_sets[i].type2;
-		t = (t << 8) | obj_sets[i].type3;
-		fprintf(fp, "t=%d, (%d,%d)->(%d,%d)\n", t, obj_sets[i].p0.x(), obj_sets[i].p0.y(),
-			obj_sets[i].p1.x(), obj_sets[i].p1.y());
 	}
 	fclose(fp);
 #endif	

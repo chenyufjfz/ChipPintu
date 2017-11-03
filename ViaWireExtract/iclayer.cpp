@@ -1558,6 +1558,7 @@ public:
 	int getMaxScale();
 	int getRawImgByIdx(vector<uchar> & buff, int layer, int x, int y, int ovr, unsigned reserved, bool need_cache = true);
 	int getLayerNum();
+	string getLayerName(int l);
 	ICLayerWrInterface * get_layer(int layer);
 	void addNewLayer(GenerateDatabaseParam & gdp);
 	int open(const string prj, bool _read, int _max_cache_size);
@@ -1700,6 +1701,15 @@ int BkImg::getLayerNum()
 {
 	QMutexLocker locker(&mutex);
 	return (int) layer_file.size();
+}
+
+string BkImg::getLayerName(int l)
+{
+	QMutexLocker locker(&mutex);
+	if (l < (int)layer_file.size())
+		return layer_file[l];
+	else
+		return string();
 }
 
 ICLayerWrInterface * BkImg::get_layer(int layer) {
