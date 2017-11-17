@@ -8,6 +8,7 @@
 #include "showmaskdialog.h"
 #include "traindialog.h"
 #include "wireviaparamdialog.h"
+#include "singlevweparadialog.h"
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -223,3 +224,16 @@ void MainWindow::on_actionExtract_triggered()
     vw_view->extract();
 }
 
+
+void MainWindow::on_actionSingle_Wire_Para_triggered()
+{
+	int wmin, wmax, opt, gray_i, gray_w, w_wide;
+	double i_wide, w_wide1;
+	vw_view->get_single_wire_ext_para(wmin, wmax, opt);
+	vw_view->get_brick_shape_ext_para(w_wide, i_wide, w_wide1, gray_i, gray_w);
+	SingleVWEParaDialog sd(this, wmin, wmax, opt, gray_w, gray_i, w_wide, w_wide1, i_wide);
+	if (sd.exec() == QDialog::Accepted) {
+		vw_view->set_single_wire_ext_para(sd.wmin, sd.wmax, sd.opt);
+		vw_view->set_brick_shape_ext_para(sd.w_wide, sd.i_wide, sd.w_wide1, sd.gray_i, sd.gray_w);
+	}
+}

@@ -6,18 +6,8 @@
 #include <QDir>
 #include <QtConcurrent>
 #include <set>
+#include "vwextract_public.h"
 
-#ifndef QT_DEBUG
-#undef CV_Assert
-#define CV_Assert(x) do {if (!(x)) {qFatal("Wrong at %s, %d", __FILE__, __LINE__);}} while(0)
-#endif
-
-#ifdef QT_DEBUG
-#define _CRTDBG_MAP_ALLOC
-#include <crtdbg.h>
-#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
-#define new DEBUG_NEW
-#endif
 
 #define PARALLEL 0
 #define SAVE_RST_TO_FILE	0
@@ -25,69 +15,11 @@
 
 #define OPT_DEBUG_EN		0x8000
 #define OPT_DEBUG_OUT_EN	0x4000
-#define BRICK_NO_WIRE		0
-#define BRICK_i_0			1
-#define BRICK_i_90			2
-#define BRICK_i_180			3
-#define BRICK_i_270			4
-#define BRICK_I_0			5
-#define BRICK_I_90			6
-#define BRICK_L_0			7
-#define BRICK_L_90			8
-#define BRICK_L_180			9
-#define BRICK_L_270			10
-#define BRICK_T_0			11
-#define BRICK_T_90			12
-#define BRICK_T_180			13
-#define BRICK_T_270			14
-#define BRICK_X_0			15
-#define BRICK_J_0			16
-#define BRICK_J_90			17
-#define BRICK_J_180			18
-#define BRICK_J_270			19
-#define BRICK_l_0			20
-#define BRICK_l_90			21
-#define BRICK_l_180			22
-#define BRICK_l_270			23
-#define BRICK_Z_0			24
-#define BRICK_Z_90			25
-#define BRICK_P_0			26
-#define BRICK_P_90			27
-#define BRICK_P_180			28
-#define BRICK_P_270			29
-#define BRICK_IN_USE		29
-#define BRICK_ONE_POINT		64
-#define BRICK_II_0			65
-#define BRICK_II_90			66
-#define BRICK_II_180		67
-#define BRICK_II_270		68
-#define BRICK_III			69
-#define BRICK_HOLLOW		252
-#define BRICK_FAKE_VIA		253
-#define BRICK_VIA			254
-#define BRICK_INVALID		255
 
-#define MIN_SCORE			10
 #define VIA_NEAR_IV_SCORE	9
 #define VIA_NEAR_NO_WIRE_SCORE	8
 #define VIA_NEAR_WIRE_SCORE 1
-#define DIR_UP				0
-#define DIR_RIGHT			1
-#define DIR_DOWN			2
-#define DIR_LEFT			3
-#define DIR_UPLEFT			7
-#define DIR_UPRIGHT			4
-#define DIR_DOWNRIGHT		5
-#define DIR_DOWNLEFT		6
 
-#define DIR_UP1_MASK		(1 << DIR_UP)
-#define DIR_RIGHT1_MASK		(1 << DIR_RIGHT)
-#define DIR_DOWN1_MASK		(1 << DIR_DOWN)
-#define DIR_LEFT1_MASK		(1 << DIR_LEFT)
-#define DIR_UPLEFT_MASK		(1 << DIR_UPLEFT)
-#define DIR_UPRIGHT_MASK	(1 << DIR_UPRIGHT)
-#define DIR_DOWNLEFT_MASK	(1 << DIR_DOWNLEFT)
-#define DIR_DOWNRIGHT_MASK	(1 << DIR_DOWNRIGHT)
 
 #define CLEAR_REMOVE_VIA_MASK					2
 #define REMOVE_VIA_MASK							1
@@ -147,331 +79,9 @@ enum {
 	GRAY_FULL
 };
 
-static const int dxy[8][2] = {
-		{ -1, 0 }, //up
-		{ 0, 1 }, //right
-		{ 1, 0 }, //down
-		{ 0, -1 }, //left
-		{ -1, 1 }, //upright
-		{ 1, 1 }, //downright
-		{ 1, -1 }, //downleft
-		{ -1, -1 } //upleft
-};
-
-static const int dir_1[8] = {
-	DIR_DOWN,
-	DIR_LEFT,
-	DIR_UP,
-	DIR_RIGHT,
-	DIR_DOWNLEFT,
-	DIR_UPLEFT,
-	DIR_UPRIGHT,
-	DIR_DOWNRIGHT
-};
-static struct Brick {
-	int a[3][3];
-	int shape;
-} bricks[] = {
-		{		{
-				{ 0, 0, 0 },
-				{ 0, 0, 0 },
-				{ 0, 0, 0 } },
-				0
-		},
-
-		{		{
-				{ 0, 1, 0 },
-				{ 0, 1, 0 },
-				{ 0, 0, 0 } },
-				DIR_UP1_MASK
-		},
-
-		{		{
-				{ 0, 0, 0 },
-				{ 0, 1, 1 },
-				{ 0, 0, 0 } },
-				DIR_RIGHT1_MASK
-		},
-
-		{		{
-				{ 0, 0, 0 },
-				{ 0, 1, 0 },
-				{ 0, 1, 0 } },
-				DIR_DOWN1_MASK
-		},
-
-		{		{
-				{ 0, 0, 0 },
-				{ 1, 1, 0 },
-				{ 0, 0, 0 } },
-				DIR_LEFT1_MASK
-		},
-		{		{
-				{ 0, 1, 0 },
-				{ 0, 1, 0 },
-				{ 0, 1, 0 } },
-				DIR_UP1_MASK | DIR_DOWN1_MASK
-		},
-
-		{		{
-				{ 0, 0, 0 },
-				{ 1, 1, 1 },
-				{ 0, 0, 0 } },
-				DIR_LEFT1_MASK | DIR_RIGHT1_MASK
-		},
-
-		{		{
-				{ 0, 1, 0 },
-				{ 0, 1, 1 },
-				{ 0, 0, 0 } },
-				DIR_UP1_MASK | DIR_RIGHT1_MASK
-		},
-
-		{		{
-				{ 0, 0, 0 },
-				{ 0, 1, 1 },
-				{ 0, 1, 0 } },
-				DIR_RIGHT1_MASK | DIR_DOWN1_MASK
-		},
-
-		{		{
-				{ 0, 0, 0 },
-				{ 1, 1, 0 },
-				{ 0, 1, 0 } },
-				DIR_DOWN1_MASK | DIR_LEFT1_MASK
-		},
-
-		{		{
-				{ 0, 1, 0 },
-				{ 1, 1, 0 },
-				{ 0, 0, 0 } },
-				DIR_UP1_MASK | DIR_LEFT1_MASK
-		},
-
-		{		{
-				{ 0, 1, 0 },
-				{ 0, 1, 1 },
-				{ 0, 1, 0 } },
-				DIR_UP1_MASK | DIR_RIGHT1_MASK | DIR_DOWN1_MASK
-		},
-
-		{		{
-				{ 0, 0, 0 },
-				{ 1, 1, 1 },
-				{ 0, 1, 0 } },
-				DIR_RIGHT1_MASK | DIR_DOWN1_MASK | DIR_LEFT1_MASK
-		},
-
-		{		{
-				{ 0, 1, 0 },
-				{ 1, 1, 0 },
-				{ 0, 1, 0 } },
-				DIR_UP1_MASK | DIR_LEFT1_MASK | DIR_DOWN1_MASK
-		},
-
-		{		{
-				{ 0, 1, 0 },
-				{ 1, 1, 1 },
-				{ 0, 0, 0 } },
-				DIR_UP1_MASK | DIR_LEFT1_MASK | DIR_RIGHT1_MASK
-		},
-
-		{		{
-				{ 0, 1, 0 },
-				{ 1, 1, 1 },
-				{ 0, 1, 0 } },
-				DIR_UP1_MASK | DIR_DOWN1_MASK | DIR_LEFT1_MASK | DIR_RIGHT1_MASK
-		},
-		{		{
-				{ 0, 1, 0 },
-				{ 0, 1, 0 },
-				{ 1, 0, 0 } },
-				DIR_UP1_MASK | DIR_DOWNLEFT_MASK
-		},
-		{		{
-				{ 1, 0, 0 },
-				{ 0, 1, 1 },
-				{ 0, 0, 0 } },
-				DIR_RIGHT1_MASK | DIR_UPLEFT_MASK
-		},
-		{		{
-				{ 0, 0, 1 },
-				{ 0, 1, 0 },
-				{ 0, 1, 0 } },
-				DIR_UPRIGHT_MASK | DIR_DOWN1_MASK
-		},
-		{		{
-				{ 0, 0, 0 },
-				{ 1, 1, 0 },
-				{ 0, 0, 1 } },
-				DIR_DOWNRIGHT_MASK | DIR_LEFT1_MASK
-		},
-		{		{
-				{ 0, 1, 0 },
-				{ 0, 1, 0 },
-				{ 0, 0, 1 } },
-				DIR_DOWNRIGHT_MASK | DIR_UP1_MASK
-		},
-		{		{
-				{ 0, 0, 0 },
-				{ 0, 1,	1 },
-				{ 1, 0, 0 } },
-				DIR_DOWNLEFT_MASK | DIR_RIGHT1_MASK
-		},
-		{		{
-				{ 1, 0, 0 },
-				{ 0, 1, 0 },
-				{ 0, 1, 0 } },
-				DIR_UPLEFT_MASK | DIR_DOWN1_MASK
-		},
-		{		{
-				{ 1, 0, 0 },
-				{ 0, 1, 0 },
-				{ 0, 1, 0 } },
-				DIR_UPLEFT_MASK | DIR_DOWN1_MASK
-		},
-		{		{
-				{ 0, 0, 1 },
-				{ 0, 1, 0 },
-				{ 1, 0, 0 } },
-				DIR_UPRIGHT_MASK | DIR_DOWNLEFT_MASK
-		},
-		{		{
-				{ 1, 0, 0 },
-				{ 0, 1, 0 },
-				{ 0, 0, 1 } },
-				DIR_UPLEFT_MASK | DIR_DOWNRIGHT_MASK
-		},
-		{		{
-				{ 0, 0, 1 },
-				{ 0, 1, 0 },
-				{ 0, 0, 0 } },
-				DIR_UPRIGHT_MASK
-		},
-		{		{
-				{ 0, 0, 0 },
-				{ 0, 1, 0 },
-				{ 0, 0, 1 } },
-				DIR_DOWNRIGHT_MASK
-		},
-		{		{
-				{ 0, 0, 0 },
-				{ 0, 1, 0 },
-				{ 1, 0, 0 } },
-				DIR_DOWNLEFT_MASK
-		},
-		{		{
-				{ 1, 0, 0 },
-				{ 0, 1, 0 },
-				{ 0, 0, 0 } },
-				DIR_UPLEFT_MASK
-		}
-};
 
 #define SUSPECT_BRICK	4
 
-
-static class BrickConnect {
-protected:
-	unsigned long long bfm[8][64];
-	int sa[BRICK_IN_USE + 1][BRICK_IN_USE + 1];
-
-protected:
-	
-	/*
-	input: brick0, brick1
-	output: brick0 + brick1
-	*/
-	int shape_add(int brick0, int brick1) {
-		if (brick0 == BRICK_NO_WIRE || brick0 == BRICK_INVALID)
-			return brick1;
-		if (brick1 == BRICK_NO_WIRE || brick1 == BRICK_INVALID)
-			return brick0;
-		if (brick0 == BRICK_VIA || brick0 == BRICK_FAKE_VIA)
-			return brick0;
-		if (brick1 == BRICK_VIA || brick1 == BRICK_FAKE_VIA)
-			return brick1;
-		if (brick0 == BRICK_ONE_POINT && brick1 < BRICK_IN_USE)
-			return brick1;
-		if (brick1 == BRICK_ONE_POINT && brick0 < BRICK_IN_USE)
-			return brick0;
-		if (brick0 < BRICK_IN_USE && brick1 < BRICK_IN_USE) {
-			int a[3][3];
-			for (int y = 0; y < 3; y++)
-			for (int x = 0; x < 3; x++)
-				a[y][x] = bricks[brick0].a[y][x] | bricks[brick1].a[y][x];
-
-			for (int i = 0; i < sizeof(bricks) / sizeof(bricks[0]); i++) {
-				bool match = true;
-				for (int y = 0; y < 3; y++)
-				for (int x = 0; x < 3; x++)
-					if (a[y][x] != bricks[i].a[y][x])
-						match = false;
-				if (match)
-					return i;
-			}
-		}
-		return BRICK_FAKE_VIA;
-	}
-public:
-	//fit check if brick0's dir can be brick1
-	bool fit(int dir, int brick0, int brick1) {
-		if (brick0 == BRICK_ONE_POINT || brick0 == BRICK_INVALID)
-			brick0 = BRICK_NO_WIRE;
-		if (brick1 == BRICK_ONE_POINT || brick1 == BRICK_INVALID)
-			brick1 = BRICK_NO_WIRE;
-		if (brick0 < sizeof(bricks) / sizeof(bricks[0]) && brick1 < sizeof(bricks) / sizeof(bricks[0]))
-			return (bfm[dir][brick0] & 1ULL << brick1) ? true : false;
-		else {			
-			if ((brick0 == BRICK_FAKE_VIA || brick0 == BRICK_VIA) && brick1 < sizeof(bricks) / sizeof(bricks[0])) {
-				int adir = dir_1[dir];
-				return bricks[brick1].a[1 + dxy[adir][0]][1 + dxy[adir][1]] ? true : false;
-			}
-			if ((brick1 == BRICK_FAKE_VIA || brick1 == BRICK_VIA) && brick0 < sizeof(bricks) / sizeof(bricks[0]))
-				return bricks[brick0].a[1 + dxy[dir][0]][1 + dxy[dir][1]] ? true : false;
-			if (brick0 == BRICK_FAKE_VIA || brick0 == BRICK_VIA || brick1 == BRICK_FAKE_VIA || brick1 == BRICK_VIA)
-				return true;
-			return false;
-		}			
-	}
-
-	BrickConnect() {
-		memset(bfm, 0, sizeof(bfm));
-		CV_Assert(sizeof(bricks) / sizeof(bricks[0]) == BRICK_IN_USE + 1 && sizeof(bricks) / sizeof(bricks[0]) < 64);
-		for (int i = 0; i < sizeof(bricks) / sizeof(bricks[0]); i++)
-			for (int j = 0; j < sizeof(bricks) / sizeof(bricks[0]); j++) {
-				if (bricks[i].a[0][0] == bricks[j].a[2][0] && bricks[i].a[0][1] == bricks[j].a[2][1] &&
-					bricks[i].a[0][2] == bricks[j].a[2][2]) {
-					bfm[DIR_UP][i] |= 1ULL << j;
-					bfm[DIR_DOWN][j] |= 1ULL << i;
-				}
-				if (bricks[i].a[0][2] == bricks[j].a[0][0] && bricks[i].a[1][2] == bricks[j].a[1][0] &&
-					bricks[i].a[2][2] == bricks[j].a[2][0]) {
-					bfm[DIR_RIGHT][i] |= 1ULL << j;
-					bfm[DIR_LEFT][j] |= 1ULL << i;
-				}
-				if (bricks[i].a[0][2] == bricks[j].a[2][0]) {
-					bfm[DIR_UPRIGHT][i] |= 1ULL << j;
-					bfm[DIR_DOWNLEFT][j] |= 1ULL << i;
-				}
-				if (bricks[i].a[2][2] == bricks[j].a[0][0]) {
-					bfm[DIR_DOWNRIGHT][i] |= 1ULL << j;
-					bfm[DIR_UPLEFT][j] |= 1ULL << i;
-				}
-			}
-
-		for (int i = 0; i <= BRICK_IN_USE; i++)
-		for (int j = 0; j <= BRICK_IN_USE; j++)
-			sa[i][j] = shape_add(i, j);
-	}
-	
-	int quick_shape_add(int brick0, int brick1) {
-		if (brick0 <= BRICK_IN_USE && brick1 <= BRICK_IN_USE)
-			return sa[brick0][brick1];
-		else
-			return shape_add(brick0, brick1);
-	}
-} brick_conn;
 
 /*     31..24  23..16   15..8   7..0
 opt0:		0  subtype   type  pattern
@@ -657,60 +267,6 @@ unsigned long long * get_prob(Mat & prob, int x, int y, int gs) {
 	unsigned long long * p_prob = prob.ptr<unsigned long long>(y0, x0);
 	CV_Assert(prob.type() == CV_64FC2 && y >= 0 && x >= 0 && x0 < prob.cols && y0 < prob.rows);
 	return p_prob;
-}
-
-/*
-Compute integrate and line integral
-in img
-in compute_line
-out ig, same as openCV integral
-out iig, sum(sum(img(i,j)*img(i,j), j=0..x-1) i=0..y-1
-out lg, sum(img(i,j), j=0..x-1)
-out llg, sum(img(i,j)*img(i,j), j=0..x-1)
-*/
-static void integral_square(const Mat & img, Mat & ig, Mat & iig, Mat & lg, Mat & llg, bool compute_line_integral)
-{
-	CV_Assert(img.type() == CV_8UC1);
-	ig.create(img.rows + 1, img.cols + 1, CV_32SC1);
-	iig.create(img.rows + 1, img.cols + 1, CV_32SC1);
-	if (compute_line_integral) {
-		lg.create(img.rows, img.cols + 1, CV_32SC1);
-		llg.create(img.rows, img.cols + 1, CV_32SC1);
-	}
-	for (int y = 0; y < ig.rows; y++) {
-		unsigned * p_iig = iig.ptr<unsigned>(y);
-		unsigned * p_ig = ig.ptr<unsigned>(y);
-		if (y == 0)
-		for (int x = 0; x < ig.cols; x++) {
-			p_ig[x] = 0;
-			p_iig[x] = 0;
-		}
-		else {
-			unsigned * p_iig_1 = iig.ptr<unsigned>(y - 1);
-			unsigned * p_ig_1 = ig.ptr<unsigned>(y - 1);
-			const unsigned char * p_img = img.ptr<const unsigned char>(y - 1);
-			unsigned * p_lg = compute_line_integral ? lg.ptr<unsigned>(y - 1) : NULL;
-			unsigned * p_llg = compute_line_integral ? llg.ptr<unsigned>(y - 1) : NULL;
-			p_ig[0] = 0;
-			p_iig[0] = 0;
-			if (compute_line_integral) {
-				p_lg[0] = 0;
-				p_llg[0] = 0;
-			}
-			unsigned lsum = 0, lsum2 = 0;
-			for (int x = 0; x < img.cols; x++) {
-				unsigned img2 = p_img[x];
-				lsum += img2;
-				lsum2 += img2 * img2;
-				p_ig[x + 1] = p_ig_1[x + 1] + lsum;
-				p_iig[x + 1] = p_iig_1[x + 1] + lsum2;
-				if (compute_line_integral) {
-					p_lg[x + 1] = lsum;
-					p_llg[x + 1] = lsum2;
-				}
-			}
-		}
-	}
 }
 
 class WireLine {
@@ -2271,9 +1827,12 @@ public:
 	virtual PAIR_ULL compute(int x0, int y0, const Mat & img, const Mat & ig, const Mat & iig) = 0;
 	virtual int check_mark(int x0, int y0, const Mat & prob, Mat & mask, int subtype, const Mat & already_mask) = 0;
 	virtual void check_via_wire_connect(Mat & remove_via_mask, Mat & prob, Mat & img, Mat & ig) = 0;
+	virtual ~WireComputeScore() {
+		qDebug("WireComputeScore freed");
+	};
 };
 
-struct Wire25ShapeConst {
+static struct Wire25ShapeConst {
 	int group_id;
 	double ratio[25];
 	int shape;
@@ -2327,15 +1886,16 @@ struct Wire25ShapeConst {
 	{  4, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 00, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_T_90 },
 	{  4, { -1, 00, 01, 00, -1, 00, 00, 01, 00, -1, 01, 01, 01, 00, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_T_180 },
 	{  4, { -1, 00, 01, 00, -1, 00, 00, 01, 00, 00, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_T_270 },
+	{  5, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, 01, 01, 01, 01, 01, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_X_0 },
 	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
-	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 00, .5, .9, 00, -1, -1, 01, .5, 00, -1, 01, -1, 00, -1, -1 }, BRICK_J_0 },
-	{  6, { 01, -1, 00, -1, -1, -1, 01, .5, 00, -1, 00, .5, .9, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_J_90 },
-	{  6, { -1, -1, 00, -1, 01, -1, 00, .5, 01, -1, -1, 00, .9, .5, 00, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_J_180 },
-	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, .9, .5, 00, -1, 00, .5, 01, -1, -1, -1, 00, -1, 01 }, BRICK_J_270 },
-	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .9, .5, 00, -1, 00, .5, 01, -1, -1, -1, 00, -1, 01 }, BRICK_l_0 },
-	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 00, .5, .9, 01, 01, -1, 01, .5, 00, -1, 01, -1, 00, -1, -1 }, BRICK_l_90 },
-	{  6, { 01, -1, 00, -1, -1, -1, 01, .5, 00, -1, 00, .5, .9, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_l_180 },
-	{  6, { -1, -1, 00, -1, 01, -1, 00, .5, 01, -1, 01, 01, .9, .5, 00, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_l_270 },
+	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, .1, .5, .9, 00, -1, -1, 01, .5, 00, -1, 01, -1, .1, -1, -1 }, BRICK_J_0 },
+	{  6, { 01, -1, .1, -1, -1, -1, 01, .5, 00, -1, .1, .5, .9, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_J_90 },
+	{  6, { -1, -1, .1, -1, 01, -1, 00, .5, 01, -1, -1, 00, .9, .5, .1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_J_180 },
+	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, .9, .5, .1, -1, 00, .5, 01, -1, -1, -1, .1, -1, 01 }, BRICK_J_270 },
+	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .9, .5, .1, -1, 00, .5, 01, -1, -1, -1, .1, -1, 01 }, BRICK_l_0 },
+	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, .1, .5, .9, 01, 01, -1, 01, .5, 00, -1, 01, -1, .1, -1, -1 }, BRICK_l_90 },
+	{  6, { 01, -1, .1, -1, -1, -1, 01, .5, 00, -1, .1, .5, .9, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_l_180 },
+	{  6, { -1, -1, .1, -1, 01, -1, 00, .5, 01, -1, 01, 01, .9, .5, .1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_l_270 },
 	{  7, { -1, -1, -1, -1, 01, -1, 00, .5, 01, -1, -1, .5, .9, .5, -1, -1, 01, .5, 00, -1, 01, -1, -1, -1, -1 }, BRICK_Z_0 },
 	{  7, { 01, -1, -1, -1, -1, -1, 01, .5, 00, -1, -1, .5, .9, .5, -1, -1, 00, .5, 01, -1, -1, -1, -1, -1, 01 }, BRICK_Z_90 },
 	{  8, { -1, -1, 00, -1, 01, -1, 00, .5, 01, -1, -1, 00, .9, .5, 00, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_0 },
@@ -2366,7 +1926,7 @@ struct WirePartStat { //each shape's part expect stat value
 };
 
 struct ShapeDeviation {
-	vector<int> si; //Wire25Stat index, each ShapeDeviation have 13 or 17 or 25 part(si)
+	vector<int> si; //WirePartStat index, each ShapeDeviation have 13 or 17 or 25 part(si)
 	int w25_shape_idx;
 };
 
@@ -2398,7 +1958,7 @@ public:
 		d.l[layer].validate_ig();
 		wp = _wp;
 		float gamma = wp.arfactor / 100.0;
-		qInfo("Wire_25Rect Prepare w=%d,h=%d,w1=%d,h1=%d,i_w=%d,i_h=%d gamma=%f", wp.w_wide, wp.w_high,
+		qInfo("Wire_25RectCompute Prepare w=%d,h=%d,w1=%d,h1=%d,i_w=%d,i_h=%d gamma=%f", wp.w_wide, wp.w_high,
 			wp.w_wide1, wp.w_high1, wp.i_wide, wp.i_high, gamma);
 		if (gamma >= 1) {
 			qWarning("gamma(%f) >=1, force it to 1", gamma);
@@ -2476,7 +2036,7 @@ public:
 					if (it == stats.end()) {
 						sd.si.push_back((int)stats.size());
 						stats.push_back(stat);
-						if (k == 0 || k == 4 || k == 20 || k == 24)
+						if ((k == 0 || k == 4 || k == 20 || k == 24) && mode != 2)
 							mode = 1;
 						if (k == 1 || k == 3 || k == 5 || k == 9 || k == 15 || k == 19 || k == 21 || k == 23)
 							mode = 2;
@@ -2530,6 +2090,7 @@ public:
 	}
 
 	PAIR_ULL compute(int x0, int y0, const Mat &, const Mat & ig, const Mat & iig) {
+		CV_Assert(x0 + dx[0] >= 0 && y0 + dy[0] >= 0 && x0 + dx[5] < ig.cols && y0 + dy[30] < ig.rows);
 		PAIR_ULL ret = make_pair(0xffffffffffffffffULL, 0xffffffffffffffffULL);
 		unsigned s[36], s2[36];
 		const unsigned *p_ig = ig.ptr<unsigned>(y0, x0);
@@ -3638,7 +3199,7 @@ struct WireKeyPoint {
 	int * p_ig[8];
 	int *p_iig[8];
 	int type;
-	int shape1, shape2, shape3;
+	int shape1, shape2, shape3, shape4;
 	float a0, a1, a2;
 	float arf;
 };
@@ -3749,6 +3310,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			wire.shape1 = BRICK_I_0;
 			wire.shape2 = BRICK_II_0;
 			wire.shape3 = BRICK_II_180;
+			wire.shape4 = BRICK_III_0;
 			wires[0].push_back(wire);
 			x0 = max(x0, wpara[i].w_wide / 2 + wpara[i].i_wide + 1);
 			w_check[0][wpara[i].w_type] = wpara[i].w_wide / 2 + wpara[i].i_wide;
@@ -3770,6 +3332,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			wire.shape1 = BRICK_I_90;
 			wire.shape2 = BRICK_II_90;
 			wire.shape3 = BRICK_II_270;
+			wire.shape4 = BRICK_III_90;
 			wires[1].push_back(wire);
 			y0 = max(y0, wpara[i].w_wide / 2 + wpara[i].i_wide + 1);
 			w_check[1][wpara[i].w_type] = wpara[i].w_wide / 2 + wpara[i].i_wide;
@@ -3827,7 +3390,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				CV_Assert(y + w[i].offset[j].y >= 0 && y + w[i].offset[j].y < ig.rows && x0 + w[i].offset[j].x >= 0);
 				}
 			for (int x = x0; x < img.cols - x0; x += dx) {
-				unsigned s0 = MAKE_S(0xffff, 0xff, BRICK_III);;
+				unsigned s0 = MAKE_S(0xffff, 0xff, w[0].shape4);;
 				for (unsigned i = 0; i < w.size(); i++) {
 					unsigned s1 = 0xffffffff;
 					int sum0 = w[i].p_ig[5][0] + w[i].p_ig[0][0] - w[i].p_ig[1][0] - w[i].p_ig[4][0];
@@ -3852,7 +3415,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 					score1 = MAKE_S(score1, i, w[i].shape1);
 					score2 = MAKE_S(score2, i, w[i].shape2);
 					score3 = MAKE_S(score3, i, w[i].shape3);
-					score4 = MAKE_S(score4, i, BRICK_III);
+					score4 = MAKE_S(score4, i, w[i].shape4);
 					s1 = min(min(min(score1, score0), min(score2, score3)), score4);
 					if (S_SHAPE(s0) == BRICK_I_0 || S_SHAPE(s0) == BRICK_I_90) {
 						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90)
@@ -3871,7 +3434,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				}
 				unsigned score = S_SCORE(s0);
 				unsigned type = S_TYPE(s0);
-				score = sqrt(score * w[type].arf);
+				score = sqrt(score * w[type].arf); //TODO remove sqrt
 				CV_Assert(score < 65536);
 				score = (score < MIN_SCORE) ? MIN_SCORE : score;
 				s0 = MAKE_S(score, w[type].type, S_SHAPE(s0));
@@ -4598,6 +4161,9 @@ public:
 	virtual void prepare(ViaParameter & v, PipeDataPerLayer & d) = 0;
 	virtual void add_wire(WireExtendInfo & w, PipeDataPerLayer & d) = 0;
 	virtual void add_brick_hlmask(PipeDataPerLayer & d, Mat & hl_mask)	 = 0;
+	virtual ~ViaWireConnect() {
+		qDebug("ViaWireConnect freed");
+	}
 	static ViaWireConnect * create_via_wire_connect(ViaParameter & v, PipeDataPerLayer & d);
 };
 
@@ -5482,11 +5048,13 @@ static void check_via_wire_connect(PipeData & d, ProcessParameter & cpara)
 
 	if (check_opt & CHECK_VW_SEARCH_CLEAR_COLOR) {
 		qInfo("check_via_wire_connect, clear color, gi=%d, gm=%d", gi, gm);
+		clip_img(img, gi, gm, img);
+		/*
 		for (int y = 0; y < img.rows; y++) {
 			unsigned char * p_img = img.ptr<unsigned char>(y);
 			for (int x = 0; x < img.cols; x++)
 				p_img[x] = (p_img[x] > gm) ? gm - gi: ((p_img[x] < gi) ? 0 : p_img[x] - gi);
-		}
+		}*/
 		for (int i = 0; i < d.l[layer].v[idx].d.rows; i++) {
 			int color = d.l[layer].v[idx].d.at<int>(i, 2);
 			color = (color > gm) ? gm - gi : ((color < gi) ? 0 : color - gi);
@@ -5536,7 +5104,7 @@ static void check_via_wire_connect(PipeData & d, ProcessParameter & cpara)
 			for (int x = 0; x < prob.cols; x++) {
 				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]);
 				int shape = PROB_SHAPE(p_prob[2 * x]);
-				if (shape < sizeof(bricks) / sizeof(bricks[0])) {
+				if (shape <= BRICK_IN_USE) {
 					for (int i = 0; i < 3; i++)
 					for (int j = 0; j < 3; j++)
 					if (bricks[shape].a[i][j])
@@ -5678,15 +5246,17 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 	
 	if (search_opt & FINE_LINE_SEARCH_CLEAR_COLOR) {
 		qInfo("fine_line_search, clear color, gi=%d, gm=%d", gi, gm);
+		clip_img(img, gi, gm, img);
+		/*
 		for (int y = 0; y < img.rows; y++) {
 			unsigned char * p_img = img.ptr<unsigned char>(y);
 			for (int x = 0; x < img.cols; x++)
 				p_img[x] = (p_img[x] > gm) ? gm - gi : ((p_img[x] < gi) ? 0 : p_img[x] - gi);
-			for (int i = 0; i < d.l[layer].v[idx].d.rows; i++) {
-				int color = d.l[layer].v[idx].d.at<int>(i, 2);
-				color = (color > gm) ? gm - gi : ((color < gi) ? 0 : color - gi);
-				d.l[layer].v[idx].d.at<int>(i, 2) = color;
-			}
+		}*/
+		for (int i = 0; i < d.l[layer].v[idx].d.rows; i++) {
+			int color = d.l[layer].v[idx].d.at<int>(i, 2);
+			color = (color > gm) ? gm - gi : ((color < gi) ? 0 : color - gi);
+			d.l[layer].v[idx].d.at<int>(i, 2) = color;
 		}
 		d.l[layer].ig_valid = false;
 	}
@@ -6045,7 +5615,7 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 				for (int x = 0; x < prob1.cols; x++) {
 					int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]);
 					int shape = PROB_SHAPE(p_prob[2 * x]);
-					if (shape < sizeof(bricks) / sizeof(bricks[0])) {
+					if (shape <= BRICK_IN_USE) {
 						for (int i = 0; i < 3; i++)
 						for (int j = 0; j < 3; j++)
 						if (bricks[shape].a[i][j])
@@ -7211,7 +6781,14 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 	return 0;
 }
 
-VWExtract * VWExtract::create_extract(int)
+#include "vwextract3.h"
+
+VWExtract * VWExtract::create_extract(int method)
 {
-	return new VWExtractPipe;
+	switch (method) {
+	case 0:
+		return new VWExtractPipe;
+	case 1:
+		return new VWExtractAnt;
+	}
 }

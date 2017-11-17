@@ -72,6 +72,8 @@ private slots:
 
     void on_actionMark_Cell_triggered();
 
+    void on_actionSingle_Wire_Para_triggered();
+
 private:
     QLabel *status_label;
     ViaWireEditView * vw_view;

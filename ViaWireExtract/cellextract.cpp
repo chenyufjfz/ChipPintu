@@ -3,7 +3,7 @@
 
 #define FEATURE0_SIZE 27
 #define FEATURE1_SIZE 16
-
+//TODO use auto FEATURE_SIZE instead of fixed FEATURE_SIZE
 static string get_time_str()
 {
 	QDateTime t = QDateTime::currentDateTime();
@@ -28,9 +28,9 @@ static void deldir(const string &path)
 	}
 }
 
-int cal_bins(Mat &img, QRect rect, vector<unsigned> &bins, int step=1)
+static int cal_bins(Mat &img, QRect rect, vector<unsigned> &bins, int step=1)
 {
-    CV_Assert(img.type() == CV_8UC1 && step>=1);
+	CV_Assert(img.type() == CV_8UC1 && step >= 1 && rect.y() >= 0 && rect.bottom() < img.rows && rect.x() >= 0 && rect.right() < img.cols);
     int total = 0;
     bins.assign(256, 0);
     for (int y = rect.y(); y < rect.y() + rect.height(); y+=step) {
@@ -48,6 +48,7 @@ Use 2 julei
 input: bins
 input: init_num 2 junlei init_num normally is 0.5
 input: cut_via_ratio, cut via bins
+TODO: change to multi threshold instead of 2
 */
 static void cal_threshold(vector<unsigned> bins, vector<unsigned> & th, float init_ratio = 0.5, float cut_via_ratio = 0.01)
 {
@@ -59,9 +60,9 @@ static void cal_threshold(vector<unsigned> bins, vector<unsigned> & th, float in
 	total1 = total * cut_via_ratio;
 	for (sep = (int) bins.size() - 1; sep >= 0 && total1 >= 0; sep--) {
 		total1 -= bins[sep];
+		total -= bins[sep];
 		bins[sep] = 0;
 	}
-	total -= total1;
 	total1 = 0;
 	int init_num = total * init_ratio;
     for (sep = 0; sep < bins.size(); sep++) {
@@ -409,7 +410,7 @@ int CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_set
 	}
     Mat sml = Mat::zeros(rect.height(), rect.width(), CV_32FC3);
     Mat ig;
-    int stepy = 2, stepx = 3;
+    int stepy = 2, stepx = 3; //TODO make stepx 2
 	
     qInfo("Allow total similar > %f, block similar < %f", 1 - param1, param2);
     vector<unsigned> bins, th;

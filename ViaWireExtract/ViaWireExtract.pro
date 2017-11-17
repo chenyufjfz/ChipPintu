@@ -18,7 +18,10 @@ SOURCES += main.cpp \
     cellextract.cpp \
     iclayer.cpp \
     vwextract2.cpp \
-    extractparam.cpp
+    extractparam.cpp \
+    vwextract3.cpp \
+    vwextract_public.cpp \
+    singlevweparadialog.cpp
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/
@@ -54,7 +57,8 @@ FORMS += \
     gridcfgdialog.ui \
     showmaskdialog.ui \
     traindialog.ui \
-    wireviaparamdialog.ui
+    wireviaparamdialog.ui \
+    singlevweparadialog.ui
 
 HEADERS += \
     mainwindow.h \
@@ -69,4 +73,7 @@ HEADERS += \
     iclayer.h \
     markobj.h \
     vwextract2.h \
-    extractparam.h
+    extractparam.h \
+    vwextract3.h \
+    vwextract_public.h \
+    singlevweparadialog.h

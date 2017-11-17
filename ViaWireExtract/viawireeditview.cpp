@@ -6,6 +6,7 @@
 #include <QMessageBox>
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
+#include <QGuiApplication>
 using namespace std;
 using namespace cv;
 
@@ -100,6 +101,15 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	current_train = NULL;
 	vwe = NULL;
 	startTimer(2000);
+	vwe_single = VWExtract::create_extract(1);
+	swe_param.wmin = 3;
+	swe_param.wmax = 50;
+	swe_param.opt = 3;
+	bse_param.gray_i = 0;
+	bse_param.gray_w = 100;
+	bse_param.w_wide = 0;
+	bse_param.i_wide = 0.4;
+	bse_param.w_wide1 = 0.3;
 }
 
 ViaWireEditView::~ViaWireEditView()
@@ -108,6 +118,7 @@ ViaWireEditView::~ViaWireEditView()
 		delete cele;
 	if (vwe != NULL)
 		delete vwe;
+	delete vwe_single;
 }
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 {
@@ -313,6 +324,38 @@ void ViaWireEditView::set_scale(int _scale)
 	}
 }
 
+void ViaWireEditView::set_single_wire_ext_para(int wmin, int wmax, int opt)
+{
+	swe_param.wmin = wmin;
+	swe_param.wmax = wmax;
+	swe_param.opt = opt;
+}
+
+void ViaWireEditView::get_single_wire_ext_para(int &wmin, int &wmax, int &opt)
+{
+	wmin = swe_param.wmin;
+	wmax = swe_param.wmax;
+	opt = swe_param.opt;
+}
+
+void ViaWireEditView::get_brick_shape_ext_para(int &ww, double &iw, double &ww1, int &gi, int &gw)
+{
+	ww = bse_param.w_wide;
+	iw = bse_param.i_wide;
+	ww1 = bse_param.w_wide1;
+	gi = bse_param.gray_i;
+	gw = bse_param.gray_w;
+}
+
+void ViaWireEditView::set_brick_shape_ext_para(int ww, double iw, double ww1, int gi, int gw)
+{
+	bse_param.w_wide = ww;
+	bse_param.i_wide = iw;
+	bse_param.w_wide1 = ww1;
+	bse_param.gray_i = gi;
+	bse_param.gray_w = gw;
+}
+
 int ViaWireEditView::get_scale()
 {
     return scale;
@@ -478,6 +521,18 @@ void ViaWireEditView::show_debug(unsigned _mark_mask, bool _show_debug_en)
 
 void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 {
+	if (QGuiApplication::queryKeyboardModifiers() == Qt::ControlModifier) {
+		QPoint point = event->pos() / scale;
+		vwe_single->set_extract_param(layer, 0, swe_param.wmax << 16 | swe_param.wmin, swe_param.opt, 
+			point.x(), point.y(), 0, 0, 0, 0);
+		string file_name(img_name);
+		file_name[file_name.length() - 5] = layer + '0';
+		vector<MarkObj> objs;
+		vwe_single->extract(file_name, QRect(0, 0, 1, 1), objs);
+		obj_set.insert(obj_set.end(), objs.begin(), objs.end());
+		update();
+		return;
+	}
     if (mark_state != OBJ_NONE) {
         mp_point = event->pos() / scale;
 		if (mark_state == SELECT_OBJ) {
@@ -638,8 +693,61 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
     }
 	if (bk_img.empty() || !bk_img[layer].valid(event->pos() / scale))
 		return;
-	QRgb color = bk_img_mask.pixel(event->pos() / scale);
 	char s[500];
+	unsigned modify = QGuiApplication::queryKeyboardModifiers();
+	if (modify != Qt::NoModifier && bse_param.w_wide>0) {
+		QPoint point = event->pos() / scale;
+		int dx[6], dy[6];
+		int w_wide;
+		switch (modify) {
+		case Qt::ControlModifier:
+			w_wide = bse_param.w_wide;
+			break;
+		case Qt::AltModifier:
+			w_wide = bse_param.w_wide + 1;
+			break;
+		case 0x0c000000:
+			w_wide = bse_param.w_wide + 2;
+			break;
+		case Qt::ShiftModifier:
+			w_wide = bse_param.w_wide - 1;
+			break;
+		case 0x06000000:
+			w_wide = bse_param.w_wide - 2;
+			break;
+		} 
+		int i_wide = bse_param.w_wide * bse_param.i_wide;
+		int w_wide1 = bse_param.w_wide * bse_param.w_wide1;
+		dx[0] = -w_wide1 - i_wide - w_wide / 2;
+		dx[1] = -i_wide - w_wide / 2;
+		dx[2] = -w_wide / 2;
+		dx[3] = w_wide - w_wide / 2;
+		dx[4] = w_wide - w_wide / 2 + i_wide;
+		dx[5] = w_wide - w_wide / 2 + i_wide + w_wide1;
+		for (int i = 0; i < 6; i++)
+			dy[i] = dx[i];
+		int len = 0;
+		for (int y = 0; y < 5; y++) {
+			len += sprintf(s + len, " %d:", y * 5);
+			for (int x = 0; x < 5; x++) {
+				unsigned sumg = 0;
+				for (int yy = dy[y]; yy < dy[y + 1]; yy++)
+				for (int xx = dx[x]; xx < dx[x + 1]; xx++) {
+					QRgb color = bk_img_mask.pixel(point + QPoint(xx, yy)) & 0xff;
+					sumg += (color < bse_param.gray_i) ? bse_param.gray_i :
+						((color > bse_param.gray_w) ? bse_param.gray_w : color);
+				}
+				double g = sumg;
+				g = g / ((dy[y + 1] - dy[y]) * (dx[x + 1] - dx[x]));
+				g = (g - bse_param.gray_i) / (bse_param.gray_w - bse_param.gray_i);
+				len += sprintf(s + len, "%.2f,", g);
+			}
+		}
+		emit mouse_change(event->pos() / scale, QString(s));
+		return;
+	}
+	QRgb color = bk_img_mask.pixel(event->pos() / scale);
+	
 	if (current_train == NULL) 
 		sprintf(s, "c=%x", color);	
 	else {		

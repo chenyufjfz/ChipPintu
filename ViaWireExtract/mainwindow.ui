@@ -48,6 +48,7 @@
     <addaction name="actionStart_Train"/>
     <addaction name="actionExtract"/>
     <addaction name="separator"/>
+    <addaction name="actionSingle_Wire_Para"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -198,6 +199,11 @@
   <action name="actionMark_Cell">
    <property name="text">
     <string>Mark Cell</string>
+   </property>
+  </action>
+  <action name="actionSingle_Wire_Para">
+   <property name="text">
+    <string>Single Wire Para</string>
    </property>
   </action>
  </widget>

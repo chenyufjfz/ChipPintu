@@ -9,6 +9,20 @@
 #include "cellextract.h"
 #include "extractparam.h"
 
+struct SingleWireExtParam {
+	int wmin;
+	int wmax;
+	int opt;
+};
+
+struct BrickShapeExtParam {
+	int w_wide;
+	double i_wide;
+	double w_wide1;
+	int gray_i;
+	int gray_w;
+};
+
 class ViaWireEditView : public QWidget
 {
     Q_OBJECT
@@ -19,6 +33,8 @@ public:
 	int mark_state, mark_type2, layer;
 	unsigned mark_mask, show_debug_en;
 	bool hide_obj;
+	SingleWireExtParam swe_param;
+	BrickShapeExtParam bse_param;
 
 signals:
 	void mouse_change(QPoint pos, QString msg);
@@ -35,7 +51,10 @@ public:
     void extract();
 	void show_debug(unsigned _mark_mask, bool _show_debug_en);
 	void set_wire_para(ExtractParam * ep, string action_name);
-
+	void set_single_wire_ext_para(int wmin, int wmax, int opt);
+	void get_single_wire_ext_para(int &wmin, int &wmax, int &opt);
+	void get_brick_shape_ext_para(int &ww, double &iw, double &ww1, int &gi, int &gw);
+	void set_brick_shape_ext_para(int ww, double iw, double ww1, int gi, int gw);
     void set_scale(int _scale);
     int get_scale();
 
@@ -50,6 +69,7 @@ protected:
     int select_idx, scale;
     MarkObj current_obj;
 	VWExtract * vwe;	
+	VWExtract * vwe_single;
 	CellExtract * cele;
 	ObjExtract * current_train;
 
