@@ -5693,7 +5693,7 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 		link[dir].create(prob.rows, prob.cols, CV_32SC2);
 		link[dir] = Scalar::all(0);
 	}
-	int lnear[8][2] = {
+	static const int lnear[8][2] = {
 		{ DIR_LEFT, DIR_RIGHT },//up
 		{ DIR_UP, DIR_DOWN },	//right
 		{ DIR_LEFT, DIR_RIGHT },//down
@@ -5703,7 +5703,7 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 		{ DIR_RIGHT, DIR_UP },	//left_down
 		{ DIR_RIGHT, DIR_DOWN } //left_up
 	};
-	int cnear[8][2] = {
+	static const int cnear[8][2] = {
 		//y, x
 		{ 0, 1 },	//up
 		{ 1, 0 },	//right

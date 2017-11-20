@@ -849,9 +849,9 @@ void ICLayerM::close()
 					QImage image_s;
 					QByteArray ba;
 					QBuffer buffer(&ba);
-					image_s = image.scaled(image.width() / 2, image.height() / 2);
+					image_s = image.scaled(image.width() / 2, image.height() / 2, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 					buffer.open(QIODevice::WriteOnly);
-					image_s.save(&buffer, "JPG");
+					image_s.save(&buffer, "JPG", 85);
 					buff.resize(ba.size());
 					memcpy(buff.data(), ba.data(), ba.size());
 					addRawImg(buff, x0, y0, s);

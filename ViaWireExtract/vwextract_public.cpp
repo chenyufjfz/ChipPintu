@@ -293,6 +293,10 @@ bool BrickConnect::fit(int dir, int brick0, int brick1)
 		brick0 = BRICK_NO_WIRE;
 	if (brick1 == BRICK_ONE_POINT || brick1 == BRICK_INVALID)
 		brick1 = BRICK_NO_WIRE;
+	if (brick0 == BRICK_II_0 || brick0 == BRICK_II_180 || brick0 == BRICK_III_0)
+		brick0 = BRICK_I_0;
+	if (brick0 == BRICK_II_90 || brick0 == BRICK_II_270 || brick0 == BRICK_III_90)
+		brick0 = BRICK_I_90;
 	if (brick0 < sizeof(bricks) / sizeof(bricks[0]) && brick1 < sizeof(bricks) / sizeof(bricks[0]))
 		return (bfm[dir][brick0] & 1ULL << brick1) ? true : false;
 	else {
