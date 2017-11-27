@@ -20,9 +20,9 @@
 #define VIA_NEAR_NO_WIRE_SCORE	8
 #define VIA_NEAR_WIRE_SCORE 1
 
-
-#define CLEAR_REMOVE_VIA_MASK					2
 #define REMOVE_VIA_MASK							1
+#define CLEAR_REMOVE_VIA_MASK					2
+#define REMOVE_VIA_NOCHG_IMG					4
 
 #define COARSE_LINE_CLEAR_PROB					2
 #define COARSE_LINE_UPDATE_PROB					1
@@ -109,7 +109,7 @@ struct ViaParameter {
 	int connect_d; //for check_via_wire_connect via wire distance check 
 	int cgray_d; //for check_via_wire_connect via wire border check
 	int cgray_ratio; //for check_via_wire_connect via wire gray ratio
-	int connect_rd; //for check_via_wire_connect border
+	int connect_rd; //for check_via_wire_connect border, should be >= rd0 & remove_rd
 	int opt0, opt1;
 	float optf;
 };
@@ -1839,10 +1839,10 @@ static struct Wire25ShapeConst {
 } wire_25_shape[] = {
 	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
 	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 00, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_NO_WIRE },
-	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_0 },
-	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_90 },
-	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_i_180 },
-	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_270 },
+	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .8, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_0 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .8, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_90 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .8, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_i_180 },
+	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, .8, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_270 },
 	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_I_0 },
 	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_I_90 },
 	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_0 },
@@ -1854,8 +1854,8 @@ static struct Wire25ShapeConst {
 	{  0, { -1, -1, 01, -1, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, 00, -1, 00, 01, 01, -1, -1, -1, 01, -1, -1 }, BRICK_II_180 },
 	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 01, 01, 01, -1, -1, -1, 00, -1, -1 }, BRICK_II_270 },
 	{  0, { -1, -1, -1, -1, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, -1, -1, -1, -1 }, BRICK_FAKE_VIA },
-	{  0, { -1, -1, -1, -1, -1, -1, -1, 01, -1, -1, -1, 00, 00, 00, -1, -1, -1, 01, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
-	{  0, { -1, -1, -1, -1, -1, -1, -1, 00, -1, -1, -1, 01, 00, 01, -1, -1, -1, 00, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  0, { -1, -1, -1, -1, -1, -1, -1, 01, -1, -1, -1, .3, .3, .3, -1, -1, -1, 01, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  0, { -1, -1, -1, -1, -1, -1, -1, .3, -1, -1, -1, 01, .3, 01, -1, -1, -1, .3, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
 	{  0, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_ONE_POINT },
 	{  1, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_T_0 },
 	{  1, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_T_90 },
@@ -1864,23 +1864,23 @@ static struct Wire25ShapeConst {
 	{  2, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, 01, 01, 01, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_X_0 },
 	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
 	{  3, { -1, 00, 00, 00, -1, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, -1, 00, 00, 00, -1 }, BRICK_NO_WIRE },
-	{  3, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_0 },
-	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 00, 01, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_i_90 },
-	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_i_180 },
-	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, 01, 00, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_270 },
+	{  3, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, .8, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_0 },
+	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 00, .8, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_i_90 },
+	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .8, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_i_180 },
+	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, .8, 00, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_270 },
 	{  3, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_I_0 },
 	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_I_90 },
 	{  3, { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, 00, 01, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_L_0 },
 	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 00, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_L_90 },
 	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, 01, 00, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_L_180 },
 	{  3, { -1, 00, 01, 00, -1, 00, 00, 01, 00, -1, 01, 01, 01, 00, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_270 },
-	{  3, { -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1 }, BRICK_II_0 },
-	{  3, { -1, -1, -1, -1, -1, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_II_90 },
-	{  3, { -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1 }, BRICK_II_180 },
-	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, -1, -1, -1, -1, -1 }, BRICK_II_270 },
+	{  3, { -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, 00, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1 }, BRICK_II_0 },
+	{  3, { -1, -1, 00, -1, -1, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_II_90 },
+	{  3, { -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, 00, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1 }, BRICK_II_180 },
+	{  3, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, -1, -1, 00, -1, -1 }, BRICK_II_270 },
 	{  3, { -1, -1, -1, -1, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, 01, 01, 01, -1, -1, -1, -1, -1, -1 }, BRICK_FAKE_VIA },
-	{  3, { -1, -1, -1, -1, -1, -1, -1, 01, -1, -1, -1, 00, 00, 00, -1, -1, -1, 01, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
-	{  3, { -1, -1, -1, -1, -1, -1, -1, 00, -1, -1, -1, 01, 00, 01, -1, -1, -1, 00, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  3, { -1, -1, -1, -1, -1, -1, -1, 01, -1, -1, -1, .3, .3, .3, -1, -1, -1, 01, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
+	{  3, { -1, -1, -1, -1, -1, -1, -1, .3, -1, -1, -1, 01, .3, 01, -1, -1, -1, .3, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
 	{  3, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, 01, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_ONE_POINT },
 	{  4, { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, 00, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_T_0 },
 	{  4, { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 00, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_T_90 },
@@ -1888,20 +1888,20 @@ static struct Wire25ShapeConst {
 	{  4, { -1, 00, 01, 00, -1, 00, 00, 01, 00, 00, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_T_270 },
 	{  5, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, 01, 01, 01, 01, 01, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_X_0 },
 	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
-	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, .1, .5, .9, 00, -1, -1, 01, .5, 00, -1, 01, -1, .1, -1, -1 }, BRICK_J_0 },
-	{  6, { 01, -1, .1, -1, -1, -1, 01, .5, 00, -1, .1, .5, .9, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_J_90 },
-	{  6, { -1, -1, .1, -1, 01, -1, 00, .5, 01, -1, -1, 00, .9, .5, .1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_J_180 },
-	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, .9, .5, .1, -1, 00, .5, 01, -1, -1, -1, .1, -1, 01 }, BRICK_J_270 },
-	{  6, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .9, .5, .1, -1, 00, .5, 01, -1, -1, -1, .1, -1, 01 }, BRICK_l_0 },
-	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, .1, .5, .9, 01, 01, -1, 01, .5, 00, -1, 01, -1, .1, -1, -1 }, BRICK_l_90 },
-	{  6, { 01, -1, .1, -1, -1, -1, 01, .5, 00, -1, .1, .5, .9, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_l_180 },
-	{  6, { -1, -1, .1, -1, 01, -1, 00, .5, 01, -1, 01, 01, .9, .5, .1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_l_270 },
-	{  7, { -1, -1, -1, -1, 01, -1, 00, .5, 01, -1, -1, .5, .9, .5, -1, -1, 01, .5, 00, -1, 01, -1, -1, -1, -1 }, BRICK_Z_0 },
-	{  7, { 01, -1, -1, -1, -1, -1, 01, .5, 00, -1, -1, .5, .9, .5, -1, -1, 00, .5, 01, -1, -1, -1, -1, -1, 01 }, BRICK_Z_90 },
-	{  8, { -1, -1, 00, -1, 01, -1, 00, .5, 01, -1, -1, 00, .9, .5, 00, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_0 },
-	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, .5, 00, -1, 00, .5, 01, -1, -1, -1, 00, -1, 01 }, BRICK_P_90 },
-	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 00, .5, .9, 00, -1, -1, 01, .5, 00, -1, 01, -1, 00, -1, -1 }, BRICK_P_180 },
-	{  8, { 01, -1, 00, -1, -1, -1, 01, .5, 00, -1, 00, .5, .9, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_270 },
+	{  6, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, .1, .5, .9, 00, -1, 01, 01, .5, 00, -1, 01, 01, .1, -1, -1 }, BRICK_J_0 },
+	{  6, { 01, 01, .1, -1, -1, 01, 01, .5, 00, 00, .1, .5, .9, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_J_90 },
+	{  6, { -1, -1, .1, 01, 01, -1, 00, .5, 01, 01, -1, 00, .9, .5, .1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_J_180 },
+	{  6, { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, .9, .5, .1, 00, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_J_270 },
+	{  6, { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, .9, .5, .1, -1, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_l_0 },
+	{  6, { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, .1, .5, .9, 01, 01, 01, 01, .5, 00, 00, 01, 01, .1, -1, -1 }, BRICK_l_90 },
+	{  6, { 01, 01, .1, -1, -1, 01, 01, .5, 00, -1, .1, .5, .9, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_l_180 },
+	{  6, { -1, -1, .1, 01, 01, 00, 00, .5, 01, 01, 01, 01, .9, .5, .1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_l_270 },
+	{  7, { -1, -1, .1, 01, 01, -1, 00, .5, 01, 01, .1, .5, .9, .5, .1, 01, 01, .5, 00, -1, 01, 01, .1, -1, -1 }, BRICK_Z_0 },
+	{  7, { 01, 01, .1, -1, -1, 01, 01, .5, 00, -1, .1, .5, .9, .5, .1, -1, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_Z_90 },
+	{  8, { -1, -1, .1, 01, 01, -1, 00, .5, 01, 01, -1, 00, .9, .5, .1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_0 },
+	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, .5, .1, -1, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_P_90 },
+	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, .1, .5, .9, 00, -1, 01, 01, .5, 00, -1, 01, 01, .1, -1, -1 }, BRICK_P_180 },
+	{  8, { 01, 01, .1, -1, -1, 01, 01, .5, 00, -1, .1, .5, .9, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_270 },
 	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
 	{ 20, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .9, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_0 },
 	{ 20, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_L_90 },
@@ -3259,17 +3259,26 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 		int w_wide;
 		int i_wide;
 		float gamma;
-	} wpara[] = {
+	} wpara_pack[] = {
 		{ cpara.opt2 >> 24 & 0xff, cpara.opt2 >> 16 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt2 & 0xff, 0, 0, 0 },
 		{ cpara.opt3 >> 24 & 0xff, cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff, 0, 0, 0 },
 		{ cpara.opt4 >> 24 & 0xff, cpara.opt4 >> 16 & 0xff, cpara.opt4 >> 8 & 0xff, cpara.opt4 & 0xff, 0, 0, 0 },
 		{ cpara.opt5 >> 24 & 0xff, cpara.opt5 >> 16 & 0xff, cpara.opt5 >> 8 & 0xff, cpara.opt5 & 0xff, 0, 0, 0 },
 	};
-
+	vector<WireDetectInfo> wpara;
+	for (int i = 0; i < w_num; i++) {
+		if (wpara_pack[i].w_dir >= 16)
+			qWarning("wire %d bad dir=%d", i, wpara_pack[i].w_dir);
+		for (int dir = 0; dir <= 3; dir++) 
+			if (wpara_pack[i].w_dir >> dir & 1) {
+				wpara.push_back(wpara_pack[i]);
+				wpara.back().w_dir = dir;
+			}
+	}
 	vector<WireKeyPoint> wires[2];
 	int w_check[2][256] = { 0 };
 	int x0 = w_long1 / 2, y0 = w_long0 / 2;
-	for (int i = 0; i < w_num; i++) {
+	for (int i = 0; i < (int) wpara.size(); i++) {
 		VWParameter * vw = d.l[layer].vw.get_vw_para(wpara[i].w_pattern, wpara[i].w_type, wpara[i].w_subtype);
 		if (vw == NULL) {
 			qCritical("coarse_line_search invalid wire info pattern=%d, type=%d, subtype=%d", wpara[i].w_pattern, wpara[i].w_type, wpara[i].w_subtype);
@@ -3418,14 +3427,14 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 					score4 = MAKE_S(score4, i, w[i].shape4);
 					s1 = min(min(min(score1, score0), min(score2, score3)), score4);
 					if (S_SHAPE(s0) == BRICK_I_0 || S_SHAPE(s0) == BRICK_I_90) {
-						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90)
+						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90) //two wire BRICK_I compare
 							s0 = min(s0, s1);
 					}
 					else {
-						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90)
+						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90) //s1 is BRICK_I, s0 is not BRICK_I
 							s0 = s1;
 						else
-							s0 = min(s0, s1);
+							s0 = min(s0, s1); //two non BRICK_I compare
 					}
 					for (int j = 0; j < 8; j++) {
 						w[i].p_ig[j] += dx;
@@ -3438,8 +3447,17 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				CV_Assert(score < 65536);
 				score = (score < MIN_SCORE) ? MIN_SCORE : score;
 				s0 = MAKE_S(score, w[type].type, S_SHAPE(s0));
-
 				push_new_prob(prob, x, y, s0, d.l[layer].gs);
+				unsigned long long * ps = get_prob(prob, x, y, d.l[layer].gs);
+				if (PROB_SHAPE(ps[0]) != BRICK_I_0 && PROB_SHAPE(ps[0]) != BRICK_I_90) {
+					if (PROB_SHAPE(ps[1]) == BRICK_I_0 || PROB_SHAPE(ps[1]) == BRICK_I_90) {
+						swap(ps[0], ps[1]);
+						SET_PROB_SCORE(ps[1], PROB_SCORE(ps[0]) + 1);
+					}
+					else {
+						ps[1] = 0xffffffffffffffffULL;
+					}						
+				}
 				if ((s0 & 0xff) == BRICK_NO_WIRE && update_prob & COARSE_LINE_UPDATE_PROB) {
 					if (!(update_prob & COARSE_LINE_UPDATE_WITH_MASK))
 						push_new_prob(d.l[layer].prob, x, y, s0, d.l[layer].gs);
@@ -3458,24 +3476,24 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 	for (int y = 0; y < prob.rows; y++) {
 		unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
 		for (int x = 0; x < prob.cols; x++)
-			if (PROB_SHAPE(p_prob[2 * x]) == BRICK_I_0 && PROB_SCORE(p_prob[2 * x]) <= (unsigned) (th * th) ||
-				PROB_SHAPE(p_prob[2 * x]) == BRICK_I_90 && PROB_SCORE(p_prob[2 * x]) <= (unsigned) (th * th)) {
+			if ((PROB_SHAPE(p_prob[2 * x]) == BRICK_I_0 || PROB_SHAPE(p_prob[2 * x]) == BRICK_I_90 ) 
+				&& PROB_SCORE(p_prob[2 * x]) <= (unsigned)(th * th)) {
 			bool pass = true; 
 			/*pass = true means prob BRICK_I_0 < all row BRICK_I_0, && < all nearby guard BRICK_I_90
 			                 or prob BRICK_I_90< all column BRICK_I_90, && < all nearby guard BRICK_I_0
 			*/
 			unsigned long long prob0 = p_prob[2 * x];
-			int cr = (p_prob[2 * x] == BRICK_I_0) ? w_inc1 / 2 + 1 : w_inc0 / 2 + 1;
+			int cr = (PROB_SHAPE(prob0) == BRICK_I_0) ? w_inc1 / 2 + 1 : w_inc0 / 2 + 1;
 			int guard = (cr - 1) / d.l[layer].gs + 1;
 			int y1 = max(0, y - guard), y2 = min(prob.rows - 1, y + guard);
 			int x1 = max(0, x - guard), x2 = min(prob.cols - 1, x + guard);
 			for (int yy = y1; yy <= y2; yy++)  {
 				unsigned long long * p_prob2 = prob.ptr<unsigned long long>(yy);
 				for (int xx = x1; xx <= x2; xx++) {
-					if (p_prob2[2 * xx] < prob0 && PROB_SHAPE(p_prob2[2 * xx]) != PROB_SHAPE(prob0)
-						&& PROB_SHAPE(p_prob2[2 * xx]) != BRICK_VIA) {
+					if (p_prob2[2 * xx] < prob0 && PROB_SHAPE(p_prob2[2 * xx]) != PROB_SHAPE(prob0) && //this check make sure BRICK_I_0 < all nearby BRICK_I_90
+						(PROB_SHAPE(p_prob2[2 * xx]) == BRICK_I_0 || PROB_SHAPE(p_prob2[2 * xx]) == BRICK_I_90)) { // and BRICK_I_90 < all nearby BRICK_I_0
 						if (abs(PROB_X(p_prob2[2 * xx]) - PROB_X(prob0)) <= cr &&
-							abs(PROB_Y(p_prob2[2 * xx]) - PROB_Y(prob0)) <= cr) {
+							abs(PROB_Y(p_prob2[2 * xx]) - PROB_Y(prob0)) <= cr) { 
 							pass = false;							
 							yy = y2;
 							break;
@@ -3484,17 +3502,17 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				}
 			}
 			cr = w_check[0][PROB_TYPE(prob0)];
-			if (PROB_SHAPE(p_prob[2 * x]) == BRICK_I_0) {
+			if (PROB_SHAPE(prob0) == BRICK_I_0) {
 				for (int xx = x1; xx <= x2; xx++)
-					if (p_prob[2 * xx] < prob0) {
+				if (p_prob[2 * xx] < prob0 && PROB_SHAPE(p_prob[2 * xx]) == BRICK_I_0) {//this check make sure BRICK_I_0 <all row BRICK_I_0,
 					if (abs(PROB_X(p_prob[2 * xx]) - PROB_X(prob0)) <= cr)
 						pass = false;
 					}
 			}
-			else {
+			else { //PROB_SHAPE(prob0) == BRICK_I_90
 				for (int yy = y1; yy <= y2; yy++) {
 					unsigned long long prob1 = prob.at<unsigned long long>(yy, 2 * x);
-					if (prob1 < prob0) {
+					if (prob1 < prob0 && PROB_SHAPE(prob1) == BRICK_I_90) { //this check make sure BRICK_I_90< all column BRICK_I_90
 						if (abs(PROB_Y(prob1) - PROB_Y(prob0)) <= cr)
 							pass = false;
 					}
@@ -3832,7 +3850,9 @@ opt5:			pattern	subtype	type
 vnum is via number
 default_dir is default dir when computing dir not deternmined
 check_len is used for computing dir range
-remove_opt is Remove via option, REMOVE_VIA_MASK means mark mask
+remove_opt is Remove via option, REMOVE_VIA_MASK means mark mask.
+CLEAR_REMOVE_VIA_MASK mean clear it first.
+REMOVE
 method_opt
 0: N/A
 1: for mask output
@@ -3921,12 +3941,14 @@ static void remove_via(PipeData & d, ProcessParameter & cpara)
 			}
 			dir = (i0 > i90) ? 0 : ((i90 == 0) ? default_dir : 1);
 		}
-		vr[sel]->remove(img, x0, y0, dir);
+		if (!(remove_opt & REMOVE_VIA_NOCHG_IMG))
+			vr[sel]->remove(img, x0, y0, dir);
 		if (remove_opt & REMOVE_VIA_MASK)
 			vr[sel]->remove_mask(mask, x0, y0);
 	}
 	for (int i = 0; i < vnum; i++)
-		vr[i]->finish(img);
+		if (!(remove_opt & REMOVE_VIA_NOCHG_IMG))
+			vr[i]->finish(img);
 #undef MAX_VIA_NUM
 	if (cpara.method & OPT_DEBUG_EN) {		
 		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_delvia.jpg", img);
@@ -4461,10 +4483,10 @@ public:
 
 		CV_Assert(img.type() == CV_8UC1);
 		for (int i = 0; i < (int)bd.size(); i++) {
-			CV_Assert(bd[i].x + dxy[dir][0] * cgray_d >= 0 && bd[i].x + dxy[dir][0] * cgray_d < img.cols);
-			CV_Assert(bd[i].y + dxy[dir][1] * cgray_d >= 0 && bd[i].y + dxy[dir][1] * cgray_d < img.rows);
+			CV_Assert(bd[i].x + dxy[dir][1] * cgray_d >= 0 && bd[i].x + dxy[dir][1] * cgray_d < img.cols);
+			CV_Assert(bd[i].y + dxy[dir][0] * cgray_d >= 0 && bd[i].y + dxy[dir][0] * cgray_d < img.rows);
 			int t = 0;
-			for (int j = 0, dx = 0, dy = 0; j < check_d; j++, dx += dxy[dir][0], dy += dxy[dir][1]) {
+			for (int j = 0, dx = 0, dy = 0; j < check_d; j++, dx += dxy[dir][1], dy += dxy[dir][0]) {
 				cgray[j] = img.at<unsigned char>(bd[i].y + dy, bd[i].x + dx);
 				t += cgray[j];
 			}
@@ -4554,17 +4576,40 @@ public:
 					}
 				}
 				if (sel >= 0 && v.cgray_d > 0) { //check arc connect
-					vector <Point> circle_bd; //stort arc border
+					vector <Point> circle_bd, circle_bd2; //stort arc border
+					int dir2 = -1;
 					switch (dir) { //compute arc border
 						case DIR_UP:
 						case DIR_DOWN:
 						{
 							int x0 = max(via_info[i].xy.x - v.connect_rd, PROB_X(min_s) - w[sel].w_wide / 2);
 							int x1 = min(via_info[i].xy.x + v.connect_rd, PROB_X(min_s) + (w[sel].w_wide - 1) / 2);
-							for (int k = 0; k < (int)circle.border_scan[dir].size(); k++) {
+							for (int k = 0; k < (int)circle.border_scan[dir].size(); k++) { //add arc border
 								Point bd = via_info[i].xy + circle.border_scan[dir][k];
 								if (bd.x >= x0 && bd.x <= x1)
 									circle_bd.push_back(bd);
+							}
+							if (PROB_X(min_s) < via_info[i].xy.x - v.connect_rd - 1) { //add rect border
+								dir2 = DIR_LEFT;
+								for (int k = 0; k <= (int)v.remove_rd; k++) {
+									Point bd = via_info[i].xy;
+									if (dir == DIR_UP)
+										bd += Point(-v.remove_rd, -k);
+									if (dir == DIR_DOWN)
+										bd += Point(-v.remove_rd, k);
+									circle_bd2.push_back(bd);
+								}
+							}
+							if (PROB_X(min_s) > via_info[i].xy.x + v.connect_rd + 1) { //add rect border
+								dir2 = DIR_RIGHT;
+								for (int k = 0; k <= (int)v.remove_rd; k++) {
+									Point bd = via_info[i].xy;
+									if (dir == DIR_UP)
+										bd += Point(v.remove_rd, -k);
+									if (dir == DIR_DOWN)
+										bd += Point(v.remove_rd, k);
+									circle_bd2.push_back(bd);
+								}
 							}
 							break;
 						}
@@ -4578,12 +4623,37 @@ public:
 								if (bd.y >= y0 && bd.y <= y1)
 									circle_bd.push_back(bd);
 							}
+							if (PROB_Y(min_s) < via_info[i].xy.y - v.connect_rd - 1) { //add rect border
+								dir2 = DIR_UP;
+								for (int k = 0; k <= (int)v.remove_rd; k++) {
+									Point bd = via_info[i].xy;
+									if (dir == DIR_LEFT)
+										bd += Point(-k, -v.remove_rd);
+									if (dir == DIR_RIGHT)
+										bd += Point(k, -v.remove_rd);
+									circle_bd2.push_back(bd);
+								}
+							}
+							if (PROB_Y(min_s) > via_info[i].xy.y + v.connect_rd + 1) { //add rect border
+								dir2 = DIR_DOWN;
+								for (int k = 0; k <= (int)v.remove_rd; k++) {
+									Point bd = via_info[i].xy;
+									if (dir == DIR_LEFT)
+										bd += Point(-k, v.remove_rd);
+									if (dir == DIR_RIGHT)
+										bd += Point(k, v.remove_rd);
+									circle_bd2.push_back(bd);
+								}
+							}
 							break;
 						}
 					}
 					//following check arc connect
 					if (ExtendWireConnect::compute_connect_gray(img, circle_bd, dir, v.cgray_d) < gray_th) 
 						sel = -1;
+					if (dir2 != -1)
+						if (ExtendWireConnect::compute_connect_gray(img, circle_bd2, dir2, v.cgray_d) < gray_th)
+							sel = -1;
 				}
 				if (sel >= 0) {
 					switch (dir) { //adjust min_s to align with via_info.xy
@@ -4795,7 +4865,8 @@ public:
 					}
 				}
 				if (sel >= 0 && v.cgray_d > 0) { //check arc connect
-					vector <Point> circle_bd; //stort arc border
+					vector <Point> circle_bd, circle_bd2; //stort arc border
+					int dir2 = -1;
 					if (via_info[i].via_adj_mask == 0) { //compute single via arc, same as SingleViaWireConnect
 						switch (dir) { //compute arc border
 							case DIR_UP:
@@ -4803,10 +4874,32 @@ public:
 							{
 								int x0 = max(via_info[i].xy.x - v.connect_rd, PROB_X(min_s) - w[sel].w_wide / 2);
 								int x1 = min(via_info[i].xy.x + v.connect_rd, PROB_X(min_s) + (w[sel].w_wide - 1) / 2);
-								for (int k = 0; k < (int)circle.border_scan[dir].size(); k++) {
+								for (int k = 0; k < (int)circle.border_scan[dir].size(); k++) { //add arc border
 									Point bd = via_info[i].xy + circle.border_scan[dir][k];
 									if (bd.x >= x0 && bd.x <= x1)
 										circle_bd.push_back(bd);
+								}
+								if (PROB_X(min_s) < via_info[i].xy.x - v.connect_rd - 1) { //add rect border
+									dir2 = DIR_LEFT;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd = via_info[i].xy;
+										if (dir == DIR_UP)
+											bd += Point(-v.remove_rd, -k);
+										if (dir == DIR_DOWN)
+											bd += Point(-v.remove_rd, k);
+										circle_bd2.push_back(bd);
+									}
+								}
+								if (PROB_X(min_s) > via_info[i].xy.x + v.connect_rd + 1) { //add rect border
+									dir2 = DIR_RIGHT;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd = via_info[i].xy;
+										if (dir == DIR_UP)
+											bd += Point(v.remove_rd, -k);
+										if (dir == DIR_DOWN)
+											bd += Point(v.remove_rd, k);
+										circle_bd2.push_back(bd);
+									}
 								}
 								break;
 							}
@@ -4819,6 +4912,28 @@ public:
 									Point bd = via_info[i].xy + circle.border_scan[dir][k];
 									if (bd.y >= y0 && bd.y <= y1)
 										circle_bd.push_back(bd);
+								}
+								if (PROB_Y(min_s) < via_info[i].xy.y - v.connect_rd - 1) { //add rect border
+									dir2 = DIR_UP;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd = via_info[i].xy;
+										if (dir == DIR_LEFT)
+											bd += Point(-k, -v.remove_rd);
+										if (dir == DIR_RIGHT)
+											bd += Point(k, -v.remove_rd);
+										circle_bd2.push_back(bd);
+									}
+								}
+								if (PROB_Y(min_s) > via_info[i].xy.y + v.connect_rd + 1) { //add rect border
+									dir2 = DIR_DOWN;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd = via_info[i].xy;
+										if (dir == DIR_LEFT)
+											bd += Point(-k, v.remove_rd);
+										if (dir == DIR_RIGHT)
+											bd += Point(k, v.remove_rd);
+										circle_bd2.push_back(bd);
+									}
 								}
 								break;
 							}
@@ -4839,6 +4954,28 @@ public:
 										via_info[j].xy + circle.border_scan[DIR_DOWN][k];
 									if (bd.x >= x0 && bd.x <= x1)
 										circle_bd.push_back(bd);
+								}
+								if (PROB_X(min_s) < xx - v.connect_rd - 1) { //add rect border
+									dir2 = DIR_LEFT;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_UP)
+											bd = via_info[i].xy + Point(-v.remove_rd, -k);
+										if (dir == DIR_DOWN)
+											bd = via_info[j].xy + Point(-v.remove_rd, k);
+										circle_bd2.push_back(bd);
+									}
+								}
+								if (PROB_X(min_s) > xx + v.connect_rd + 1) { //add rect border
+									dir2 = DIR_RIGHT;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_UP)
+											bd = via_info[i].xy + Point(v.remove_rd, -k);
+										if (dir == DIR_DOWN)
+											bd = via_info[j].xy + Point(v.remove_rd, k);
+										circle_bd2.push_back(bd);
+									}
 								}
 								break;
 							}
@@ -4863,6 +5000,28 @@ public:
 									bd.x += (dy >= circle.border_scan[dir].size()) ? 0 : circle.border_scan[dir][dy].x;
 									circle_bd.push_back(bd);
 								}
+								if (PROB_Y(min_s) < via_info[i].xy.y - v.connect_rd - 1) { //add rect border
+									dir2 = DIR_UP;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_LEFT)
+											bd = via_info[i].xy + Point(-k, -v.remove_rd);
+										if (dir == DIR_RIGHT)
+											bd = via_info[i].xy + Point(k, -v.remove_rd);
+										circle_bd2.push_back(bd);
+									}
+								}
+								if (PROB_Y(min_s) > via_info[j].xy.y + v.connect_rd + 1) { //add rect border
+									dir2 = DIR_DOWN;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_LEFT)
+											bd = via_info[j].xy + Point(-k, v.remove_rd);
+										if (dir == DIR_RIGHT)
+											bd = via_info[j].xy + Point(k, v.remove_rd);
+										circle_bd2.push_back(bd);
+									}
+								}
 								break;
 							}
 						}
@@ -4882,6 +5041,28 @@ public:
 										via_info[j].xy + circle.border_scan[DIR_RIGHT][k];
 									if (bd.y >= y0 && bd.y <= y1)
 										circle_bd.push_back(bd);
+								}
+								if (PROB_Y(min_s) < yy - v.connect_rd - 1) { //add rect border
+									dir2 = DIR_UP;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_LEFT)
+											bd = via_info[i].xy + Point(-k, -v.remove_rd);
+										if (dir == DIR_RIGHT)
+											bd = via_info[j].xy + Point(k, -v.remove_rd);
+										circle_bd2.push_back(bd);
+									}
+								}
+								if (PROB_Y(min_s) > yy + v.connect_rd + 1) { //add rect border
+									dir2 = DIR_DOWN;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_LEFT)
+											bd = via_info[i].xy + Point(-k, v.remove_rd);
+										if (dir == DIR_RIGHT)
+											bd = via_info[j].xy + Point(k, v.remove_rd);
+										circle_bd2.push_back(bd);
+									}
 								}
 								break;
 							}
@@ -4906,6 +5087,28 @@ public:
 									bd.y += (dx >= circle.border_scan[dir].size()) ? 0 : circle.border_scan[dir][dx].y;
 									circle_bd.push_back(bd);
 								}
+								if (PROB_X(min_s) < via_info[i].xy.x - v.connect_rd - 1) { //add rect border
+									dir2 = DIR_LEFT;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_UP)
+											bd = via_info[i].xy + Point(-v.remove_rd, -k);
+										if (dir == DIR_DOWN)
+											bd = via_info[i].xy + Point(-v.remove_rd, k);
+										circle_bd2.push_back(bd);
+									}
+								}
+								if (PROB_X(min_s) > via_info[j].xy.x + v.connect_rd + 1) { //add rect border
+									dir2 = DIR_RIGHT;
+									for (int k = 0; k <= (int)v.remove_rd; k++) {
+										Point bd;
+										if (dir == DIR_UP)
+											bd = via_info[j].xy + Point(v.remove_rd, -k);
+										if (dir == DIR_DOWN)
+											bd = via_info[j].xy + Point(v.remove_rd, k);
+										circle_bd2.push_back(bd);
+									}
+								}
 								break;
 							}
 						}
@@ -4914,6 +5117,11 @@ public:
 					float connect_gray = ExtendWireConnect::compute_connect_gray(img, circle_bd, dir, v.cgray_d);
 					if (connect_gray < gray_th)
 						sel = -1;
+					if (dir2 != -1) {
+						connect_gray = ExtendWireConnect::compute_connect_gray(img, circle_bd2, dir2, v.cgray_d);
+						if (connect_gray < gray_th)
+							sel = -1;
+					}
 				}
 				if (sel >= 0) { 
 					int j = i;
@@ -5318,7 +5526,7 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 					if (PROB_SHAPE(score_min[0]) == BRICK_FAKE_VIA && score_min[0] > score4fake_via) //replace BRICK_II
 						score_min[0] = score4fake_via;					
 					if (score_min[0] > score4fake_via && PROB_SHAPE(score_min[0]) != BRICK_FAKE_VIA
-						&& PROB_TYPE(score_min[0]) == PROB_TYPE(score4fake_via)) {//BRICK_II can only take effect for same type
+						&& PROB_TYPE(score_min[0]) == PROB_TYPE(score4fake_via)) {//BRICK_II can only take effect for same type BRICK_I
 							push_new_prob(prob1, score4fake_via, d.l[layer].gs);
 					}
 					if (PROB_SHAPE(score_min[0]) == BRICK_FAKE_VIA && PROB_SHAPE(score_min[1]) != BRICK_FAKE_VIA //BRICK_II can only take effect for same type
