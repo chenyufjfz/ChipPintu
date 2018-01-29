@@ -6,8 +6,9 @@
 #include <QDir>
 #include <QtConcurrent>
 #include <set>
+#include <queue>
 #include "vwextract_public.h"
-
+#include <deque>
 
 #define PARALLEL 0
 #define SAVE_RST_TO_FILE	0
@@ -27,6 +28,7 @@
 #define COARSE_LINE_CLEAR_PROB					2
 #define COARSE_LINE_UPDATE_PROB					1
 #define COARSE_LINE_UPDATE_WITH_MASK			4
+#define COARSE_LINE_SEARCH_CLEAR_COLOR			1
 
 #define HOTLINE_CLEAR_MASK						1
 
@@ -36,6 +38,8 @@
 #define FILE_LINE_SEARCH_CHECK_VIA_WIRE_CONNECT	8
 
 #define ASSEMBLE_LINE_NO_VIA					1
+#define ASSEMBLE_BRANCH_ALLOW_45				1
+#define HOTPOINT_CLEAR_MASK						1
 
 #define CHECK_VW_HOTLINE_CLEAR_MASK				1
 #define CHECK_VW_SEARCH_CLEAR_COLOR				2
@@ -48,7 +52,8 @@ enum {
 	TYPE_VIA_MASK,
 	TYPE_FINE_WIRE_MASK,
 	TYPE_REMOVE_VIA_MASK,
-	TYPE_SHADOW_PROB
+	TYPE_SHADOW_PROB,
+	TYPE_HOT_POINT_MASK
 };
 
 enum {
@@ -61,7 +66,8 @@ enum {
 
 enum {
 	WIRE_SUBTYPE_13RECT = 0,
-	WIRE_SUBTYPE_25RECT
+	WIRE_SUBTYPE_25RECT = 1,
+	WIRE_SUBTYPE_MSBRANCH = 3
 };
 
 
@@ -89,7 +95,7 @@ opt1:  pair_d  arfactor remove_rd guard
 opt2:    rd3    rd2      rd1     rd0
 opt3:   gray3  gray2    gray1   gray0
 opt4:	connect_d cgray_d cgray_ratio connnect_rd
-opt5:
+opt5:							swide_min
 opt6:
 If use connect_rd, it should be bigger than guard,remove_rd,rd3,rd2,rd1,rd0
 */
@@ -110,7 +116,7 @@ struct ViaParameter {
 	int cgray_d; //for check_via_wire_connect via wire border check
 	int cgray_ratio; //for check_via_wire_connect via wire gray ratio
 	int connect_rd; //for check_via_wire_connect border, should be >= rd0 & remove_rd
-	int opt0, opt1;
+	int swide_min, opt1;
 	float optf;
 };
 
@@ -136,9 +142,34 @@ struct WireParameter {
     int wgid[8], uni_id;
 };
 
+/*		31..24  23..16   15..8   7..0
+opt0:		0  subtype   type  pattern
+opt1:				   arfactor guard
+opt2:   i_high i_wide mwide_max mwide_min
+opt3: slen_max slen_min swide_max swide_min
+opt4:            sth   mth_high mth_low
+opt5:
+*/
+struct WireParameter2 {
+	int pattern;
+	int type;
+	int subtype;
+	int arfactor; //area gamma factor
+	int guard; //guard radius for unique
+	int i_wide, i_high;	//this is for insu
+	int mwide_max, mwide_min; //main branch wide max and min
+	int slen_min; //skin len need to reach slen_min to become siding branch
+	int slen_max; //search max skin len depth
+	int swide_max, swide_min; //siding branch wide
+	int s_th; //siding branch threshold
+	int mth_high, mth_low; //main branch threshold
+	int gray_w, gray_i; //this is not set by ProcessParameter
+};
+
 union VWParameter {
 	struct ViaParameter v;
 	struct WireParameter w;
+	struct WireParameter2 w2;
 };
 
 class VWSet {
@@ -164,31 +195,52 @@ public:
 			vw = get_vw_para(pattern, type, sub_type);
 		}
 		if (pattern < 224) {
-			vw->w.guard = cpara.opt1 & 0xff;
-			vw->w.arfactor = cpara.opt1 >> 8 & 0xff;
-			vw->w.w_wide = cpara.opt2 >> 24 & 0xff;
-			vw->w.w_wide1 = cpara.opt2 >> 16 & 0xff;
-			vw->w.w_high = cpara.opt2 >> 8 & 0xff;
-			vw->w.w_high1 = cpara.opt2 & 0xff;
-			vw->w.i_wide = cpara.opt3 >> 8 & 0xff;
-			vw->w.i_high = cpara.opt3 & 0xff;
-			vw->w.dis_vw0 = cpara.opt3 >> 24 & 0xff;
-			vw->w.dis_vw1 = cpara.opt3 >> 16 & 0xff;
-            vw->w.wgid[0] = cpara.opt4 & 0xff;
-            vw->w.wgid[1] = cpara.opt4 >> 8 & 0xff;
-            vw->w.wgid[2] = cpara.opt4 >> 16 & 0xff;
-            vw->w.wgid[3] = cpara.opt4 >> 24 & 0xff;
-            vw->w.wgid[4] = cpara.opt5 & 0xff;
-            vw->w.wgid[5] = cpara.opt5 >> 8 & 0xff;
-            vw->w.wgid[6] = cpara.opt5 >> 16 & 0xff;
-            vw->w.wgid[7] = cpara.opt5 >> 24 & 0xff;
-			vw->w.uni_id = cpara.opt6 & 0xffff;
-			qInfo("set_wire_para, guard=%d, w_wide=%d, w_wide1=%d, w_high=%d, w_high1=%d, i_wide=%d, i_high=%d, dis_vw0=%d, dis_vw1=%d",
-				vw->w.guard, vw->w.w_wide, vw->w.w_wide1, vw->w.w_high, vw->w.w_high1, 
-				vw->w.i_wide, vw->w.i_high, vw->w.dis_vw0, vw->w.dis_vw1);
-			qInfo("set_wire_para, id0=%d, id1=%d, id2=%d, id3=%d, id4=%d, id5=%d, id6=%d, id7=%d, uni_id=%d",
-                vw->w.wgid[0], vw->w.wgid[1], vw->w.wgid[2], vw->w.wgid[3], vw->w.wgid[4],
-                vw->w.wgid[5], vw->w.wgid[6], vw->w.wgid[7], vw->w.uni_id);
+			if (sub_type < WIRE_SUBTYPE_MSBRANCH) {
+				vw->w.guard = cpara.opt1 & 0xff;
+				vw->w.arfactor = cpara.opt1 >> 8 & 0xff;
+				vw->w.w_wide = cpara.opt2 >> 24 & 0xff;
+				vw->w.w_wide1 = cpara.opt2 >> 16 & 0xff;
+				vw->w.w_high = cpara.opt2 >> 8 & 0xff;
+				vw->w.w_high1 = cpara.opt2 & 0xff;
+				vw->w.i_wide = cpara.opt3 >> 8 & 0xff;
+				vw->w.i_high = cpara.opt3 & 0xff;
+				vw->w.dis_vw0 = cpara.opt3 >> 24 & 0xff;
+				vw->w.dis_vw1 = cpara.opt3 >> 16 & 0xff;
+				vw->w.wgid[0] = cpara.opt4 & 0xff;
+				vw->w.wgid[1] = cpara.opt4 >> 8 & 0xff;
+				vw->w.wgid[2] = cpara.opt4 >> 16 & 0xff;
+				vw->w.wgid[3] = cpara.opt4 >> 24 & 0xff;
+				vw->w.wgid[4] = cpara.opt5 & 0xff;
+				vw->w.wgid[5] = cpara.opt5 >> 8 & 0xff;
+				vw->w.wgid[6] = cpara.opt5 >> 16 & 0xff;
+				vw->w.wgid[7] = cpara.opt5 >> 24 & 0xff;
+				vw->w.uni_id = cpara.opt6 & 0xffff;
+				qInfo("set_wire_para, guard=%d, arfactor=%d, w_wide=%d, w_wide1=%d, w_high=%d, w_high1=%d, i_wide=%d, i_high=%d, dis_vw0=%d, dis_vw1=%d",
+					vw->w.guard, vw->w.arfactor, vw->w.w_wide, vw->w.w_wide1, vw->w.w_high, vw->w.w_high1,
+					vw->w.i_wide, vw->w.i_high, vw->w.dis_vw0, vw->w.dis_vw1);
+				qInfo("set_wire_para, id0=%d, id1=%d, id2=%d, id3=%d, id4=%d, id5=%d, id6=%d, id7=%d, uni_id=%d",
+					vw->w.wgid[0], vw->w.wgid[1], vw->w.wgid[2], vw->w.wgid[3], vw->w.wgid[4],
+					vw->w.wgid[5], vw->w.wgid[6], vw->w.wgid[7], vw->w.uni_id);
+			}
+			else {
+				vw->w2.arfactor = cpara.opt1 >> 8 & 0xff;
+				vw->w2.guard = cpara.opt1 & 0xff;
+				vw->w2.i_high = cpara.opt2 >> 24 & 0xff;
+				vw->w2.i_wide = cpara.opt2 >> 16 & 0xff;
+				vw->w2.mwide_max = cpara.opt2 >> 8 & 0xff;
+				vw->w2.mwide_min = cpara.opt2 & 0xff;
+				vw->w2.slen_max = cpara.opt3 >> 24 & 0xff;
+				vw->w2.slen_min = cpara.opt3 >> 16 & 0xff;
+				vw->w2.swide_max = cpara.opt3 >> 8 & 0xff;
+				vw->w2.swide_min = cpara.opt3 & 0xff;
+				vw->w2.s_th = cpara.opt4 >> 16 & 0xff;
+				vw->w2.mth_high = cpara.opt4 >> 8 & 0xff;
+				vw->w2.mth_low = cpara.opt4 & 0xff;
+				qInfo("set_wire2_para, guard=%d, arfactor=%d, mwide_max=%d, mwide_min=%d, i_wide=%d, i_high=%d",
+					vw->w2.guard, vw->w2.arfactor, vw->w2.mwide_max, vw->w2.mwide_min, vw->w2.i_wide, vw->w2.i_high);
+				qInfo("set_wire2_para, slen_max=%d, slen_min=%d, swide_max=%d, swide_min=%d, s_th=%d, mth_high=%d, mth_low=%d",
+					vw->w2.slen_max, vw->w2.slen_min, vw->w2.swide_max, vw->w2.swide_min, vw->w2.s_th, vw->w2.mth_high, vw->w2.mth_low);
+			}
 		} else {		
 			vw->v.guard = cpara.opt1 & 0xff;
 			vw->v.remove_rd = cpara.opt1 >> 8 & 0xff;	
@@ -206,8 +258,7 @@ public:
 			vw->v.cgray_d = cpara.opt4 >> 16 & 0xff;
 			vw->v.cgray_ratio = cpara.opt4 >> 8 & 0xff;
 			vw->v.connect_rd = cpara.opt4 & 0xff;
-			vw->v.opt0 = cpara.opt5;
-			vw->v.opt1 = cpara.opt6;
+			vw->v.swide_min = cpara.opt5 & 0xff;
 			vw->v.optf = cpara.opt_f0;
 			qInfo("set_via_para, guard=%d, remove_rd=%d, rd0=%d, rd1=%d, rd2=%d, rd3=%d",
 				vw->v.guard, vw->v.remove_rd, vw->v.rd0, vw->v.rd1, vw->v.rd2, vw->v.rd3);
@@ -234,7 +285,33 @@ public:
 #define SET_PROB_SCORE(p, score) (p = (p & 0x0000ffffffffffffULL) | (unsigned long long) (score) << 48)
 #define SET_PROB_SHAPE(p, shape) (p = (p & 0xffffff00ffffffffULL) | (unsigned long long) (shape) << 32)
 #define SET_PROB_S(p, s) (p = (p & 0x00000000ffffffffULL) | (unsigned long long) (s) << 32)
-
+#define MARK_X(p) ((int)((p) & 0xffff))
+#define SET_MARK_X(p, x) (p = (p & 0xffffffffffff0000ULL) | (unsigned long long) (x))
+#define MARK_Y(p) ((int)((p) >> 16 & 0xffff))
+#define SET_MARK_Y(p, y) (p = (p & 0xffffffff0000ffffULL) | (unsigned long long) (y) << 16)
+#define MARK_ISSKIN(m) ((int)((m) >> 63 & 1))
+#define SET_MARK_ISSKIN(m, isskin) (m = (m & 0x7fffffffffffffffULL) | (unsigned long long) (isskin) << 63)
+#define MARK_BRANCH(m) ((int)((m) >> 49 & 0x3fff))
+#define SET_MARK_BRANCH(m, branch) (m = (m & 0x8001ffffffffffffULL) | (unsigned long long) (branch) << 49)
+#define MARK_LEN(m) ((int)((m) >> 40 & 0x1ff))
+#define SET_MARK_LEN(m, len) (m = (m & 0xfffe00ffffffffffULL) | (unsigned long long) (len) << 40)
+#define MARK_DIRMASK(m) ((int)((m) >> 32 & 0xff))
+#define SET_MARK_DIRMASk(m, dir) (m = (m & 0xffffff00ffffffffULL) | (unsigned long long) (dir) << 32)
+#define MAKE_MARK(branch, len, dir, is_skin, x, y) ((unsigned long long) (is_skin) << 63 | (unsigned long long)(branch) << 49 \
+	| (unsigned long long)(len) << 40 | (unsigned long long)(dir) << 32 | (unsigned long long)(y) << 16 | (unsigned long long) (x))
+#define MARK2_BRANCH(m) ((int)((m) & 0x3fff))
+#define SET_MARK2_BRANCH(m, b) (m = (m & 0x7fffc000) | (b))
+#define MARK2_LEN(m) ((int)((m) >> 14 & 0x1ff))
+#define SET_MARK2_LEN(m, l) (m = (m & 0xff803fff) | (l) << 14)
+#define MARK2_FLAG(m) ((int)((m) >> 31 & 0x1))
+#define SET_MAKR2_FLAG(m, f) (m = (m & 0x7fffffff) | (f) << 31)
+#define MARK2_VIA(m) ((int)((m) >> 30 & 0x1))
+#define SET_MAKR2_VIA(m, v) (m = (m & 0xbfffffff) | (v) << 30)
+#define MAKE_MARK2(b, l, f, v) ((unsigned) (b) | (l) << 14 | (f) << 31 | (v) << 30)
+#define POINT_M(m) (Point(MARK_X(m), MARK_Y(m)))
+#define EXIST(vec, key) (find(vec.begin(), vec.end(), key)!=vec.end())
+#define INVALID_BRANCH 0x3fff
+#define MARK_MAX_LEN 0x1ff
 //Input x, y, score, for new prob.
 //Input gs is grid size, should be match with prob
 //return true if (x,y) prob is changed
@@ -272,14 +349,11 @@ unsigned long long * get_prob(Mat & prob, int x, int y, int gs) {
 class WireLine {
 public:
 	vector<unsigned long long> corner;
-	vector<int> state;
-	void push_brick(unsigned long long brick, int _state) {
+	void push_brick(unsigned long long brick) {
 		corner.push_back(brick);
-		state.push_back(_state);
 	}
 	void clear() {
 		corner.clear();
-		state.clear();
 	}
 };
 
@@ -581,11 +655,11 @@ protected:
 				else {
 					idx = 0;
 					if (dir == 1) {
-						if (o.x >= l0.point_begin().x && o.x <= l0.point_end().x)
+						if (o.x >= l0.point_begin().x && o.x <= l0.point_end().x) //no need to add point
 							idx = -1;
 					}
 					else {
-						if (o.y >= l0.point_begin().y && o.y <= l0.point_end().y)
+						if (o.y >= l0.point_begin().y && o.y <= l0.point_end().y) //no need to add point
 							idx = -1;
 					}
 				}
@@ -799,6 +873,1131 @@ struct ObjProcessHook {
 	ProcessParameter cpara;
 };
 
+class WireTypeSet {
+	vector<int> types, subtypes, patterns, wides;
+public:
+	int get_type(int idx) {
+		CV_Assert(idx < types.size());
+		return types[idx];
+	}
+	int get_subtype(int idx) {
+		CV_Assert(idx < subtypes.size());
+		return subtypes[idx];
+	}
+	int get_pattern(int idx) {
+		CV_Assert(idx < patterns.size());
+		return patterns[idx];
+	}
+	int get_wide(int idx) {
+		CV_Assert(idx < wides.size());
+		return wides[idx];
+	}
+	/*Input: type, subtype, pattern, wide
+	  return existing idx
+	*/
+	int find(int type, int subtype, int pattern, int wide) {
+		for (int i = 0; i < (int)types.size(); i++)
+			if (types[i] == type && subtypes[i] == subtype && patterns[i] == pattern && wides[i] == wide)
+				return i;
+		return -1;
+	}
+	/*Input: idx
+	Output type, subtype, pattern, wide
+	*/
+	void get_all(int idx, int & type, int & subtype, int & pattern, int & wide) {
+		CV_Assert(idx < types.size());
+		type = types[idx];
+		subtype = subtypes[idx];
+		pattern = patterns[idx];
+		wide = wides[idx];
+	}
+
+	/*Input: type, subtype, pattern, wide
+	if existing, return existing idx; else add new*/
+	int add(int type, int subtype, int pattern, int wide) {
+		int ret = find(type, subtype, pattern, wide);
+		if (ret >= 0)
+			return ret;
+		types.push_back(type);
+		subtypes.push_back(subtype);
+		patterns.push_back(pattern);
+		wides.push_back(wide);
+		return (int) types.size() - 1;
+	}
+};
+
+//return point in intersection of line(p0, dir0) and line(p1, dir1)
+bool intersect_line(Point p0, int dir0, Point p1, int dir1, Point & pis)
+{
+	if (dir0 == DIR_UP || dir0 == DIR_DOWN) {
+		if (dir1 == DIR_LEFT || dir1 == DIR_RIGHT) {
+			pis = Point(p0.x, p1.y);
+			return true;
+		}
+		if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
+			pis = Point(p0.x, p1.y - p1.x + p0.x);
+			return true;
+		}
+		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
+			pis = Point(p0.x, p1.y + p1.x - p0.x);
+			return true;
+		}
+		CV_Assert(dir1 == DIR_UP || dir1 == DIR_DOWN);
+		if (p0.x == p1.x) {
+			pis = p0;
+			return true;
+		}
+		return false;
+	}
+	
+	if (dir1 == DIR_UP || dir1 == DIR_DOWN) {
+		if (dir0 == DIR_LEFT || dir0 == DIR_RIGHT) {
+			pis = Point(p1.x, p0.y);
+			return true;
+		}
+		if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
+			pis = Point(p1.x, p0.y - p0.x + p1.x);
+			return true;
+		}
+		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
+			pis = Point(p1.x, p0.y + p0.x - p1.x);
+			return true;
+		}
+		return false;
+	}
+
+	if (dir0 == DIR_LEFT || dir0 == DIR_RIGHT) {
+		if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
+			pis = Point(p1.x - p1.y + p0.y, p0.y);
+			return true;
+		}
+		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
+			pis = Point(p1.y + p1.x - p0.y, p0.y);
+			return true;
+		}
+		CV_Assert(dir1 == DIR_LEFT || dir1 == DIR_RIGHT);
+		if (p0.y == p1.y) {
+			pis = p0;
+			return true;
+		}
+		return false;
+	}
+
+	if (dir1 == DIR_LEFT || dir1 == DIR_RIGHT) {
+		if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
+			pis = Point(p0.x - p0.y + p1.y, p1.y);
+			return true;
+		}
+		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
+			pis = Point(p0.y + p0.x - p1.y, p1.y);
+			return true;
+		}
+		return false;
+	}
+
+	if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
+		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
+			pis = Point(p0.x - p0.y + (p1.x + p1.y + p0.y - p0.x) / 2, (p1.x + p1.y + p0.y - p0.x) / 2);
+			return true;
+		}
+		CV_Assert(dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT);
+		if (p0.x - p0.y == p1.x - p1.y) {
+			pis = p0;
+			return true;
+		}
+		return false;
+	}
+
+	if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
+		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
+			pis = Point(p1.x - p1.y + (p0.x + p0.y + p1.y - p1.x) / 2, (p0.x + p0.y + p1.y - p1.x) / 2);
+			return true;
+		}
+		return false;
+	}
+
+	CV_Assert(dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT);
+	CV_Assert(dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT);
+	if (p0.x + p0.y == p1.x + p1.y) {
+		pis = p0;
+		return true;
+	}
+	return false;
+}
+
+static int check_dir(int dx, int dy, bool allow45)
+{
+	CV_Assert(dx != 0 || dy != 0);
+	if (allow45) {
+		if (abs(dx) >= abs(dy) * 2) 
+			return (dx > 0) ? DIR_RIGHT : DIR_LEFT;
+		else
+		if (abs(dy) >= abs(dx) * 2) 
+			return (dy > 0) ? DIR_DOWN : DIR_UP;
+		else {
+			if (dx > 0)
+				return (dy > 0) ? DIR_DOWNRIGHT : DIR_UPRIGHT;			
+			else 
+				return (dy > 0) ? DIR_DOWNLEFT : DIR_UPLEFT;
+		}
+	}
+	else {
+		if (abs(dx) > abs(dy)) 
+			return (dx > 0) ? DIR_RIGHT : DIR_LEFT;
+		else
+			return (dy > 0) ? DIR_DOWN : DIR_UP;
+	}
+}
+
+static const int cnear[8][2] = {
+	//y, x
+	{ 0, 1 },	//up
+	{ 1, 0 },	//right
+	{ 0, 1 },	//down
+	{ 1, 0 },	//left
+	{ 1, 1 },	//right_up
+	{ 1, -1 },	//right_down
+	{ 1, 1 },	//left_down
+	{ 1, -1 }	//left_up
+};
+
+
+/*
+Return correct dir
+*/
+static int find_nearest_dir(pair<Point, Point> line, Point p0, int prefer_dir, bool allow45)
+{
+	int dir = check_dir(line.second.x - line.first.x, line.second.y - line.first.y, allow45);
+	int cl = cnear[dir][0] * line.first.y + cnear[dir][1] * line.first.x; //line c-value
+	int cp = cnear[dir][0] * p0.y + cnear[dir][1] * p0.x; //point c-value
+	int dir_limit = allow45 ? 8 : 4;
+	int ret = 100;
+	for (int i = 0; i < dir_limit; i++) {
+		Point p1 = p0 + Point(dxy[i][1], dxy[i][0]);
+		int cs = cnear[dir][0] * p1.y + cnear[dir][1] * p1.x;
+		if (abs(cs - cl) < abs(cp - cl)) { //correct direction
+			if (abs(ret - prefer_dir) > abs(i - prefer_dir))
+				ret = i;
+		}
+	}
+	return ret;
+}
+/*
+Input pts: point path
+out lines: line set, lines[0].first is begin point, lines.back.first is end point
+input err: distance from pts to lines within [0,err]
+input len: how much length for approximate
+*/
+static void approximate_line(const vector<Point> & pts, vector<pair<Point, int> > & lines, bool allow45, bool fix_end, int err, int len)
+{
+	CV_Assert(len >= 3 && err >=1);
+	int org = 0;
+	lines.clear();	
+	while (1) {
+		int end = min(org + len - 1, (int)pts.size() - 1);
+		int dx = pts[end].x - pts[org].x;
+		int dy = pts[end].y - pts[org].y;
+		int dir;
+		dir = check_dir(dx, dy, allow45);
+		int avg = 0, avgx = 0, avgy = 0; //start to compute avg
+		if (fix_end && (org == 0 || end == (int)pts.size() - 1)) {
+			if (org == 0) {
+				avgx = pts[0].x;
+				avgy = pts[0].y;
+			}
+			else {
+				avgx = pts.back().x;
+				avgy = pts.back().y;
+			}			
+		}
+		else {
+			for (int i = org; i <= end; i++) {
+				avgx += pts[i].x;
+				avgy += pts[i].y;
+			}
+			avgx = avgx / (end - org + 1);
+			avgy = avgy / (end - org + 1);
+		}
+		avg = cnear[dir][0] * avgy + cnear[dir][1] * avgx;
+		Point new_pt(avgx, avgy); //new_pt is new line point
+		if (!lines.empty()) {
+			if (lines.back().second == dir || lines.back().second == dir_1[dir]) //push qiexian dir
+				lines.push_back(make_pair(pts[org-1], dir_2[dir]));
+		}
+		lines.push_back(make_pair(new_pt, dir));
+		for (org = end + 1; org < (int)pts.size(); org++)
+			if (abs(avg - cnear[dir][0] * pts[org].y - cnear[dir][1] * pts[org].x) >err)
+				break;
+		if (org >= pts.size()) {
+			if (!fix_end || abs(avg - cnear[dir][0] * pts.back().y - cnear[dir][1] * pts.back().x) == 0)
+				break;
+		}
+			
+		org = min(org - err, (int)pts.size() - 2);
+		org = max(org, end - 1);
+	}
+	if (lines.size() == 1) //push end point
+		lines.push_back(make_pair(pts.back(), lines[0].second));
+	if (fix_end)
+		lines.back().first = pts.back();
+}
+
+struct LinkPoint {
+	Point pt0, pt1, pt2, pt3; //pt0 belong to branch, pt1 belong to bone or skin, pt2 belong to other bone or skin pt3 belong to other branch, 
+	int len;
+	int branch, ano_bra;
+	LinkPoint() {
+	}
+	LinkPoint(const Point & _pt0, const Point & _pt1, const Point & _pt2, const Point & _pt3, int _len, int _branch, int _ano_bra) {
+		if (_branch < _ano_bra) {
+			pt0 = _pt0;
+			pt1 = _pt1;
+			pt2 = _pt2;
+			pt3 = (_ano_bra ==INVALID_BRANCH) ? _pt2 : _pt3;
+			len = _len;
+			branch = _branch;
+			ano_bra = _ano_bra;
+		}
+		else {
+			pt0 = _pt3;
+			pt1 = _pt2;
+			pt2 = _pt1;
+			pt3 = (_branch == INVALID_BRANCH) ? _pt1 : _pt0;
+			len = _len;
+			branch = _ano_bra;
+			ano_bra = _branch;
+		}
+	}
+	bool operator< (const LinkPoint & lp) {
+		return len < lp.len;
+	}
+};
+
+class JointPoint {
+    vector<LinkPoint> lps;
+	vector<int> bs;
+	friend class BranchMark;
+protected:
+	//return index of CP in cps
+	int have(const LinkPoint & cp, int guard) {
+		int b0 = cp.branch, b1 = cp.ano_bra;
+		Point pt0 = cp.pt0, pt3 = cp.pt3;
+
+		int ret_match = -1;
+        for (int i = 0; i < lps.size(); i++) {
+            bool match00 = (lps[i].branch == b0 && abs(lps[i].pt0.x - pt0.x) < guard && abs(lps[i].pt0.y - pt0.y) < guard);
+            bool match11 = (lps[i].ano_bra == b1 && abs(lps[i].pt3.x - pt3.x) < guard && abs(lps[i].pt3.y - pt3.y) < guard);
+            bool match01 = (lps[i].branch == b1 && abs(lps[i].pt0.x - pt3.x) < guard && abs(lps[i].pt0.y - pt3.y) < guard);
+            bool match10 = (lps[i].ano_bra == b0 && abs(lps[i].pt3.x - pt0.x) < guard && abs(lps[i].pt3.y - pt0.y) < guard);
+			if (lps[i].branch == b0 && lps[i].ano_bra == b1)
+				return i;
+			if (match00 || match01 || match10 || match11 && b1 != INVALID_BRANCH)
+				ret_match = 1000;
+		}
+		return ret_match;
+	}
+public:
+	JointPoint() {
+	}
+
+	JointPoint(const LinkPoint & cp) {
+        lps.push_back(cp);
+		bs.push_back(cp.branch);
+		if (cp.ano_bra != INVALID_BRANCH)
+			bs.push_back(cp.ano_bra);
+	}
+
+	/*
+	Input cp, link point to check
+	Input guard, check if cp is belong to this joint point
+	Return 0: no merge
+			1: total merge
+			2: half merge
+	*/
+	int merge(const LinkPoint & cp, int guard, JointPoint * pjp, bool force=false) {
+		int idx = have(cp, guard);
+		if (idx < 0) {
+			if (force) {
+				lps.push_back(cp);
+				if (!EXIST(bs, cp.branch))
+					bs.push_back(cp.branch);
+				if (cp.ano_bra != INVALID_BRANCH)
+					if (!EXIST(bs, cp.ano_bra))
+						bs.push_back(cp.ano_bra);
+			}
+			return 0;
+		}
+		if (pjp == NULL) {
+            CV_Assert(lps.size() <= 20);
+            if (idx > lps.size()) { //not exist same link
+                lps.push_back(cp); //push new link point
+				if (!EXIST(bs, cp.branch)) { //push cp.branch  
+					if (bs[0] != cp.ano_bra) {
+						for (int i = 1; i < (int)bs.size(); i++)
+						if (bs[i] == cp.ano_bra)
+							swap(bs[0], bs[i]);
+					}
+					CV_Assert(bs[0] == cp.ano_bra); //make cp.ano_bra head for easy draw_mark2
+					bs.push_back(cp.branch);
+				}
+				else 
+				if (!EXIST(bs, cp.ano_bra)) { //push cp.ano_bra
+					if (bs[0] != cp.branch) {
+						for (int i = 1; i < (int)bs.size(); i++)
+						if (bs[i] == cp.branch)
+							swap(bs[0], bs[i]);
+					}
+					CV_Assert(bs[0] == cp.branch); //make cp.branch head for easy draw_mark2
+					if (cp.ano_bra != INVALID_BRANCH)
+						bs.push_back(cp.ano_bra);
+				}
+				return 2;
+			}
+			else { //exist same link
+				if (lps[idx].len > cp.len && cp.ano_bra != INVALID_BRANCH ||
+					lps[idx].len < cp.len && cp.ano_bra == INVALID_BRANCH)  
+					lps[idx] = cp; //replace existing link point
+				return 1;
+			}						
+		}
+		else { //already half merge, now merge two joint point            
+			for (int i = 0; i < lps.size(); i++) 
+				pjp->merge(lps[i], guard, NULL, true);			
+			return 2;
+		}		
+	}
+
+};
+
+struct SubBranch {
+	pair<Point, Point> bch; //branch start and end point
+	int dir, fa_bra;
+	vector<int> direct_con; //dirrect connect branch
+	SubBranch() {
+	}
+	SubBranch(Point p0, Point p1, int _fa_bra, bool is_via) {
+		if (!is_via) 
+			dir = check_dir(p1.x - p0.x, p1.y - p0.y, true);
+		else 			
+			dir = -1;
+		bch.first = p0;
+		bch.second = p1;
+		fa_bra = _fa_bra;
+	}
+};
+/*
+  For this layer wire, dir>=0, xy contain all point
+  For via, dir=-1, xy[0] contain location, xy[1] contain via index and layer
+*/
+class Branch {
+	vector<Point> xy; //(x,y) for main branch in origianl image, it may not be in final main branch
+	int idx; //branch index
+	int skin_wide, th; //skin_wide and th to search skin
+	int dir; //branch dir, if dir=-1, then it is via, either for this layer or another layer, here DIR_UP treat same as DIR_DOWN, DIR_LEFT same as DIR_RIGHT
+	int type;
+	vector<int> children; //sub branch index
+	friend class BranchMark;
+public:
+	Branch() {
+		idx = 0;
+		skin_wide = 3;
+	}
+
+	Branch(int _idx, int _type, int _skin_wide, int _th, int _dir) {
+		idx = _idx;
+		type = _type;
+		skin_wide = _skin_wide;
+		th = _th;
+		dir = _dir;
+	}
+
+	int get_skin_wide() {
+		return skin_wide;
+	}
+	
+	int get_th() {
+		return th;
+	}
+
+	int get_dir() {
+		return dir;
+	}
+
+	void push_xy(Point &_xy) {
+		xy.push_back(_xy);
+	}
+
+	/*
+	return which sub_branch has cross point*/
+	int get_sub_branch(const vector<SubBranch> & sbs, const Point & c) {
+		int id = -1; //id is which sub_branch to insert cross point
+		for (int i = 0; i < (int) children.size(); i++) {
+			int d0y = sbs[children[i]].bch.first.y - c.y;
+			int d0x = sbs[children[i]].bch.first.x - c.x;
+			int d1y = sbs[children[i]].bch.second.y - c.y;
+			int d1x = sbs[children[i]].bch.second.x - c.x;
+
+			if (d0y * d1x == d0x * d1y && d0x * d1x <=0 && d0y * d1y <=0) {
+				id = children[i];
+				break;
+			}
+		}
+		return id;
+	}
+
+	void compute_main_branch(vector<SubBranch> & sbs) {
+		if (dir >= 0) {
+			int avg = 0, minx = 0x7ffff, miny = 0x7ffff, maxx = 0, maxy = 0;
+			pair<Point, Point> main_bch;
+			for (int i = 0; i < (int)xy.size(); i++) {
+				avg += cnear[dir][0] * xy[i].y + cnear[dir][1] * xy[i].x;
+				minx = min(xy[i].x, minx);
+				maxx = max(xy[i].x, maxx);
+				miny = min(xy[i].y, miny);
+				maxy = max(xy[i].y, maxy);
+			}
+			avg = avg / (int)xy.size();
+			switch (dir) {
+			case DIR_UP:
+			case DIR_DOWN:
+				main_bch = make_pair(Point(avg, miny), Point(avg, maxy));
+				break;
+			default:
+				main_bch = make_pair(Point(minx, (avg - cnear[dir][1] * minx) * cnear[dir][0]),
+					Point(maxx, (avg - cnear[dir][1] * maxx) * cnear[dir][0]));
+				break;
+			}
+			sbs[idx] = SubBranch(main_bch.first, main_bch.second, -1, false);
+			if (children.empty())
+				children.push_back(idx);
+		}
+		else {
+			sbs[idx] = SubBranch(xy[0], xy[0], -1, true);
+			if (children.empty())
+				children.push_back(idx);
+		}
+	}
+};
+
+class BranchMark {
+	typedef pair<Point, unsigned long long> PPULL;
+	vector<Branch> bs;
+	Mat mark, mark2;
+	vector<PPULL> sq[MARK_MAX_LEN];
+	int current_sq;
+	vector<JointPoint> jps;
+	int oft1[8], oft2[8]; //8 dir offset
+	int prev_jp_idx;
+	vector<SubBranch> sbs;
+	friend class SearchWireBranch;
+	friend class SearchViaBranch;
+protected:
+	//tgt = total - src
+	void diff_set(const vector<int> & total, const vector<int> & src, vector<int> & tgt) {
+		tgt.clear();
+		for (int i = 0; i < (int)total.size(); i++)
+		if (!EXIST(src, total[i]))
+			tgt.push_back(total[i]);
+	}
+
+	/*
+	Input b0, b1, branch b0 and b1 meet
+	Input p0, p1, sub branch point, p0 belong to b0, p1 belong to b1
+	new branch will be added as b0's child
+	compute_main_branch mush be called before calling this
+	Return ano_bra;
+	*/
+	int add_sub_branch(int b0, int b1, Point p0, Point p1) {
+		int new_idx = (int)sbs.size();
+		int bra = bs[b0].get_sub_branch(sbs, p0); //bra is b0 sub-branch
+		CV_Assert(bra >= 0);		
+		sbs[bra].direct_con.push_back(new_idx);
+		int ano_bra = -1;
+		if (b1 != b0) {
+			ano_bra = bs[b1].get_sub_branch(sbs, p1); //ano_bra is b1 sub_branch
+			CV_Assert(ano_bra > 0);
+			sbs[ano_bra].direct_con.push_back(new_idx);
+		}
+
+		bs[b0].children.push_back(new_idx);
+		sbs.push_back(SubBranch(p0, p1, b0, false));
+		sbs[new_idx].direct_con.push_back(bra);
+		if (ano_bra > 0)
+			sbs[new_idx].direct_con.push_back(ano_bra);
+
+		return new_idx;
+	}
+
+	/*
+	Input:p0, p1, from p0 to p1
+	Input:branch, draw line branch
+	Output: link_bch, which branch is linked
+	*/
+	void draw_mark2_line(Point p0, Point p1, int branch, vector<int> & link_bch, bool draw_main_bch) {
+		if (p0 == p1)
+			return;
+		Point porg = p0;
+		int dir = check_dir(p1.x - p0.x, p1.y - p0.y, true);
+		CV_Assert(cnear[dir][0] * p0.y + cnear[dir][1] * p0.x == cnear[dir][0] * p1.y + cnear[dir][1] * p1.x);
+		int len = (dir == DIR_UP || dir == DIR_DOWN) ? abs(p1.y - p0.y) : abs(p1.x - p0.x);
+		len++;
+		unsigned * p_mark2 = mark2.ptr<unsigned>(p0.y, p0.x);
+		int oft_0 = (dxy[dir][0] * (int)mark2.step.p[0] + dxy[dir][1] * (int)mark2.step.p[1]) / sizeof(int);//branch dir
+		int oft_1 = (dxy[dir_2[dir]][0] * (int)mark2.step.p[0] + dxy[dir_2[dir]][1] * (int)mark2.step.p[1]) / sizeof(int); //branch bone offset
+		int oft_2 = (dxy[dir_1[dir_2[dir]]][0] * (int)mark2.step.p[0] + dxy[dir_1[dir_2[dir]]][1] * (int)mark2.step.p[1]) / sizeof(int); //branch bone offset
+
+		for (int i = 0; i < len; i++, p_mark2 += oft_0) {
+			if (p_mark2[0] == 0 || MARK2_LEN(p_mark2[0])) {
+				p_mark2[0] = MAKE_MARK2(branch, 0, 0, 0); //draw the sub-branch
+				if (!draw_main_bch && i == len - 1) {
+					CV_Assert(p0 == p1);
+					add_sub_branch(branch, branch, porg, p0);
+				}
+			}
+			else { //meet another branch
+				int ano_bch = MARK2_BRANCH(p_mark2[0]);
+				if (ano_bch != branch) {
+					if (!draw_main_bch) { //add sub-branch to connect branch and ano_bch				
+						add_sub_branch(branch, ano_bch, porg, p0);
+						porg = p0;
+					}
+					if (!EXIST(link_bch, ano_bch))
+						link_bch.push_back(ano_bch);
+				}
+			}					
+			if (p_mark2[oft_1] == 0)
+				p_mark2[oft_1] = MAKE_MARK2(branch, 1, 0, 0);
+			if (p_mark2[oft_2] == 0)
+				p_mark2[oft_2] = MAKE_MARK2(branch, 1, 0, 0);
+			if (!draw_main_bch && i!=0)
+				push_mark(p0, branch, 0, 1, 1, p0.x, p0.y, false);
+			
+			p0 += Point(dxy[dir][1], dxy[dir][0]);
+		}		
+	}
+	
+	void draw_mark2_via(Point p0, int branch) {
+		unsigned * p_mark2 = mark2.ptr<unsigned>(p0.y, p0.x);
+		if (p_mark2[0] != 0 && MARK2_LEN(p_mark2[0]) == 0) {
+			int ano_bch = MARK2_BRANCH(p_mark2[0]); //meet another branch
+			sbs[branch].direct_con.push_back(ano_bch);
+			sbs[ano_bch].direct_con.push_back(branch);
+		}
+		p_mark2[0] = MAKE_MARK2(branch, 0, 0, 1);
+	}
+	/*
+	Input: lines, line set
+	input: branch, draw line branch
+	Output: link_bch, which branch is linked
+	return true if all line are drawed
+	*/
+	bool draw_sub_branch(vector<pair<Point, int> > lines, vector<int> & link_bch) {
+		Point p0 = lines.front().first; //start cross point
+		Point p1;
+		int branch = MARK2_BRANCH(mark2.at<int>(p0.y, p0.x));
+		CV_Assert(branch > 0 && branch < bs.size());
+		vector<Point> sb; //sb are subbranch points, following compute sb
+		sb.push_back(p0);
+		for (int i = 0; i < (int)lines.size() - 1; i++) {
+			bool ret = intersect_line(lines[i].first, lines[i].second, lines[i + 1].first, lines[i + 1].second, p1);
+			if (!ret)
+				return false;
+			if (p1 != p0) {
+				p0 = p1;
+				sb.push_back(p0);					
+			}
+		}
+		CV_Assert(p0 != lines.back().first);
+		p0 = lines.back().first;
+		sb.push_back(p0);
+		
+		for (int i = 0; i < (int)sb.size() - 1; i++)
+			draw_mark2_line(sb[i], sb[i + 1], branch, link_bch, false);
+		return true;
+	}
+	//output skin xy
+	bool get_expand_skin(PPULL & skin) {
+		while (1) {
+			while (current_sq < MARK_MAX_LEN && sq[current_sq].empty())
+				current_sq++;
+			if (current_sq >= MARK_MAX_LEN)
+				return false;
+			while (!sq[current_sq].empty()) {
+				skin = sq[current_sq].back();
+				sq[current_sq].pop_back();
+				if (skin.second == mark.at<unsigned long long>(skin.first.y, skin.first.x))
+					return true;
+			}
+		}
+	}
+
+	/*
+	Input xy0, b0 branch point
+	Input skin0, b0 skin point
+	Input xy1, b1 branch point
+	Input skin1, b1 skin point
+	Input guard, guard for same link point
+	Input guard2, for discard link to INVALID BRANCH
+	Return 0, new joint point, 1 merge joint point, 2 discard joint point
+	*/
+	int add_joint_point(const Point & xy0, const Point & skin0, int b0, const Point & xy1, const Point & skin1, int b1, int guard, int len, int guard2) {
+		JointPoint * merged_jp = NULL;
+		LinkPoint lp(xy0, skin0, skin1, xy1, len, b0, b1);
+		if (lp.ano_bra == INVALID_BRANCH && len <= guard2)
+			return 2;
+		int ret = 0;
+		if (prev_jp_idx >= 0) {
+			ret = jps[prev_jp_idx].merge(lp, guard, merged_jp);
+			if (ret == 1) //found exactly same link point
+				merged_jp = &jps[prev_jp_idx];
+			if (ret == 2) //link point is merge to jps[i]
+				merged_jp = &jps[prev_jp_idx]; //continue to search if need to merge to other joint point			
+		}
+		if (ret != 1)
+		for (int i = 0; i < (int)jps.size(); i++)
+		if (i != prev_jp_idx) {
+			ret = jps[i].merge(lp, guard, merged_jp);
+			if (ret == 1) { //found exactly same link point
+				merged_jp = &jps[i];
+				prev_jp_idx = i;
+				break;
+			}
+			if (ret == 2) { //link point is merge to jps[i]
+				if (merged_jp == NULL) {
+					merged_jp = &jps[i]; //continue to search if need to merge to other joint point
+					prev_jp_idx = i;
+				}
+				else {
+					jps[i] = jps.back(); //merge and then delete another joint point
+					jps.pop_back();
+					if (prev_jp_idx == jps.size())
+						prev_jp_idx = i;
+					break;
+				}
+			}
+		}
+		if (merged_jp == NULL) {
+			jps.push_back(JointPoint(lp));
+			return 0;
+		}
+		else
+			return 1;
+	}
+
+public:
+	BranchMark() {
+		current_sq = 0;
+		bs.push_back(Branch(0, 0, 0, 0, 0));
+	}
+
+	void clear_mark(Mat & img) {
+		mark.create(img.rows, img.cols, CV_64F);
+		for (int y = 0; y < mark.rows; y++) {
+			unsigned long long * p_mark = mark.ptr<unsigned long long>(y);
+			for (int x = 0; x < mark.cols; x++)
+				p_mark[x] = 0xffffffffffffffffULL;
+		}
+		mark2.create(img.rows, img.cols, CV_32S);
+		mark2 = Scalar::all(0);
+		
+		for (int i = 0; i < 8; i++) {
+			oft1[i] = (dxy[i][0] * (int)mark.step.p[0] + dxy[i][1] * (int)mark.step.p[1]) / sizeof(unsigned long long);
+			oft2[i] = (dxy[i][0] * (int)mark2.step.p[0] + dxy[i][1] * (int)mark2.step.p[1]) / sizeof(int);
+		}
+	}
+	const Mat & get_mark() {
+		return mark;
+	}
+	const Mat & get_mark2() {
+		return mark2;
+	}
+	/*
+	input xy, mark xy
+	input branch_idx
+	input len, distance to branch, if len=0, this point is branch
+	input dir, how to reach branch
+	input is_skin, if 1, this point is skin, else it is bone.
+	*/
+	bool push_mark(Point xy, int branch_idx, int len, int dir, int is_skin, int org_x, int org_y, bool is_via) {
+		CV_Assert(xy.y < mark.rows && xy.x < mark.cols && len < MARK_MAX_LEN);
+		if (dir == 0) //via center
+			CV_Assert(is_via && len == 0);
+		bool ret = false;
+
+		unsigned long long * p_mark = mark.ptr<unsigned long long>(xy.y, xy.x);
+		unsigned long long prev_mark = p_mark[0];
+		int prev_len = MARK_LEN(prev_mark);
+		int prev_isskin = MARK_ISSKIN(prev_mark);
+		int prev_dir = MARK_DIRMASK(prev_mark);
+		int prev_branch = MARK_BRANCH(prev_mark);
+		if (prev_dir == 0) //via center
+			return false;
+		if (prev_len > len || dir == 0) { //shorter or via center
+			p_mark[0] = MAKE_MARK(branch_idx, len, dir, is_skin, org_x, org_y);
+			ret = true;
+		} else
+		if (prev_isskin == is_skin && prev_branch == branch_idx && prev_len == len && (dir & prev_dir) == 0) {
+			p_mark[0] = MAKE_MARK(branch_idx, len, dir | prev_dir, is_skin, org_x, org_y);
+			ret = true;
+		}
+
+		if (ret && is_skin) {
+			sq[len].push_back(make_pair(xy, p_mark[0]));
+			current_sq = min(current_sq, len);
+		}
+		return ret;
+	}
+
+	/*input allow45 allow 45 degree line
+	input guard, pass to add_joint_point
+	input guard2, pass to add_joint_point
+	*/
+	void search_cross_points(bool allow45, bool search_inv, int guard, int guard2) {
+		CV_Assert(guard2 >= 10);
+		jps.clear();
+		prev_jp_idx = -1;
+#define DISTANCE_BASE(m0, m1) ((MARK_BRANCH(m0) ==INVALID_BRANCH ? 0 : MARK_LEN(m0)) + (MARK_BRANCH(m1) ==INVALID_BRANCH ? 0 : MARK_LEN(m1)))
+#define DISTANCE_LR(m0, m1) (DISTANCE_BASE(m0, m1) + 1 + ((MARK_DIRMASK(m0) & DIR_LEFT1_MASK || MARK_LEN(m0)==0) ? 0 : 2) + ((MARK_DIRMASK(m1) & DIR_RIGHT1_MASK || MARK_LEN(m1)==0) ? 0 : 2))
+#define DISTANCE_UD(m0, m1) (DISTANCE_BASE(m0, m1) + 1 + ((MARK_DIRMASK(m0) & DIR_UP1_MASK || MARK_LEN(m0)==0) ? 0 : 2) + ((MARK_DIRMASK(m1) & DIR_DOWN1_MASK || MARK_LEN(m1)==0) ? 0 : 2))
+#define DISTANCE_LU_RD(m0, m1) (DISTANCE_BASE(m0, m1) + 2 + ((MARK_DIRMASK(m0) & DIR_UPLEFT_MASK || MARK_LEN(m0)==0) ? 0 : 2) + ((MARK_DIRMASK(m1) & DIR_DOWNRIGHT_MASK || MARK_LEN(m1)==0) ? 0 : 2))
+#define DISTANCE_RU_LD(m0, m1) (DISTANCE_BASE(m0, m1) + 2 + ((MARK_DIRMASK(m0) & DIR_UPRIGHT_MASK || MARK_LEN(m0)==0) ? 0 : 2) + ((MARK_DIRMASK(m1) & DIR_DOWNLEFT_MASK || MARK_LEN(m1)==0) ? 0 : 2))
+
+		for (int y = 1; y < mark.rows - 1; y++) {
+			unsigned long long * p_mark_u = mark.ptr<unsigned long long>(y - 1);
+			unsigned long long * p_mark = mark.ptr<unsigned long long>(y);
+			unsigned long long * p_mark_d = mark.ptr<unsigned long long>(y + 1);
+			for (int x = 1; x < mark.cols - 1; x++) {
+				int bidx = MARK_BRANCH(p_mark[x]);
+				if (bidx != INVALID_BRANCH) {
+					if (bidx < MARK_BRANCH(p_mark[x - 1]) && ((search_inv && MARK_BRANCH(p_mark[x - 1]) == INVALID_BRANCH) ||
+						(!search_inv && MARK_BRANCH(p_mark[x - 1]) != INVALID_BRANCH)))
+						add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark[x - 1]),
+						Point(x - 1, y), MARK_BRANCH(p_mark[x - 1]), guard, DISTANCE_LR(p_mark[x - 1], p_mark[x]), guard2);
+					if (bidx < MARK_BRANCH(p_mark[x + 1]) && ((search_inv && MARK_BRANCH(p_mark[x + 1]) == INVALID_BRANCH) ||
+						(!search_inv && MARK_BRANCH(p_mark[x + 1]) != INVALID_BRANCH)))
+						add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark[x + 1]),
+						Point(x + 1, y), MARK_BRANCH(p_mark[x + 1]), guard, DISTANCE_LR(p_mark[x], p_mark[x + 1]), guard2);
+					if (bidx < MARK_BRANCH(p_mark_u[x]) && ((search_inv && MARK_BRANCH(p_mark_u[x]) == INVALID_BRANCH) ||
+						(!search_inv && MARK_BRANCH(p_mark_u[x]) != INVALID_BRANCH)))
+						add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark_u[x]),
+						Point(x, y - 1), MARK_BRANCH(p_mark_u[x]), guard, DISTANCE_UD(p_mark_u[x], p_mark[x]), guard2);
+					if (bidx < MARK_BRANCH(p_mark_d[x]) && ((search_inv && MARK_BRANCH(p_mark_d[x]) == INVALID_BRANCH) ||
+						(!search_inv && MARK_BRANCH(p_mark_d[x]) != INVALID_BRANCH)))
+						add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark_d[x]),
+						Point(x, y + 1), MARK_BRANCH(p_mark_d[x]), guard, DISTANCE_UD(p_mark[x], p_mark_d[x]), guard2);
+					if (allow45) {
+						if (bidx < MARK_BRANCH(p_mark_u[x - 1]) && ((search_inv && MARK_BRANCH(p_mark_u[x - 1]) == INVALID_BRANCH) ||
+							(!search_inv && MARK_BRANCH(p_mark_u[x - 1]) != INVALID_BRANCH))) {
+							bool not_connect = false; //not_connect = true means 3 branch join
+							if (MARK_BRANCH(p_mark_u[x]) != INVALID_BRANCH && MARK_BRANCH(p_mark_u[x]) != bidx
+								&& MARK_BRANCH(p_mark_u[x]) != MARK_BRANCH(p_mark_u[x - 1])) //check for 3 branch join
+								not_connect = true;
+							if (MARK_BRANCH(p_mark[x - 1]) != INVALID_BRANCH && MARK_BRANCH(p_mark[x - 1]) != bidx
+								&& MARK_BRANCH(p_mark[x - 1]) != MARK_BRANCH(p_mark_u[x - 1])) //check for 3 branch join
+								not_connect = true;
+							if (!not_connect)
+								add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark_u[x - 1]),
+								Point(x - 1, y - 1), MARK_BRANCH(p_mark_u[x - 1]), guard, DISTANCE_LU_RD(p_mark_u[x - 1], p_mark[x]), guard2);
+						}
+						if (bidx < MARK_BRANCH(p_mark_d[x + 1]) && ((search_inv && MARK_BRANCH(p_mark_d[x + 1]) == INVALID_BRANCH) ||
+							(!search_inv && MARK_BRANCH(p_mark_d[x + 1]) != INVALID_BRANCH))) {
+							bool not_connect = false;
+							if (MARK_BRANCH(p_mark_d[x]) != INVALID_BRANCH && MARK_BRANCH(p_mark_d[x]) != bidx
+								&& MARK_BRANCH(p_mark_d[x]) != MARK_BRANCH(p_mark_d[x + 1])) //check for 3 branch join
+								not_connect = true;
+							if (MARK_BRANCH(p_mark[x + 1]) != INVALID_BRANCH && MARK_BRANCH(p_mark[x + 1]) != bidx
+								&& MARK_BRANCH(p_mark[x + 1]) != MARK_BRANCH(p_mark_d[x + 1]))
+								not_connect = true;
+							if (!not_connect)
+								add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark_d[x + 1]),
+								Point(x + 1, y + 1), MARK_BRANCH(p_mark_d[x + 1]), guard, DISTANCE_LU_RD(p_mark[x], p_mark_d[x + 1]), guard2);
+						}
+						if (bidx < MARK_BRANCH(p_mark_u[x + 1]) && ((search_inv && MARK_BRANCH(p_mark_u[x + 1]) == INVALID_BRANCH) ||
+							(!search_inv && MARK_BRANCH(p_mark_u[x + 1]) != INVALID_BRANCH))) {
+							bool not_connect = false;
+							if (MARK_BRANCH(p_mark_u[x]) != INVALID_BRANCH && MARK_BRANCH(p_mark_u[x]) != bidx
+								&& MARK_BRANCH(p_mark_u[x]) != MARK_BRANCH(p_mark_u[x + 1])) //check for 3 branch join
+								not_connect = true;
+							if (MARK_BRANCH(p_mark[x + 1]) != INVALID_BRANCH && MARK_BRANCH(p_mark[x + 1]) != bidx
+								&& MARK_BRANCH(p_mark[x + 1]) != MARK_BRANCH(p_mark_u[x + 1]))
+								not_connect = true;
+							if (!not_connect)
+								add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark_u[x + 1]),
+								Point(x + 1, y - 1), MARK_BRANCH(p_mark_u[x + 1]), guard, DISTANCE_RU_LD(p_mark_u[x + 1], p_mark[x]), guard2);
+						}
+						if (bidx < MARK_BRANCH(p_mark_d[x - 1]) && ((search_inv && MARK_BRANCH(p_mark_d[x - 1]) == INVALID_BRANCH) ||
+							(!search_inv && MARK_BRANCH(p_mark_d[x - 1]) != INVALID_BRANCH))) {
+							bool not_connect = false;
+							if (MARK_BRANCH(p_mark_d[x]) != INVALID_BRANCH && MARK_BRANCH(p_mark_d[x]) != bidx
+								&& MARK_BRANCH(p_mark_d[x]) != MARK_BRANCH(p_mark_d[x - 1])) //check for 3 branch join
+								not_connect = true;
+							if (MARK_BRANCH(p_mark[x - 1]) != INVALID_BRANCH && MARK_BRANCH(p_mark[x - 1]) != bidx
+								&& MARK_BRANCH(p_mark[x - 1]) != MARK_BRANCH(p_mark_d[x - 1]))
+								not_connect = true;
+							if (!not_connect)
+								add_joint_point(POINT_M(p_mark[x]), Point(x, y), MARK_BRANCH(p_mark[x]), POINT_M(p_mark_d[x - 1]),
+								Point(x - 1, y + 1), MARK_BRANCH(p_mark_d[x - 1]), guard, DISTANCE_RU_LD(p_mark[x], p_mark_d[x - 1]), guard2);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/*
+	input ig
+	input allow45
+	*/
+	void search_skin(const Mat & ig, bool allow45) {
+		PPULL skin;
+		int dir_limit = allow45 ? 8 : 4;
+		while (get_expand_skin(skin)) {
+			CV_Assert(MARK_BRANCH(skin.second) != INVALID_BRANCH);
+			int swide = bs[MARK_BRANCH(skin.second)].get_skin_wide();
+			int th = bs[MARK_BRANCH(skin.second)].get_th();
+			int len0 = MARK_LEN(skin.second) + 1;
+			int dir_mask = MARK_DIRMASK(skin.second);
+			for (int dir = 0; dir < dir_limit; dir++)
+			if (!(1 << dir & dir_mask)) { //fix me, not allow two 45 line meet
+				Point sxy = Point(skin.first.x + dxy[dir][1], skin.first.y + dxy[dir][0]);
+				if (sxy.x < swide / 2 || sxy.y < swide / 2 || sxy.y + swide - swide / 2 >= ig.rows || sxy.x + swide - swide / 2 >= ig.cols)
+					continue;
+				int sum = ig.at<int>(sxy.y - swide / 2, sxy.x - swide / 2)
+					+ ig.at<int>(sxy.y + swide - swide / 2, sxy.x + swide - swide / 2)
+					- ig.at<int>(sxy.y + swide - swide / 2, sxy.x - swide / 2)
+					- ig.at<int>(sxy.y - swide / 2, sxy.x + swide - swide / 2);
+				CV_Assert(sum >= 0);				
+				if (sum > th) {
+					int len = len0 + ((1 << dir_1[dir] & dir_mask) ? 0 : 2) + (dir > 3 ? 1 : 0);
+					len = min(len, MARK_MAX_LEN - 1);
+					push_mark(sxy, MARK_BRANCH(skin.second), len, 1 << dir_1[dir], 1, MARK_X(skin.second), MARK_Y(skin.second), false);
+				}
+			}
+		}
+	}
+
+
+	/*
+	input: lp, link point pair
+	input: src_bch, source branch
+	output: path, target path
+	inout: tgt_bch, target branch
+	*/
+	bool search_path(const LinkPoint & lp, vector <int> & src_bch, vector<int> & tgt_bch, vector<pair<Point, int> > & lines, bool allow45) {
+		vector<Point> path;
+		Point ps = lp.pt1, pt = lp.pt2; //ps is source skin, pt is target skin
+		int pt_bch = lp.ano_bra, ps_bch = lp.branch;
+		for (int i = 0; i < (int) tgt_bch.size(); i++)
+		if (lp.branch == tgt_bch[i]) {
+			pt = lp.pt1;
+			ps = lp.pt2;
+			pt_bch = lp.branch;
+			ps_bch = lp.ano_bra;
+			break;
+		}
+		
+		int dir_limit = allow45 ? 8 : 4;
+		for (int sch = 0; sch < 2; sch++) { //sch=0, search pt to src_bch; sch=1, search ps to tgt_bch
+			Point pt0 = (sch == 0) ? pt : ps; //pt0 is previous point
+			Point pt1 = (sch == 0) ? ps : pt; //pt1 is current point
+			int pt1_bch = (sch == 0) ? ps_bch : pt_bch;
+			if (sch == 1)
+				reverse(path.begin(), path.end());
+			if (pt1_bch == INVALID_BRANCH)
+				continue;
+			const vector <int> & exp_bch = (sch == 0) ? src_bch : tgt_bch;
+			unsigned long long * p_mark = mark.ptr<unsigned long long>(pt1.y, pt1.x);
+			unsigned * p_mark2 = mark2.ptr<unsigned>(pt1.y, pt1.x);
+			int prev_dir = check_dir(pt1.x - pt0.x, pt1.y - pt0.y, allow45);
+			path.push_back(pt1);
+			if (p_mark2[0] && MARK2_LEN(p_mark2[0]) == 0) { //pt1 is on branch
+				if (EXIST(exp_bch, MARK2_BRANCH(p_mark2[0]))) //reach target
+					continue; //reach
+				else {
+					for (int i = 0; i < (int)path.size(); i++) {
+						unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+						SET_MAKR2_FLAG(p_mark2[0], 0);
+					}
+					return false; //search fail
+				}
+			} else
+				SET_MAKR2_FLAG(p_mark2[0], 1);
+			bool navigation_valid = true;
+			int extend_step = 0;
+			while (1) {
+				int best_score = 0, best_dir = -1;
+				for (int dir = 0; dir < dir_limit; dir++) 
+				if (MARK2_FLAG(p_mark2[oft2[dir]]) == 0) {
+					int score = 0;
+					if (p_mark2[oft2[dir]]) { 
+						if (EXIST(exp_bch, MARK2_BRANCH(p_mark2[oft2[dir]]))) //reach target
+							score += MARK2_LEN(p_mark2[oft2[dir]]) ? 1 << 8 : 1 << 9;
+						else
+							score -= 1 << 10;
+					}
+					if (score < 1 << 8 && score >= 0 && navigation_valid) {
+						if (MARK_LEN(p_mark[oft1[dir]]) == 0) {
+							if (EXIST(exp_bch, MARK_BRANCH(p_mark[oft1[dir]]))) //nearly reach target
+								score += 1 << 7;
+						}
+
+						score += (1 << dir & MARK_DIRMASK(p_mark[0])) ? 1 << 6 : 0; //in dir to target
+
+						if (MARK_BRANCH(p_mark[oft1[dir]]) == pt1_bch) { //in target branch
+							if (MARK_LEN(p_mark[oft1[dir]]) < MARK_LEN(p_mark[0])) //len to target become smaller
+								score += 1 << 5;
+							if (MARK_LEN(p_mark[oft1[dir]]) == MARK_LEN(p_mark[0])) //len to target is same
+								score += 1 << 4;
+						}
+						else {
+							if (MARK_BRANCH(p_mark[oft1[dir]]) == INVALID_BRANCH) //not allow dir
+								score -= 1 << 10;
+							else
+							if (!EXIST(exp_bch, MARK_BRANCH(p_mark[oft1[dir]])))
+								score -= 1 << 10; //meet non-expected branch
+							else {
+								score += 1 << 3; //meet expected branch
+							}
+						}
+					}
+					score += (dir == prev_dir) ? 1 << 2 : 0; //in prev dir
+					if (best_score < score) {
+						best_score = score;
+						best_dir = dir;
+					}
+				}
+				if (best_score > 0) {
+					pt0 = pt1;
+					pt1 += Point(dxy[best_dir][1], dxy[best_dir][0]);
+					p_mark += oft1[best_dir];
+					p_mark2 += oft2[best_dir];
+					prev_dir = best_dir;
+					path.push_back(pt1);
+					if (p_mark2[0] == 0)
+						SET_MAKR2_FLAG(p_mark2[0], 1);
+					if (best_score & 1 << 9) //reach target, stop					
+						break;
+					if (best_score & 1 << 7) {//nearly reach target
+						navigation_valid = false;
+						prev_dir = find_nearest_dir(sbs[pt1_bch].bch, pt1, prev_dir, allow45);
+					}
+					if (best_score & 1 << 3) //change target branch
+						pt1_bch = MARK_BRANCH(p_mark[0]);
+				}
+				else { //don't know how to go
+					qWarning("search path failed, don't know next step, from (x=%d,y=%d) to (%d,%d)", lp.pt0.x, lp.pt0.y, lp.pt3.x, lp.pt3.y);
+					for (int i = 0; i < (int)path.size(); i++) {
+						unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+						SET_MAKR2_FLAG(p_mark2[0], 0);
+					}
+					return false; //search fail
+				}
+				if (!navigation_valid) {
+					extend_step++;
+					if (extend_step > 15) {
+						qCritical("search path failed with big extend_step, from (x=%d,y=%d) to (%d,%d)", lp.pt0.x, lp.pt0.y, lp.pt3.x, lp.pt3.y);
+						for (int i = 0; i < (int)path.size(); i++) {
+							unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+							SET_MAKR2_FLAG(p_mark2[0], 0);
+						}
+						return false; //search fail
+					}
+				}
+			}
+		}
+		//here we find path
+		for (int i = 0; i < (int)path.size(); i++) {
+			unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+			SET_MAKR2_FLAG(p_mark2[0], 0);
+		}
+		approximate_line(path, lines, allow45, true, 2, 5);
+		return true;
+	}
+
+	void draw_mark2(bool draw_main_bch, bool allow45) {
+		if (draw_main_bch) {
+			sbs.reserve(bs.size() * 2);
+			sbs.resize(bs.size());
+			for (int i = 1; i < (int)bs.size(); i++) {
+				CV_Assert(bs[i].idx == i);
+				if (bs[i].dir >= 0) { //draw main branch
+					bs[i].compute_main_branch(sbs);
+					vector<int> link_bch;
+					draw_mark2_line(sbs[bs[i].idx].bch.first, sbs[bs[i].idx].bch.second, bs[i].idx, link_bch, true);
+					sbs[i].direct_con.insert(sbs[i].direct_con.end(), link_bch.begin(), link_bch.end());
+					for (int j = 0; j < link_bch.size(); j++)
+						sbs[link_bch[j]].direct_con.push_back(i);
+				}
+				else {//draw via
+					bs[i].compute_main_branch(sbs);
+					draw_mark2_via(bs[i].xy[0], bs[i].idx);
+				}
+			}
+		}
+		for (int i = 0; i < (int)jps.size(); i++) {
+			vector<LinkPoint> & lps = jps[i].lps;
+			if (lps.size() > 2)
+				sort(lps.begin(), lps.end());
+			vector<int> src, tgt;
+			src.push_back(jps[i].bs[0]);
+			diff_set(jps[i].bs, src, tgt);
+			int start_choose = 0;
+			while (1) {				
+				CV_Assert(src.size() + tgt.size() == jps[i].bs.size());
+				int choose = -1;
+				for (int cho = start_choose; cho < (int)lps.size(); cho++) {
+					if (EXIST(src, lps[cho].branch) && (lps[cho].ano_bra == INVALID_BRANCH || EXIST(tgt, lps[cho].ano_bra))) {
+						choose = cho;
+						break;
+					}
+					if (EXIST(tgt, lps[cho].branch) && EXIST(src, lps[cho].ano_bra)) {
+						choose = cho;
+						break;
+					}
+				}
+				if (choose < 0)
+					break;
+				vector<pair<Point, int> > lines;
+				bool found = false;
+				if (lps[choose].len <= 3) { //check if it is already connected
+					int branch = lps[choose].branch;
+					int ano_bra = lps[choose].ano_bra;
+					if (EXIST(sbs[branch].direct_con, ano_bra) || EXIST(sbs[ano_bra].direct_con, branch)) {
+						found = true;
+						if (EXIST(src, branch))
+							src.push_back(ano_bra);
+						else
+							src.push_back(branch);
+						lps.erase(lps.begin() + choose);
+					}
+				}
+				if (!found) { //not directly connected, search path
+					found = search_path(lps[choose], src, tgt, lines, allow45);
+					if (!found) { //not path found, search next linkpoint
+						start_choose = choose + 1;
+						continue;
+					}
+					bool ret = draw_sub_branch(lines, src);
+					lps.erase(lps.begin() + choose);
+					CV_Assert(ret);
+				}
+				
+				diff_set(jps[i].bs, src, tgt);
+				start_choose = 0;
+			}
+			if (!tgt.empty()) {
+				qCritical("branch not connected at (x=%d,y=%d)", lps[0].pt0.x, lps[0].pt0.y);
+			}
+		}
+	}
+
+	int new_branch(int type, int skin_wide, int th, int dir) {
+		int idx = (int)bs.size();
+		bs.push_back(Branch(idx, type, skin_wide, th, dir));
+		return idx;
+	}
+};
+
 class PipeDataPerLayer {
 public:
 	Mat img, raw_img;
@@ -811,12 +2010,15 @@ public:
 		int type;
 		Mat d;
 	} v[16];
+	
 	VWSet vw;
+	WireTypeSet wts;
 	bool ig_valid;
 	int compute_border;
 	vector<WireLine> lineset[4]; //assemble_line output
 	vector<ViaInfo> via_info; //fine_via_search output
 	FinalWireVias fwv;
+	BranchMark bm;
 	//_gs * 2 <= _compute_border
 	PipeDataPerLayer() {
 		ig_valid = false;
@@ -1025,6 +2227,52 @@ static void mark_rect(Mat & m, Point pt1, Point pt2, T mask) {
 		T * pm = m.ptr<T>(y);
 		for (int x = pt1.x; x <= pt2.x; x++)
 			pm[x] |= mask;
+	}
+}
+
+/*
+input pt1, pt2
+output pts, line points include [pt1,pt2)
+*/
+static void get_line_pts(Point pt1, Point pt2, vector <Point> & pts)
+{
+	int dx = abs(pt2.x - pt1.x);
+	int dy = abs(pt2.y - pt1.y);
+	bool dir = dx > dy;
+	int ix = (pt2.x - pt1.x > 0) ? 1 : -1;
+	int iy = (pt2.y - pt1.y > 0) ? 1 : -1;
+	pts.clear();
+	if (dir) {
+		int dy2 = 2 * dy;
+		int dy2dx2 = 2 * dy - 2 * dx;
+		int d = 2 * dy - dx;
+		int x = pt1.x, y = pt1.y;
+		for (; x != pt2.x; x += ix) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dy2;
+			else {
+				d += dy2dx2;
+				y += iy;
+			}
+		}
+		CV_Assert(y == pt2.y);
+	}
+	else {
+		int dx2 = 2 * dx;
+		int dx2dy2 = 2 * dx - 2 * dy;
+		int d = 2 * dx - dy;
+		int x = pt1.x, y = pt1.y;
+		for (; y != pt2.y; y += iy) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dx2;
+			else {
+				d += dx2dy2;
+				x += ix;
+			}
+		}
+		CV_Assert(x == pt2.x);
 	}
 }
 /*
@@ -1902,6 +3150,10 @@ static struct Wire25ShapeConst {
 	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, .5, .1, -1, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_P_90 },
 	{  8, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, .1, .5, .9, 00, -1, 01, 01, .5, 00, -1, 01, 01, .1, -1, -1 }, BRICK_P_180 },
 	{  8, { 01, 01, .1, -1, -1, 01, 01, .5, 00, -1, .1, .5, .9, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_270 },
+	{  9, { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, .5, 01, 01, 01, -1, 01, .5, 00, 00, 01, -1, -1, -1, -1 }, BRICK_Y_45 },
+	{  9, { 01, -1, -1, -1, -1, -1, 01, .5, 00, 00, -1, .5, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_Y_135 },
+	{  9, { -1, -1, -1, -1, 01, 00, 00, .5, 01, -1, 01, 01, 01, .5, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_Y_225 },
+	{  9, { -1, 00, 01, 00, -1, 00, 00, 01, 00, -1, 01, 01, 01, .5, -1, 00, 00, .5, 01, -1, -1, -1, -1, -1, 01 }, BRICK_Y_315 },
 	//       0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
 	{ 20, { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, .9, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_0 },
 	{ 20, { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, 01, 01, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_L_90 },
@@ -1918,10 +3170,10 @@ static struct Wire25ShapeConst {
 };
 
 struct WirePartStat { //each shape's part expect stat value
-	int part, sum, sum2; //These para are compute during prepare, and after prepare they are fixed
+	int part, sum; //These para are compute during prepare, and after prepare they are fixed
 	int err; //this is update by compute, it means this part error
 	bool operator == (const WirePartStat & ano) {
-		return (part == ano.part && sum == ano.sum && sum2 == ano.sum2);
+		return (part == ano.part && sum == ano.sum);
 	}
 };
 
@@ -1979,7 +3231,7 @@ public:
 			dx[i] = dx[i - 6];
 		dy[0] = -wp.w_high1 - wp.i_high - wp.w_high / 2;
 		dy[6] = -wp.i_high - wp.w_high / 2;
-		dy[12] = - wp.w_high / 2;
+		dy[12] = -wp.w_high / 2;
 		dy[18] = wp.w_high - wp.w_high / 2;
 		dy[24] = wp.w_high - wp.w_high / 2 + wp.i_high;
 		dy[30] = wp.w_high - wp.w_high / 2 + wp.i_high + wp.w_high1;
@@ -1996,7 +3248,7 @@ public:
 			area[i] = (dx[j + 1] - dx[j]) * (dy[j + 6] - dy[j]);
 		}
 		for (int i = 0; i < 36; i++)
-			offset[i] = (dy[i] * (int) d.l[layer].ig.step.p[0] + dx[i] * (int) d.l[layer].ig.step.p[1]) / sizeof(unsigned);
+			offset[i] = (dy[i] * (int)d.l[layer].ig.step.p[0] + dx[i] * (int)d.l[layer].ig.step.p[1]) / sizeof(unsigned);
 		//following compute expected stats and init each shape part
 		stats.clear();
 		sds.clear();
@@ -2006,7 +3258,6 @@ public:
 			WirePartStat stat;
 			stat.part = i;
 			stat.sum = -1;
-			stat.sum2 = -1;
 			stats.push_back(stat);
 		}
 		for (int i = 0; i <= sizeof(wp.wgid) / sizeof(wp.wgid[0]); i++) {
@@ -2019,7 +3270,7 @@ public:
 				continue;
 			}
 			for (int j = idx->second; wire_25_shape[j].group_id == w; j++) {
-				ShapeDeviation sd; 
+				ShapeDeviation sd;
 				sd.w25_shape_idx = j;
 				for (int k = 0; k < 25; k++) { //following add wire_25_shape[j] part stat to shape sd
 					if (wire_25_shape[j].ratio[k] < 0) { //<0 means don't care, choose minimum error to balance
@@ -2030,8 +3281,6 @@ public:
 					WirePartStat stat;
 					stat.part = k;
 					stat.sum = (wp.gray_i * (1 - wire_25_shape[j].ratio[k]) + wp.gray_w * wire_25_shape[j].ratio[k]) * area[k];
-					stat.sum2 = (wp.gray_i * wp.gray_i * (1 - wire_25_shape[j].ratio[k]) +
-						wp.gray_w * wp.gray_w * wire_25_shape[j].ratio[k]) * area[k];
 					vector<WirePartStat>::iterator it = find(stats.begin(), stats.end(), stat); //check if stat already exit
 					if (it == stats.end()) {
 						sd.si.push_back((int)stats.size());
@@ -2050,7 +3299,7 @@ public:
 		}
 		//for mode2, stats[sds[i].si[0]].part=0,stats[sds[i].si[1]].part=1,stats[sds[i].si[2]].part=2, 
 		if (mode == 1) { //for mode1, stats[sds[i].si[0]].part=0,stats[sds[i].si[1]].part=2,stats[sds[i].si[2]].part=4
-			for (int i = 0; i<(int)sds.size(); i++) {				
+			for (int i = 0; i<(int)sds.size(); i++) {
 				sds[i].si.erase(sds[i].si.begin() + 23);
 				sds[i].si.erase(sds[i].si.begin() + 21);
 				sds[i].si.erase(sds[i].si.begin() + 19);
@@ -2078,111 +3327,109 @@ public:
 				sds[i].si.erase(sds[i].si.begin());
 			}
 		}
-		
+
 		int tot_area = 0;
 		tot_area = area[12] + 2 * area[7] + 2 * area[11] + 4 * area[6] + 2 * area[2] + 2 * area[10];
 		if (mode > 0)
-			tot_area +=  4 * area[0];
+			tot_area += 4 * area[0];
 		if (mode > 1)
 			tot_area += 4 * area[1] + 4 * area[5];
-		arf = 256.0 / (sqrt(tot_area) * (wp.gray_w - wp.gray_i) * (wp.gray_w - wp.gray_i));
+		arf = 256.0 / (sqrt(tot_area) * (wp.gray_w - wp.gray_i));
 		return 0;
 	}
 
-	PAIR_ULL compute(int x0, int y0, const Mat &, const Mat & ig, const Mat & iig) {
+	PAIR_ULL compute(int x0, int y0, const Mat &, const Mat & ig, const Mat &) {
 		CV_Assert(x0 + dx[0] >= 0 && y0 + dy[0] >= 0 && x0 + dx[5] < ig.cols && y0 + dy[30] < ig.rows);
 		PAIR_ULL ret = make_pair(0xffffffffffffffffULL, 0xffffffffffffffffULL);
-		unsigned s[36], s2[36];
+		unsigned s[36];
 		const unsigned *p_ig = ig.ptr<unsigned>(y0, x0);
-		const unsigned *p_iig = iig.ptr<unsigned>(y0, x0);
-		for (int i = 0; i < 36; i++) {
+		for (int i = 0; i < 36; i++)
 			s[i] = p_ig[offset[i]];
-			s2[i] = p_iig[offset[i]];
-		}
-		int sum[25], sum2[25], e[30], e2[30];
-		e[2] = s[8] - s[2], e2[2] = s2[8] - s2[2];
-		e[3] = s[9] - s[3], e2[3] = s2[9] - s2[3];
-		e[7] = s[13] - s[7], e2[7] = s2[13] - s2[7];
-		e[8] = s[14] - s[8], e2[8] = s2[14] - s2[8];
-		e[9] = s[15] - s[9], e2[9] = s2[15] - s2[9];
-		e[10] = s[16] - s[10], e2[10] = s2[16] - s2[10];
-		e[12] = s[18] - s[12], e2[12] = s2[18] - s2[12];
-		e[13] = s[19] - s[13], e2[13] = s2[19] - s2[13];
-		e[14] = s[20] - s[14], e2[14] = s2[20] - s2[14];
-		e[15] = s[21] - s[15], e2[15] = s2[21] - s2[15];
-		e[16] = s[22] - s[16], e2[16] = s2[22] - s2[16];
-		e[17] = s[23] - s[17], e2[17] = s2[23] - s2[17];
-		e[19] = s[25] - s[19], e2[19] = s2[25] - s2[19];
-		e[20] = s[26] - s[20], e2[20] = s2[26] - s2[20];
-		e[21] = s[27] - s[21], e2[21] = s2[27] - s2[21];
-		e[22] = s[28] - s[22], e2[22] = s2[28] - s2[22];
-		e[26] = s[32] - s[26], e2[26] = s2[32] - s2[26];
-		e[27] = s[33] - s[27], e2[27] = s2[33] - s2[27];
 
-		sum[2] = e[3] - e[2], sum2[2] = e2[3] - e2[2];
-		sum[6] = e[8] - e[7], sum2[6] = e2[8] - e2[7];
-		sum[7] = e[9] - e[8], sum2[7] = e2[9] - e2[8];
-		sum[8] = e[10] - e[9], sum2[8] = e2[10] - e2[9];
-		sum[10] = e[13] - e[12], sum2[10] = e2[13] - e2[12];
-		sum[11] = e[14] - e[13], sum2[11] = e2[14] - e2[13];
-		sum[12] = e[15] - e[14], sum2[12] = e2[15] - e2[14];
-		sum[13] = e[16] - e[15], sum2[13] = e2[16] - e2[15];
-		sum[14] = e[17] - e[16], sum2[14] = e2[17] - e2[16];
-		sum[16] = e[20] - e[19], sum2[16] = e2[20] - e2[19];
-		sum[17] = e[21] - e[20], sum2[17] = e2[21] - e2[20];
-		sum[18] = e[22] - e[21], sum2[18] = e2[22] - e2[21];
-		sum[22] = e[27] - e[26], sum2[22] = e2[27] - e2[26];
+		int sum[25], e[30];
+		e[2] = s[8] - s[2];
+		e[3] = s[9] - s[3];
+		e[7] = s[13] - s[7];
+		e[8] = s[14] - s[8];
+		e[9] = s[15] - s[9];
+		e[10] = s[16] - s[10];
+		e[12] = s[18] - s[12];
+		e[13] = s[19] - s[13];
+		e[14] = s[20] - s[14];
+		e[15] = s[21] - s[15];
+		e[16] = s[22] - s[16];
+		e[17] = s[23] - s[17];
+		e[19] = s[25] - s[19];
+		e[20] = s[26] - s[20];
+		e[21] = s[27] - s[21];
+		e[22] = s[28] - s[22];
+		e[26] = s[32] - s[26];
+		e[27] = s[33] - s[27];
+
+		sum[2] = e[3] - e[2];
+		sum[6] = e[8] - e[7];
+		sum[7] = e[9] - e[8];
+		sum[8] = e[10] - e[9];
+		sum[10] = e[13] - e[12];
+		sum[11] = e[14] - e[13];
+		sum[12] = e[15] - e[14];
+		sum[13] = e[16] - e[15];
+		sum[14] = e[17] - e[16];
+		sum[16] = e[20] - e[19];
+		sum[17] = e[21] - e[20];
+		sum[18] = e[22] - e[21];
+		sum[22] = e[27] - e[26];
 #ifdef QT_DEBUG
-		CV_Assert(sum[2] >= 0 && sum2[2] >= 0 && sum[6] >= 0 && sum2[6] >= 0 && sum[7] >= 0 && sum2[7] >= 0 && sum[8] >= 0 && sum2[8] >= 0);
-		CV_Assert(sum[10] >= 0 && sum2[10] >= 0 && sum[11] >= 0 && sum2[11] >= 0 && sum[12] >= 0 && sum2[12] >= 0);
-		CV_Assert(sum[13] >= 0 && sum2[13] >= 0 && sum[14] >= 0 && sum2[14] >= 0 && sum[16] >= 0 && sum2[16] >= 0);
-		CV_Assert(sum[17] >= 0 && sum2[17] >= 0 && sum[18] >= 0 && sum2[18] >= 0 && sum[22] >= 0 && sum2[22] >= 0);
+		CV_Assert(sum[2] >= 0 && sum[6] >= 0 && sum[7] >= 0 && sum[8] >= 0);
+		CV_Assert(sum[10] >= 0 && sum[11] >= 0 && sum[12] >= 0);
+		CV_Assert(sum[13] >= 0 && sum[14] >= 0 && sum[16] >= 0);
+		CV_Assert(sum[17] >= 0 && sum[18] >= 0 && sum[22] >= 0);
 #endif
-		if (mode > 0) {			
-			e[0] = s[6] - s[0], e2[0] = s2[6] - s2[0];
-			e[1] = s[7] - s[1], e2[1] = s2[7] - s2[1];
-			e[4] = s[10] - s[4], e2[4] = s2[10] - s2[4];
-			e[5] = s[11] - s[5], e2[5] = s2[11] - s2[5];
-			e[6] = s[12] - s[6], e2[6] = s2[12] - s2[6];
-			e[11] = s[17] - s[11], e2[11] = s2[17] - s2[11];
-			e[18] = s[24] - s[18], e2[18] = s2[24] - s2[18];
-			e[23] = s[29] - s[23], e2[23] = s2[29] - s2[23];
-			e[24] = s[30] - s[24], e2[24] = s2[30] - s2[24];
-			e[25] = s[31] - s[25], e2[25] = s2[31] - s2[25];
-			e[28] = s[34] - s[28], e2[28] = s2[34] - s2[28];
-			e[29] = s[35] - s[29], e2[29] = s2[35] - s2[29];
+		if (mode > 0) {
+			e[0] = s[6] - s[0];
+			e[1] = s[7] - s[1];
+			e[4] = s[10] - s[4];
+			e[5] = s[11] - s[5];
+			e[6] = s[12] - s[6];
+			e[11] = s[17] - s[11];
+			e[18] = s[24] - s[18];
+			e[23] = s[29] - s[23];
+			e[24] = s[30] - s[24];
+			e[25] = s[31] - s[25];
+			e[28] = s[34] - s[28];
+			e[29] = s[35] - s[29];
 
-			sum[0] = e[1] - e[0], sum2[0] = e2[1] - e2[0];			
-			sum[4] = e[5] - e[4], sum2[4] = e2[5] - e2[4];			
-			sum[20] = e[25] - e[24], sum2[20] = e2[25] - e2[24];			
-			sum[24] = e[29] - e[28], sum2[24] = e2[29] - e2[28];
+			sum[0] = e[1] - e[0];
+			sum[4] = e[5] - e[4];
+			sum[20] = e[25] - e[24];
+			sum[24] = e[29] - e[28];
 #ifdef QT_DEBUG
-			CV_Assert(sum[0] >= 0 && sum2[0] >= 0 && sum[4] >= 0 && sum2[4] >= 0 && sum[20] >= 0 && sum2[20] >= 0 && sum[24] >= 0 && sum2[24] >= 0);
+			CV_Assert(sum[0] >= 0 && sum[4] >= 0 && sum[20] >= 0 && sum[24] >= 0);
 #endif
 			if (mode == 2) {
-				sum[1] = e[2] - e[1], sum2[1] = e2[2] - e2[1];
-				sum[3] = e[4] - e[3], sum2[3] = e2[4] - e2[3];
-				sum[5] = e[7] - e[6], sum2[5] = e2[7] - e2[6];
-				sum[9] = e[11] - e[10], sum2[9] = e2[11] - e2[10];
-				sum[15] = e[19] - e[18], sum2[15] = e2[19] - e2[18];
-				sum[19] = e[23] - e[22], sum2[19] = e2[23] - e2[22];
-				sum[21] = e[26] - e[25], sum2[21] = e2[26] - e2[25];
-				sum[23] = e[28] - e[27], sum2[23] = e2[28] - e2[27];
+				sum[1] = e[2] - e[1];
+				sum[3] = e[4] - e[3];
+				sum[5] = e[7] - e[6];
+				sum[9] = e[11] - e[10];
+				sum[15] = e[19] - e[18];
+				sum[19] = e[23] - e[22];
+				sum[21] = e[26] - e[25];
+				sum[23] = e[28] - e[27];
 #ifdef QT_DEBUG
-				CV_Assert(sum[1] >= 0 && sum2[1] >= 0 && sum[3] >= 0 && sum2[3] >= 0 && sum[5] >= 0 && sum2[5] >= 0);
-				CV_Assert(sum[9] >= 0 && sum2[9] >= 0 && sum[15] >= 0 && sum2[15] >= 0 && sum[19] >= 0 && sum2[19] >= 0);
-				CV_Assert(sum[21] >= 0 && sum2[21] >= 0 && sum[23] >= 0 && sum2[23] >= 0);
+				CV_Assert(sum[1] >= 0 && sum[3] >= 0 && sum[5] >= 0);
+				CV_Assert(sum[9] >= 0 && sum[15] >= 0 && sum[19] >= 0);
+				CV_Assert(sum[21] >= 0 && sum[23] >= 0);
 #endif
 			}
 		}
 		for (int i = 0; i < 25; i++)
-			stats[i].err = 0x7fffffff;
+			stats[i].err = -1;
 		for (int i = 25; i < (int)stats.size(); i++) {
-			int err = stats[i].sum - sum[stats[i].part];
-			err = err * err >> 2;
-			int err2 = abs(stats[i].sum2 - sum2[stats[i].part]);
-			stats[i].err = err + err2;
-			stats[stats[i].part].err = min(stats[stats[i].part].err, stats[i].err);
+			stats[i].err = abs(stats[i].sum - sum[stats[i].part]);
+			if (stats[stats[i].part].err < 0)
+				stats[stats[i].part].err = stats[i].err;
+			else
+				stats[stats[i].part].err = min(stats[stats[i].part].err, stats[i].err);
 		}
 
 		int minimum = 0x7fffffff, minimum2 = 0x7fffffff;
@@ -2197,13 +3444,13 @@ public:
 				minimum = tot_err;
 				bestshape = i;
 			}
-			else 
-				if (tot_err < minimum2) {
-					minimum2 = tot_err;
-					bestshape2 = i;
-				}
+			else
+			if (tot_err < minimum2) {
+				minimum2 = tot_err;
+				bestshape2 = i;
+			}
 		}
-		CV_Assert(minimum >= 0 && minimum2 >= 0);
+		CV_Assert(minimum >= -8 && minimum2 >= -8);
 		int overlap_min = minimum, overlap_min2 = minimum2;
 		for (int j = 0; j < (int)sds[bestshape].si.size(); j++) {
 			CV_Assert(stats[sds[bestshape].si[j]].part == stats[sds[bestshape2].si[j]].part);
@@ -2214,21 +3461,21 @@ public:
 				overlap_min2 -= stats[sds[bestshape2].si[j]].err;
 			}
 		}
-				
+
 		if (overlap_min > overlap_min2) {
 			swap(minimum, minimum2);
 			swap(bestshape, bestshape2);
 		}
-		
-		minimum = minimum * arf;		
+
+		minimum = minimum * arf;
 		minimum2 = minimum2 * arf;
-		CV_Assert(minimum < 65536 && minimum2 < 65536);
-		minimum = max(MIN_SCORE, minimum);
-		minimum2 = max(MIN_SCORE, minimum2);
+		minimum = max(MIN_SCORE, min(minimum, 65535));
+		minimum2 = max(MIN_SCORE, min(minimum2, 65535));
 		ret.first = MAKE_PROB(MAKE_S(minimum, wp.type, wire_25_shape[sds[bestshape].w25_shape_idx].shape), x0, y0);
 		ret.second = MAKE_PROB(MAKE_S(minimum2, wp.type, wire_25_shape[sds[bestshape2].w25_shape_idx].shape), x0, y0);
 		return ret;
 	}
+
 
 	int check_mark(int x0, int y0, const Mat & prob, Mat & mask, int type, const Mat & already_mask)
 	{
@@ -3203,6 +4450,7 @@ struct WireKeyPoint {
 	float a0, a1, a2;
 	float arf;
 };
+
 /*     31..24 23..16   15..8   7..0
 opt0:   inc1   inc0   w_long1 w_long0 
 opt1:up_prob search_opt  th    w_num
@@ -3284,73 +4532,87 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			qCritical("coarse_line_search invalid wire info pattern=%d, type=%d, subtype=%d", wpara[i].w_pattern, wpara[i].w_type, wpara[i].w_subtype);
 			return;
 		}
-		wpara[i].w_wide = (wpara[i].w_dir == 0) ? vw->w.w_wide : vw->w.w_high;
-		wpara[i].i_wide = (wpara[i].w_dir == 0) ? vw->w.i_wide : vw->w.i_high;
-		wpara[i].gamma = vw->w.arfactor / 100.0;
-		qInfo("%d:type=%d, dir=%d, pattern=%d, w_wide=%d, i_wide=%d, gamma=%f", i, wpara[i].w_type,
-			wpara[i].w_dir, wpara[i].w_pattern, wpara[i].w_wide, wpara[i].i_wide, wpara[i].gamma);
-		if (wpara[i].w_dir > 3) {
-			qCritical("coarse_line_search w_dir(%d) error", wpara[i].w_dir);
-			return;
-		}
-			
-		if (wpara[i].w_wide / 2 + wpara[i].i_wide >= d.l[layer].compute_border) {
-			qCritical("coarse_line_search: w_wide(%d) / 2 + i_wide(%d) >= compute_border(%d)", 
-				wpara[i].w_wide, wpara[i].i_wide, d.l[layer].compute_border);
-			return;
-		}
+		bool finish = false;
+		int j = 0;
+		while (!finish) {
+			if (vw->w.subtype < WIRE_SUBTYPE_MSBRANCH) {
+				wpara[i].w_wide = (wpara[i].w_dir == 0) ? vw->w.w_wide : vw->w.w_high;
+				wpara[i].i_wide = (wpara[i].w_dir == 0) ? vw->w.i_wide : vw->w.i_high;
+				wpara[i].gamma = vw->w.arfactor / 100.0;
+				finish = true;
+			}
+			else {
+				wpara[i].w_wide = vw->w2.mwide_min + 3 * j;
+				j++;
+				wpara[i].w_type = d.l[layer].wts.add(vw->w2.type, vw->w2.subtype, vw->w2.pattern, wpara[i].w_wide);
+				wpara[i].i_wide = vw->w2.i_wide;
+				wpara[i].gamma = vw->w2.arfactor / 100.0;
+				finish = (wpara[i].w_wide > vw->w2.mwide_max);
+			}
+			qInfo("%d:type=%d, dir=%d, pattern=%d, w_wide=%d, i_wide=%d, gamma=%f", i, wpara[i].w_type,
+				wpara[i].w_dir, wpara[i].w_pattern, wpara[i].w_wide, wpara[i].i_wide, wpara[i].gamma);
+			if (wpara[i].w_dir > 3) {
+				qCritical("coarse_line_search w_dir(%d) error", wpara[i].w_dir);
+				return;
+			}
 
-		WireKeyPoint wire;		
-		switch (wpara[i].w_dir) {
-		case 0:
-			wire.offset[0] = Point(-wpara[i].w_wide / 2 - wpara[i].i_wide, - w_long0 / 2);
-			wire.offset[1] = Point(-wpara[i].w_wide / 2, -w_long0 / 2);
-			wire.offset[2] = Point(wpara[i].w_wide - wpara[i].w_wide / 2, -w_long0 / 2);
-			wire.offset[3] = Point(wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2, -w_long0 / 2);
-			wire.offset[4] = Point(-wpara[i].w_wide / 2 - wpara[i].i_wide, w_long0 - w_long0 / 2);
-			wire.offset[5] = Point(-wpara[i].w_wide / 2, w_long0 - w_long0 / 2);
-			wire.offset[6] = Point(wpara[i].w_wide - wpara[i].w_wide / 2, w_long0 - w_long0 / 2);
-			wire.offset[7] = Point(wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2, w_long0 - w_long0 / 2);
-			wire.type = wpara[i].w_type;
-			wire.a0 = 1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0);
-			wire.a1 = (float)wpara[i].w_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
-			wire.a2 = (float)wpara[i].i_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
-			wire.arf = pow(((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0), 2 * wpara[i].gamma);
-			wire.shape1 = BRICK_I_0;
-			wire.shape2 = BRICK_II_0;
-			wire.shape3 = BRICK_II_180;
-			wire.shape4 = BRICK_III_0;
-			wires[0].push_back(wire);
-			x0 = max(x0, wpara[i].w_wide / 2 + wpara[i].i_wide + 1);
-			w_check[0][wpara[i].w_type] = wpara[i].w_wide / 2 + wpara[i].i_wide;
-			break;
-		case 1:
-			wire.offset[0] = Point(-w_long1 / 2, - wpara[i].w_wide / 2 - wpara[i].i_wide);
-			wire.offset[1] = Point(-w_long1 / 2, -wpara[i].w_wide / 2);
-			wire.offset[2] = Point(-w_long1 / 2, wpara[i].w_wide - wpara[i].w_wide / 2);
-			wire.offset[3] = Point(-w_long1 / 2, wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2);
-			wire.offset[4] = Point(w_long1 - w_long1 / 2, -wpara[i].w_wide / 2 - wpara[i].i_wide);
-			wire.offset[5] = Point(w_long1 - w_long1 / 2, -wpara[i].w_wide / 2);
-			wire.offset[6] = Point(w_long1 - w_long1 / 2, wpara[i].w_wide - wpara[i].w_wide / 2);
-			wire.offset[7] = Point(w_long1 - w_long1 / 2, wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2);
-			wire.type = wpara[i].w_type;
-			wire.a0 = 1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1);
-			wire.a1 = (float)wpara[i].w_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
-			wire.a2 = (float)wpara[i].i_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
-			wire.arf = pow(((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1), 2 * wpara[i].gamma);
-			wire.shape1 = BRICK_I_90;
-			wire.shape2 = BRICK_II_90;
-			wire.shape3 = BRICK_II_270;
-			wire.shape4 = BRICK_III_90;
-			wires[1].push_back(wire);
-			y0 = max(y0, wpara[i].w_wide / 2 + wpara[i].i_wide + 1);
-			w_check[1][wpara[i].w_type] = wpara[i].w_wide / 2 + wpara[i].i_wide;
-			break;
-		default:
-			qCritical("bad dir %d", wpara[i].w_dir);
-			break;
-		}
+			if (wpara[i].w_wide / 2 + wpara[i].i_wide >= d.l[layer].compute_border) {
+				qCritical("coarse_line_search: w_wide(%d) / 2 + i_wide(%d) >= compute_border(%d)",
+					wpara[i].w_wide, wpara[i].i_wide, d.l[layer].compute_border);
+				return;
+			}
 
+			WireKeyPoint wire;
+			switch (wpara[i].w_dir) {
+			case DIR_UP:
+				wire.offset[0] = Point(-wpara[i].w_wide / 2 - wpara[i].i_wide, -w_long0 / 2);
+				wire.offset[1] = Point(-wpara[i].w_wide / 2, -w_long0 / 2);
+				wire.offset[2] = Point(wpara[i].w_wide - wpara[i].w_wide / 2, -w_long0 / 2);
+				wire.offset[3] = Point(wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2, -w_long0 / 2);
+				wire.offset[4] = Point(-wpara[i].w_wide / 2 - wpara[i].i_wide, w_long0 - w_long0 / 2);
+				wire.offset[5] = Point(-wpara[i].w_wide / 2, w_long0 - w_long0 / 2);
+				wire.offset[6] = Point(wpara[i].w_wide - wpara[i].w_wide / 2, w_long0 - w_long0 / 2);
+				wire.offset[7] = Point(wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2, w_long0 - w_long0 / 2);
+				wire.type = wpara[i].w_type;
+				wire.a0 = 1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0);
+				wire.a1 = (float)wpara[i].w_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
+				wire.a2 = (float)wpara[i].i_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
+				wire.arf = pow(((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0), 2 * wpara[i].gamma);
+				wire.shape1 = BRICK_I_0;
+				wire.shape2 = BRICK_II_0;
+				wire.shape3 = BRICK_II_180;
+				wire.shape4 = BRICK_III_0;
+				wires[0].push_back(wire);
+				x0 = max(x0, wpara[i].w_wide / 2 + wpara[i].i_wide + 1);
+				w_check[0][wpara[i].w_type] = wpara[i].w_wide / 2 + wpara[i].i_wide;
+				break;
+			case DIR_RIGHT:
+				wire.offset[0] = Point(-w_long1 / 2, -wpara[i].w_wide / 2 - wpara[i].i_wide);
+				wire.offset[1] = Point(-w_long1 / 2, -wpara[i].w_wide / 2);
+				wire.offset[2] = Point(-w_long1 / 2, wpara[i].w_wide - wpara[i].w_wide / 2);
+				wire.offset[3] = Point(-w_long1 / 2, wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2);
+				wire.offset[4] = Point(w_long1 - w_long1 / 2, -wpara[i].w_wide / 2 - wpara[i].i_wide);
+				wire.offset[5] = Point(w_long1 - w_long1 / 2, -wpara[i].w_wide / 2);
+				wire.offset[6] = Point(w_long1 - w_long1 / 2, wpara[i].w_wide - wpara[i].w_wide / 2);
+				wire.offset[7] = Point(w_long1 - w_long1 / 2, wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2);
+				wire.type = wpara[i].w_type;
+				wire.a0 = 1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1);
+				wire.a1 = (float)wpara[i].w_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
+				wire.a2 = (float)wpara[i].i_wide / (wpara[i].i_wide * 2 + wpara[i].w_wide);
+				wire.arf = pow(((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1), 2 * wpara[i].gamma);
+				wire.shape1 = BRICK_I_90;
+				wire.shape2 = BRICK_II_90;
+				wire.shape3 = BRICK_II_270;
+				wire.shape4 = BRICK_III_90;
+				wires[1].push_back(wire);
+				y0 = max(y0, wpara[i].w_wide / 2 + wpara[i].i_wide + 1);
+				w_check[1][wpara[i].w_type] = wpara[i].w_wide / 2 + wpara[i].i_wide;
+				break;
+			default:
+				qCritical("bad dir %d", wpara[i].w_dir);
+				break;
+			}
+		}
 	}
 
 	int gl = find_index(d.l[layer].v[idx].d, (int) GRAY_L0);
@@ -3358,6 +4620,18 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 	int gm = find_index(d.l[layer].v[idx].d, (int) GRAY_M0);
 	gm = d.l[layer].v[idx].d.at<int>(gm, 2);
 	qInfo("coarse_line_search, gl=%d, gm=%d", gl, gm);
+		
+	if (search_opt & COARSE_LINE_SEARCH_CLEAR_COLOR) {
+		clip_img(img, gl, gm, img);
+		for (int i = 0; i < d.l[layer].v[idx].d.rows; i++) {
+			int color = d.l[layer].v[idx].d.at<int>(i, 2);
+			color = (color > gm) ? gm - gl : ((color < gl) ? 0 : color - gl);
+			d.l[layer].v[idx].d.at<int>(i, 2) = color;
+		}
+		d.l[layer].ig_valid = false;
+		gm = gm - gl;
+		gl = 0;		
+	}
 
 	d.l[layer].validate_ig();
 	Mat & ig = d.l[layer].ig;
@@ -3856,7 +5130,7 @@ REMOVE
 method_opt
 0: N/A
 1: for mask output
-2: for gray level turn_points  input
+2: N/A
 */
 static void remove_via(PipeData & d, ProcessParameter & cpara)
 {
@@ -5125,7 +6399,8 @@ public:
 				}
 				if (sel >= 0) { 
 					int j = i;
-					int choose; //sel decide which via is to connect wire
+					int choose, choose1=-1; //sel decide which via is to connect wire
+
 					if (via_info[i].via_adj_mask & 1 << DIR_RIGHT)
 						j = via_info[i].v_pair[DIR_RIGHT];
 					if (via_info[i].via_adj_mask & 1 << DIR_DOWN)
@@ -5137,8 +6412,14 @@ public:
 							SET_PROB_X(min_s, via_info[i].xy.x);
 						if ((via_info[i].via_adj_mask & 1 << DIR_RIGHT) && abs(via_info[j].xy.x - PROB_X(min_s)) < 2)
 							SET_PROB_X(min_s, via_info[j].xy.x);	//set wire has same x as right via
-						if (via_info[i].via_adj_mask & 1 << DIR_RIGHT) //if via is left-right pair, choose nearest x as sel
-							choose = (abs(via_info[i].xy.x - PROB_X(min_s)) < abs(via_info[j].xy.x - PROB_X(min_s))) ? i : j;
+						if (via_info[i].via_adj_mask & 1 << DIR_RIGHT) { //if via is left-right pair, choose nearest x as sel
+							if (via_info[i].xy.x < PROB_X(min_s) && via_info[j].xy.x > PROB_X(min_s)) {
+								choose = i;
+								choose1 = j;
+							}
+							else
+								choose = (abs(via_info[i].xy.x - PROB_X(min_s)) < abs(via_info[j].xy.x - PROB_X(min_s))) ? i : j;
+						}
 						else
 							choose = i; //choose top via
 						break;
@@ -5147,8 +6428,14 @@ public:
 							SET_PROB_X(min_s, via_info[j].xy.x);
 						if ((via_info[i].via_adj_mask & 1 << DIR_RIGHT) && abs(via_info[i].xy.x - PROB_X(min_s)) < 2)
 							SET_PROB_X(min_s, via_info[i].xy.x);	//set wire has same x as left via
-						if (via_info[i].via_adj_mask & 1 << DIR_RIGHT) //if via is left-right pair, choose nearest x as sel
-							choose = (abs(via_info[i].xy.x - PROB_X(min_s)) < abs(via_info[j].xy.x - PROB_X(min_s))) ? i : j;
+						if (via_info[i].via_adj_mask & 1 << DIR_RIGHT) { //if via is left-right pair, choose nearest x as sel
+							if (via_info[i].xy.x < PROB_X(min_s) && via_info[j].xy.x > PROB_X(min_s)) {
+								choose = i;
+								choose1 = j;
+							}
+							else
+								choose = (abs(via_info[i].xy.x - PROB_X(min_s)) < abs(via_info[j].xy.x - PROB_X(min_s))) ? i : j;
+						}
 						else
 							choose = j; //choose bottom via
 						break;
@@ -5157,8 +6444,14 @@ public:
 							SET_PROB_Y(min_s, via_info[i].xy.y);
 						if ((via_info[i].via_adj_mask & 1 << DIR_DOWN) && abs(via_info[j].xy.y - PROB_Y(min_s)) < 2)
 							SET_PROB_Y(min_s, via_info[j].xy.y);	//set wire has same y as bot via
-						if (via_info[i].via_adj_mask & 1 << DIR_DOWN) //if via is left-right pair, choose nearest x as sel
-							choose = (abs(via_info[i].xy.y - PROB_Y(min_s)) < abs(via_info[j].xy.y - PROB_Y(min_s))) ? i : j;
+						if (via_info[i].via_adj_mask & 1 << DIR_DOWN) {//if via is left-right pair, choose nearest x as sel
+							if (via_info[i].xy.y < PROB_Y(min_s) && via_info[j].xy.y > PROB_Y(min_s)) {
+								choose = i;
+								choose1 = j;
+							}
+							else
+								choose = (abs(via_info[i].xy.y - PROB_Y(min_s)) < abs(via_info[j].xy.y - PROB_Y(min_s))) ? i : j;
+						}
 						else
 							choose = i; //choose left via
 						break;
@@ -5167,14 +6460,21 @@ public:
 							SET_PROB_Y(min_s, via_info[j].xy.y);
 						if ((via_info[i].via_adj_mask & 1 << DIR_DOWN) && abs(via_info[i].xy.y - PROB_Y(min_s)) < 2)
 							SET_PROB_Y(min_s, via_info[i].xy.y);	//set wire has same y as top via
-						if (via_info[i].via_adj_mask & 1 << DIR_DOWN) //if via is left-right pair, choose nearest x as sel
+						if (via_info[i].via_adj_mask & 1 << DIR_DOWN) {//if via is left-right pair, choose nearest x as sel
+							if (via_info[i].xy.y < PROB_Y(min_s) && via_info[j].xy.y > PROB_Y(min_s)) {
+								choose = i;
+								choose1 = j;
+							}
 							choose = (abs(via_info[i].xy.y - PROB_Y(min_s)) < abs(via_info[j].xy.y - PROB_Y(min_s))) ? i : j;
+						}
 						else
 							choose = j; //choose right via
 						break;
 					}
 					
 					ewc[sel].add_path(d, via_info[choose], min_s);
+					if (choose1 != -1)
+						ewc[sel].add_path(d, via_info[choose1], min_s);
 					if (!hl_mask.empty())
 						ewc[sel].mark_extend(hl_mask, d.prob, via_info[i], w[sel], min_s, dir, d.gs);
 				}
@@ -5717,7 +7017,7 @@ static void fine_line_search(PipeData & d, ProcessParameter & cpara)
 							unsigned long long * p_prob2 = prob1.ptr<unsigned long long>(yy);
 							for (int xx = 2 * x1; xx <= 2 * x2; xx += 2) {
 								if (p_prob2[xx] < p_prob1[x] && PROB_SHAPE(p_prob2[xx]) != BRICK_HOLLOW && PROB_SHAPE(p_prob2[xx]) != BRICK_INVALID ||
-									PROB_SHAPE(p_prob2[xx]) <= BRICK_IN_USE && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x])) { //Unique condition is it is minimal than nearyby brick
+									PROB_SHAPE(p_prob2[xx]) <= BRICK_IN_USE && PROB_TYPE(p_prob2[xx]) != PROB_TYPE(p_prob1[x]) && PROB_TYPE(p_prob2[xx])!=0xff) { //Unique condition is it is minimal than nearyby brick
 									if (abs(PROB_X(p_prob2[xx]) - PROB_X(p_prob1[x])) <= cr &&
 										abs(PROB_Y(p_prob2[xx]) - PROB_Y(p_prob1[x])) <= cr) {
 										pass = false;
@@ -5911,18 +7211,7 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 		{ DIR_RIGHT, DIR_UP },	//left_down
 		{ DIR_RIGHT, DIR_DOWN } //left_up
 	};
-	static const int cnear[8][2] = {
-		//y, x
-		{ 0, 1 },	//up
-		{ 1, 0 },	//right
-		{ 0, 1},	//down
-		{ 1, 0 },	//left
-		{ 1, 1 },	//right_up
-		{ 1, -1 },	//right_down
-		{ 1, 1 },	//left_down
-		{ 1, -1 }	//left_up
-	};
-
+	
 	//1 following find link prob
 	for (int y = y1; y <= y2; y++) {
 		unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
@@ -6119,7 +7408,7 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 					SET_PROB_Y(fix, PROB_Y(prob0) - ASSEMBLE_FIX_DISTANCE);
 					break;
 				}
-				cur_line.push_brick(fix, 0);
+				cur_line.push_brick(fix);
 				fix_count++;
 			}
 			unsigned long long last_prob = 0;
@@ -6145,11 +7434,11 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 						break;
 					}
 					if (pass) 
-						cur_line.push_brick(prob0, 0);	
+						cur_line.push_brick(prob0);	
 					else {						
 						if (exchange) { //exchange via with other BRICK
 							cur_line.corner.back() = prob0;
-							cur_line.push_brick(last_prob, 0);							
+							cur_line.push_brick(last_prob);							
 						} else { 
 							if (PROB_SHAPE(prob0) == BRICK_VIA)//replace
 								cur_line.corner.back() = prob0;
@@ -6172,13 +7461,13 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 						break;
 					}
 					if (pass) 
-						cur_line.push_brick(prob0, 0);	
+						cur_line.push_brick(prob0);	
 					else {			
 						qCritical("assemble dir=%d (x=%d,y=%d,s=0x%x) >= (%d,%d,0x%x)", dir, PROB_X(last_prob), 
 								PROB_Y(last_prob), PROB_S(last_prob), PROB_X(prob0), PROB_Y(prob0), PROB_S(prob0));
 						if (exchange) { //exchange prob with last_prob
 							cur_line.corner.back() = prob0;
-							cur_line.push_brick(last_prob, 0);							
+							cur_line.push_brick(last_prob);							
 						} else { 
 							int shape0 = PROB_SHAPE(last_prob);
 							int shape1 = PROB_SHAPE(prob0);
@@ -6216,7 +7505,7 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 					break;
 				}
 				fix_count++;
-				cur_line.push_brick(fix, 0);
+				cur_line.push_brick(fix);
 			}
 			d.l[layer].lineset[i].push_back(cur_line);
 		}
@@ -6254,6 +7543,625 @@ static void assemble_line(PipeData & d, ProcessParameter & cpara)
 	}
 }
 
+struct SkinPoint {
+	Point xy; //offset to branch
+	int dir_mask;
+	int len;
+	int check;//check is true for skin point, false for bone and branch point
+	SkinPoint(Point & _xy, int _dir_mask, bool _check) {
+		xy = _xy;
+		dir_mask = _dir_mask;
+		check = _check ? 1 : 0;
+		len = abs(xy.x) + abs(xy.y) + ((xy.x==0 || xy.y==0) ? 0 : 2);
+	}
+};
+
+class SearchWireBranch {
+	int offset[3][4];
+	vector<SkinPoint> skps;
+	int prev_dir, prev_wide;	
+	const WireParameter2 * prev_wp;
+	int th0, th1, th2;
+public:
+	SearchWireBranch() {
+		prev_wp = NULL;
+	}
+
+	/*
+	Input pt1, start point
+	Input pt2, end point
+	Input dir, search dir
+	Input wide, wire wide
+	Input wp, wire parameter
+	Input b_idx, branch idx
+	Input ig
+	output bm
+	Return true if [pt1,pt2) are all wire else return false
+	*/
+	bool search_branch(Point pt1, Point pt2, int dir, int wide, const WireParameter2 * wp, int b_idx, const Mat & ig, BranchMark & bm) {
+		int wide1 = max(5, wide - 2);
+		if (prev_dir != dir || prev_wide != wide1 || prev_wp != wp) { //reinit skps and offset
+			Point oxy[3][2];
+			skps.clear();
+			oxy[2][0] = Point(-wp->swide_min / 2, -wp->swide_min / 2); //oxy[1] is skin rec
+			oxy[2][1] = Point(wp->swide_min - wp->swide_min / 2, wp->swide_min - wp->swide_min / 2);
+			int bone_wide_2 = wide1 / 2;
+			switch (dir) {
+			case DIR_UP:
+				oxy[0][0] = Point(-wide1 / 2, -wp->i_high - wp->swide_min / 2); //oxy[0] is wire
+				oxy[0][1] = Point(0, -wp->swide_min / 2);
+				oxy[1][0] = Point(0, -wp->i_high - wp->swide_min / 2);
+				oxy[1][1] = Point(wide1 - wide1 / 2, -wp->swide_min / 2);
+				skps.push_back(SkinPoint(Point(0, 0), DIR_DOWN1_MASK, false));
+				for (int i = 1; i <= bone_wide_2; i++) { //push heng line
+					skps.push_back(SkinPoint(Point(i, 0), DIR_LEFT1_MASK | DIR_UPLEFT_MASK | DIR_DOWNLEFT_MASK, false));
+					skps.push_back(SkinPoint(Point(-i, 0), DIR_RIGHT1_MASK | DIR_UPRIGHT_MASK | DIR_DOWNRIGHT_MASK, false));
+				}
+				skps.push_back(SkinPoint(Point(bone_wide_2 + 1, 0), DIR_LEFT1_MASK | DIR_UPLEFT_MASK | DIR_DOWNLEFT_MASK, true));
+				skps.push_back(SkinPoint(Point(-bone_wide_2 - 1, 0), DIR_RIGHT1_MASK | DIR_UPRIGHT_MASK | DIR_DOWNRIGHT_MASK, true));
+				break;
+			case DIR_DOWN:
+				oxy[0][0] = Point(-wide1 / 2, wp->swide_min / 2);
+				oxy[0][1] = Point(0, wp->i_high + wp->swide_min / 2);
+				oxy[1][0] = Point(0, wp->swide_min / 2);
+				oxy[1][1] = Point(wide1 - wide1 / 2, wp->i_high + wp->swide_min / 2);
+				skps.push_back(SkinPoint(Point(0, 0), DIR_UP1_MASK, false));
+				for (int i = 1; i <= bone_wide_2; i++) { //push heng line
+					skps.push_back(SkinPoint(Point(i, 0), DIR_LEFT1_MASK | DIR_UPLEFT_MASK | DIR_DOWNLEFT_MASK, false));
+					skps.push_back(SkinPoint(Point(-i, 0), DIR_RIGHT1_MASK | DIR_UPRIGHT_MASK | DIR_DOWNRIGHT_MASK, false));
+				}
+				skps.push_back(SkinPoint(Point(bone_wide_2 + 1, 0), DIR_LEFT1_MASK | DIR_UPLEFT_MASK | DIR_DOWNLEFT_MASK, true));
+				skps.push_back(SkinPoint(Point(-bone_wide_2 - 1, 0), DIR_RIGHT1_MASK | DIR_UPRIGHT_MASK | DIR_DOWNRIGHT_MASK, true));
+				break;
+			case DIR_RIGHT:
+				oxy[0][0] = Point(wp->swide_min / 2, -wide1 / 2);
+				oxy[0][1] = Point(wp->i_high + wp->swide_min / 2, 0);
+				oxy[1][0] = Point(wp->swide_min / 2, 0);
+				oxy[1][1] = Point(wp->i_high + wp->swide_min / 2, wide1 - wide1 / 2);
+				skps.push_back(SkinPoint(Point(0, 0), DIR_LEFT1_MASK, false));
+				for (int i = 1; i <= bone_wide_2; i++) { //push shu line
+					skps.push_back(SkinPoint(Point(0, i), DIR_UP1_MASK | DIR_UPLEFT_MASK | DIR_UPRIGHT_MASK, false));
+					skps.push_back(SkinPoint(Point(0, -i), DIR_DOWN1_MASK | DIR_DOWNLEFT_MASK | DIR_DOWNRIGHT_MASK, false));
+				}
+				skps.push_back(SkinPoint(Point(0, bone_wide_2 + 1), DIR_UP1_MASK | DIR_UPLEFT_MASK | DIR_UPRIGHT_MASK, true));
+				skps.push_back(SkinPoint(Point(0, -bone_wide_2 - 1), DIR_DOWN1_MASK | DIR_DOWNLEFT_MASK | DIR_DOWNRIGHT_MASK, true));
+				break;
+			case DIR_LEFT:
+				oxy[0][0] = Point(-wp->i_high - wp->swide_min / 2, -wide1 / 2);
+				oxy[0][1] = Point(-wp->swide_min / 2, 0);
+				oxy[1][0] = Point(-wp->i_high - wp->swide_min / 2, 0);
+				oxy[1][1] = Point(-wp->swide_min / 2, wide1 - wide1 / 2);
+				skps.push_back(SkinPoint(Point(0, 0), DIR_RIGHT1_MASK, false));
+				for (int i = 1; i <= bone_wide_2; i++) { //push shu line
+					skps.push_back(SkinPoint(Point(0, i), DIR_UP1_MASK | DIR_UPLEFT_MASK | DIR_UPRIGHT_MASK, false));
+					skps.push_back(SkinPoint(Point(0, -i), DIR_DOWN1_MASK | DIR_DOWNLEFT_MASK | DIR_DOWNRIGHT_MASK, false));
+				}
+				skps.push_back(SkinPoint(Point(0, bone_wide_2 + 1), DIR_UP1_MASK | DIR_UPLEFT_MASK | DIR_UPRIGHT_MASK, true));
+				skps.push_back(SkinPoint(Point(0, -bone_wide_2 - 1), DIR_DOWN1_MASK | DIR_DOWNLEFT_MASK | DIR_DOWNRIGHT_MASK, true));
+				break;
+			}
+			for (int i = 0; i < 3; i++) {
+				offset[i][0] = (oxy[i][0].y * (int)ig.step.p[0] + oxy[i][0].x * (int)ig.step.p[1]) / sizeof(int);
+				offset[i][1] = (oxy[i][0].y * (int)ig.step.p[0] + oxy[i][1].x * (int)ig.step.p[1]) / sizeof(int);
+				offset[i][2] = (oxy[i][1].y * (int)ig.step.p[0] + oxy[i][0].x * (int)ig.step.p[1]) / sizeof(int);
+				offset[i][3] = (oxy[i][1].y * (int)ig.step.p[0] + oxy[i][1].x * (int)ig.step.p[1]) / sizeof(int);
+			}
+			prev_dir = dir;
+			prev_wide = wide1;
+			prev_wp = wp;
+			th0 = wp->i_high * (wide1 / 2) * wp->gray_i + wp->i_high * (wide1 / 2) * (wp->gray_w - wp->gray_i) * (wp->mth_low / 100.0); //th0 is wire threshold
+			th1 = wp->i_high * (wide1 - wide1 / 2) * wp->gray_i + wp->i_high * (wide1 - wide1 / 2) * (wp->gray_w - wp->gray_i) * (wp->mth_low / 100.0); //th0 is wire threshold
+			th2 = wp->swide_min * wp->swide_min* wp->gray_i + wp->swide_min * wp->swide_min *(wp->gray_w - wp->gray_i) * (wp->s_th / 100.0); //th1 is skin threshold 
+		}
+		
+		vector<Point> pts;
+		get_line_pts(pt1, pt2, pts);
+		const Mat & mark = bm.get_mark();
+		for (int i = 0; i < (int)pts.size(); i++) {
+			const unsigned * p_ig = ig.ptr<unsigned>(pts[i].y, pts[i].x);
+			int sum0 = 0, sum1 = 0;			
+			bool inside = pts[i].x > wp->i_high + wp->swide_min / 2 && pts[i].y > wp->i_high + wp->swide_min / 2 &&
+				pts[i].x > wp->swide_min && pts[i].y > wp->swide_min && pts[i].x < ig.cols - wp->swide_min && pts[i].y < ig.rows - wp->swide_min &&
+				pts[i].x < ig.cols - wp->i_high - wp->swide_min / 2 && pts[i].y < ig.rows - wp->i_high - wp->swide_min / 2;
+			if (inside) {
+				sum0 = p_ig[offset[0][3]] + p_ig[offset[0][0]] - p_ig[offset[0][1]] - p_ig[offset[0][2]];
+				sum1 = p_ig[offset[1][3]] + p_ig[offset[1][0]] - p_ig[offset[1][1]] - p_ig[offset[1][2]];
+				const unsigned long long * p_mark = mark.ptr<unsigned long long>(pts[i].y, pts[i].x);
+				if (p_mark[0] != 0xffffffffffffffffULL) { //meet another branch
+					int ano_bra = MARK_BRANCH(p_mark[0]);
+					int ano_dir = bm.bs[ano_bra].get_dir();
+					if (ano_bra != b_idx && (dir == ano_dir || dir_1[dir] == ano_dir)) //parallel, return
+						return false;
+				}
+			}
+			if (sum0 >= th0 && sum1 >= th1 && inside) { //wire continue, push wire
+				for (int j = 0; j < (int)skps.size(); j++) {
+					Point skin_pt = skps[j].xy + pts[i];
+					if (!skps[j].check) //push bone
+						bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 0, pts[i].x, pts[i].y, false);
+					else {						
+						p_ig = ig.ptr<unsigned>(skin_pt.y, skin_pt.x);
+						int sum2 = p_ig[offset[2][3]] + p_ig[offset[2][0]] - p_ig[offset[2][1]] - p_ig[offset[2][2]];
+						if (sum2 >= th2) //push skin
+							bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 1, pts[i].x, pts[i].y, false);
+					}
+				}
+				bm.bs[b_idx].push_xy(pts[i]);
+			}
+			else { //wire break, push wire end
+				for (int k = 0; k < wp->swide_min / 2; k++) {
+					Point extend_pt = Point(pts[i].x + dxy[dir][1] * k, pts[i].y + dxy[dir][0] * k);
+					for (int j = 0; j < (int)skps.size(); j++) {
+						Point skin_pt = extend_pt + skps[j].xy;
+						if (!skps[j].check && k != wp->swide_min / 2 - 1) //push bone
+							bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 0, extend_pt.x, extend_pt.y, false);
+						else {
+							p_ig = ig.ptr<unsigned>(skin_pt.y, skin_pt.x);
+							int sum2 = p_ig[offset[2][3]] + p_ig[offset[2][0]] - p_ig[offset[2][1]] - p_ig[offset[2][2]];
+							if (sum2 >= th2) // push skin
+								bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 1, extend_pt.x, extend_pt.y, false);
+						}
+					}
+					bm.bs[b_idx].push_xy(extend_pt);
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+};
+
+class SearchViaBranch {
+protected:
+	const ViaParameter * prev_vp;
+	vector<SkinPoint> skps;
+	int offset[4];
+	int prev_connect_rd, prev_swide_min;
+
+public:
+	SearchViaBranch() {
+		prev_vp = NULL;
+	}
+
+	int search_branch(Point pt1, const ViaParameter * vp, const Mat & ig, BranchMark & bm) {
+		int th = vp->swide_min * vp->swide_min* vp->gray3 + vp->swide_min * vp->swide_min *(vp->gray0 - vp->gray3) * (vp->cgray_ratio / 100.0); //th1 is skin threshold 
+		int bidx = bm.new_branch(vp->type, vp->swide_min, th, -1);
+		if (prev_connect_rd != vp->connect_rd) {
+			skps.clear();
+			vector<int> flag(vp->connect_rd * 2 + 1, 0);
+			for (int y = -vp->connect_rd; y <= 0; y++) {
+				int x1 = sqrt(vp->connect_rd * vp->connect_rd - y * y);
+				int dir0 = (y<0) ? DIR_DOWN1_MASK : ((y>0) ? DIR_UP1_MASK : 0);
+				for (int x = -x1; x <= x1; x++) {
+					bool check = (abs(x) == x1); //check is for skin point, true means x-boundary point
+					if (!flag[vp->connect_rd + x]) { //check for skin point, true means y-boundary point
+						flag[vp->connect_rd + x] = 1;
+						check = true;
+					}
+					int dir = dir0 | ((x<0) ? DIR_RIGHT1_MASK : ((x>0) ? DIR_LEFT1_MASK : 0));
+					skps.push_back(SkinPoint(Point(x, y), dir, check));
+				}
+			}
+			fill(flag.begin(), flag.end(), 0);
+			for (int y = vp->connect_rd; y > 0; y--) {
+				int x1 = sqrt(vp->connect_rd * vp->connect_rd - y * y);
+				int dir0 = (y<0) ? DIR_DOWN1_MASK : ((y>0) ? DIR_UP1_MASK : 0);
+				for (int x = -x1; x <= x1; x++) {
+					bool check = (abs(x) == x1); //check is for skin point
+					if (!flag[vp->connect_rd + x]) {
+						flag[vp->connect_rd + x] = 1;
+						check = true;
+					}
+					int dir = dir0 | ((x<0) ? DIR_RIGHT1_MASK : ((x>0) ? DIR_LEFT1_MASK : 0));
+					skps.push_back(SkinPoint(Point(x, y), dir, check));
+				}
+			}
+			prev_connect_rd = vp->connect_rd;
+		}
+		if (prev_swide_min != vp->swide_min) {
+			Point oxy[2];
+			oxy[0] = Point(-vp->swide_min / 2, -vp->swide_min / 2);
+			oxy[1] = Point(vp->swide_min - vp->swide_min / 2, vp->swide_min - vp->swide_min / 2);
+			offset[0] = (oxy[0].y * (int)ig.step.p[0] + oxy[0].x * (int)ig.step.p[1]) / sizeof(int);
+			offset[1] = (oxy[0].y * (int)ig.step.p[0] + oxy[1].x * (int)ig.step.p[1]) / sizeof(int);
+			offset[2] = (oxy[1].y * (int)ig.step.p[0] + oxy[0].x * (int)ig.step.p[1]) / sizeof(int);
+			offset[3] = (oxy[1].y * (int)ig.step.p[0] + oxy[1].x * (int)ig.step.p[1]) / sizeof(int);
+			prev_swide_min = vp->swide_min;
+		}
+		bm.bs[bidx].push_xy(pt1);
+		for (int j = 0; j < (int)skps.size(); j++) {
+			Point skin_pt = skps[j].xy + pt1;
+			if (skin_pt.x <= 0 || skin_pt.y <= 0 || skin_pt.x >= ig.cols - 1 || skin_pt.y >= ig.rows - 1)
+				continue;
+			if (!skps[j].check)  // push bone
+				bm.push_mark(skin_pt, bidx, skps[j].len, skps[j].dir_mask, 0, pt1.x, pt1.y, true);//Fixme how to do when two via center overlap				
+			
+			else {
+				if (skin_pt.x <= vp->swide_min / 2 || skin_pt.y <= vp->swide_min / 2 ||
+					skin_pt.x >= ig.cols - vp->swide_min / 2 - 2 || skin_pt.y >= ig.rows - vp->swide_min / 2 - 2)
+					continue;
+				const unsigned * p_ig = ig.ptr<unsigned>(skin_pt.y, skin_pt.x);
+				int sum = p_ig[offset[3]] + p_ig[offset[0]] - p_ig[offset[1]] - p_ig[offset[2]];
+				if (sum >= th) //push skin
+					bm.push_mark(skin_pt, bidx, skps[j].len, skps[j].dir_mask, 1, pt1.x, pt1.y, true);
+			}
+		}
+		return bidx;
+	}
+};
+
+static int search_wire_branch(Point ps, int dir, int wide, int bidx, const WireParameter2 * wp, WireMaskInfo & wmi, PipeDataPerLayer & d)
+{
+	if (ps.x <= wp->i_high + wp->swide_min / 2 || ps.y <= wp->i_high + wp->swide_min / 2 ||
+		ps.x <= wp->swide_min || ps.y <= wp->swide_min ||
+		ps.x <= wide / 2 + wp->swide_min / 2 || ps.y <= wide / 2 + wp->swide_min / 2 ||
+		ps.x >= d.img.cols - wp->i_high - wp->swide_min / 2 || ps.y >= d.img.rows - wp->i_high - wp->swide_min / 2 ||
+		ps.x >= d.img.cols - wp->swide_min || ps.y >= d.img.rows - wp->swide_min ||
+		ps.x >= d.img.cols - wide / 2 - wp->swide_min / 2 || ps.y >= d.img.rows - wide / 2 - wp->swide_min / 2)
+		return bidx;
+
+	Mat & ig = d.ig;
+	BranchMark & bm = d.bm;
+	Mat & prob = d.prob;
+	Point pt;
+	SearchWireBranch sb;
+
+	int th = wp->swide_min * wp->swide_min * wp->gray_i + wp->swide_min * wp->swide_min * (wp->gray_w - wp->gray_i) * (wp->s_th / 100.0);
+	if (bidx<0)
+		bidx =d.bm.new_branch(wmi.type_shape >> 8, wp->swide_min, th, dir);
+	int oft[3][2]; //oft1 & oft2 is dir two side
+	oft[0][0] = 0, oft[0][1] = 0;
+	oft[1][0] = dxy[dir_2[dir]][0], oft[1][1] = dxy[dir_2[dir]][1];
+	oft[2][0] = dxy[dir_1[dir_2[dir]]][0], oft[2][1] = dxy[dir_1[dir_2[dir]]][1];
+
+	int y0 = ps.y / d.gs, x0 = ps.x / d.gs; //x0, y0 is look forward
+	int xy = cnear[dir][0] * ps.y + cnear[dir][1] * ps.x;
+	while (1) {		
+		int type, subtype, pattern, w1 = -1;
+		while(1) {
+			if (abs(x0*d.gs - ps.x) > wmi.clong || (abs(y0*d.gs - ps.y) > wmi.clong))
+				break;
+			y0 += dxy[dir][0];
+			x0 += dxy[dir][1];
+			if (x0 < 0 || y0 < 0 || x0 >= prob.cols || y0 >= prob.rows)
+				break;			
+			for (int j = 0; j < 3; j++) {
+				unsigned long long p0 = prob.at<unsigned long long>(y0 + oft[j][0], (x0 + oft[j][1]) * 2);
+				if (PROB_SHAPE(p0) == (wmi.type_shape & 0xff)) {
+					pt = Point(PROB_X(p0), PROB_Y(p0));
+					if (abs(cnear[dir][0] * pt.y + cnear[dir][1] * pt.x - xy) <= wmi.cwide) { //find new anchor
+						d.wts.get_all(PROB_TYPE(p0), type, subtype, pattern, w1);
+						if (wp->type != type || wp->subtype != subtype || wp->pattern != pattern)
+							qCritical("search_branch meet different type old(%d,%d,%d)!=new(%d,%d,%d)",
+							wp->type, wp->subtype, wp->pattern, type, subtype, pattern);
+						break;
+					}
+				}
+			}
+			if (w1 > 0)
+				break;
+		}
+		if (w1 < 0) {//not found new anchor, 
+			pt = ps + Point(d.gs * dxy[dir][1], d.gs * dxy[dir][0]);
+		}
+		if (!sb.search_branch(ps, pt, dir, (w1 > 0) ? min(wide, w1) : wide, wp, bidx, ig, bm))
+			return bidx;
+		if (w1 > 0) {//find new anchor
+			y0 = pt.y / d.gs;
+			x0 = pt.x / d.gs;
+			xy = cnear[dir][0] * pt.y + cnear[dir][1] * pt.x;
+			wide = w1;
+		}
+		ps = pt;
+	}
+}
+
+/*
+        31..24 23..16   15..8   7..0
+opt0:		             opt    wnum
+opt1:	cwide	clong	 type	dir
+opt2:	cwide	clong	 type	dir						
+opt3:	cwide	clong	 type	dir
+opt4:	cwide	clong	 type	dir
+opt5:	cwide	clong	 type	dir
+opt6:	
+method_opt
+0: for gray level turn_points  input
+*/
+static void hotpoint_search(PipeData & d, ProcessParameter & cpara)
+{
+	int idx = cpara.method_opt & 0xf;
+	int wnum = cpara.opt0 & 0xff;
+	int layer = cpara.layer;
+	Mat & img = d.l[layer].img;
+	int hotpoint_opt = cpara.opt0 >> 8 & 0xff;
+
+	if (hotpoint_opt & HOTPOINT_CLEAR_MASK)
+		d.l[layer].bm.clear_mark(img);
+	if (d.l[layer].bm.get_mark().size() != img.size()) {
+		qCritical("hotpoint_search, mark.size(%d,%d)!=img.size(%d,%d)", 
+			d.l[layer].bm.get_mark().rows, d.l[layer].bm.get_mark().cols, img.rows, img.cols);
+		return;
+	}
+	qInfo("hotpoint_search, idx=%d, l=%d, wnum=%d, hotline_opt=%d", idx, layer, wnum, hotpoint_opt);
+
+	if (d.l[layer].v[idx].type != TYPE_GRAY_LEVEL) {
+		qCritical("hotpoint_search gray level idx[%d]=%d, error", idx, d.l[layer].v[idx].type);
+		return;
+	}
+	int gl = find_index(d.l[layer].v[idx].d, (int)GRAY_L0);
+	gl = d.l[layer].v[idx].d.at<int>(gl, 2);
+	int gm = find_index(d.l[layer].v[idx].d, (int)GRAY_M0);
+	gm = d.l[layer].v[idx].d.at<int>(gm, 2);
+	qInfo("hotpoint_search, gl=%d, gm=%d", gl, gm);
+
+	struct WireMaskInfo wpara[] = {
+		{ cpara.opt1 & 0xffff, cpara.opt1 >> 16 & 0xff, cpara.opt1 >> 24 & 0xff },
+		{ cpara.opt2 & 0xffff, cpara.opt2 >> 16 & 0xff, cpara.opt2 >> 24 & 0xff },
+		{ cpara.opt3 & 0xffff, cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 24 & 0xff },
+		{ cpara.opt4 & 0xffff, cpara.opt4 >> 16 & 0xff, cpara.opt4 >> 24 & 0xff },
+		{ cpara.opt5 & 0xffff, cpara.opt5 >> 16 & 0xff, cpara.opt5 >> 24 & 0xff }
+	};
+	vector <WireMaskInfo> w[2];
+	for (int i = 0; i < wnum; i++) { //unpack WireMaskInfo dir
+		qInfo("hotpoint_search w%d:type=%d, dir=%d, clong=%d, cwide=%d", i, wpara[i].type_shape >> 8, wpara[i].type_shape & 0xff,
+			wpara[i].clong, wpara[i].cwide);
+		int dir = wpara[i].type_shape & 0xff;
+		if (dir & DIR_UP1_MASK) {
+			wpara[i].type_shape &= 0xff00;
+			wpara[i].type_shape |= BRICK_I_0;
+			w[0].push_back(wpara[i]);
+		}
+		if (dir & DIR_RIGHT1_MASK) {
+			wpara[i].type_shape &= 0xff00;
+			wpara[i].type_shape |= BRICK_I_90;
+			w[1].push_back(wpara[i]);
+		}
+	}
+
+	Mat & prob = d.l[layer].prob;
+	d.l[layer].validate_ig();
+	Mat mark = d.l[layer].bm.get_mark();
+	for (int dir = 0; dir < 2; dir++)
+	if (dir == 0) {
+		if (w[dir].empty())
+			continue;
+		for (int y = 0; y < prob.rows; y++) {
+			unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
+			for (int x = 0; x < prob.cols; x++) {	
+				if (PROB_SHAPE(p_prob[2 * x]) != BRICK_I_0)
+					continue;
+				int type_shape = d.l[layer].wts.get_type(PROB_TYPE(p_prob[2 * x])) << 8 | BRICK_I_0;
+				int i;
+				for (i = 0; i < w[dir].size(); i++)
+					if (type_shape == w[dir][i].type_shape)
+						break;
+				if (i == w[dir].size())
+					continue;
+				WireMaskInfo & wsi = w[dir][i];
+				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]); 
+				//start to search hotpoint
+				int type, subtype, pattern, wide;
+				d.l[layer].wts.get_all(PROB_TYPE(p_prob[2 * x]), type, subtype, pattern, wide);
+				if (subtype < WIRE_SUBTYPE_MSBRANCH) {
+					qCritical("hotpoint_search found subtype=%d error", subtype);
+					return;
+				}
+				WireParameter2 * wp = &(d.l[layer].vw.get_vw_para(pattern, type, subtype)->w2);
+				CV_Assert(wp != NULL);
+				wp->gray_i = gl;
+				wp->gray_w = gm;
+				int th0 = wide * wide * wp->gray_i + wide * wide * (wp->gray_w - wp->gray_i) * (wp->mth_high / 100.0);
+				int offset[4];
+				offset[0] = ((-wide / 2) * (int)d.l[layer].ig.step.p[0] + (-wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				offset[1] = ((-wide / 2) * (int)d.l[layer].ig.step.p[0] + (wide - wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				offset[2] = ((wide - wide / 2) * (int)d.l[layer].ig.step.p[0] + (-wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				offset[3] = ((wide - wide / 2) * (int)d.l[layer].ig.step.p[0] + (wide - wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				for (int yy = max(y0 - 6, d.l[layer].compute_border); yy <= min(y0 + 6, img.rows - d.l[layer].compute_border); yy++)
+				if (mark.at<unsigned long long>(yy, x0) == 0xffffffffffffffffULL) {// not fill yet
+					int * p_ig = d.l[layer].ig.ptr<int>(yy, x0);
+					int sum = p_ig[offset[3]] + p_ig[offset[0]] - p_ig[offset[1]] - p_ig[offset[2]];
+					if (sum >= th0) {
+						int bidx = search_wire_branch(Point(x0, yy), DIR_UP, wide, -1, wp, wsi, d.l[layer]);
+						search_wire_branch(Point(x0, yy), DIR_DOWN, wide, bidx, wp, wsi, d.l[layer]);
+					}
+				}
+			}
+		}
+	}
+	else {
+		if (w[dir].empty())
+			continue;
+		for (int x = 0; x < prob.cols; x++) {
+			for (int y = 0; y < prob.rows; y++) {
+				unsigned long long p0 = prob.at<unsigned long long>(y, 2 * x);
+				if (PROB_SHAPE(p0) != BRICK_I_90)
+					continue;
+				int type_shape = d.l[layer].wts.get_type(PROB_TYPE(p0)) << 8 | BRICK_I_90;
+				int i;
+				for (i = 0; i < w[dir].size(); i++)
+				if (type_shape == w[dir][i].type_shape)
+					break;
+				if (i == w[dir].size())
+					continue;
+				WireMaskInfo & wsi = w[dir][i];
+				int x0 = PROB_X(p0), y0 = PROB_Y(p0);
+				//start to search hotpoint
+				int type, subtype, pattern, wide;
+				d.l[layer].wts.get_all(PROB_TYPE(p0), type, subtype, pattern, wide);
+				if (subtype < WIRE_SUBTYPE_MSBRANCH) {
+					qCritical("hotpoint_search found subtype=%d error", subtype);
+					return;
+				}
+				WireParameter2 * wp = &(d.l[layer].vw.get_vw_para(pattern, type, subtype)->w2);
+				CV_Assert(wp != NULL);
+				wp->gray_i = gl;
+				wp->gray_w = gm;
+				int th0 = wide * wide * wp->gray_i + wide * wide * (wp->gray_w - wp->gray_i) * (wp->mth_high / 100.0);
+				int offset[4];
+				offset[0] = ((-wide / 2) * (int)d.l[layer].ig.step.p[0] + (-wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				offset[1] = ((-wide / 2) * (int)d.l[layer].ig.step.p[0] + (wide - wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				offset[2] = ((wide - wide / 2) * (int)d.l[layer].ig.step.p[0] + (-wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				offset[3] = ((wide - wide / 2) * (int)d.l[layer].ig.step.p[0] + (wide - wide / 2)*(int)d.l[layer].ig.step.p[1]) / sizeof(int);
+				for (int xx = max(x0 - 6, d.l[layer].compute_border); xx <= min(x0 + 6, img.cols - d.l[layer].compute_border); xx++)
+				if (mark.at<unsigned long long>(y0, xx) == 0xffffffffffffffffULL) {// not fill yet
+					int * p_ig = d.l[layer].ig.ptr<int>(y0, xx);
+					int sum = p_ig[offset[3]] + p_ig[offset[0]] - p_ig[offset[1]] - p_ig[offset[2]];
+					if (sum >= th0) { //new branch
+						int bidx = search_wire_branch(Point(xx, y0), DIR_LEFT, wide, -1, wp, wsi, d.l[layer]);
+						search_wire_branch(Point(xx, y0), DIR_RIGHT, wide, bidx, wp, wsi, d.l[layer]);
+					}
+				}
+			}
+		}
+	}
+
+	if (cpara.method & OPT_DEBUG_EN) {
+		Mat debug_draw;
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
+		CV_Assert(debug_draw.type() == CV_8UC3);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			unsigned char * p_draw = debug_draw.ptr<unsigned char>(y);
+			unsigned long long  * p_mark = mark.ptr<unsigned long long>(y);
+			for (int x = 0; x < debug_draw.cols; x++) {
+				if (MARK_BRANCH(p_mark[x]) != INVALID_BRANCH)
+				if (MARK_ISSKIN(p_mark[x]))
+					p_draw[3 * x + 2] = 255; //draw skin red
+				else
+				if (MARK_LEN(p_mark[x]) == 0)
+					p_draw[3 * x + 1] = 255; //draw bone green
+			}
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_hotpoint.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
+		}
+	}
+}
+
+/*
+        31..24 23..16   15..8   7..0
+opt0:		             opt    layer
+opt1:	       v_type cgray_ratio sw_min
+*/
+static void assemble_via(PipeData & d, ProcessParameter & cpara)
+{
+	int layer[2] = {cpara.layer, cpara.opt0 & 0xff};
+	int assemble_opt = cpara.opt0 >> 8 & 0xff;
+	bool allow_45 = (assemble_opt & ASSEMBLE_BRANCH_ALLOW_45) ? true : false;
+	SearchViaBranch sb;
+	d.l[layer[0]].validate_ig();
+	Mat & ig = d.l[layer[0]].ig;
+	Mat & img = d.l[layer[0]].img;
+	Mat mark = d.l[layer[0]].bm.get_mark();
+	int idx = cpara.method_opt & 0xf;
+	int sw_min = cpara.opt1 & 0xff;
+	int c_ratio = cpara.opt1 >> 8 & 0xff;
+	int v_type = cpara.opt1 >> 16 & 0xff;
+	qInfo("assemble_via, l0=%d, l1=%d, sw_min=%d, c_ratio=%d, v_type=%d, allow45=%d", 
+		layer[0], layer[1], sw_min, c_ratio, v_type, allow_45);
+
+	if (d.l[layer[0]].v[idx].type != TYPE_GRAY_LEVEL) {
+		qCritical("assemble_branch gray level idx[%d]=%d, error", idx, d.l[layer[0]].v[idx].type);
+		return;
+	}
+	int gl = find_index(d.l[layer[0]].v[idx].d, (int)GRAY_L0);
+	gl = d.l[layer[0]].v[idx].d.at<int>(gl, 2);
+	int gm = find_index(d.l[layer[0]].v[idx].d, (int)GRAY_M0);
+	gm = d.l[layer[0]].v[idx].d.at<int>(gm, 2);
+
+	for (int l = 0; l < 2; l++) {
+		ViaParameter * prev_vp = NULL;
+		ViaParameter vp_copy; //vp_copy save real color
+		for (int i = 0; i < d.l[layer[l]].via_info.size(); i++) {
+			ViaInfo & v = d.l[layer[l]].via_info[i];
+			ViaParameter * vp = &(d.l[layer[l]].vw.get_vw_para(v.pattern, v.type, v.subtype)->v);
+			if (vp != prev_vp) {
+				vp_copy = *vp;
+				vp_copy.gray0 = gm;
+				vp_copy.gray3 = gl;
+				vp_copy.type = v_type;
+				if (l == 1) {
+					vp_copy.cgray_ratio = c_ratio;
+					vp_copy.swide_min = sw_min;
+				}
+				prev_vp = vp;
+			}
+			sb.search_branch(v.xy, &vp_copy, ig, d.l[layer[0]].bm);
+		}
+	}
+
+	d.l[layer[0]].bm.search_skin(ig, allow_45);
+	if (cpara.method & OPT_DEBUG_EN) {
+		Mat debug_draw;
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			unsigned char * p_draw = debug_draw.ptr<unsigned char>(y);
+			unsigned long long  * p_mark = mark.ptr<unsigned long long>(y);
+			for (int x = 0; x < debug_draw.cols; x++) {
+				if (MARK_BRANCH(p_mark[x]) != INVALID_BRANCH)
+				if (MARK_ISSKIN(p_mark[x]))
+					p_draw[3 * x + 2] = 255; //draw skin red
+				else
+				if (MARK_LEN(p_mark[x]) == 0)
+					p_draw[3 * x + 1] = 255; //draw bone green
+			}
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer[0]) + "_assemble_via.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer[0]].v[debug_idx + 12].d = debug_draw.clone();
+		}
+	}	
+}
+
+/*
+	  31..24 23..16   15..8   7..0
+opt0:		           opt    
+*/
+static void assemble_branch(PipeData & d, ProcessParameter & cpara)
+{
+	int layer = cpara.layer;
+	int assemble_opt = cpara.opt0 >> 8 & 0xff;
+	bool allow_45 = (assemble_opt & ASSEMBLE_BRANCH_ALLOW_45) ? true : false;
+	Mat & img = d.l[layer].img;
+	d.l[layer].validate_ig();
+	Mat & ig = d.l[layer].ig;
+
+	qInfo("assemble_branch, allow45=%d", allow_45);
+
+	d.l[layer].bm.search_cross_points(allow_45, false, 15, 20);
+	d.l[layer].bm.draw_mark2(true, allow_45);
+	if (cpara.method & OPT_DEBUG_EN) {
+		Mat mark2 = d.l[layer].bm.get_mark2();
+		Mat debug_draw;
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			unsigned char * p_draw = debug_draw.ptr<unsigned char>(y);
+			unsigned * p_mark2 = mark2.ptr<unsigned>(y);
+			for (int x = 0; x < debug_draw.cols; x++) {
+				if (p_mark2[x]) {
+					if (MARK2_LEN(p_mark2[x]) == 0)
+						p_draw[3 * x + 1] = 255; //draw branch green
+					if (MARK2_FLAG(p_mark2[x]))
+						p_draw[3 * x] = 255;  //draw flag blue
+					if (MARK2_VIA(p_mark2[x]))
+						p_draw[3 * x + 2] = 255; //draw via red
+				}
+			}
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_assemble_branch.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
+		}
+	}
+
+	d.l[layer].bm.search_skin(ig, allow_45);
+	d.l[layer].bm.search_cross_points(allow_45, true, 15, 20);
+	d.l[layer].bm.draw_mark2(false, allow_45);
+}
 /*
 		31..24 23..16   15..8   7..0
 opt0:					filt_method process_method
@@ -6328,6 +8236,9 @@ static ObjProcessHook obj_process_translate(ProcessParameter & cpara)
 #define PP_FINE_LINE_SEARCH		9
 #define PP_ASSEMBLE				10
 #define PP_CHECK_VIA_WIRE_CONNECT	11
+#define PP_HOTPOINT_SEARCH		12
+#define PP_ASSEMBLE_VIA			13
+#define PP_ASSEMBLE_BRANCH		14
 #define PP_OBJ_PROCESS			254
 
 typedef void(*ProcessFunc)(PipeData & d, ProcessParameter & cpara);
@@ -6346,7 +8257,10 @@ struct PipeProcess {
 		{ PP_FINE_SEARCH_MASK, hotpoint2fine_search_stmask },
 		{ PP_FINE_LINE_SEARCH, fine_line_search },		
 		{ PP_ASSEMBLE, assemble_line },
-		{ PP_CHECK_VIA_WIRE_CONNECT, check_via_wire_connect }
+		{ PP_CHECK_VIA_WIRE_CONNECT, check_via_wire_connect },
+		{ PP_HOTPOINT_SEARCH, hotpoint_search },
+		{ PP_ASSEMBLE_VIA, assemble_via},
+		{ PP_ASSEMBLE_BRANCH, assemble_branch }
 };
 
 class ProcessTileData {
@@ -6544,7 +8458,6 @@ int VWExtractPipe::extract(string file_name, QRect, vector<MarkObj> & obj_sets)
 		for (int dir = 0; dir < 4; dir++) {
 			for (int j = 0; j < d->l[l].lineset[dir].size(); j++) {
 				WireLine & wl = d->l[l].lineset[dir][j];
-				CV_Assert(wl.corner.size() == wl.state.size());
 				d->l[l].fwv.push(wl, 0, 0, dir);
 			}
 		}
@@ -6890,7 +8803,6 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 						//3.6 push current line to FinalWireLine
 						for (int j = 0; j < cpd.l[l].lineset[dir].size(); j++) {
 							WireLine & wl = cpd.l[l].lineset[dir][j];
-							CV_Assert(wl.corner.size() == wl.state.size());
 							cpd.l[l].fwv.push(wl, cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0, dir);
 						}
 					}
@@ -6999,4 +8911,5 @@ VWExtract * VWExtract::create_extract(int method)
 	case 1:
 		return new VWExtractAnt;
 	}
+	return NULL;
 }

@@ -506,13 +506,25 @@ void ViaWireEditView::show_debug(unsigned _mark_mask, bool _show_debug_en)
 			return;
 		}
 		bk_img_mask = bk_img[layer].copy();
-		for (int y = 0; y < mark.rows; y++) {
-			unsigned char * p_mark = mark.ptr<unsigned char>(y);
-			for (int x = 0; x < mark.cols; x++) {
-				unsigned bc = p_mark[x];
-				QRgb nc = bc + (bc << 8) + (bc << 16);
-				nc += 0xff000000;
-				bk_img_mask.setPixel(x, y, nc);
+		if (mark.type() == CV_8UC1) {
+			for (int y = 0; y < mark.rows; y++) {
+				unsigned char * p_mark = mark.ptr<unsigned char>(y);
+				for (int x = 0; x < mark.cols; x++) {
+					unsigned bc = p_mark[x];
+					QRgb nc = bc + (bc << 8) + (bc << 16);
+					nc += 0xff000000;
+					bk_img_mask.setPixel(x, y, nc);
+				}
+			}
+		}
+		if (mark.type() == CV_8UC3) {
+			for (int y = 0; y < mark.rows; y++) {
+				unsigned char * p_mark = mark.ptr<unsigned char>(y);
+				for (int x = 0; x < mark.cols; x++) {
+					QRgb nc = p_mark[3 * x] + (p_mark[3 * x + 1] << 8) + (p_mark[3 * x + 2] << 16);
+					nc += 0xff000000;
+					bk_img_mask.setPixel(x, y, nc);
+				}
 			}
 		}
 	}

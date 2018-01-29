@@ -23,10 +23,14 @@ TEMPLATE = lib
 CONFIG += staticlib
 
 SOURCES += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.cpp \
-           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract2.cpp
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract2.cpp \
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract_public.cpp \
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract3.cpp
 
 HEADERS += $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract.h \
-           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract2.h
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract2.h \
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract_public.h \
+           $$_PRO_FILE_PWD_/../ViaWireExtract/vwextract3.h
 
 unix {
     target.path = /usr/lib

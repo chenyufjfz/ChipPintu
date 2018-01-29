@@ -111,6 +111,7 @@ public:
 extern struct Brick bricks[];
 extern int dxy[8][2];
 extern int dir_1[8];
+extern int dir_2[8];
 extern BrickConnect brick_conn;
 #endif
 

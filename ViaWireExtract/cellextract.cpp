@@ -542,6 +542,8 @@ int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, const std::vecto
                     QSize size(ir.width() / scale, ir.height() / scale);
                     qInfo("CellTrain copy from img%d_%d (%d,%d) to (%d,%d), w=%d, h=%d", yy, xx,
                         lt.x(), lt.y(), mlt.x(), mlt.y(), size.width(), size.height());
+                    if (size.width()==0 || size.height()==0)
+                        continue;
                     mark(Rect(lt.x(), lt.y(), size.width(), size.height())).copyTo(
                         img(Rect(mlt.x(), mlt.y(), size.width(), size.height())));
                 }

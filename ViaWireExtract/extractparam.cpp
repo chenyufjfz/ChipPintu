@@ -15,7 +15,11 @@ using namespace cv;
 #define PP_FINE_LINE_SEARCH		9
 #define PP_ASSEMBLE				10
 #define PP_CHECK_VIA_WIRE_CONNECT	11
+#define PP_HOTPOINT_SEARCH		12
+#define PP_ASSEMBLE_VIA			13
+#define PP_ASSEMBLE_BRANCH		14
 #define PP_OBJ_PROCESS			254
+
 enum {
 	LayerInfo=0,
 	ViaInfo,
@@ -31,6 +35,9 @@ enum {
 	FineLineSearch,
 	AssembleLine,
 	CheckViaWireConnect,
+	HotPointSearch,
+	AssembleVia,
+	AssembleBranch,
 	FilterObj
 };
 
@@ -49,6 +56,9 @@ string method_name[] = {
 	"FineLineSearch",
 	"AssembleLine",
 	"CheckViaWireConnect",
+	"HotPointSearch",
+	"AssembleVia",
+	"AssembleBranch",
 	"FilterObj"
 };
 
@@ -151,6 +161,16 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 		break;
 	case PP_CHECK_VIA_WIRE_CONNECT:
 		method = CheckViaWireConnect;
+		break;
+	case PP_HOTPOINT_SEARCH:
+		method = HotPointSearch;
+		break;
+	case PP_ASSEMBLE_VIA:
+		method = AssembleVia;
+		break;
+	case PP_ASSEMBLE_BRANCH:
+		method = AssembleBranch;
+		break;
 	case PP_OBJ_PROCESS:
 		if ((pi2 & 0xff) ==0)
 			method = FilterObj;
@@ -244,6 +264,7 @@ bool ExtractParam::read_file(string filename)
 				int cgray_d = (int)(*it)["cgray_d"];
 				int cgray_ratio = (int)(*it)["cgray_ratio"];
 				int connect_rd = (int)(*it)["connect_rd"];
+				int swide_min = (int)(*it)["swide_min"];
 				int rd0 = (int)(*it)["rd0"];
 				int rd1 = (int)(*it)["rd1"];
 				int rd2 = (int)(*it)["rd2"];
@@ -282,8 +303,13 @@ bool ExtractParam::read_file(string filename)
 						name.c_str(), connect_d, cgray_d, cgray_ratio, connect_rd);
 					check_pass = false;
 				}
+				if (swide_min > 255) {
+					qCritical("ParamItems file error, name=%s swide_min=%d", name.c_str(), swide_min);
+					check_pass = false;
+				}
 				param.pi[5] = gray3 << 24 | gray2 << 16 | gray1 << 8 | gray0;
 				param.pi[6] = connect_d <<24 | cgray_d << 16 | cgray_ratio << 8 | connect_rd;
+				param.pi[7] = swide_min;
 			}
 			break;
 
@@ -294,63 +320,113 @@ bool ExtractParam::read_file(string filename)
 				int pattern = (int)(*it)["pattern"];
 				int type = (int)(*it)["type"];
 				int subtype = (int)(*it)["subtype"];
-				int guard = (int)(*it)["guard"];
-				int arfactor = (int)(*it)["arfactor"];
-				int w_wide = (int)(*it)["w_wide"];
-				int w_wide1 = (int)(*it)["w_wide1"];
-				int w_high = (int)(*it)["w_high"];
-				int w_high1 = (int)(*it)["w_high1"];
-				int i_wide = (int)(*it)["i_wide"];
-				int i_high = (int)(*it)["i_high"];
-				int dis_vw0 = (int)(*it)["dis_vw0"];
-				int dis_vw1 = (int)(*it)["dis_vw1"];
-				int wgid0 = (int)(*it)["wgid0"];
-				int wgid1 = (int)(*it)["wgid1"];
-				int wgid2 = (int)(*it)["wgid2"];
-				int wgid3 = (int)(*it)["wgid3"];
-				int wgid4 = (int)(*it)["wgid4"];
-				int wgid5 = (int)(*it)["wgid5"];
-				int wgid6 = (int)(*it)["wgid6"];
-				int wgid7 = (int)(*it)["wgid7"];
-				int uni_id = (int)(*it)["uni_id"];
 				if (pattern > 255 || type > 255 || subtype > 255) {
-					qCritical("ParamItems file error, name=%s, pattern=%d, type=%d, subtype=%d", 
+					qCritical("ParamItems file error, name=%s, pattern=%d, type=%d, subtype=%d",
 						name.c_str(), pattern, type, subtype);
 					check_pass = false;
 				}
-				if (arfactor > 255 || guard > 255) {
-					qCritical("ParamItems file error, name=%s, arfactor=%d, guard=%d", name.c_str(), arfactor, guard);
-					check_pass = false;
+
+				if (subtype < 3) {
+					int guard = (int)(*it)["guard"];
+					int arfactor = (int)(*it)["arfactor"];
+					int w_wide = (int)(*it)["w_wide"];
+					int w_wide1 = (int)(*it)["w_wide1"];
+					int w_high = (int)(*it)["w_high"];
+					int w_high1 = (int)(*it)["w_high1"];
+					int i_wide = (int)(*it)["i_wide"];
+					int i_high = (int)(*it)["i_high"];
+					int dis_vw0 = (int)(*it)["dis_vw0"];
+					int dis_vw1 = (int)(*it)["dis_vw1"];
+					int wgid0 = (int)(*it)["wgid0"];
+					int wgid1 = (int)(*it)["wgid1"];
+					int wgid2 = (int)(*it)["wgid2"];
+					int wgid3 = (int)(*it)["wgid3"];
+					int wgid4 = (int)(*it)["wgid4"];
+					int wgid5 = (int)(*it)["wgid5"];
+					int wgid6 = (int)(*it)["wgid6"];
+					int wgid7 = (int)(*it)["wgid7"];
+					int uni_id = (int)(*it)["uni_id"];
+
+					if (arfactor > 255 || guard > 255) {
+						qCritical("ParamItems file error, name=%s, arfactor=%d, guard=%d", name.c_str(), arfactor, guard);
+						check_pass = false;
+					}
+					if (w_wide > 255 || w_wide1 > 255 || w_high > 255 || w_high1 > 255) {
+						qCritical("ParamItems file error, name=%s, w_wide=%d, w_wide1=%d, w_high=%d, w_high1=%d",
+							name.c_str(), w_wide, w_wide1, w_high, w_high1);
+						check_pass = false;
+					}
+					if (i_high > 255 || i_wide > 255 || dis_vw0 > 255 || dis_vw1 > 255) {
+						qCritical("ParamItems file error, name=%s, i_high=%d, i_wide=%d, dis_vw0=%d, dis_vw1=%d",
+							name.c_str(), i_high, i_wide, dis_vw0, dis_vw1);
+						check_pass = false;
+					}
+					if (wgid0 > 255 || wgid1 > 255 || wgid2 > 255 || wgid3 > 255) {
+						qCritical("ParamItems file error, name=%s, wgid0=%d, wgid1=%d, wgid2=%d, wgid3=%d",
+							name.c_str(), wgid0, wgid1, wgid2, wgid3);
+						check_pass = false;
+					}
+					if (wgid4 > 255 || wgid5 > 255 || wgid6 > 255 || wgid7 > 255) {
+						qCritical("ParamItems file error, name=%s, wgid4=%d, wgid5=%d, wgid6=%d, wgid7=%d",
+							name.c_str(), wgid4, wgid5, wgid6, wgid7);
+						check_pass = false;
+					}
+					if (uni_id > 65535) {
+						qCritical("ParamItems file error, name=%s, uni_id=%d",
+							name.c_str(), uni_id);
+						check_pass = false;
+					}
+					param.pi[0] = layer;
+					param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
+					param.pi[2] = subtype << 16 | type << 8 | pattern;
+					param.pi[3] = arfactor << 8 | guard;
+					param.pi[4] = w_wide << 24 | w_wide1 << 16 | w_high << 8 | w_high1;
+					param.pi[5] = dis_vw0 << 24 | dis_vw1 << 16 | i_wide << 8 | i_high;
+					param.pi[6] = wgid3 << 24 | wgid2 << 16 | wgid1 << 8 | wgid0;
+					param.pi[7] = wgid7 << 24 | wgid6 << 16 | wgid5 << 8 | wgid4;
+					param.pi[8] = uni_id;
 				}
-				if (w_wide > 255 || w_wide1 > 255 || w_high > 255 || w_high1 > 255) {
-					qCritical("ParamItems file error, name=%s, w_wide=%d, w_wide1=%d, w_high=%d, w_high1=%d",
-						name.c_str(), w_wide, w_wide1, w_high, w_high1);
-					check_pass = false;
+				else {
+					int guard = (int)(*it)["guard"];
+					int arfactor = (int)(*it)["arfactor"];
+					int i_wide = (int)(*it)["i_wide"];
+					int i_high = (int)(*it)["i_high"];
+					int mwide_max = (int)(*it)["mwide_max"];
+					int mwide_min = (int)(*it)["mwide_min"];
+					int swide_max = (int)(*it)["swide_max"];
+					int swide_min = (int)(*it)["swide_min"];
+					int slen_max = (int)(*it)["slen_max"];
+					int slen_min = (int)(*it)["slen_min"];
+					int mth_high = (int)(*it)["mth_high"];
+					int mth_low = (int)(*it)["mth_low"];
+					int s_th = (int)(*it)["s_th"];
+					if (arfactor > 255 || guard > 255) {
+						qCritical("ParamItems file error, name=%s, arfactor=%d, guard=%d", name.c_str(), arfactor, guard);
+						check_pass = false;
+					}
+					if (i_high > 255 || i_wide > 255 || mwide_max > 255 || mwide_min > 255) {
+						qCritical("ParamItems file error, name=%s, i_high=%d, i_wide=%d, dis_vw0=%d, dis_vw1=%d",
+							name.c_str(), i_high, i_wide, mwide_max, mwide_min);
+						check_pass = false;
+					}
+					if (swide_max > 255 || swide_min > 255 || slen_max > 255 || slen_min > 255) {
+						qCritical("ParamItems file error, name=%s, swide_max=%d, swide_min=%d, slen_max=%d, slen_min=%d",
+							name.c_str(), swide_max, swide_min, slen_max, slen_min);
+						check_pass = false;
+					}
+					if (mth_high > 255 || mth_low > 255 || s_th > 255) {
+						qCritical("ParamItems file error, name=%s, mth_high=%d, mth_low=%d, s_th=%d",
+							name.c_str(), mth_high, mth_low, s_th);
+						check_pass = false;
+					}
+					param.pi[0] = layer;
+					param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
+					param.pi[2] = subtype << 16 | type << 8 | pattern;
+					param.pi[3] = arfactor << 8 | guard;
+					param.pi[4] = i_high << 24 | i_wide << 16 | mwide_max << 8 | mwide_min;
+					param.pi[5] = slen_max << 24 | slen_min << 16 | swide_max << 8 | swide_min;
+					param.pi[6] = s_th << 16 | mth_high << 8 | mth_low;
 				}
-				if (wgid0 > 255 || wgid1 > 255 || wgid2 > 255 || wgid3 > 255) {
-					qCritical("ParamItems file error, name=%s, wgid0=%d, wgid1=%d, wgid2=%d, wgid3=%d",
-						name.c_str(), wgid0, wgid1, wgid2, wgid3);
-					check_pass = false;
-				}
-				if (wgid4 > 255 || wgid5 > 255 || wgid6 > 255 || wgid7 > 255) {
-					qCritical("ParamItems file error, name=%s, wgid4=%d, wgid5=%d, wgid6=%d, wgid7=%d",
-						name.c_str(), wgid4, wgid5, wgid6, wgid7);
-					check_pass = false;
-				}
-				if (uni_id > 65535) {
-					qCritical("ParamItems file error, name=%s, uni_id=%d",
-						name.c_str(), uni_id);
-					check_pass = false;
-				}
-				param.pi[0] = layer;
-				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
-				param.pi[2] = subtype << 16 | type << 8 | pattern;
-				param.pi[3] = arfactor << 8 | guard;				
-				param.pi[4] = w_wide << 24 | w_wide1 << 16 | w_high << 8 | w_high1;
-				param.pi[5] = dis_vw0 << 24 | dis_vw1 << 16 | i_wide << 8 | i_high;
-				param.pi[6] = wgid3 << 24 | wgid2 << 16 | wgid1 << 8 | wgid0;
-				param.pi[7] = wgid7 << 24 | wgid6 << 16 | wgid5 << 8 | wgid4;
-				param.pi[8] = uni_id;
 			}
 			break;
 
@@ -714,9 +790,7 @@ bool ExtractParam::read_file(string filename)
 			{
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
-				int opidx_via_info = (int)(*it)["opidx_via_info"];
 				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
-				int opidx_tp = (int)(*it)["opidx_tp"];
 				int vnum = (int)(*it)["vnum"];
 				int check_len = (int)(*it)["check_len"];
 				int default_dir = (int)(*it)["default_dir"];
@@ -737,9 +811,9 @@ bool ExtractParam::read_file(string filename)
 				int type4 = (int)(*it)["type4"];
 				int pattern4 = (int)(*it)["pattern4"];
 
-				if (opidx_rv_mask >= 16 || opidx_via_info >= 16 || opidx_tp >= 16) {
+				if (opidx_rv_mask >= 16) {
 					qCritical("ParamItems file error, name=%s, opidx_rv_mask=%d, opidx_via_info=%d, opidx_tp=%d",
-						name.c_str(), opidx_rv_mask, opidx_via_info, opidx_tp);
+						name.c_str(), opidx_rv_mask);
 					check_pass = false;
 				}
 
@@ -779,7 +853,7 @@ bool ExtractParam::read_file(string filename)
 				}
 
 				param.pi[0] = layer;
-				param.pi[1] = debug_opt << 24 | PP_REMOVE_VIA << 16 | opidx_rv_mask << 4 | opidx_via_info;
+				param.pi[1] = debug_opt << 24 | PP_REMOVE_VIA << 16 | opidx_rv_mask << 4;
 				param.pi[2] = remove_opt << 24 | default_dir << 16 | check_len << 8 | vnum;
 				param.pi[3] = pattern0 << 16 | subtype0 << 8 | type0;
 				param.pi[4] = pattern1 << 16 | subtype1 << 8 | type1;
@@ -983,6 +1057,113 @@ bool ExtractParam::read_file(string filename)
 			}
 			break;
 
+		case HotPointSearch:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int opidx_tp = (int)(*it)["opidx_tp"];
+				int wnum = (int)(*it)["wnum"];
+				int hotpoint_opt = (int)(*it)["hotpoint_opt"];
+				int dir0 = (int)(*it)["dir0"];
+				int type0 = (int)(*it)["type0"];
+				int clong0 = (int)(*it)["clong0"];
+				int cwide0 = (int)(*it)["cwide0"];
+				int dir1 = (int)(*it)["dir1"];
+				int type1 = (int)(*it)["type1"];
+				int clong1 = (int)(*it)["clong1"];
+				int cwide1 = (int)(*it)["cwide1"];
+				int dir2 = (int)(*it)["dir2"];
+				int type2 = (int)(*it)["type2"];
+				int clong2 = (int)(*it)["clong2"];
+				int cwide2 = (int)(*it)["cwide2"];
+				int dir3 = (int)(*it)["dir3"];
+				int type3 = (int)(*it)["type3"];
+				int clong3 = (int)(*it)["clong3"];
+				int cwide3 = (int)(*it)["cwide3"];
+				int dir4 = (int)(*it)["dir4"];
+				int type4 = (int)(*it)["type4"];
+				int clong4 = (int)(*it)["clong4"];
+				int cwide4 = (int)(*it)["cwide4"];
+
+				if (wnum > 255 || hotpoint_opt > 255) {
+					qCritical("ParamItems file error, name=%s, wnum=%d, hotpoint_opt=%d", name.c_str(), wnum, hotpoint_opt);
+					check_pass = false;
+				}
+				if (dir0 > 255 || type0 > 255 || clong0 > 255 || cwide0 > 255) {
+					qCritical("ParamItems file error, name=%s, dir0=%d, type0=%d, clong0=%d, cwide0=%d", 
+						name.c_str(), dir0, type0, clong0, cwide0);
+					check_pass = false;
+				}
+				if (dir1 > 255 || type1 > 255 || clong1 > 255 || cwide1 > 255) {
+					qCritical("ParamItems file error, name=%s, dir1=%d, type1=%d, clong1=%d, cwide1=%d",
+						name.c_str(), dir1, type1, clong1, cwide1);
+					check_pass = false;
+				}
+				if (dir2 > 255 || type2 > 255 || clong2 > 255 || cwide2 > 255) {
+					qCritical("ParamItems file error, name=%s, dir2=%d, type2=%d, clong2=%d, cwide2=%d",
+						name.c_str(), dir2, type2, clong2, cwide2);
+					check_pass = false;
+				}
+				if (dir3 > 255 || type3 > 255 || clong3 > 255 || cwide3 > 255) {
+					qCritical("ParamItems file error, name=%s, dir3=%d, type3=%d, clong3=%d, cwide3=%d",
+						name.c_str(), dir3, type3, clong3, cwide3);
+					check_pass = false;
+				}
+				if (dir4 > 255 || type4 > 255 || clong4 > 255 || cwide4 > 255) {
+					qCritical("ParamItems file error, name=%s, dir4=%d, type4=%d, clong4=%d, cwide4=%d",
+						name.c_str(), dir4, type4, clong4, cwide4);
+					check_pass = false;
+				}
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_HOTPOINT_SEARCH << 16 | opidx_tp;
+				param.pi[2] = hotpoint_opt << 8 | wnum;
+				param.pi[3] = cwide0 << 24 | clong0 << 16 | type0 << 8 | dir0;
+				param.pi[4] = cwide1 << 24 | clong1 << 16 | type1 << 8 | dir1;
+				param.pi[5] = cwide2 << 24 | clong2 << 16 | type2 << 8 | dir2;
+				param.pi[6] = cwide3 << 24 | clong3 << 16 | type3 << 8 | dir3;
+				param.pi[7] = cwide4 << 24 | clong4 << 16 | type4 << 8 | dir4;
+			}
+			break;
+
+		case AssembleBranch:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int assemble_opt = (int)(*it)["assemble_opt"];
+				if (assemble_opt > 255) {
+					qCritical("ParamItems file error, name=%s, assemble_opt=%d", name.c_str(), assemble_opt);
+					check_pass = false;
+				}
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_ASSEMBLE_BRANCH << 16;
+				param.pi[2] = assemble_opt << 8;
+			}
+			break;
+
+		case AssembleVia:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int assemble_opt = (int)(*it)["assemble_opt"];
+				int layer1 = (int)(*it)["layer1"];
+				int cgray_ratio = (int)(*it)["cgray_ratio"];
+				int swide_min = (int)(*it)["swide_min"];
+				int v_type = (int)(*it)["v_type"];
+				if (layer1 > 255 || assemble_opt > 255) {
+					qCritical("ParamItems file error, name=%s, layer1=%d, assemble_opt=%d", name.c_str(), layer1, assemble_opt);
+					check_pass = false;
+				}
+				if (cgray_ratio > 255 || swide_min > 255 || v_type > 255) {
+					qCritical("ParamItems file error, name=%s, cgray_ratio=%d, swide_min=%d, v_type=%d", 
+						name.c_str(), cgray_ratio, swide_min, v_type);
+					check_pass = false;
+				}
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_ASSEMBLE_VIA << 16;
+				param.pi[2] = assemble_opt << 8 | layer1;
+				param.pi[3] = v_type << 16 | cgray_ratio << 8 | swide_min;
+			}
+			break;
 		case CheckViaWireConnect:
 			{
 				int layer = (int)(*it)["layer"];
@@ -1127,6 +1308,7 @@ void ExtractParam::write_file(string filename)
 			fs << "gray1" << (it->second.pi[5] >> 8 & 0xff);
 			fs << "gray2" << (it->second.pi[5] >> 16 & 0xff);
 			fs << "gray3" << (it->second.pi[5] >> 24 & 0xff);
+			fs << "swide_min" << (it->second.pi[7] & 0xff);
 			break;
 
 		case WireInfo:
@@ -1135,25 +1317,42 @@ void ExtractParam::write_file(string filename)
 			fs << "pattern" << (it->second.pi[2] & 0xff);
 			fs << "type" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "subtype" << (it->second.pi[2] >> 16 & 0xff);
-			fs << "guard" << (it->second.pi[3] & 0xff);
-			fs << "arfactor" << (it->second.pi[3] >> 8 & 0xff);
-			fs << "w_wide" << (it->second.pi[4] >> 24 & 0xff);
-			fs << "w_wide1" << (it->second.pi[4] >> 16 & 0xff);
-			fs << "w_high" << (it->second.pi[4] >> 8 & 0xff);
-			fs << "w_high1" << (it->second.pi[4] & 0xff);
-			fs << "i_wide" << (it->second.pi[5] >> 8 & 0xff);
-			fs << "i_high" << (it->second.pi[5] & 0xff);
-			fs << "dis_vw0" << (it->second.pi[5] >> 24 & 0xff);
-			fs << "dis_vw1" << (it->second.pi[5] >> 16 & 0xff);
-			fs << "wgid0" << (it->second.pi[6] & 0xff);
-			fs << "wgid1" << ((it->second.pi[6] >> 8) & 0xff);
-			fs << "wgid2" << ((it->second.pi[6] >> 16) & 0xff);
-			fs << "wgid3" << ((it->second.pi[6] >> 24) & 0xff);
-			fs << "wgid4" << (it->second.pi[7] & 0xff);
-			fs << "wgid5" << ((it->second.pi[7] >> 8) & 0xff);
-			fs << "wgid6" << ((it->second.pi[7] >> 16) & 0xff);
-			fs << "wgid7" << ((it->second.pi[7] >> 24) & 0xff);
-			fs << "uni_id" << (it->second.pi[8] & 0xffff);
+			if ((it->second.pi[2] >> 16 & 0xff) < 3) {
+				fs << "guard" << (it->second.pi[3] & 0xff);
+				fs << "arfactor" << (it->second.pi[3] >> 8 & 0xff);
+				fs << "w_wide" << (it->second.pi[4] >> 24 & 0xff);
+				fs << "w_wide1" << (it->second.pi[4] >> 16 & 0xff);
+				fs << "w_high" << (it->second.pi[4] >> 8 & 0xff);
+				fs << "w_high1" << (it->second.pi[4] & 0xff);
+				fs << "i_wide" << (it->second.pi[5] >> 8 & 0xff);
+				fs << "i_high" << (it->second.pi[5] & 0xff);
+				fs << "dis_vw0" << (it->second.pi[5] >> 24 & 0xff);
+				fs << "dis_vw1" << (it->second.pi[5] >> 16 & 0xff);
+				fs << "wgid0" << (it->second.pi[6] & 0xff);
+				fs << "wgid1" << ((it->second.pi[6] >> 8) & 0xff);
+				fs << "wgid2" << ((it->second.pi[6] >> 16) & 0xff);
+				fs << "wgid3" << ((it->second.pi[6] >> 24) & 0xff);
+				fs << "wgid4" << (it->second.pi[7] & 0xff);
+				fs << "wgid5" << ((it->second.pi[7] >> 8) & 0xff);
+				fs << "wgid6" << ((it->second.pi[7] >> 16) & 0xff);
+				fs << "wgid7" << ((it->second.pi[7] >> 24) & 0xff);
+				fs << "uni_id" << (it->second.pi[8] & 0xffff);
+			}
+			else {
+				fs << "guard" << (it->second.pi[3] & 0xff);
+				fs << "arfactor" << (it->second.pi[3] >> 8 & 0xff);
+				fs << "i_high" << (it->second.pi[4] >> 24 & 0xff);
+				fs << "i_wide" << (it->second.pi[4] >> 16 & 0xff);
+				fs << "mwide_max" << (it->second.pi[4] >> 8 & 0xff);
+				fs << "mwide_min" << (it->second.pi[4] & 0xff);
+				fs << "slen_max" << (it->second.pi[5] >> 24 & 0xff);
+				fs << "slen_min" << (it->second.pi[5] >> 16 & 0xff);
+				fs << "swide_max" << (it->second.pi[5] >> 8 & 0xff);
+				fs << "swide_min" << (it->second.pi[5] & 0xff);
+				fs << "s_th" << (it->second.pi[6] >> 16 & 0xff);
+				fs << "mth_high" << (it->second.pi[6] >> 8 & 0xff);
+				fs << "mth_low" << (it->second.pi[6] & 0xff);
+			}
 			break;
 
 		case Rgb2Gray:
@@ -1343,11 +1542,10 @@ void ExtractParam::write_file(string filename)
 		case FineLineSearch:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
-			fs << "opidx_via_info" << (it->second.pi[1] & 0xf);
 			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
 			fs << "opidx_hl_mask" << (it->second.pi[1] >> 4 & 0xf);
-			fs << "opidx_rv_mask" << (it->second.pi[1] >> 8 & 0xff);
-			fs << "opidx_via_info" << (it->second.pi[1] >> 12 & 0xff);
+			fs << "opidx_rv_mask" << (it->second.pi[1] >> 8 & 0xf);
+			fs << "opidx_via_info" << (it->second.pi[1] >> 12 & 0xf);
 			fs << "wnum" << (it->second.pi[2] & 0xff);
 			fs << "search_opt" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "subtype0" << (it->second.pi[3] >> 16 & 0xff);
@@ -1383,11 +1581,55 @@ void ExtractParam::write_file(string filename)
 			fs << "clong_heng2" << (it->second.pi[5] >> 24 & 0xff);
 			break;
 			
+		case HotPointSearch:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
+			fs << "hotpoint_opt" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "wnum" << (it->second.pi[2] & 0xff);
+			fs << "cwide0" << (it->second.pi[3] >> 24 & 0xff);
+			fs << "clong0" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "type0" << (it->second.pi[3] >> 8 & 0xff);
+			fs << "dir0" << (it->second.pi[3] & 0xff);
+			fs << "cwide1" << (it->second.pi[4] >> 24 & 0xff);
+			fs << "clong1" << (it->second.pi[4] >> 16 & 0xff);
+			fs << "type1" << (it->second.pi[4] >> 8 & 0xff);
+			fs << "dir1" << (it->second.pi[4] & 0xff);
+			fs << "cwide2" << (it->second.pi[5] >> 24 & 0xff);
+			fs << "clong2" << (it->second.pi[5] >> 16 & 0xff);
+			fs << "type2" << (it->second.pi[5] >> 8 & 0xff);
+			fs << "dir2" << (it->second.pi[5] & 0xff);
+			fs << "cwide3" << (it->second.pi[6] >> 24 & 0xff);
+			fs << "clong3" << (it->second.pi[6] >> 16 & 0xff);
+			fs << "type3" << (it->second.pi[6] >> 8 & 0xff);
+			fs << "dir3" << (it->second.pi[6] & 0xff);
+			fs << "cwide4" << (it->second.pi[7] >> 24 & 0xff);
+			fs << "clong4" << (it->second.pi[7] >> 16 & 0xff);
+			fs << "type4" << (it->second.pi[7] >> 8 & 0xff);
+			fs << "dir4" << (it->second.pi[7] & 0xff);
+			break;
+
+		case AssembleVia:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "assemble_opt" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "layer1" << (it->second.pi[2] & 0xff);
+			fs << "swide_min" << (it->second.pi[3] & 0xff);
+			fs << "cgray_ratio" << (it->second.pi[3] >> 8 & 0xff);
+			fs << "v_type" << (it->second.pi[3] >> 16 & 0xff);
+			break;
+
+		case AssembleBranch:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "assemble_opt" << (it->second.pi[2] >> 8 & 0xff);
+			break;
+
 		case CheckViaWireConnect:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
-			fs << "opidx_tp" << (it->second.pi[1] & 0xff);
-			fs << "opidx_hl_mask" << (it->second.pi[1] >> 4 & 0xff);
+			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
+			fs << "opidx_hl_mask" << (it->second.pi[1] >> 4 & 0xf);
 			fs << "v_pattern" << (it->second.pi[2] & 0xff);
 			fs << "v_type" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "v_subtype" << (it->second.pi[2] >> 16 & 0xff);

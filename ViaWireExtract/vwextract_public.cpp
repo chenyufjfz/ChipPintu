@@ -26,6 +26,17 @@ int dir_1[8] = {
 	DIR_DOWNRIGHT
 };
 
+int dir_2[8] = {
+	DIR_RIGHT,
+	DIR_DOWN,
+	DIR_LEFT,
+	DIR_UP,
+	DIR_DOWNRIGHT,
+	DIR_DOWNLEFT,
+	DIR_UPLEFT,
+	DIR_UPRIGHT
+};
+
 BrickConnect brick_conn;
 
 struct Brick bricks[] = {
