@@ -1246,7 +1246,7 @@ class ICLayerZoomWr : public ICLayerWrInterface
 {
 protected:
 	ICLayerWr * layer;
-	double zoom;
+	double zoom_x, zoom_y;
 	double offset_x, offset_y;
 	int block_num_x, block_num_y;
 
@@ -1265,9 +1265,10 @@ public:
 	other: actual cache size
 	Input type: 0 default type
 	*/
-	ICLayerZoomWr(const string file, bool _read, int _cache_size = 2, int type = 0, double _zoom = 1, double _offset_x = 0, double _offset_y = 0)
+	ICLayerZoomWr(const string file, bool _read, int _cache_size = 2, int type = 0, double _zoom_x = 1, double _zoom_y = 1, double _offset_x = 0, double _offset_y = 0)
 	{
-		zoom = _zoom;
+		zoom_x = _zoom_x;
+		zoom_y = _zoom_y;
 		layer = new ICLayerWr(file, _read, _cache_size, type);
 		offset_x = _offset_x;
 		offset_y = _offset_y;
@@ -1290,9 +1291,10 @@ public:
 	offset_x, offset_y:: it is global image shirt
 
 	*/
-	void create(const string file, bool _read, int _cache_size = 2, int type = 0, double _zoom = 1, double _offset_x = 0, double _offset_y = 0)
+	void create(const string file, bool _read, int _cache_size, int type, double _zoom_x, double _zoom_y, double _offset_x, double _offset_y)
 	{
-		zoom = _zoom;
+		zoom_x = _zoom_x;
+		zoom_y = _zoom_y;
 		offset_x = _offset_x;
 		offset_y = _offset_y;
 		layer->create(file, _read, _cache_size, type);
@@ -1367,11 +1369,11 @@ void ICLayerZoomWr::generateDatabase(GenerateDatabaseParam & gdp)
 	
 	char file_name[500];
 	vector<uchar> buff;
-	qInfo("ICLayerZoomWr::generateDatabase enter, frow=%d, trow=%d, fcol=%d, tcol=%d, bnum_x=%d, bnum_y=%d, zoom=%f, quality=%f",
-		from_row, to_row, from_col, to_col, _block_num_x, _block_num_y, zoom, quality);
+	qInfo("ICLayerZoomWr::generateDatabase enter, frow=%d, trow=%d, fcol=%d, tcol=%d, bnum_x=%d, bnum_y=%d, zoomx=%f, zoomy=%f, quality=%f",
+		from_row, to_row, from_col, to_col, _block_num_x, _block_num_y, zoom_x, zoom_y, quality);
 	qInfo("clip_l=%d, clip_r=%d, clip_u=%d, clip_d=%d, bundle_x=%d, bundle_y=%d, gen_width=%d", 
 		clip_left, clip_right, clip_up, clip_down, gen_image_width, bundle_x, bundle_y);
-	if (zoom > 1 || zoom <= 0.02)
+	if (zoom_x > 1 || zoom_x <= 0.02 || zoom_y > 1 || zoom_y <= 0.02)
 		qFatal("invalid zoom");
 	if (quality > 1 || quality < 0)
 		qFatal("invalid quality");
@@ -1430,8 +1432,8 @@ void ICLayerZoomWr::generateDatabase(GenerateDatabaseParam & gdp)
 #endif
 				row_buf1[(x - from_col) / bundle_x] = bundle_img; //now one bundle_img is ready
 				if (y == from_row && x == from_col) {
-					rowz = gen_image_width * zoom;
-					colz = gen_image_width * zoom;
+					rowz = gen_image_width * zoom_y;
+					colz = gen_image_width * zoom_x;
 					width = bundle_img.cols;
 					qInfo("raw_rows=%d, raw_cols=%d, bundle_image's cols=%d, rows=%d, rowz=%d", 
 						raw_rows, raw_cols, bundle_img.cols, bundle_img.rows, rowz);
@@ -1497,9 +1499,9 @@ void ICLayerZoomWr::generateDatabase(GenerateDatabaseParam & gdp)
 				image.copyTo(img2x2(Rect(image.cols, image.rows, image.cols, image.rows)));
 				
 				for (int i = 0; i < gen_image_width; i++)
-					matx.col(i) = (float)(x0 + zoom * i - (x1 - image.cols * 2));
+					matx.col(i) = (float)(x0 + zoom_x * i - (x1 - image.cols * 2));
 				for (int i = 0; i < gen_image_width; i++)
-					maty.row(i) = (float)(y0 + zoom * i - (y1 - image.rows * 2));
+					maty.row(i) = (float)(y0 + zoom_y * i - (y1 - image.rows * 2));
 				qInfo("copy from (lx=%.2f, ly=%.2f), (rx=%.2f, ry=%.2f)", x0, y0,
 					x0 + matx.at<float>(matx.rows - 1, matx.cols - 1) - matx.at<float>(0, 0), 
 					y0 + maty.at<float>(matx.rows - 1, matx.cols - 1) - maty.at<float>(0, 0));
@@ -1522,17 +1524,17 @@ void ICLayerZoomWr::generateDatabase(GenerateDatabaseParam & gdp)
 	layer->close();
 }
 
-ICLayerWrInterface * ICLayerWrInterface::create(const string file, bool _read, double _zoom, 
+ICLayerWrInterface * ICLayerWrInterface::create(const string file, bool _read, double _zoom_x, double _zoom_y,
 	double _offset_x, double _offset_y, int _cache_size, int dbtype, int wrtype)
 {
 	if (wrtype == 0) {
-		if (_zoom == 1 && _offset_x == 0 && _offset_y == 0)
+		if (_zoom_x == 1 && _zoom_y == 1 && _offset_x == 0 && _offset_y == 0)
 			return new ICLayerWr(file, _read, _cache_size, dbtype);
 		else
-			return new ICLayerZoomWr(file, _read, _cache_size, dbtype, _zoom, _offset_x, _offset_y);
+			return new ICLayerZoomWr(file, _read, _cache_size, dbtype, _zoom_x, _zoom_y, _offset_x, _offset_y);
 	}
 	if (wrtype == 1)
-		return new ICLayerZoomWr(file, _read, _cache_size, dbtype, _zoom, _offset_x, _offset_y);
+		return new ICLayerZoomWr(file, _read, _cache_size, dbtype, _zoom_x, _zoom_y, _offset_x, _offset_y);
 	return NULL;
 }
 
@@ -1733,7 +1735,6 @@ ICLayerWrInterface * BkImg::get_layer(int layer) {
 void BkImg::addNewLayer(GenerateDatabaseParam & gdp)
 {
 	string filename = gdp.db_name;
-	double zoom = gdp.zoom;
 	double offset_x = gdp.offset_x;
 	double offset_y = gdp.offset_y;
 
@@ -1743,7 +1744,7 @@ void BkImg::addNewLayer(GenerateDatabaseParam & gdp)
 		return;
 	}
 	layer_file.push_back(full_path_layer_file(filename));
-	ICLayerWrInterface * new_db = ICLayerWrInterface::create(layer_file.back(), false, zoom, offset_x, offset_y, 2, gdp.db_type, gdp.wr_type);
+	ICLayerWrInterface * new_db = ICLayerWrInterface::create(layer_file.back(), false, gdp.zoom_x, gdp.zoom_y, offset_x, offset_y, 2, gdp.db_type, gdp.wr_type);
 	qInfo("Add layer %d=%s", layer_file.size() - 1, layer_file.back().c_str());
 	bk_img_layers.push_back(NULL);
 	locker.unlock();

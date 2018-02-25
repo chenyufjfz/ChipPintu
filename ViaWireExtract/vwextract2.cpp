@@ -38,15 +38,22 @@
 #define FILE_LINE_SEARCH_CHECK_VIA_WIRE_CONNECT	8
 
 #define ASSEMBLE_LINE_NO_VIA					1
+
+#define ASSEMBLE_VIA_ALLOW_45					1
+#define ASSEMBLE_VIA_SEARCH_SKIN				2
 #define ASSEMBLE_BRANCH_ALLOW_45				1
-#define HOTPOINT_CLEAR_MASK						1
+#define ASSEMBLE_BRANCH_SEARCH_CROSS			2
 
 #define CHECK_VW_HOTLINE_CLEAR_MASK				1
 #define CHECK_VW_SEARCH_CLEAR_COLOR				2
 #define ASSEMBLE_FIX_DISTANCE					2
+
+#define JOINT_POINT_MAX							23
 typedef pair<unsigned long long, unsigned long long> PAIR_ULL;
 
+#define POINT_DIS(p0, p1) (abs(p0.x - p1.x) + abs(p0.y -p1.y))
 enum {
+	TYPE_NONE,
 	TYPE_GRAY_LEVEL,
 	TYPE_COARSE_WIRE,
 	TYPE_VIA_MASK,
@@ -926,8 +933,12 @@ public:
 	}
 };
 
-//return point in intersection of line(p0, dir0) and line(p1, dir1)
-bool intersect_line(Point p0, int dir0, Point p1, int dir1, Point & pis)
+/*Input, p0, dir0, line 1
+  Input, p1, dir1, line2
+  output: pis, return point in intersection of line(p0, dir0) and line(p1, dir1)
+  Return true if pis is valid else two line parallel
+*/
+static bool intersect_line(Point p0, int dir0, Point p1, int dir1, Point & pis)
 {
 	if (dir0 == DIR_UP || dir0 == DIR_DOWN) {
 		if (dir1 == DIR_LEFT || dir1 == DIR_RIGHT) {
@@ -1025,6 +1036,9 @@ bool intersect_line(Point p0, int dir0, Point p1, int dir1, Point & pis)
 	return false;
 }
 
+/*
+Return dir for vector (dx,dy)
+*/
 static int check_dir(int dx, int dy, bool allow45)
 {
 	CV_Assert(dx != 0 || dy != 0);
@@ -1061,9 +1075,58 @@ static const int cnear[8][2] = {
 	{ 1, -1 }	//left_up
 };
 
+/*
+input pt1, pt2
+output pts, line points include [pt1,pt2)
+*/
+static void get_line_pts(Point pt1, Point pt2, vector <Point> & pts)
+{
+	int dx = abs(pt2.x - pt1.x);
+	int dy = abs(pt2.y - pt1.y);
+	bool dir = dx > dy;
+	int ix = (pt2.x - pt1.x > 0) ? 1 : -1;
+	int iy = (pt2.y - pt1.y > 0) ? 1 : -1;
+	pts.clear();
+	if (dir) {
+		int dy2 = 2 * dy;
+		int dy2dx2 = 2 * dy - 2 * dx;
+		int d = 2 * dy - dx;
+		int x = pt1.x, y = pt1.y;
+		for (; x != pt2.x; x += ix) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dy2;
+			else {
+				d += dy2dx2;
+				y += iy;
+			}
+		}
+		CV_Assert(y == pt2.y);
+	}
+	else {
+		int dx2 = 2 * dx;
+		int dx2dy2 = 2 * dx - 2 * dy;
+		int d = 2 * dx - dy;
+		int x = pt1.x, y = pt1.y;
+		for (; y != pt2.y; y += iy) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dx2;
+			else {
+				d += dx2dy2;
+				x += ix;
+			}
+		}
+		CV_Assert(x == pt2.x);
+	}
+}
 
 /*
-Return correct dir
+Input line
+Input p0
+Input prefer_dir
+Input allow45
+Return correct dir from p0 to go to line
 */
 static int find_nearest_dir(pair<Point, Point> line, Point p0, int prefer_dir, bool allow45)
 {
@@ -1228,7 +1291,6 @@ public:
 			return 0;
 		}
 		if (pjp == NULL) {
-            CV_Assert(lps.size() <= 20);
             if (idx > lps.size()) { //not exist same link
                 lps.push_back(cp); //push new link point
 				if (!EXIST(bs, cp.branch)) { //push cp.branch  
@@ -1269,20 +1331,358 @@ public:
 
 };
 
-struct SubBranch {
+#define IS_NOT_INTERSECT(a1, a2, b1, b2) ((a1) > (b2) || (b1) > (a2))
+
+struct BranchMeta {
+#define GET_MINMAX(first, second, min, max) if (first > second) {min=second, max=first;} else {max=second, min=first;}
+	enum {
+		ALEADY_OUTPUT =0, //means deleted
+		MERGED = 1, //means merged, and will be transfer to ALEADY_OUTPUT automatically
+		FPFD = 2, //fix point, fix direction, means final_out not empty
+		MainBranch = 3,
+		SubBranch = 4
+	};
 	pair<Point, Point> bch; //branch start and end point
-	int dir, fa_bra;
-	vector<int> direct_con; //dirrect connect branch
-	SubBranch() {
+	int dir, map_bra, state, idx; //dir=-1, this layer via, dir=-2 down layer via
+    vector<int> dc; //dirrect connect branch
+	vector<Point> final_out;
+
+    BranchMeta() {
+		idx = -1;
 	}
-	SubBranch(Point p0, Point p1, int _fa_bra, bool is_via) {
-		if (!is_via) 
+    BranchMeta(int _idx, Point p0, Point p1, int is_via, bool main) {		
+		if (is_via == 0)
 			dir = check_dir(p1.x - p0.x, p1.y - p0.y, true);
-		else 			
-			dir = -1;
+		else
+			dir = -is_via;
 		bch.first = p0;
 		bch.second = p1;
-		fa_bra = _fa_bra;
+		if (bch.first.y > bch.second.y || bch.first.y == bch.second.y && bch.first.x > bch.second.x)
+			swap(bch.first, bch.second);
+		if (main)
+			state = MainBranch;
+		else
+			state = SubBranch;
+		map_bra = -1;
+		idx = _idx;
+	}
+
+	void print_info() {
+		qInfo("state=%d, dir=%d, idx=%d, map=%d, (%d,%d)->(%d,%d)", state, dir, idx, map_bra,
+			bch.first.x, bch.first.y, bch.second.x, bch.second.y);
+		string dc_str;
+		for (int i = 0; i < dc.size(); i++) {
+			char dcs[10];
+			sprintf(dcs, "%d,", dc[i]);
+			dc_str.append(dcs);
+		}
+		qInfo("dc=%s", dc_str.c_str());
+	}
+	void push_dc(int _idx) {
+		if (_idx != idx && !EXIST(dc, _idx))
+			dc.push_back(_idx);
+	}
+
+	void extend(Point o) {
+		int cl = cnear[dir][0] * bch.first.y + cnear[dir][1] * bch.first.x; //line c-value
+		int cp = cnear[dir][0] * o.y + cnear[dir][1] * o.x; //via point c-value
+		CV_Assert(cl == cp);
+		int d2 = dir_2[dir];
+		int df = cnear[d2][0] * bch.first.y + cnear[d2][1] * bch.first.x;
+		int ds = cnear[d2][0] * bch.second.y + cnear[d2][1] * bch.second.x;
+		int dp = cnear[d2][0] * o.y + cnear[d2][1] * o.x;
+		if ((ds - dp) * (df - dp) <= 0)
+			return;
+		if (POINT_DIS(bch.first, o) < POINT_DIS(bch.second, o))
+			bch.first = o;
+		else
+			bch.second = o;
+	}
+	void push_out(Point p) {
+		if (dir < 0) {//via
+			if (p!=bch.first && !EXIST(final_out, p))
+				final_out.push_back(p);
+		}
+		else { //wire
+			state = FPFD;
+			if (final_out.empty())
+				final_out.push_back(p);
+			int loc = (int) final_out.size(); //loc is insert location, following do sort
+			if (dir == DIR_LEFT || dir == DIR_RIGHT) {
+				CV_Assert(p.y == bch.first.y);
+				if (p.x < bch.first.x) {
+					if (bch.first.x - p.x > 15) //should be near first.x
+						qCritical("push_out extend first x (%d,%d) too long to (%d,%d)", bch.first.x, bch.first.y, p.x, p.y); 
+					bch.first.x = p.x;
+				}
+				if (p.x > bch.second.x) {
+					if (p.x - bch.second.x > 15) //should be neary second.x
+						qCritical("push_out extend second (%d,%d) too long to (%d,%d)", bch.second.x, bch.second.y, p.x, p.y); 
+					bch.second.x = p.x;
+				}
+				for (int i = 0; i < final_out.size(); i++)
+				if (final_out[i].x >= p.x) {
+					loc = (final_out[i].x == p.x) ? -1 : i; //-1 means final_out already exist
+					break;
+				}
+			}
+			else {
+				if (dir == DIR_UP || dir == DIR_DOWN) {
+					CV_Assert(p.x == bch.first.x);
+					if (p.y < bch.first.y) {
+						if (bch.first.y - p.y > 15) //should be near first.y
+							qCritical("push_out extend first y (%d,%d) too long to (%d,%d)", bch.first.x, bch.first.y, p.x, p.y);
+						bch.first.y = p.y;
+					}
+					if (p.y > bch.second.y) {
+						if (p.y - bch.second.y > 15) //should be neary second.y
+							qCritical("push_out extend second y (%d,%d) too long to (%d,%d)", bch.second.x, bch.second.y, p.x, p.y);
+						bch.second.y = p.y;
+					}
+				}
+				for (int i = 0; i < final_out.size(); i++)
+				if (final_out[i].y >= p.y) {
+					loc = (final_out[i].y == p.y) ? -1 : i; //-1 means final_out already exist
+					break;
+				}
+			}
+			if (loc>=0)
+				final_out.insert(final_out.begin() + loc, p);
+		}
+	}
+
+	/*
+	Input other, it is parallel with this
+	Output new_bm, new_bm intersect with this and other
+	*/
+	bool parallel_intersect(BranchMeta & other, BranchMeta & new_bm) {
+		CV_Assert(dir == other.dir || dir_1[dir] == other.dir);
+		int  a1, a2, b1, b2, c1;
+		new_bm.dir = dir_2[dir];
+		new_bm.state = SubBranch;
+		switch (dir) {
+		case DIR_UP:
+		case DIR_DOWN:
+			if (bch.first.x == other.bch.first.x)
+				return false;
+			GET_MINMAX(bch.first.y, bch.second.y, a1, a2);
+			GET_MINMAX(other.bch.first.y, other.bch.second.y, b1, b2);
+			if (IS_NOT_INTERSECT(a1, a2, b1, b2)) {
+				qWarning("parallel_intersect not intersect dir=%d, line1 (%d,%d) (%d,%d) and line2 (%d,%d) (%d,%d)", dir,
+					bch.first.x, bch.first.y, bch.second.x, bch.second.y, 
+					other.bch.first.x, other.bch.first.y, other.bch.second.x, other.bch.second.y);
+			}				
+			if (b2 - a1 < a2 - b1)
+				c1 = (b2 + a1) / 2;
+			else
+				c1 = (a2 + b1) / 2;
+			new_bm.bch.first.x = bch.first.x;
+			new_bm.bch.second.x = other.bch.first.x;
+			new_bm.bch.first.y = c1;
+			new_bm.bch.second.y = c1;
+			break;
+		case DIR_LEFT:
+		case DIR_RIGHT:
+			if (bch.first.y == other.bch.first.y)
+				return false;
+			GET_MINMAX(bch.first.x, bch.second.x, a1, a2);
+			GET_MINMAX(other.bch.first.x, other.bch.second.x, b1, b2);
+			if (IS_NOT_INTERSECT(a1, a2, b1, b2))
+				return false;
+			if (b2 - a1 < a2 - b1)
+				c1 = (b2 + a1) / 2;
+			else
+				c1 = (a2 + b1) / 2;
+			new_bm.bch.first.y = bch.first.y;
+			new_bm.bch.second.y = other.bch.first.y;
+			new_bm.bch.first.x = c1;
+			new_bm.bch.second.x = c1;
+			break;
+		default:
+			int d1 = dxy[dir][0] * bch.first.y + dxy[dir][1] * bch.first.x;
+			int d2 = dxy[dir][0] * other.bch.first.y + dxy[dir][1] * other.bch.first.x;
+			if (d1 == d2)
+				return false;
+			GET_MINMAX(bch.first.x, bch.second.x, a1, a2);
+			GET_MINMAX(other.bch.first.x, other.bch.second.x, b1, b2);
+			if (IS_NOT_INTERSECT(a1, a2, b1, b2))
+				return false;
+			if (b2 - a1 < a2 - b1)
+				c1 = (b2 + a1) / 2;
+			else
+				c1 = (a2 + b1) / 2;
+			new_bm.bch.first.x = c1;
+			new_bm.bch.second.x = c1;
+			new_bm.bch.first.y = (d1 - c1 * dxy[dir][1]) * dxy[dir][0];
+			new_bm.bch.second.y = (d2 - c1 * dxy[dir][1]) * dxy[dir][0];
+			break;
+		}
+		return true;
+	}
+
+	void merge(const BranchMeta & other, bool pri) {
+		if (dir >= 0) { //wire case
+			CV_Assert(state > MERGED && other.state > MERGED);
+			CV_Assert(dir == other.dir || dir_1[dir] == other.dir);
+			if (state == FPFD && other.state == FPFD)
+				CV_Assert(cnear[dir][0] * bch.first.y + cnear[dir][1] * bch.first.x ==
+				cnear[dir][0] * other.bch.first.y + cnear[dir][1]*other.bch.first.x);
+			//1 compute new_bch
+			pair<Point, Point> new_bch; //new merge branch
+			pair<Point, Point> del_bch;
+			if (state < other.state || (state == other.state && pri)) {
+				new_bch = bch; //I eat other
+				del_bch = other.bch;
+			}
+			else {
+				new_bch = other.bch; //other eat me
+				del_bch = bch;
+				state = other.state;
+			}
+			int  minx, maxx, miny, maxy, c;
+			switch (dir) {
+			case DIR_UP:
+			case DIR_DOWN:
+				miny = min(min(bch.first.y, bch.second.y), min(other.bch.first.y, other.bch.second.y));
+				maxy = max(max(bch.first.y, bch.second.y), max(other.bch.first.y, other.bch.second.y));
+				new_bch.first.y = miny;
+				new_bch.second.y = maxy;
+				break;
+
+			case DIR_LEFT:
+			case DIR_RIGHT:
+				minx = min(min(bch.first.x, bch.second.x), min(other.bch.first.x, other.bch.second.x));
+				maxx = max(max(bch.first.x, bch.second.x), max(other.bch.first.x, other.bch.second.x));
+				new_bch.first.x = minx;
+				new_bch.second.x = maxx;
+				break;
+			default:
+				minx = min(min(bch.first.x, bch.second.x), min(other.bch.first.x, other.bch.second.x));
+				maxx = max(max(bch.first.x, bch.second.x), max(other.bch.first.x, other.bch.second.x));
+				c = cnear[dir][0] * bch.first.y + cnear[dir][1] * bch.first.x;
+				new_bch.first.x = minx;
+				new_bch.first.y = (c - cnear[dir][1] * minx) * cnear[dir][0];
+				new_bch.second.x = maxx;
+				new_bch.second.y = (c - cnear[dir][1] * maxx) * cnear[dir][0];
+			}
+			bch = new_bch;
+		}
+		else { //via case
+			CV_Assert(dir == other.dir);
+			if (state < other.state || (state == other.state && pri)) { //I eat other				
+			}
+			else //other eat me
+				bch = other.bch;			
+		}
+
+		for (int i = 0; i < other.dc.size(); i++)
+			push_dc(other.dc[i]);
+
+		if (final_out.empty())
+			final_out = other.final_out;
+		else {
+			for (int i = 0; i < other.final_out.size(); i++)
+				push_out(other.final_out[i]);
+		}
+	}
+	/* for two wire case
+	   if parallel, if distance <= guard return distance  else return -2
+	   if orthogonal intersected, return -1 
+	   if not intersected, return -2
+	   for two via case
+	   if distance <= guard return distance  else return -2
+	*/
+	int intersect(const BranchMeta & other, int guard) {
+		int ret;
+		if (dir >= 0 && other.dir >= 0) { //two wire case
+			int minx, maxx, miny, maxy;
+			int ominx, omaxx, ominy, omaxy;
+			GET_MINMAX(bch.first.x, bch.second.x, minx, maxx);
+			GET_MINMAX(bch.first.y, bch.second.y, miny, maxy);
+			GET_MINMAX(other.bch.first.x, other.bch.second.x, ominx, omaxx);
+			GET_MINMAX(other.bch.first.y, other.bch.second.y, ominy, omaxy);
+			if (dir == other.dir || dir_1[dir] == other.dir) {	//two wire parallel		
+				switch (dir) {
+				case DIR_UP:
+				case DIR_DOWN:
+					if (IS_NOT_INTERSECT(miny, maxy, ominy, omaxy)) //overlap y
+						return -2;
+					else {
+						CV_Assert(ominx == omaxx && minx == maxx);
+						ret = abs(minx - ominx);
+						return ret > guard ? -2 : ret;
+					}					
+						
+				case DIR_LEFT:
+				case DIR_RIGHT:
+					if (IS_NOT_INTERSECT(minx, maxx, ominx, omaxx)) //overlap x
+						return -2; 
+					else {
+						CV_Assert(ominy == omaxy && miny == maxy);
+						ret = abs(miny - ominy);
+						return ret > guard ? -2 : ret;
+					}
+						
+				case DIR_UPLEFT:
+				case DIR_DOWNRIGHT:
+					if (IS_NOT_INTERSECT(minx, maxx, ominx, omaxx)) //overlap x
+						return -2;
+					else {
+						ret = abs(bch.first.x + bch.first.y - other.bch.first.x - other.bch.first.y);
+						return ret > guard ? -2 : ret;
+					}
+
+				case DIR_UPRIGHT:
+				case DIR_DOWNLEFT:
+					if (IS_NOT_INTERSECT(minx, maxx, ominx, omaxx)) //overlap x
+						return -2;
+					else {
+						ret = abs(bch.first.x - bch.first.y - other.bch.first.x + other.bch.first.y);
+						return ret > guard ? -2 : ret;
+					}
+				}
+			}
+			else {//two wire not parallel
+				if (IS_NOT_INTERSECT(minx, maxx, ominx, omaxx) || IS_NOT_INTERSECT(miny, maxy, ominy, omaxy))
+					return -2;
+				int cl = cnear[dir][0] * bch.first.y + cnear[dir][1] * bch.first.x; //line c-value
+				int cp1 = cnear[dir][0] * other.bch.first.y + cnear[dir][1] * other.bch.first.x; //point c-value
+				int cp2 = cnear[dir][0] * other.bch.second.y + cnear[dir][1] * other.bch.second.x; //point c-value
+				if ((cl - cp1) * (cl - cp2) > 0)
+					return -2;
+				cl = cnear[other.dir][0] * other.bch.first.y + cnear[other.dir][1] * other.bch.first.x; //other line c-value
+				cp1 = cnear[other.dir][0] * bch.first.y + cnear[other.dir][1] * bch.first.x;
+				cp2 = cnear[other.dir][0] * bch.second.y + cnear[other.dir][1] * bch.second.x;
+				if ((cl - cp1) * (cl - cp2) > 0)
+					return -2;
+				return -1;
+			}
+		}
+		if (dir < 0 && other.dir < 0 && dir == other.dir) { //two via case
+			ret = POINT_DIS(bch.first, other.bch.first);
+			return ret > guard ? -2 : ret;
+		}
+		return -2;
+	}
+
+	int distance(Point o) {
+		if (dir >= 0) {
+			int ret;
+			int cl = cnear[dir][0] * bch.first.y + cnear[dir][1] * bch.first.x; //line c-value
+			int cp = cnear[dir][0] * o.y + cnear[dir][1] * o.x; //via point c-value
+			int d2 = dir_2[dir];
+			int df = cnear[d2][0] * bch.first.y + cnear[d2][1] * bch.first.x;
+			int ds = cnear[d2][0] * bch.second.y + cnear[d2][1] * bch.second.x;
+			int dp = cnear[d2][0] * o.y + cnear[d2][1] * o.x;
+			if ((ds - dp) * (df - dp) <= 0)
+				ret = 0;
+			else
+				ret = min(abs(ds - dp), abs(df - dp));
+			ret += abs(cl - cp);
+			return ret;
+		}
+		else
+			return POINT_DIS(bch.first, o);
 	}
 };
 /*
@@ -1293,7 +1693,7 @@ class Branch {
 	vector<Point> xy; //(x,y) for main branch in origianl image, it may not be in final main branch
 	int idx; //branch index
 	int skin_wide, th; //skin_wide and th to search skin
-	int dir; //branch dir, if dir=-1, then it is via, either for this layer or another layer, here DIR_UP treat same as DIR_DOWN, DIR_LEFT same as DIR_RIGHT
+	int dir; //branch dir, if dir=-1, then it is this layer via, -2 for down layer via, here DIR_UP treat same as DIR_DOWN, DIR_LEFT same as DIR_RIGHT
 	int type;
 	vector<int> children; //sub branch index
 	friend class BranchMark;
@@ -1329,7 +1729,7 @@ public:
 
 	/*
 	return which sub_branch has cross point*/
-	int get_sub_branch(const vector<SubBranch> & sbs, const Point & c) {
+    int get_sub_branch(const vector<BranchMeta> & sbs, const Point & c) {
 		int id = -1; //id is which sub_branch to insert cross point
 		for (int i = 0; i < (int) children.size(); i++) {
 			int d0y = sbs[children[i]].bch.first.y - c.y;
@@ -1345,7 +1745,7 @@ public:
 		return id;
 	}
 
-	void compute_main_branch(vector<SubBranch> & sbs) {
+    void compute_main_branch(vector<BranchMeta> & sbs) {
 		if (dir >= 0) {
 			int avg = 0, minx = 0x7ffff, miny = 0x7ffff, maxx = 0, maxy = 0;
 			pair<Point, Point> main_bch;
@@ -1358,21 +1758,25 @@ public:
 			}
 			avg = avg / (int)xy.size();
 			switch (dir) {
+			case DIR_LEFT:
+			case DIR_RIGHT:
+				main_bch = make_pair(Point(minx, avg), Point(maxx, avg));
+				break;
 			case DIR_UP:
 			case DIR_DOWN:
 				main_bch = make_pair(Point(avg, miny), Point(avg, maxy));
 				break;
 			default:
-				main_bch = make_pair(Point(minx, (avg - cnear[dir][1] * minx) * cnear[dir][0]),
-					Point(maxx, (avg - cnear[dir][1] * maxx) * cnear[dir][0]));
+				main_bch = make_pair(Point((avg - cnear[dir][0] * miny) * cnear[dir][1], miny),
+					Point((avg - cnear[dir][0] * maxy) * cnear[dir][1], maxy));
 				break;
 			}
-			sbs[idx] = SubBranch(main_bch.first, main_bch.second, -1, false);
+            sbs[idx] = BranchMeta(idx, main_bch.first, main_bch.second, 0, true);
 			if (children.empty())
 				children.push_back(idx);
 		}
 		else {
-			sbs[idx] = SubBranch(xy[0], xy[0], -1, true);
+            sbs[idx] = BranchMeta(idx, xy[0], xy[0], -dir, true);
 			if (children.empty())
 				children.push_back(idx);
 		}
@@ -1388,7 +1792,7 @@ class BranchMark {
 	vector<JointPoint> jps;
 	int oft1[8], oft2[8]; //8 dir offset
 	int prev_jp_idx;
-	vector<SubBranch> sbs;
+    vector<BranchMeta> sbs;
 	friend class SearchWireBranch;
 	friend class SearchViaBranch;
 protected:
@@ -1407,24 +1811,28 @@ protected:
 	compute_main_branch mush be called before calling this
 	Return ano_bra;
 	*/
-	int add_sub_branch(int b0, int b1, Point p0, Point p1) {
-		int new_idx = (int)sbs.size();
+	int add_sub_branch(int b0, int b1, Point p0, Point p1) {		
 		int bra = bs[b0].get_sub_branch(sbs, p0); //bra is b0 sub-branch
-		CV_Assert(bra >= 0);		
-		sbs[bra].direct_con.push_back(new_idx);
-		int ano_bra = -1;
-		if (b1 != b0) {
-			ano_bra = bs[b1].get_sub_branch(sbs, p1); //ano_bra is b1 sub_branch
-			CV_Assert(ano_bra > 0);
-			sbs[ano_bra].direct_con.push_back(new_idx);
+		CV_Assert(bra >= 0);
+		int dir = check_dir(p1.x - p0.x, p1.y - p0.y, true);
+		int new_idx = (int)sbs.size();
+		if (sbs[bra].dir == dir || sbs[bra].dir == dir_1[dir]) { //p0 and p1 are both in bra, extend bra to p1
+			new_idx = bra;
+			sbs[bra].extend(p1);
+		} 
+		else { //add new_idx to connect bra, and new_idx belong to b0's child
+			sbs[bra].push_dc(new_idx);
+			sbs.push_back(BranchMeta(new_idx, p0, p1, 0, false));
+			sbs[new_idx].push_dc(bra);
+			bs[b0].children.push_back(new_idx);		
 		}
 
-		bs[b0].children.push_back(new_idx);
-		sbs.push_back(SubBranch(p0, p1, b0, false));
-		sbs[new_idx].direct_con.push_back(bra);
-		if (ano_bra > 0)
-			sbs[new_idx].direct_con.push_back(ano_bra);
-
+		if (b1 != b0) { //connect new_idx and ano_bra
+			int ano_bra = bs[b1].get_sub_branch(sbs, p1); //ano_bra is b1 sub_branch
+			CV_Assert(ano_bra > 0);
+			sbs[ano_bra].push_dc(new_idx);
+			sbs[new_idx].push_dc(ano_bra);
+		}		
 		return new_idx;
 	}
 
@@ -1457,8 +1865,9 @@ protected:
 			else { //meet another branch
 				int ano_bch = MARK2_BRANCH(p_mark2[0]);
 				if (ano_bch != branch) {
-					if (!draw_main_bch) { //add sub-branch to connect branch and ano_bch				
-						add_sub_branch(branch, ano_bch, porg, p0);
+					if (!draw_main_bch) { //add sub-branch to connect branch and ano_bch
+						if (i!=0) //in i==0 case, add_sub_branch is called in previous calling draw_mark2_line
+							add_sub_branch(branch, ano_bch, porg, p0);
 						porg = p0;
 					}
 					if (!EXIST(link_bch, ano_bch))
@@ -1469,9 +1878,10 @@ protected:
 				p_mark2[oft_1] = MAKE_MARK2(branch, 1, 0, 0);
 			if (p_mark2[oft_2] == 0)
 				p_mark2[oft_2] = MAKE_MARK2(branch, 1, 0, 0);
+			/*for INVALID_BRANCH search
 			if (!draw_main_bch && i!=0)
 				push_mark(p0, branch, 0, 1, 1, p0.x, p0.y, false);
-			
+			*/
 			p0 += Point(dxy[dir][1], dxy[dir][0]);
 		}		
 	}
@@ -1480,10 +1890,12 @@ protected:
 		unsigned * p_mark2 = mark2.ptr<unsigned>(p0.y, p0.x);
 		if (p_mark2[0] != 0 && MARK2_LEN(p_mark2[0]) == 0) {
 			int ano_bch = MARK2_BRANCH(p_mark2[0]); //meet another branch
-			sbs[branch].direct_con.push_back(ano_bch);
-			sbs[ano_bch].direct_con.push_back(branch);
+			CV_Assert(branch != ano_bch);
+			sbs[branch].push_dc(ano_bch);
+			sbs[ano_bch].push_dc(branch);
 		}
-		p_mark2[0] = MAKE_MARK2(branch, 0, 0, 1);
+		if (!MARK2_VIA(p_mark2[0]))
+			p_mark2[0] = MAKE_MARK2(branch, 0, 0, 1);
 	}
 	/*
 	Input: lines, line set
@@ -1617,10 +2029,11 @@ public:
 	input len, distance to branch, if len=0, this point is branch
 	input dir, how to reach branch
 	input is_skin, if 1, this point is skin, else it is bone.
+	via_center overwrite everything except previous via_center, 
 	*/
 	bool push_mark(Point xy, int branch_idx, int len, int dir, int is_skin, int org_x, int org_y, bool is_via) {
 		CV_Assert(xy.y < mark.rows && xy.x < mark.cols && len < MARK_MAX_LEN);
-		if (dir == 0) //via center
+		if (dir == 0) //means via center
 			CV_Assert(is_via && len == 0);
 		bool ret = false;
 
@@ -1806,25 +2219,77 @@ public:
 			if (pt1_bch == INVALID_BRANCH)
 				continue;
 			const vector <int> & exp_bch = (sch == 0) ? src_bch : tgt_bch;
+			const vector <int> & org_bch = (sch == 1) ? src_bch : tgt_bch;
 			unsigned long long * p_mark = mark.ptr<unsigned long long>(pt1.y, pt1.x);
 			unsigned * p_mark2 = mark2.ptr<unsigned>(pt1.y, pt1.x);
 			int prev_dir = check_dir(pt1.x - pt0.x, pt1.y - pt0.y, allow45);
 			path.push_back(pt1);
+			bool navigation_valid = true;
+			bool search_failed = false;
 			if (p_mark2[0] && MARK2_LEN(p_mark2[0]) == 0) { //pt1 is on branch
 				if (EXIST(exp_bch, MARK2_BRANCH(p_mark2[0]))) //reach target
 					continue; //reach
-				else {
+				else {					
+					if (EXIST(org_bch, MARK2_BRANCH(p_mark2[0]))) {//start from orgin branch
+						for (int i = 0; i < (int)path.size(); i++) {
+							unsigned * p_m2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+							SET_MAKR2_FLAG(p_m2[0], 0);
+						}
+						path.clear();
+						path.push_back(pt1);
+					}
+					else
+						search_failed = true;
+				}
+			} 
+			SET_MAKR2_FLAG(p_mark2[0], 1);
+			CV_Assert(pt1_bch == MARK_BRANCH(p_mark[0]));
+			int extend_step = 0;
+			while (1) {				
+				if (navigation_valid && MARK_LEN(p_mark[0]) <= 5 && sbs[pt1_bch].dir >= 0) {//nearly reach target
+					navigation_valid = false;
+					prev_dir = find_nearest_dir(sbs[pt1_bch].bch, pt1, prev_dir, allow45);
+				}
+				if (!navigation_valid) {
+					int dir = sbs[pt1_bch].dir;
+					int cl = cnear[dir][0] * sbs[pt1_bch].bch.first.y + cnear[dir][1] * sbs[pt1_bch].bch.first.x; //line c-value
+					int cp = cnear[dir][0] * pt1.y + cnear[dir][1] * pt1.x; //point c-value
+					
+					if (cl == cp) {
+						int d1 = POINT_DIS(pt1, sbs[pt1_bch].bch.first);
+						int d2 = POINT_DIS(pt1, sbs[pt1_bch].bch.second);
+						if (d1 > 5 && d2 > 5) { //can't extend sbs
+							qCritical("search path extend point (%d,%d) can't reach (%x,%x) (%x,%x)", pt1.x, pt1.y,
+								sbs[pt1_bch].bch.first.x, sbs[pt1_bch].bch.first.y, sbs[pt1_bch].bch.second.x, sbs[pt1_bch].bch.second.y);
+							search_failed = true;
+						}
+						else {
+							vector <Point> extend;
+							if (d1 < d2) {
+								get_line_pts(pt1, sbs[pt1_bch].bch.first, extend);
+								extend.push_back(sbs[pt1_bch].bch.first);
+							}
+							else {
+								get_line_pts(pt1, sbs[pt1_bch].bch.second, extend);
+								extend.push_back(sbs[pt1_bch].bch.second);
+							}
+							path.insert(path.end(), extend.begin(), extend.end());
+							break;
+						}
+					}
+					extend_step++;
+					if (extend_step > 15) {
+						qCritical("search path failed with big extend_step, from (x=%d,y=%d) to (%d,%d)", lp.pt0.x, lp.pt0.y, lp.pt3.x, lp.pt3.y);
+						search_failed = true;
+					}					
+				}
+				if (search_failed) {
 					for (int i = 0; i < (int)path.size(); i++) {
-						unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
-						SET_MAKR2_FLAG(p_mark2[0], 0);
+						unsigned * p_m2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+						SET_MAKR2_FLAG(p_m2[0], 0);
 					}
 					return false; //search fail
 				}
-			} else
-				SET_MAKR2_FLAG(p_mark2[0], 1);
-			bool navigation_valid = true;
-			int extend_step = 0;
-			while (1) {
 				int best_score = 0, best_dir = -1;
 				for (int dir = 0; dir < dir_limit; dir++) 
 				if (MARK2_FLAG(p_mark2[oft2[dir]]) == 0) {
@@ -1856,7 +2321,10 @@ public:
 							if (!EXIST(exp_bch, MARK_BRANCH(p_mark[oft1[dir]])))
 								score -= 1 << 10; //meet non-expected branch
 							else {
-								score += 1 << 3; //meet expected branch
+								if (MARK_LEN(p_mark[oft1[dir]]) < MARK_LEN(p_mark[0]))
+									score += 1 << 3; //meet expected branch
+								else
+									score += 1;
 							}
 						}
 					}
@@ -1873,42 +2341,26 @@ public:
 					p_mark2 += oft2[best_dir];
 					prev_dir = best_dir;
 					path.push_back(pt1);
-					if (p_mark2[0] == 0)
-						SET_MAKR2_FLAG(p_mark2[0], 1);
+					SET_MAKR2_FLAG(p_mark2[0], 1);
 					if (best_score & 1 << 9) //reach target, stop					
 						break;
-					if (best_score & 1 << 7) {//nearly reach target
-						navigation_valid = false;
-						prev_dir = find_nearest_dir(sbs[pt1_bch].bch, pt1, prev_dir, allow45);
-					}
-					if (best_score & 1 << 3) //change target branch
+					if (navigation_valid)
 						pt1_bch = MARK_BRANCH(p_mark[0]);
 				}
 				else { //don't know how to go
-					qWarning("search path failed, don't know next step, from (x=%d,y=%d) to (%d,%d)", lp.pt0.x, lp.pt0.y, lp.pt3.x, lp.pt3.y);
+					qInfo("search path failed, don't know next step, from (x=%d,y=%d) to (%d,%d)", lp.pt0.x, lp.pt0.y, lp.pt3.x, lp.pt3.y);
 					for (int i = 0; i < (int)path.size(); i++) {
-						unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
-						SET_MAKR2_FLAG(p_mark2[0], 0);
+						unsigned * p_m2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+						SET_MAKR2_FLAG(p_m2[0], 0);
 					}
 					return false; //search fail
-				}
-				if (!navigation_valid) {
-					extend_step++;
-					if (extend_step > 15) {
-						qCritical("search path failed with big extend_step, from (x=%d,y=%d) to (%d,%d)", lp.pt0.x, lp.pt0.y, lp.pt3.x, lp.pt3.y);
-						for (int i = 0; i < (int)path.size(); i++) {
-							unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
-							SET_MAKR2_FLAG(p_mark2[0], 0);
-						}
-						return false; //search fail
-					}
 				}
 			}
 		}
 		//here we find path
 		for (int i = 0; i < (int)path.size(); i++) {
-			unsigned * p_mark2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
-			SET_MAKR2_FLAG(p_mark2[0], 0);
+			unsigned * p_m2 = mark2.ptr<unsigned>(path[i].y, path[i].x);
+			SET_MAKR2_FLAG(p_m2[0], 0);
 		}
 		approximate_line(path, lines, allow45, true, 2, 5);
 		return true;
@@ -1924,9 +2376,10 @@ public:
 					bs[i].compute_main_branch(sbs);
 					vector<int> link_bch;
 					draw_mark2_line(sbs[bs[i].idx].bch.first, sbs[bs[i].idx].bch.second, bs[i].idx, link_bch, true);
-					sbs[i].direct_con.insert(sbs[i].direct_con.end(), link_bch.begin(), link_bch.end());
-					for (int j = 0; j < link_bch.size(); j++)
-						sbs[link_bch[j]].direct_con.push_back(i);
+					for (int j = 0; j < link_bch.size(); j++) {
+						sbs[i].push_dc(link_bch[j]);
+						sbs[link_bch[j]].push_dc(i);
+					}
 				}
 				else {//draw via
 					bs[i].compute_main_branch(sbs);
@@ -1936,6 +2389,8 @@ public:
 		}
 		for (int i = 0; i < (int)jps.size(); i++) {
 			vector<LinkPoint> & lps = jps[i].lps;
+			if (jps[i].lps.size() >= JOINT_POINT_MAX)
+				continue;
 			if (lps.size() > 2)
 				sort(lps.begin(), lps.end());
 			vector<int> src, tgt;
@@ -1959,11 +2414,24 @@ public:
 					break;
 				vector<pair<Point, int> > lines;
 				bool found = false;
-				if (lps[choose].len <= 3) { //check if it is already connected
+				if (lps[choose].len <= 8 || POINT_DIS(lps[choose].pt0, lps[choose].pt3) <= 5) { //check if it is already connected
 					int branch = lps[choose].branch;
 					int ano_bra = lps[choose].ano_bra;
-					if (EXIST(sbs[branch].direct_con, ano_bra) || EXIST(sbs[ano_bra].direct_con, branch)) {
+					CV_Assert(branch != ano_bra);
+					if (EXIST(sbs[branch].dc, ano_bra))
 						found = true;
+					else {
+						if (sbs[branch].dir >= 0) {
+							int dis = sbs[branch].distance(lps[choose].pt3);
+							if (dis <= 5) { //two branch is near, direct_connect
+								found = true;
+								CV_Assert(ano_bra != INVALID_BRANCH);
+								sbs[branch].push_dc(ano_bra);
+								sbs[ano_bra].push_dc(branch);
+							}
+						}
+					}
+					if (found) {
 						if (EXIST(src, branch))
 							src.push_back(ano_bra);
 						else
@@ -1996,6 +2464,399 @@ public:
 		bs.push_back(Branch(idx, type, skin_wide, th, dir));
 		return idx;
 	}
+
+	void stitch_at(Point o) {
+		for (int i = 1; i < sbs.size(); i++) {
+			sbs[i].bch.first += o;
+			sbs[i].bch.second += o;
+		}
+	}
+	
+	void self_check() {
+		for (int i = 1; i < sbs.size(); i++) {
+			CV_Assert(sbs[i].bch.first.x >= 0 && sbs[i].bch.first.y >= 0 && sbs[i].idx==i);
+			CV_Assert(sbs[i].bch.second.x >= 0 && sbs[i].bch.second.y >= 0);
+			for (int j = 0; j < sbs[i].dc.size(); j++) {
+				int k = sbs[i].dc[j];
+				CV_Assert(k != i);
+				if (k>i) //don't check twice
+					continue;
+
+				if (!EXIST(sbs[k].dc, i)) {
+					sbs[k].print_info();
+					sbs[i].print_info();
+					CV_Assert(0);
+				}				
+
+				if ((sbs[i].dir + 0.5) *(sbs[k].dir + 0.5) < 0) //wire and via 
+					continue;
+				int ret = sbs[i].intersect(sbs[k], 10);
+				if (ret == -2) {
+					if (sbs[i].distance(sbs[k].bch.first) > 8 && sbs[i].distance(sbs[k].bch.second) > 8
+						&& sbs[k].distance(sbs[i].bch.first) > 8 && sbs[k].distance(sbs[i].bch.second) > 8)
+					qCritical("Detect two line not intersect (%d,%d),(%d,%d) and (%d,%d),(%d,%d)",
+						sbs[i].bch.first.x, sbs[i].bch.first.y, sbs[i].bch.second.x, sbs[i].bch.second.y,
+						sbs[k].bch.first.x, sbs[k].bch.first.y, sbs[k].bch.second.x, sbs[k].bch.second.y);
+				}
+			}
+		}
+	}
+	/*
+	Input right_limit, right border for output, exceed right border won't output
+	Input bottom_limit, bottom border for output, exceed bottom border won't output
+	end_len_limit, to merge [bch.first, bch.second] with intersection
+	*/
+	void get_result(int right_limit, int bottom_limit, int end_len_limit, int layer, vector<MarkObj> & obj_sets) {
+		self_check();
+		for (int i = 1; i < sbs.size(); i++) {
+			if (sbs[i].state == BranchMeta::ALEADY_OUTPUT) //if it is deleted, continue
+				continue;
+			for (int j = 0; j < sbs[i].dc.size(); j++) {
+				int k = sbs[i].dc[j];
+				if (k < i) { //compute intersection of sbs[i] and sbs[k] 
+					Point pis;
+					if (sbs[i].dir < 0 && sbs[k].dir < 0) { //two via connect
+						if (sbs[i].bch.first.x < right_limit && sbs[i].bch.first.y < bottom_limit)
+							sbs[k].push_out(sbs[i].bch.first);
+						else
+							if (sbs[k].bch.first.x < right_limit && sbs[k].bch.first.y < bottom_limit)
+								sbs[i].push_out(sbs[k].bch.first);
+						continue;
+					}
+					if (sbs[i].dir >= 0 && sbs[k].dir >= 0) { //two wire branch connect						
+						bool connected = intersect_line(sbs[i].bch.first, sbs[i].dir, sbs[k].bch.first, sbs[k].dir, pis);
+						if (!connected) { //deal with parallel case
+							for (int l = 0; l < sbs[i].dc.size(); l++)
+							if (EXIST(sbs[k].dc, sbs[i].dc[l]))
+								connected = true;
+							if (!connected) {								
+								BranchMeta bm;
+								bool ret = sbs[i].parallel_intersect(sbs[k], bm);
+								if (ret) { //create new bm to connect sbs[i] and sbs[k]
+									sbs[i].push_dc(sbs.size() - 1);
+									sbs[k].push_dc(sbs.size() - 1);
+									bm.push_dc(i);
+									bm.push_dc(k);
+									sbs.push_back(bm);
+								}
+							}
+						}
+						else { //deal with intersect case
+							if (pis.x < right_limit && pis.y < bottom_limit) {
+								sbs[i].push_out(pis);
+								sbs[k].push_out(pis);
+							}
+						}
+						continue;
+					}
+					if (sbs[k].dir >= 0 && sbs[i].dir < 0) { //via connect to wire branch
+						bool connected = intersect_line(sbs[k].bch.first, sbs[k].dir, sbs[i].bch.first, dir_2[sbs[k].dir], pis);
+						CV_Assert(connected);
+						if (pis.x < right_limit && pis.y < bottom_limit) {
+							sbs[k].push_out(pis);
+							sbs[i].push_out(pis);
+						}
+						continue;
+					}
+					if (sbs[i].dir >= 0 && sbs[k].dir < 0) { //via connect to wire branch
+						bool connected = intersect_line(sbs[i].bch.first, sbs[i].dir, sbs[k].bch.first, dir_2[sbs[i].dir], pis);
+						CV_Assert(connected);
+						if (pis.x < right_limit && pis.y < bottom_limit) {
+							sbs[k].push_out(pis);
+							sbs[i].push_out(pis);
+						}
+						continue;
+					}
+				}
+			}
+		}
+		MarkObj wire;
+		wire.type = OBJ_LINE;
+		wire.type2 = LINE_WIRE_AUTO_EXTRACT;
+		wire.type3 = layer;
+		wire.state = 0;
+		MarkObj via;
+		via.type = OBJ_POINT;
+		via.type2 = POINT_VIA_AUTO_EXTRACT;
+		via.type3 = layer;
+		via.state = 0;
+		for (int i = 1; i < sbs.size(); i++) {
+			if (sbs[i].state == BranchMeta::ALEADY_OUTPUT) //if it is deleted, continue
+				continue;
+			//1 following check if sbs[i] can output
+			if (sbs[i].bch.first.x >= right_limit || sbs[i].bch.second.x >= right_limit ||
+				sbs[i].bch.first.y >= bottom_limit || sbs[i].bch.second.y >= bottom_limit)
+					continue;
+			//2 following create MarkObj
+			if (sbs[i].dir >= 0) { //wire
+				Point p0, p1;
+				int start = 0;
+				if (sbs[i].final_out.empty() ||
+					sbs[i].final_out[0].x - sbs[i].bch.first.x +sbs[i].final_out[0].y - sbs[i].bch.first.y > end_len_limit) { 
+					p0 = sbs[i].bch.first;
+					start = 0;					
+				}
+				else { //get rid of bch.first because bch.first overlap final_out[0]
+					p0 = sbs[i].final_out[0];
+					start = 1;
+				}
+				for (int j = start; j <= sbs[i].final_out.size(); j++) {
+					if (j == sbs[i].final_out.size())
+						p1 = sbs[i].bch.second;
+					else
+						p1 = sbs[i].final_out[j];
+					if (!sbs[i].final_out.empty() && j == sbs[i].final_out.size() &&
+						p1.x - p0.x + p1.y - p0.y < end_len_limit) //get rid of bch.second because bch.second overlap final_out.back
+						break;
+					wire.prob = (j == 0 || j == sbs[i].final_out.size()) ? 0.5 : 1;
+					wire.p0 = QPoint(p0.x, p0.y);
+					wire.p1 = QPoint(p1.x, p1.y);
+					obj_sets.push_back(wire);
+					p0 = p1;
+				}
+			}
+			else { //via
+				if (sbs[i].dir == -1) {
+					via.prob = 1;
+					via.p0 = QPoint(sbs[i].bch.first.x, sbs[i].bch.first.y);
+					via.p1 = via.p0;
+					obj_sets.push_back(via);
+				}
+				for (int j = 0; j < sbs[i].final_out.size(); j++) {
+					wire.prob = 1;
+					wire.p0 = QPoint(sbs[i].bch.first.x, sbs[i].bch.first.y);
+					if (sbs[i].final_out[j].x != sbs[i].bch.first.x) {	//connect in x axis
+						wire.p1 = QPoint(sbs[i].final_out[j].x, sbs[i].bch.first.y);
+						obj_sets.push_back(wire);
+						wire.p0 = wire.p1;
+					}
+					if (sbs[i].final_out[j].y != sbs[i].bch.first.y) { //connect in y axis
+						wire.p1 = QPoint(sbs[i].final_out[j].x, sbs[i].final_out[j].y);
+						obj_sets.push_back(wire);
+					}
+				}
+			}
+			//3 update subBranch state
+            sbs[i].state = BranchMeta::ALEADY_OUTPUT;
+		}
+	}
+
+	void del_branch(int idx) {
+		sbs[idx].state = BranchMeta::ALEADY_OUTPUT;
+		for (int i = 0; i < sbs[idx].dc.size(); i++) {
+			int other = sbs[idx].dc[i];
+			vector<int>::iterator it = find(sbs[other].dc.begin(), sbs[other].dc.end(), idx);
+			if (it != sbs[other].dc.end()) //if other contain idx
+				sbs[other].dc.erase(it);
+		}
+		sbs[idx].dc.clear();
+	}
+
+	/*
+	Input o, other sbs
+	Input up_merge, up merge or left merge
+	Input guard1 for two wire connect distance
+	Input guard2 for two via connect distance
+	Input guard3 for two wire merge distance
+	Input guard4 for two via merge distance
+	Input bound_min if up_merge, it is bound_y up = limit_y; if left merge, it is bound_x left =limit_x
+	Input bound_max if up_merge, it is bound_y down; if left merge, it is bound_x right
+	Input limit if up_merge, it is limit_x right; if left merge, it is limit_y bottom
+	Input force, if force=true, means collect all non-ALEADY_OUTPUT branch
+	*/
+	void merge(BranchMark & o, bool up_merge, int guard1, int guard2, int guard3, int guard4, int bound_min, int bound_max, int bound_min2, int limit, bool force) {
+		CV_Assert(guard3 <= guard1 && guard4 <= guard2);
+		vector<int> ml_set, mv_set; //merge line set and merge via set
+		//1 following collect local boundary branch ml_set and mv_idx
+		if (up_merge) {
+			int miny, maxy;
+			for (int i = 1; i < sbs.size(); i++) {				
+				GET_MINMAX(sbs[i].bch.first.y, sbs[i].bch.second.y, miny, maxy);
+				if (IS_NOT_INTERSECT(miny, maxy, bound_min, bound_max))
+					continue;
+				if (sbs[i].dir >= 0)
+					ml_set.push_back(i);
+				else
+					mv_set.push_back(i);
+			}
+		}
+		else {
+			int minx, maxx;
+			for (int i = 1; i < sbs.size(); i++) {
+				GET_MINMAX(sbs[i].bch.first.x, sbs[i].bch.second.x, minx, maxx);
+				if (IS_NOT_INTERSECT(minx, maxx, bound_min, bound_max))
+					continue;
+				if (sbs[i].dir >= 0)
+					ml_set.push_back(i);
+				else
+					mv_set.push_back(i);
+			}
+		}
+		//2 following collect other boundary branch
+		for (int i = 1; i < o.sbs.size(); i++) {
+			if (o.sbs[i].state == BranchMeta::ALEADY_OUTPUT) //fetch all left branch
+				continue;
+			if (force) {				
+				if (up_merge) {
+					int miny, maxy;
+					GET_MINMAX(o.sbs[i].bch.first.y, o.sbs[i].bch.second.y, miny, maxy);
+					if (IS_NOT_INTERSECT(miny, maxy, bound_min, bound_max)) //print some error, normally it should not happen
+						qCritical("fetch line (%d,%d) (%d,%d) not in y boundary (%d, %d)", o.sbs[i].bch.first.x, o.sbs[i].bch.first.y,
+						o.sbs[i].bch.second.x, o.sbs[i].bch.second.y, bound_min, bound_max);
+				}
+				else {
+					int minx, maxx;
+					GET_MINMAX(o.sbs[i].bch.first.x, o.sbs[i].bch.second.x, minx, maxx);
+					if (IS_NOT_INTERSECT(minx, maxx, bound_min, bound_max)) //print some error, normally it should not happen
+						qCritical("fetch line (%d,%d) (%d,%d) not in x boundary (%d, %d)", o.sbs[i].bch.first.x, o.sbs[i].bch.first.y,
+						o.sbs[i].bch.second.x, o.sbs[i].bch.second.y, bound_min, bound_max);
+				}
+			}
+			else { //fetch boundary branch
+				if (up_merge) {
+					int miny, maxy;
+					GET_MINMAX(o.sbs[i].bch.first.y, o.sbs[i].bch.second.y, miny, maxy);
+					CV_Assert(maxy <= bound_max);
+					if (IS_NOT_INTERSECT(miny, maxy, bound_min, bound_max))
+						continue;
+				}
+				else {
+					int minx, maxx;
+					GET_MINMAX(o.sbs[i].bch.first.x, o.sbs[i].bch.second.x, minx, maxx);
+					CV_Assert(maxx <= bound_max);
+					if (IS_NOT_INTERSECT(minx, maxx, bound_min, bound_max))
+						continue;
+				}
+			}
+
+			BranchMeta & bm = o.sbs[i]; //here bm intersect with boundary
+			CV_Assert(bm.state != BranchMeta::ALEADY_OUTPUT);
+			if (bm.dir >= 0) {
+				if (up_merge) {
+					if (bm.bch.first.x >= limit || bm.bch.second.x >= limit)
+						bm.state = BranchMeta::FPFD;
+				}
+				else {
+					if (bm.bch.first.y >= limit || bm.bch.second.y >= limit)
+						bm.state = BranchMeta::FPFD;
+				}
+			}
+			//3 recompute direct_con, same and parallel for other boundary branch
+			vector<int> direct_con; //will replace bm.dc
+			vector<int> parallel;
+			int same = -1;
+			vector<int> & m_set = (bm.dir >= 0) ? ml_set : mv_set;
+			int guard = (bm.dir >= 0) ? guard1 : guard2;
+			for (int j = 0; j < m_set.size(); j++) 
+			if (sbs[m_set[j]].state != BranchMeta::ALEADY_OUTPUT) { //it is not deleteded in parallel case
+				int ret = sbs[m_set[j]].intersect(bm, guard);
+				if (bm.dir >= 0) { //for wire case
+					if (ret == -1)
+						direct_con.push_back(m_set[j]);
+					if (ret >= 0) {//parallel
+						if (same == -1 && ret <= guard3 && (bm.state > BranchMeta::FPFD || sbs[m_set[j]].state > BranchMeta::FPFD))
+							same = m_set[j];
+						else
+							parallel.push_back(m_set[j]);
+					}
+				}
+				else { //for via case
+					if (ret >= 0) {
+						if (same == -1 && ret <= guard4) {
+							CV_Assert(bm.state > BranchMeta::FPFD && sbs[m_set[j]].state > BranchMeta::FPFD);
+							same = m_set[j];
+						}
+						else
+							parallel.push_back(m_set[j]);
+					}
+						
+				}
+			}
+			
+			for (int j = 0; j < bm.dc.size(); j++)
+				if (o.sbs[bm.dc[j]].state == BranchMeta::MERGED && !EXIST(direct_con, o.sbs[bm.dc[j]].map_bra)) { 
+					int map_bra = o.sbs[bm.dc[j]].map_bra;
+					CV_Assert(map_bra>0);
+					if (bm.dir >= 0 && sbs[map_bra].dir >=0) //Most possible it won't happen
+						qInfo("Miss connect (%d,%d),(%d,%d) to (%d,%d)(%d,%d)", bm.bch.first.x, bm.bch.first.y, bm.bch.second.x, bm.bch.second.y,
+						sbs[map_bra].bch.first.x, sbs[map_bra].bch.first.y, sbs[map_bra].bch.second.x, sbs[map_bra].bch.second.y);
+					if (map_bra != same && !EXIST(direct_con, map_bra))
+						direct_con.push_back(map_bra); //collect other existing map_bra connection
+				}
+			bm.dc.swap(direct_con);
+			//4 merge bm to local sbs	
+			if (same==-1) {
+				//4.1 no same branch exist, clone bm to new sbs
+				sbs.push_back(bm);
+				sbs.back().idx = (int)sbs.size() - 1;
+				bm.map_bra = (int) sbs.size() - 1;
+				m_set.push_back(bm.map_bra);
+			}
+			else {
+				//4.2 same branch exist, absort bm to same sbs
+				bool pri;
+				//following compute pri
+				if (up_merge) {
+					int dy1 = min(bound_max - bm.bch.first.y, bound_max - bm.bch.second.y);
+					int dy2 = min(sbs[same].bch.first.y - bound_min2, sbs[same].bch.second.y - bound_min2);
+					pri = (dy1 >= dy2);
+				}
+				else {
+					int dx1 = min(bound_max - bm.bch.first.x, bound_max - bm.bch.second.x);
+					int dx2 = min(sbs[same].bch.first.x - bound_min2, sbs[same].bch.second.x - bound_min2);
+					pri = (dx1 >= dx2);
+				}
+				//pri is computed
+				sbs[same].merge(bm, pri);
+				bm.map_bra = same;
+			}			
+
+			bm.state = BranchMeta::MERGED;
+			same = bm.map_bra; //same is bm's local sbs idx after merge
+			//5 deal parallel intersect case	
+			for (int j = 0; j < parallel.size(); j++) {
+				int ret = sbs[same].intersect(sbs[parallel[j]], 30);
+				if ((ret <= guard3 && sbs[same].dir>=0 || ret <= guard4 && sbs[same].dir<0) && 
+					(sbs[same].state > BranchMeta::FPFD || sbs[parallel[j]].state > BranchMeta::FPFD)) { //absort to same sbs
+					CV_Assert(ret >= 0);
+					sbs[same].merge(sbs[parallel[j]], true); //TODO, it can't be true here
+					del_branch(parallel[j]);
+				}
+				else 
+					sbs[same].push_dc(parallel[j]);					
+				
+			}
+			for (int i = 0; i<(int)sbs[same].dc.size(); i++) {
+				int idx = sbs[same].dc[i];				
+				sbs[idx].push_dc(same);
+			}
+			bm.dc.swap(direct_con);
+		}
+		for (int i = 1; i < o.sbs.size(); i++)
+		if (o.sbs[i].state == BranchMeta::MERGED) {			
+			o.sbs[i].state = BranchMeta::ALEADY_OUTPUT;
+			if (!force) {
+				if (up_merge) {
+					if (o.sbs[i].bch.first.x >= limit || o.sbs[i].bch.second.x >= limit) {
+						if (o.sbs[i].dir >= 0)
+							o.sbs[i].state = BranchMeta::FPFD;
+						else
+							o.sbs[i].state = BranchMeta::MainBranch;
+						o.sbs[i].map_bra = -1;
+					}
+				}
+				else {
+					if (o.sbs[i].bch.first.y >= limit || o.sbs[i].bch.second.y >= limit) {
+						if (o.sbs[i].dir >= 0)
+							o.sbs[i].state = BranchMeta::FPFD;
+						else
+							o.sbs[i].state = BranchMeta::MainBranch;
+						o.sbs[i].map_bra = -1;
+					}
+				}
+			}
+		}
+	}
 };
 
 class PipeDataPerLayer {
@@ -2015,6 +2876,10 @@ public:
 	WireTypeSet wts;
 	bool ig_valid;
 	int compute_border;
+	struct GuardLen{
+		int wire_connect, via_connect, end_wire;
+		int wire_merge, via_merge;
+	} guard_len;
 	vector<WireLine> lineset[4]; //assemble_line output
 	vector<ViaInfo> via_info; //fine_via_search output
 	FinalWireVias fwv;
@@ -2025,9 +2890,16 @@ public:
 		gs = 4;
 		compute_border = 24;
 		border_size = 48;
+		guard_len.wire_connect = 7;
+		guard_len.via_connect = 8;
+		guard_len.end_wire = 20;
+		guard_len.wire_merge = 6;
+		guard_len.via_merge = 7;
+		for (int i = 0; i < 16; i++)
+			v[i].type = TYPE_NONE;
 	}
 	
-	void reinit(int _gs, int _compute_border, int _border_size) {
+	void reinit(int _gs, int _compute_border, int _border_size, GuardLen & guard) {
 		gs = _gs;
 		compute_border = _compute_border;
 		border_size = _border_size;
@@ -2038,6 +2910,13 @@ public:
 			for (int x = 0; x < prob.cols * 2; x++)
 				p_prob[x] = 0xffffffffffffffffULL;
 		}
+		qInfo("via_connect=%d, via_merge=%d, wire_connect=%d, wire_merge=%d, end_wire=%d", 
+			guard.via_connect, guard.via_merge, guard.wire_connect, guard.wire_merge, guard.end_wire);
+		if (guard.via_connect < guard.via_merge || guard.wire_connect < guard.wire_merge) {
+			qCritical("invalid via_connect, via_merge or wire_connect, wire_merge");
+			return;
+		}
+		guard_len = guard;
 	}
 
 	void set_raw_img(Mat & _img) {
@@ -2230,51 +3109,6 @@ static void mark_rect(Mat & m, Point pt1, Point pt2, T mask) {
 	}
 }
 
-/*
-input pt1, pt2
-output pts, line points include [pt1,pt2)
-*/
-static void get_line_pts(Point pt1, Point pt2, vector <Point> & pts)
-{
-	int dx = abs(pt2.x - pt1.x);
-	int dy = abs(pt2.y - pt1.y);
-	bool dir = dx > dy;
-	int ix = (pt2.x - pt1.x > 0) ? 1 : -1;
-	int iy = (pt2.y - pt1.y > 0) ? 1 : -1;
-	pts.clear();
-	if (dir) {
-		int dy2 = 2 * dy;
-		int dy2dx2 = 2 * dy - 2 * dx;
-		int d = 2 * dy - dx;
-		int x = pt1.x, y = pt1.y;
-		for (; x != pt2.x; x += ix) {
-			pts.push_back(Point(x, y));
-			if (d < 0)
-				d += dy2;
-			else {
-				d += dy2dx2;
-				y += iy;
-			}
-		}
-		CV_Assert(y == pt2.y);
-	}
-	else {
-		int dx2 = 2 * dx;
-		int dx2dy2 = 2 * dx - 2 * dy;
-		int d = 2 * dx - dy;
-		int x = pt1.x, y = pt1.y;
-		for (; y != pt2.y; y += iy) {
-			pts.push_back(Point(x, y));
-			if (d < 0)
-				d += dx2;
-			else {
-				d += dx2dy2;
-				x += ix;
-			}
-		}
-		CV_Assert(x == pt2.x);
-	}
-}
 /*
 input points
 output lut, 256 * 1
@@ -4078,6 +4912,8 @@ WireComputeScore * WireComputeScore::create_wire_compute_score(WireParameter &wp
 
 /*		31..24  23..16		15..8		7..0
 opt0:	  1  border_size compute_border gs
+opt1:	via_connect via_merge wire_connect wire_merge
+opt2:                                   end_limit
 */
 void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
 {
@@ -4089,10 +4925,18 @@ void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
 		int border_size = cpara.opt0 >> 16 & 0xff;
 		qInfo("set gs=%d, compute_border=%d, border_size=%d", gs, compute_border, border_size);
 
-		if (gs > 32 || gs<=3 || gs * 2 > compute_border || compute_border >= border_size) 
+		PipeDataPerLayer::GuardLen guard;
+		guard.via_connect = cpara.opt1 >> 24 & 0xff;
+		guard.via_merge = cpara.opt1 >> 16 & 0xff;
+		guard.wire_connect = cpara.opt1 >> 8 & 0xff;
+		guard.wire_merge = cpara.opt1 & 0xff;
+		guard.end_wire = cpara.opt2 & 0xff;
+		if (gs > 32 || gs <= 3 || gs * 2 > compute_border || compute_border >= border_size) {
 			qCritical("gs invalid");
-		else
-			d.l[layer].reinit(gs, compute_border, border_size);
+			return;
+		}
+		
+		d.l[layer].reinit(gs, compute_border, border_size, guard);
 		
 		return;
 	}
@@ -4275,11 +5119,9 @@ opt2: dis_max  wsize  sep_max  sep_min for most bright obj (may or may not be vi
 opt3:           k2       k1      k0      k0 is dark gray level compress rate, k1 & k2 is rate between most dark and middle bright
 opt4:           k2       k1      k0      k0 is middle bright level compress rate, k1 & k2 is rate between middle bright and most bright
 opt5:           k2       k1      k0      k0 is most bright compress rate, k1 & k2 is rate between most bright
-sep_min & sep_max means gray level difference
-sep_min better > wsize/2, e.g. M0.sep_min > M0.wsize/2
-wsize means gray level window, e.g. [80,90] consider as GRAY_M0 level, wsize=10
-Choose gray level between [last gray level+ last level wsize/2+ sep_min, last gray level+ last level wsize/2 +sep_max], 
-e.g. GRAY_M0 is in [GRAY_L0+L0.wsize/2 + M0.sep_min, GRAY_L0+L0.wsize/2 +M0.sep_max]
+sep_min & sep_max means minmum and maximum gray level, L0.wsize is sep window size between L1 and L0
+L1.wsize is sep window size between L2 and L1
+e.g. L0.wsize > L1.sep_min - L0.sep_max, L1.wsize > L2.sep_min - L1.sep_max
 normally choose k2 & k0 = 100, k1 < 100
 method_opt
 0: for gray level turn_points output
@@ -4326,48 +5168,44 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	}
 
 	//following is compute lmh[0..2].g0
-	int base = 0;
-	for (int i = 0; i < 3; i++) {
-		int choose = base + lmh[i].sep_min, max_sum = 0;
-		qInfo("imgpp_adjust_gray_lvl %d:sep_min=%d, sep_max=%d,wsize=%d,dis_min=%f,dis_max=%f, k0=%f, k1=%f, k2=%f", i, 
-			lmh[i].sep_min, lmh[i].sep_max, lmh[i].wsize, lmh[i].dis_min, lmh[i].dis_max, lmh[i].k0, lmh[i].k1, lmh[i].k2);
-		if (lmh[i].wsize > 100) {
-			qCritical("imgpp_adjust_gray_lvl wsize(%d) > 100", lmh[i].wsize);
-			return;
-		}
-		if (lmh[i].dis_min >= 1 || lmh[i].dis_max > 1) {
-			qCritical("imgpp_adjust_gray_lvl dis_min(%d), dis_max(%d) shoule < 1", lmh[i].dis_min, lmh[i].dis_max);
-			return;
-		}
-		if (lmh[i].k0 > 1) {
-			qCritical("imgpp_adjust_gray_lvl k0(%d) > 1", lmh[i].k0);
-			return;
-		}
-		if (i > 0 && lmh[i].sep_min - lmh[i].wsize / 2 < 6)
-			qWarning("imgpp_adjust_gray_lvl Warning sep_min(%d) - wize(%d)/2 < 6", lmh[i].sep_min, lmh[i].wsize);
-		int th = lmh[i].dis_max * stat[256];
-		for (int j = base + lmh[i].sep_min; j <= min(255, base + lmh[i].sep_max); j++) {
-			int kb = max(base + 1, j - lmh[i].wsize / 2), ke = min(j + (lmh[i].wsize - 1) / 2, 255);
+	int k_begin[2];
+	for (int i = 0; i < 3; i++)
+	qInfo("imgpp_adjust_gray_lvl %d:sep_min=%d, sep_max=%d,wsize=%d,dis_min=%f,dis_max=%f, k0=%f, k1=%f, k2=%f", i,
+		lmh[i].sep_min, lmh[i].sep_max, lmh[i].wsize, lmh[i].dis_min, lmh[i].dis_max, lmh[i].k0, lmh[i].k1, lmh[i].k2);
+	for (int i = 0; i < 2; i++) {
+		int jb = max(lmh[i].sep_min + 1, lmh[i + 1].sep_min - lmh[i].wsize);
+		int je = min(lmh[i].sep_max, lmh[i + 1].sep_max - lmh[i].wsize);
+		if (jb > je)
+			qCritical("param wrong for wsize(%d) < sep_min[%d](%d) - sep_max[%d](%d)", lmh[i].wsize, 
+			i + 1, lmh[i + 1].sep_min, i, lmh[i].sep_max);
+		int min_sum = 0x7fffffff;
+		for (int j = jb; j <= je; j++) {
 			int sum = 0;
-			for (int k = kb; k <= ke; k++)
+			for (int k = j; k < j + lmh[i].wsize; k++)
 				sum += stat[k];
-			if (sum > max_sum && sum < th) {
-				max_sum = sum;
-				choose = j;
+			if (sum < min_sum) {
+				min_sum = sum;
+				k_begin[i] = j;
 			}
 		}
-		if (max_sum < lmh[i].dis_min * stat[256])
-			qCritical("Error choose=%d, max_sum(%d) < dis_min(%d)", choose, max_sum, (int) (lmh[i].dis_min * stat[256]));
-		if (max_sum > th)
-			qCritical("Error choose=%d, max_sum(%d) > dis_max(%d)", choose, max_sum, th);
-		if (choose == base + lmh[i].sep_min)
-			qWarning("consider to make sep_min low, because choose%d = base(%d) + sep_min(%d)", choose, base, lmh[i].sep_min);
-		if (choose == base + lmh[i].sep_max)
-			qWarning("consider to make sep_max high, because choose%d = base(%d) + sep_max(%d)", choose, base, lmh[i].sep_max);
-		lmh[i].g0 = choose;
-		base = choose + (lmh[i].wsize - 1) / 2;
+		lmh[i+1].sep_min = k_begin[i] + lmh[i].wsize;
 	}
-	qInfo("imgpp_adjust_gray_lvl, l0=%d, m0=%d, h0=%d", lmh[0].g0, lmh[1].g0, lmh[2].g0);
+	lmh[0].sep_max = k_begin[0] - 1;
+	lmh[0].wsize = lmh[0].sep_max - lmh[0].sep_min + 1;
+	lmh[0].g0 = (lmh[0].sep_max + lmh[0].sep_min) / 2;	
+	lmh[1].sep_max = k_begin[1] - 1;
+	lmh[1].wsize = lmh[1].sep_max - lmh[1].sep_min + 1;
+	lmh[1].g0 = (lmh[1].sep_max + lmh[1].sep_min) / 2;
+	lmh[2].wsize = lmh[2].sep_max - lmh[2].sep_min + 1;
+	lmh[2].g0 = (lmh[2].sep_max + lmh[2].sep_min) / 2;
+	for (int i = 0; i < 3; i++)
+	if (lmh[i].wsize <= 0) {
+		qCritical("Invalid param wsize=%d", lmh[i].wsize);
+		return;
+	}
+
+	qInfo("imgpp_adjust_gray_lvl, l0=%d, w0=%d, m0=%d, w1=%d, h0=%d, w2=%d", lmh[0].g0, lmh[0].wsize, 
+		lmh[1].g0, lmh[1].wsize, lmh[2].g0, lmh[2].wsize);
 
 	//following compute Gray level table
 	d.l[layer].v[idx0].type = TYPE_GRAY_LEVEL;
@@ -4451,6 +5289,15 @@ struct WireKeyPoint {
 	float arf;
 };
 
+struct WireDetectInfo {
+	int w_subtype;
+	int w_pattern;
+	int w_dir;
+	int w_type;
+	int w_wide;
+	int i_wide;
+	float gamma;
+};
 /*     31..24 23..16   15..8   7..0
 opt0:   inc1   inc0   w_long1 w_long0 
 opt1:up_prob search_opt  th    w_num
@@ -4499,15 +5346,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 		}
 	}	
 	
-	struct WireDetectInfo {
-		int w_subtype;
-		int w_pattern;
-		int w_dir;
-		int w_type;		
-		int w_wide;
-		int i_wide;
-		float gamma;
-	} wpara_pack[] = {
+	struct WireDetectInfo wpara_pack[] = {
 		{ cpara.opt2 >> 24 & 0xff, cpara.opt2 >> 16 & 0xff, cpara.opt2 >> 8 & 0xff, cpara.opt2 & 0xff, 0, 0, 0 },
 		{ cpara.opt3 >> 24 & 0xff, cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 8 & 0xff, cpara.opt3 & 0xff, 0, 0, 0 },
 		{ cpara.opt4 >> 24 & 0xff, cpara.opt4 >> 16 & 0xff, cpara.opt4 >> 8 & 0xff, cpara.opt4 & 0xff, 0, 0, 0 },
@@ -4850,7 +5689,7 @@ static void coarse_via_search_mask(PipeData & d, ProcessParameter & cpara)
 	}
 	for (int i = 0; i < vnum; i++) {
 		qInfo("%d: coarse_via_search_mask v_subtype=%d, wide=%d, percent=%d", i, v_subtype[i], v_wide[i], v_percent[i]);
-		if (v_wide[i] / 2 >= d.l[layer].compute_border || v_percent[i] >= 50) {
+		if (v_wide[i] / 2 >= d.l[layer].compute_border) {
 			qCritical("coarse_via_search_mask wrong parameter");
 			return;
 		}
@@ -4879,7 +5718,7 @@ static void coarse_via_search_mask(PipeData & d, ProcessParameter & cpara)
 			}
 		}
 
-		total = total * v_percent[i] / 100;
+		total = total * v_percent[i] / 10000;
 		for (int j = 1023; j > 0; j--) {
 			for (int k = 0; k < record[j].size(); k++) {
 				int y = record[j][k] >> 16;
@@ -4949,11 +5788,12 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 		qCritical("fine_via_search search mask idx1[%d], error", idx1, d.l[layer].v[idx1].type);
 		return;
 	}
+	Mat prob;
 	int idx3 = cpara.method_opt >> 12 & 0xf;
 	if (d.l[layer].v[idx3].type != TYPE_SHADOW_PROB) {
-		qCritical("fine_via_search search mask idx3[%d], error", idx3, d.l[layer].v[idx3].type);
-		return;
-	}
+		prob = d.l[layer].prob.clone();
+	} else
+		prob = d.l[layer].v[idx3].d;
 	Mat & mask = d.l[layer].v[idx1].d;
 	int vnum = cpara.opt0 & 0xff;
 	int update_fv = cpara.opt0 >> 8 & 0xff;
@@ -4996,7 +5836,7 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 		vcs[i].reset(ViaComputeScore::create_via_compute_score(layer, via_para, d));
 	}
 	d.l[layer].validate_ig();
-	Mat & prob = d.l[layer].v[idx3].d;
+	
 	for (int y = d.l[layer].compute_border; y < img.rows - d.l[layer].compute_border; y++) {
 		unsigned * p_mask = mask.ptr<unsigned>(y);
 		for (int x = d.l[layer].compute_border; x < img.cols - d.l[layer].compute_border; x++)
@@ -5020,7 +5860,7 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 			if (PROB_SHAPE(p_prob[2 * x]) == BRICK_VIA || PROB_SHAPE(p_prob[2 * x + 1]) == BRICK_VIA) {
 				unsigned long long prob0 = (PROB_SHAPE(p_prob[2 * x]) == BRICK_VIA) ? p_prob[2 * x] : p_prob[2 * x + 1];
 				int gi = PROB_TYPE(prob0);
-				bool pass = PROB_SCORE(prob0) < v_th[gi] * v_th[gi]; //pass means it is lowest prob among nearby guard probs,pass=true => pass2=true
+				bool pass = (PROB_SCORE(prob0) < v_th[gi] * v_th[gi]); //pass means it is lowest prob among nearby guard probs,pass=true => pass2=true
 				bool pass2 = true; //pass2 means it is lowest prob among nearby guard via probs				
 				int cr = v_guard[gi];
 				int guard = (cr - 1) / d.l[layer].gs + 1;
@@ -7548,7 +8388,7 @@ struct SkinPoint {
 	int dir_mask;
 	int len;
 	int check;//check is true for skin point, false for bone and branch point
-	SkinPoint(Point & _xy, int _dir_mask, bool _check) {
+	SkinPoint(const Point & _xy, int _dir_mask, bool _check) {
 		xy = _xy;
 		dir_mask = _dir_mask;
 		check = _check ? 1 : 0;
@@ -7663,6 +8503,7 @@ public:
 			bool inside = pts[i].x > wp->i_high + wp->swide_min / 2 && pts[i].y > wp->i_high + wp->swide_min / 2 &&
 				pts[i].x > wp->swide_min && pts[i].y > wp->swide_min && pts[i].x < ig.cols - wp->swide_min && pts[i].y < ig.rows - wp->swide_min &&
 				pts[i].x < ig.cols - wp->i_high - wp->swide_min / 2 && pts[i].y < ig.rows - wp->i_high - wp->swide_min / 2;
+			bool meet_parallel = false;
 			if (inside) {
 				sum0 = p_ig[offset[0][3]] + p_ig[offset[0][0]] - p_ig[offset[0][1]] - p_ig[offset[0][2]];
 				sum1 = p_ig[offset[1][3]] + p_ig[offset[1][0]] - p_ig[offset[1][1]] - p_ig[offset[1][2]];
@@ -7670,11 +8511,11 @@ public:
 				if (p_mark[0] != 0xffffffffffffffffULL) { //meet another branch
 					int ano_bra = MARK_BRANCH(p_mark[0]);
 					int ano_dir = bm.bs[ano_bra].get_dir();
-					if (ano_bra != b_idx && (dir == ano_dir || dir_1[dir] == ano_dir)) //parallel, return
-						return false;
+					if (ano_bra != b_idx && (dir == ano_dir || dir_1[dir] == ano_dir)) //parallel, push end
+						meet_parallel = true;
 				}
 			}
-			if (sum0 >= th0 && sum1 >= th1 && inside) { //wire continue, push wire
+			if (sum0 >= th0 && sum1 >= th1 && inside && !meet_parallel) { //wire continue, push wire
 				for (int j = 0; j < (int)skps.size(); j++) {
 					Point skin_pt = skps[j].xy + pts[i];
 					if (!skps[j].check) //push bone
@@ -7723,9 +8564,16 @@ public:
 		prev_vp = NULL;
 	}
 
-	int search_branch(Point pt1, const ViaParameter * vp, const Mat & ig, BranchMark & bm) {
+	/*
+	Input: pt1 via center
+	Input: vp
+	Input: ig
+	Inout: bm
+	input: down_layer, 0 this layer, 1 downlayer
+	*/
+	int search_branch(Point pt1, const ViaParameter * vp, const Mat & ig, BranchMark & bm, int down_layer) {
 		int th = vp->swide_min * vp->swide_min* vp->gray3 + vp->swide_min * vp->swide_min *(vp->gray0 - vp->gray3) * (vp->cgray_ratio / 100.0); //th1 is skin threshold 
-		int bidx = bm.new_branch(vp->type, vp->swide_min, th, -1);
+		int bidx = bm.new_branch(vp->type, vp->swide_min, th, down_layer ? -2 : -1);
 		if (prev_connect_rd != vp->connect_rd) {
 			skps.clear();
 			vector<int> flag(vp->connect_rd * 2 + 1, 0);
@@ -7774,7 +8622,7 @@ public:
 			if (skin_pt.x <= 0 || skin_pt.y <= 0 || skin_pt.x >= ig.cols - 1 || skin_pt.y >= ig.rows - 1)
 				continue;
 			if (!skps[j].check)  // push bone
-				bm.push_mark(skin_pt, bidx, skps[j].len, skps[j].dir_mask, 0, pt1.x, pt1.y, true);//Fixme how to do when two via center overlap				
+				bm.push_mark(skin_pt, bidx, skps[j].len, skps[j].dir_mask, 0, pt1.x, pt1.y, true);			
 			
 			else {
 				if (skin_pt.x <= vp->swide_min / 2 || skin_pt.y <= vp->swide_min / 2 ||
@@ -7875,20 +8723,15 @@ static void hotpoint_search(PipeData & d, ProcessParameter & cpara)
 	int layer = cpara.layer;
 	Mat & img = d.l[layer].img;
 	int hotpoint_opt = cpara.opt0 >> 8 & 0xff;
-
-	if (hotpoint_opt & HOTPOINT_CLEAR_MASK)
-		d.l[layer].bm.clear_mark(img);
-	if (d.l[layer].bm.get_mark().size() != img.size()) {
-		qCritical("hotpoint_search, mark.size(%d,%d)!=img.size(%d,%d)", 
-			d.l[layer].bm.get_mark().rows, d.l[layer].bm.get_mark().cols, img.rows, img.cols);
-		return;
-	}
+		
 	qInfo("hotpoint_search, idx=%d, l=%d, wnum=%d, hotline_opt=%d", idx, layer, wnum, hotpoint_opt);
 
 	if (d.l[layer].v[idx].type != TYPE_GRAY_LEVEL) {
 		qCritical("hotpoint_search gray level idx[%d]=%d, error", idx, d.l[layer].v[idx].type);
 		return;
 	}
+	if (d.l[layer].bm.get_mark().empty())
+		d.l[layer].bm.clear_mark(img);
 	int gl = find_index(d.l[layer].v[idx].d, (int)GRAY_L0);
 	gl = d.l[layer].v[idx].d.at<int>(gl, 2);
 	int gm = find_index(d.l[layer].v[idx].d, (int)GRAY_M0);
@@ -8042,57 +8885,70 @@ static void hotpoint_search(PipeData & d, ProcessParameter & cpara)
 
 /*
         31..24 23..16   15..8   7..0
-opt0:		             opt    layer
-opt1:	       v_type cgray_ratio sw_min
+opt0:		             opt    layer_num
+opt1:  connect_rd v_type cgray_ratio sw_min
+connect_rd, v_type, cgray_ratio & sw_min will overwrite other layer ViaParameter
 */
 static void assemble_via(PipeData & d, ProcessParameter & cpara)
 {
-	int layer[2] = {cpara.layer, cpara.opt0 & 0xff};
+	int layer[2] = { cpara.layer, cpara.layer - 1 };
 	int assemble_opt = cpara.opt0 >> 8 & 0xff;
-	bool allow_45 = (assemble_opt & ASSEMBLE_BRANCH_ALLOW_45) ? true : false;
+	int layer_num = cpara.opt0 & 0xff;
+	bool allow_45 = (assemble_opt & ASSEMBLE_VIA_ALLOW_45) ? true : false;
+	bool search_skin = (assemble_opt & ASSEMBLE_VIA_SEARCH_SKIN) ? true : false;
 	SearchViaBranch sb;
 	d.l[layer[0]].validate_ig();
 	Mat & ig = d.l[layer[0]].ig;
 	Mat & img = d.l[layer[0]].img;
-	Mat mark = d.l[layer[0]].bm.get_mark();
 	int idx = cpara.method_opt & 0xf;
 	int sw_min = cpara.opt1 & 0xff;
 	int c_ratio = cpara.opt1 >> 8 & 0xff;
 	int v_type = cpara.opt1 >> 16 & 0xff;
-	qInfo("assemble_via, l0=%d, l1=%d, sw_min=%d, c_ratio=%d, v_type=%d, allow45=%d", 
-		layer[0], layer[1], sw_min, c_ratio, v_type, allow_45);
+	int connect_rd = cpara.opt1 >> 24 & 0xff;
+	qInfo("assemble_via, l0=%d, l1=%d, layernum=%d,connect_rd=%d, sw_min=%d, c_ratio=%d, v_type=%d, allow45=%d", 
+		layer[0], layer[1], layer_num, connect_rd, sw_min, c_ratio, v_type, allow_45);
 
 	if (d.l[layer[0]].v[idx].type != TYPE_GRAY_LEVEL) {
-		qCritical("assemble_branch gray level idx[%d]=%d, error", idx, d.l[layer[0]].v[idx].type);
+		qCritical("assemble_via gray level idx[%d]=%d, error", idx, d.l[layer[0]].v[idx].type);
 		return;
 	}
+	if (layer_num > 2 || layer_num ==0) {
+		qCritical("assemble_via layernum=%d, error", layer_num);
+		return;
+	}
+	if (d.l[layer[0]].bm.get_mark().empty())
+		d.l[layer[0]].bm.clear_mark(img);
+	Mat mark = d.l[layer[0]].bm.get_mark();
 	int gl = find_index(d.l[layer[0]].v[idx].d, (int)GRAY_L0);
 	gl = d.l[layer[0]].v[idx].d.at<int>(gl, 2);
 	int gm = find_index(d.l[layer[0]].v[idx].d, (int)GRAY_M0);
 	gm = d.l[layer[0]].v[idx].d.at<int>(gm, 2);
 
-	for (int l = 0; l < 2; l++) {
+	for (int l = 0; l < layer_num; l++) {
 		ViaParameter * prev_vp = NULL;
 		ViaParameter vp_copy; //vp_copy save real color
+		if (layer[l] < 0)
+			continue;
 		for (int i = 0; i < d.l[layer[l]].via_info.size(); i++) {
 			ViaInfo & v = d.l[layer[l]].via_info[i];
 			ViaParameter * vp = &(d.l[layer[l]].vw.get_vw_para(v.pattern, v.type, v.subtype)->v);
 			if (vp != prev_vp) {
 				vp_copy = *vp;
 				vp_copy.gray0 = gm;
-				vp_copy.gray3 = gl;
-				vp_copy.type = v_type;
-				if (l == 1) {
+				vp_copy.gray3 = gl;				
+				if (l == 1) { //replace parameter with new parameter
+					vp_copy.type = v_type;
 					vp_copy.cgray_ratio = c_ratio;
 					vp_copy.swide_min = sw_min;
+					vp_copy.connect_rd = connect_rd;
 				}
 				prev_vp = vp;
 			}
-			sb.search_branch(v.xy, &vp_copy, ig, d.l[layer[0]].bm);
+			sb.search_branch(v.xy, &vp_copy, ig, d.l[layer[0]].bm, l);
 		}
 	}
-
-	d.l[layer[0]].bm.search_skin(ig, allow_45);
+	if (search_skin)
+		d.l[layer[0]].bm.search_skin(ig, allow_45);
 	if (cpara.method & OPT_DEBUG_EN) {
 		Mat debug_draw;
 		cvtColor(img, debug_draw, CV_GRAY2BGR);
@@ -8125,14 +8981,18 @@ static void assemble_branch(PipeData & d, ProcessParameter & cpara)
 	int layer = cpara.layer;
 	int assemble_opt = cpara.opt0 >> 8 & 0xff;
 	bool allow_45 = (assemble_opt & ASSEMBLE_BRANCH_ALLOW_45) ? true : false;
+	bool search_cross = (assemble_opt & ASSEMBLE_BRANCH_SEARCH_CROSS) ? true : false;
 	Mat & img = d.l[layer].img;
 	d.l[layer].validate_ig();
-	Mat & ig = d.l[layer].ig;
 
-	qInfo("assemble_branch, allow45=%d", allow_45);
+	qInfo("assemble_branch, l=%d, allow45=%d", layer, allow_45);
 
-	d.l[layer].bm.search_cross_points(allow_45, false, 15, 20);
+	if (search_cross)
+		d.l[layer].bm.search_cross_points(allow_45, false, 15, 20);
+
 	d.l[layer].bm.draw_mark2(true, allow_45);
+
+	d.l[layer].bm.self_check();
 	if (cpara.method & OPT_DEBUG_EN) {
 		Mat mark2 = d.l[layer].bm.get_mark2();
 		Mat debug_draw;
@@ -8157,10 +9017,10 @@ static void assemble_branch(PipeData & d, ProcessParameter & cpara)
 			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
 		}
 	}
-
+	/* for INVALID_BRANCH SEARCH
 	d.l[layer].bm.search_skin(ig, allow_45);
 	d.l[layer].bm.search_cross_points(allow_45, true, 15, 20);
-	d.l[layer].bm.draw_mark2(false, allow_45);
+	d.l[layer].bm.draw_mark2(false, allow_45);*/
 }
 /*
 		31..24 23..16   15..8   7..0
@@ -8263,6 +9123,138 @@ struct PipeProcess {
 		{ PP_ASSEMBLE_BRANCH, assemble_branch }
 };
 
+static void merge_tile_get_result(int method, PipeData &cpd, PipeData & lpd, PipeData & upd, int layer_num, QRect & sb, 
+	QPoint sr_tl_pixel, vector<MarkObj> & objs)
+{
+	switch (method) {
+	case 0:
+		for (int l = 0; l < layer_num; l++) {
+			//0.1 copy left RIGHT_BORDER via to FinalVia
+			if (cpd.x0 > sb.left())
+				cpd.l[l].fwv.merge_vias(lpd.l[l].fwv);
+
+			//0.2 copy up DOWN_BORDER via to FinalVia
+			if (cpd.y0 > sb.top())
+				cpd.l[l].fwv.merge_vias(upd.l[l].fwv);
+
+			//0.3 push current via to FinalVia
+			for (int j = 0; j < cpd.l[l].via_info.size(); j++)
+				cpd.l[l].fwv.push(cpd.l[l].via_info[j], cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0);
+
+			for (int dir = 0; dir < 4; dir++) {
+				//0.4 copy left RIGHT_BORDER line to FinalWireLine
+				if (cpd.x0 > sb.left())
+				for (int j = 0; j < lpd.l[l].fwv.lines[dir].size(); j++) {
+					FinalLine & line = lpd.l[l].fwv.lines[dir][j];
+					if (!line.empty())
+					if (line.point_begin().x >= cpd.l[l].img_pixel_x0 ||
+						line.point_end().x >= cpd.l[l].img_pixel_x0)
+						cpd.l[l].fwv.merge_line(line, dir);
+				}
+				//0.5 copy up DOWN_BORDER line to FinalWireLine
+				if (cpd.y0 > sb.top())
+				for (int j = 0; j < upd.l[l].fwv.lines[dir].size(); j++) {
+					FinalLine & line = upd.l[l].fwv.lines[dir][j];
+					if (!line.empty())
+					if (line.point_begin().y >= cpd.l[l].img_pixel_y0 ||
+						line.point_end().y >= cpd.l[l].img_pixel_y0)
+						cpd.l[l].fwv.merge_line(line, dir);
+				}
+				//0.6 push current line to FinalWireLine
+				for (int j = 0; j < cpd.l[l].lineset[dir].size(); j++) {
+					WireLine & wl = cpd.l[l].lineset[dir][j];
+					cpd.l[l].fwv.push(wl, cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0, dir);
+				}
+			}
+		}
+
+		for (int l = 0; l < layer_num; l++) {
+			for (int dir = 0; dir < 4; dir++) {
+				vector<FinalLine> border_lines;
+				for (int j = 0; j < cpd.l[l].fwv.lines[dir].size(); j++) {
+					FinalLine & wl = cpd.l[l].fwv.lines[dir][j];
+					if ((wl.point_begin().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 2 &&
+						wl.point_end().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 2 &&
+						wl.point_begin().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 2 &&
+						wl.point_end().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 2) ||
+						(wl.point_begin().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 2 &&
+						wl.point_end().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 2 &&
+						cpd.y0 == sb.bottom()) ||
+						(wl.point_begin().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 2 &&
+						wl.point_end().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 2 &&
+						cpd.x0 == sb.right()) ||
+						(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {
+						//3.4 for internal points, push to output
+						for (int i = 0; i < (int)wl.point_num() - 1; i++) {
+							MarkObj wire;
+							wire.type = OBJ_LINE;
+							wire.type2 = LINE_WIRE_AUTO_EXTRACT;
+							wire.type3 = l;
+							wire.state = 0;
+							wire.prob = 1;
+							QPoint p0(wl.point_at(i).x, wl.point_at(i).y);
+							QPoint p1(wl.point_at(i + 1).x, wl.point_at(i + 1).y);
+							wire.p0 = p0 + sr_tl_pixel;
+							wire.p1 = p1 + sr_tl_pixel;
+							objs.push_back(wire);
+						}
+					}
+					else //for border ppints, leave it for future merge
+						border_lines.push_back(wl);
+				}
+				cpd.l[l].fwv.lines[dir].swap(border_lines);
+			}
+
+			vector<int> border_vias;
+			for (int j = 0; j < cpd.l[l].fwv.via_num(); j++) {
+				Point point = cpd.l[l].fwv.via_at(j);
+				if ((point.x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 2 &&
+					point.y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 2) ||
+					(point.x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 2 && cpd.y0 == sb.bottom()) ||
+					(point.y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 2 && cpd.x0 == sb.right()) ||
+					(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {
+					//3.4 for internal points, push to output
+					MarkObj via;
+					via.type = OBJ_POINT;
+					via.type2 = POINT_VIA_AUTO_EXTRACT;
+					via.type3 = l;
+					via.state = 0;
+					via.prob = 1;
+					via.p0 = QPoint(point.x, point.y) + sr_tl_pixel;
+					via.p1 = QPoint(point.x, point.y) + sr_tl_pixel;
+					objs.push_back(via);
+				}
+				else
+					border_vias.push_back(cpd.l[l].fwv.vias[j]);
+			}
+			cpd.l[l].fwv.vias.swap(border_vias);
+		}
+		break;
+	case 1:
+		for (int l = 0; l < layer_num; l++) {
+			cpd.l[l].bm.stitch_at(Point(cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y()));
+			int x_limit = (cpd.x0 == sb.right()) ? cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() + cpd.l[l].raw_img.cols + 60 :
+				cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 3;
+			int y_limit = (cpd.y0 == sb.bottom()) ? cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() + cpd.l[l].raw_img.rows + 60 :
+				cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 3;
+			if (cpd.x0 > sb.left())
+				cpd.l[l].bm.merge(lpd.l[l].bm, false, cpd.l[l].guard_len.wire_connect, cpd.l[l].guard_len.via_connect, 
+				cpd.l[l].guard_len.wire_merge, cpd.l[l].guard_len.via_merge, cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() - cpd.l[l].border_size,
+				cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() + cpd.l[l].border_size * 2, cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), y_limit, true);
+			if (cpd.y0 > sb.top())
+				cpd.l[l].bm.merge(upd.l[l].bm, true, cpd.l[l].guard_len.wire_connect, cpd.l[l].guard_len.via_connect, 
+				cpd.l[l].guard_len.wire_merge, cpd.l[l].guard_len.via_merge, cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() - cpd.l[l].border_size,
+				cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() + cpd.l[l].border_size * 2, cpd.l[l].img_pixel_y0 + sr_tl_pixel.y(), x_limit, false);
+			
+			if (l==0)
+				qInfo("get result for Rect(lt=%d,%d, rb=%d,%d, erb=%d,%d)", cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y(),
+				x_limit, y_limit, x_limit + cpd.l[l].border_size * 3, y_limit + cpd.l[l].border_size * 3);
+			cpd.l[l].bm.get_result(x_limit, y_limit, cpd.l[l].guard_len.end_wire, l, objs);
+		}
+		break;
+	}
+}
+
 class ProcessTileData {
 public:
 	vector<ProcessFunc> * process_func;
@@ -8281,6 +9273,8 @@ static void process_tile(ProcessTileData & t)
 	vector<ProcessParameter> & vwp = *(t.vwp);
 	vector<ProcessFunc> & process_func = *(t.process_func);
 	PipeData & d = *(t.d);
+	qInfo("Start process_tile (x=%d,y=%d), Rect(lt=%d,%d,rb=%d,%d)", t.d->x0, t.d->y0, t.d->l[0].img_pixel_x0, t.d->l[0].img_pixel_y0,
+		t.d->l[0].img_pixel_x0 + t.d->l[0].raw_img.cols, t.d->l[0].img_pixel_y0 +t.d->l[0].raw_img.rows);
 	for (int i = 0; i < vwp.size(); i++) {
 		int method = vwp[i].method & 0xff;
 		if (process_func[method] == NULL && method != PP_OBJ_PROCESS) {
@@ -8452,6 +9446,7 @@ int VWExtractPipe::extract(string file_name, QRect, vector<MarkObj> & obj_sets)
 	ptd.vwp = &vwp;
 	process_tile(ptd);
 
+#if 0
 	for (int l = 0; l < layer_num; l++) {
 		for (int j = 0; j < (int)d->l[l].via_info.size(); j++)
 			d->l[l].fwv.push(d->l[l].via_info[j], 0, 0);
@@ -8499,6 +9494,12 @@ int VWExtractPipe::extract(string file_name, QRect, vector<MarkObj> & obj_sets)
 			obj_sets.push_back(via);			
 		}
 	}
+#endif
+	for (int i = 0; i < layer_num; i++) {
+		d->l[i].bm.get_result(0x70000000, 0x70000000, 20, i, obj_sets);
+	}
+	qInfo("Extract finished successfully");
+	qDebug("*#*#DumpMessage#*#*");
 	return 0;
 }
 
@@ -8571,6 +9572,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		int cl = 1;
 		int cl_num;
 		QPoint sr_tl_pixel = sr.topLeft() / scale;
+		qInfo("extract Rect, lt=(%d,%d), rb=(%d,%d)", sr_tl_pixel.x(), sr_tl_pixel.y(), sr.right() /scale, sr.bottom() /scale);
 		for (int xay = sb.left() + sb.top(); xay <= sb.right() + sb.bottom(); xay++) {
 			for (int i = 0; i < diag_line[cl].size(); i++) //release current diag_line memory
 				for (int j = 0; j < diag_line[cl][i].l.size(); j++)
@@ -8741,6 +9743,15 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 				ptd_sets[i].process_func = &process_func;
 				ptd_sets[i].vwp = &vwp;
 				ptd_sets[i].d = &diag_line[cl][i];
+#if DEBUG_LEFT_TOP_IMG
+				if (xay == sb.left() + sb.top()) {
+					for (int l = 0; l < layer_num; l++) {
+						char file_name[50];
+						sprintf(file_name, "./DImg/sc_M%d.jpg", l);
+						imwrite(file_name, diag_line[cl][0].l[l].raw_img);
+					}
+				}
+#endif
 			}
 #if PARALLEL 
 			//each thread process all layer on same tile
@@ -8754,6 +9765,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 			for (int i = 0; i < vwp.size(); i++)
 				vwp[i].method &= ~OPT_DEBUG_EN;
 #endif
+
 			//3 output result to obj_sets
 			for (int i = 0; i < cl_num; i++) {
 				PipeData * lpd = &diag_line[1 - cl][i];
@@ -8768,111 +9780,9 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 				if (cpd.y0 > sb.top())
 					CV_Assert(cpd.x0 == upd->x0);
 				
-				for (int l = 0; l < layer_num; l++) {
-					//3.1 copy left RIGHT_BORDER via to FinalVia
-					if (cpd.x0 > sb.left())
-						cpd.l[l].fwv.merge_vias(lpd->l[l].fwv);
-
-					//3.2 copy up DOWN_BORDER via to FinalVia
-					if (cpd.y0 > sb.top())
-						cpd.l[l].fwv.merge_vias(upd->l[l].fwv);
-
-					//3.3 push current via to FinalVia
-					for (int j = 0; j < cpd.l[l].via_info.size(); j++)
-						cpd.l[l].fwv.push(cpd.l[l].via_info[j], cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0);
-					
-					for (int dir = 0; dir < 4; dir++) {
-						//3.4 copy left RIGHT_BORDER line to FinalWireLine
-						if (cpd.x0 > sb.left())
-						for (int j = 0; j < lpd->l[l].fwv.lines[dir].size(); j++) {
-							FinalLine & line = lpd->l[l].fwv.lines[dir][j];
-							if (!line.empty())
-							if (line.point_begin().x >= cpd.l[l].img_pixel_x0 ||
-								line.point_end().x >= cpd.l[l].img_pixel_x0)
-								cpd.l[l].fwv.merge_line(line, dir);
-						}
-						//3.5 copy up DOWN_BORDER line to FinalWireLine
-						if (cpd.y0 > sb.top())
-						for (int j = 0; j < upd->l[l].fwv.lines[dir].size(); j++) {
-							FinalLine & line = upd->l[l].fwv.lines[dir][j];
-							if (!line.empty())
-							if (line.point_begin().y >= cpd.l[l].img_pixel_y0 ||
-								line.point_end().y >= cpd.l[l].img_pixel_y0)
-								cpd.l[l].fwv.merge_line(line, dir);
-						}
-						//3.6 push current line to FinalWireLine
-						for (int j = 0; j < cpd.l[l].lineset[dir].size(); j++) {
-							WireLine & wl = cpd.l[l].lineset[dir][j];
-							cpd.l[l].fwv.push(wl, cpd.l[l].img_pixel_x0, cpd.l[l].img_pixel_y0, dir);
-						}
-					}
-					//call hook to do obj process
-					for (int i = 0; i < (int)obj_process.size(); i++)
-						obj_process[i].func(cpd.l[l].fwv, l, OBJ_WIRE, obj_process[i].cpara);
-				}
-
-				for (int l = 0; l < layer_num; l++) {
-					for (int dir = 0; dir < 4; dir++) {
-						vector<FinalLine> border_lines;
-						for (int j = 0; j < cpd.l[l].fwv.lines[dir].size(); j++) {
-							FinalLine & wl = cpd.l[l].fwv.lines[dir][j];
-							if ((wl.point_begin().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-								wl.point_end().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-								wl.point_begin().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
-								wl.point_end().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
-								(wl.point_begin().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-								wl.point_end().x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-								cpd.y0 == sb.bottom()) ||
-								(wl.point_begin().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
-								wl.point_end().y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 &&
-								cpd.x0 == sb.right()) ||
-								(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {								
-								//3.4 for internal points, push to output
-								for (int i = 0; i < (int) wl.point_num() - 1; i++) {
-									MarkObj wire;
-									wire.type = OBJ_LINE;
-									wire.type2 = LINE_WIRE_AUTO_EXTRACT;
-									wire.type3 = l;
-									wire.state = 0;
-									wire.prob = 1;
-									QPoint p0(wl.point_at(i).x, wl.point_at(i).y);
-									QPoint p1(wl.point_at(i+1).x, wl.point_at(i+1).y);
-									wire.p0 = p0 + sr_tl_pixel;
-									wire.p1 = p1 + sr_tl_pixel;
-									obj_sets.push_back(wire);
-								}
-							}
-							else //for border ppints, leave it for future merge
-								border_lines.push_back(wl);
-						}
-						cpd.l[l].fwv.lines[dir].swap(border_lines);
-					}
-					
-					vector<int> border_vias;
-					for (int j = 0; j < cpd.l[l].fwv.via_num(); j++) {
-						Point point = cpd.l[l].fwv.via_at(j);
-						if ((point.x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 &&
-							point.y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2) ||
-							(point.x < cpd.l[l].img_pixel_x0 + cpd.l[l].raw_img.cols - BORDER_SIZE * 2 && cpd.y0 == sb.bottom()) ||
-							(point.y < cpd.l[l].img_pixel_y0 + cpd.l[l].raw_img.rows - BORDER_SIZE * 2 && cpd.x0 == sb.right()) ||
-							(cpd.x0 == sb.right() && cpd.y0 == sb.bottom())) {
-							//3.4 for internal points, push to output
-							MarkObj via;
-							via.type = OBJ_POINT;
-							via.type2 = POINT_VIA_AUTO_EXTRACT;
-							via.type3 = l;
-							via.state = 0;
-							via.prob = 1;
-							via.p0 = QPoint(point.x, point.y) + sr_tl_pixel;
-							via.p1 = QPoint(point.x, point.y) + sr_tl_pixel;
-							obj_sets.push_back(via);
-						}
-						else
-							border_vias.push_back(cpd.l[l].fwv.vias[j]);
-					}
-					cpd.l[l].fwv.vias.swap(border_vias);
-				}
+				merge_tile_get_result(1, cpd, *lpd, *upd, layer_num, sb, sr_tl_pixel, obj_sets);
 			}
+
 		}
 	}
 
@@ -8897,7 +9807,8 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		obj_sets[i].p0 = obj_sets[i].p0 * scale;
 		obj_sets[i].p1 = obj_sets[i].p1 * scale;
 	}
-	
+	qInfo("Extract finished successfully");
+	qDebug("*#*#DumpMessage#*#*");
 	return 0;
 }
 

@@ -3,8 +3,8 @@
 #include "vwextract_public.h"
 #include <QRect>
 
-
 int dxy[8][2] = {
+	//y , x
 	{ -1, 0 }, //up
 	{ 0, 1 }, //right
 	{ 1, 0 }, //down

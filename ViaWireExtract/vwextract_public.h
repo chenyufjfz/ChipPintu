@@ -5,15 +5,18 @@ using namespace std;
 using namespace cv;
 
 #ifndef QT_DEBUG
+void print_stack(void);
 #undef CV_Assert
-#define CV_Assert(x) do {if (!(x)) {qFatal("Wrong at %s, %d", __FILE__, __LINE__);}} while(0)
+#define CV_Assert(x) do {if (!(x)) {print_stack(); qFatal("Wrong at %s, %d", __FILE__, __LINE__);}} while(0)
 #endif
 
 #ifdef QT_DEBUG
+#ifdef Q_OS_WIN
 #define _CRTDBG_MAP_ALLOC
 #include <crtdbg.h>
 #define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
 #define new DEBUG_NEW
+#endif
 #endif
 
 #define BRICK_NO_WIRE		0

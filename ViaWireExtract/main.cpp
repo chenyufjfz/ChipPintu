@@ -9,6 +9,41 @@
 using namespace cv;
 using namespace std;
 
+#ifdef Q_OS_WIN
+#include <Windows.h>
+#include <Dbghelp.h>
+void print_stack(void)
+{
+	unsigned int   i;
+	void         * stack[100];
+	unsigned short frames;
+	SYMBOL_INFO  * symbol;
+	HANDLE         process;
+
+	process = GetCurrentProcess();
+
+	SymInitialize(process, NULL, TRUE);
+
+	frames = CaptureStackBackTrace(0, 100, stack, NULL);
+	symbol = (SYMBOL_INFO *)calloc(sizeof(SYMBOL_INFO)+256 * sizeof(char), 1);
+	symbol->MaxNameLen = 255;
+	symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+
+	for (i = 0; i < frames; i++)
+	{
+		SymFromAddr(process, (DWORD64)(stack[i]), 0, symbol);
+
+		qInfo("%i: %s ", frames - i - 1, symbol->Name);
+	}
+
+	free(symbol);
+}
+#else
+void print_stack(void) {
+
+}
+#endif
+
 void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {   
 	static FILE * fp = NULL;
@@ -144,7 +179,7 @@ int cell_extract_test()
 	vector <MarkObj> obj_set; 
 
 	CellExtract ce;
-	ICLayerWrInterface * ic = ICLayerWrInterface::create("C:/chenyu/data/A13/PL.db", true);
+	ICLayerWrInterface * ic = ICLayerWrInterface::create("C:/chenyu/data/A13/PL.db", true, 1.0, 1.0, 0, 0, 2, 0, 0);
 	
     vector<ICLayerWrInterface *> pic;
     pic.push_back(ic);
@@ -497,8 +532,8 @@ int test_extractparam2()
 	vector<string> action;
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A12/chip.prj", 0);
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A13/chip.prj", 0);
+	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
 #endif
@@ -556,9 +591,9 @@ int test_extractparam2()
 			params[l].pi[1], params[l].pi[2], params[l].pi[3], params[l].pi[4],
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
-	//search.push_back(SearchArea(QRect(QPoint(1030000, 260000), QPoint(1600000, 800000)), 0));
-	//search.push_back(SearchArea(QRect(QPoint(786080, 456896), QPoint(973472, 626624)), 0));
-	search.push_back(SearchArea(QRect(QPoint(1030000, 260000), QPoint(1600000, 800000)), 0));
+	//search.push_back(SearchArea(QRect(QPoint(100000, 100000), QPoint(224000, 672000)), 0));
+	//search.push_back(SearchArea(QRect(QPoint(115000, 683000), QPoint(1124000, 1377000)), 0));
+	search.push_back(SearchArea(QRect(QPoint(101884, 685171), QPoint(667276, 1380901)), 0));
 	vector <MarkObj> objs;
 	vwe->extract(pic, search, objs);
 	delete vwe;
@@ -624,12 +659,11 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 0
+#ifndef QT_DEBUG
 	
 	//wire_extract_test_pipeprocess();
-	//wire_extract_test();
-	cell_extract_test();
-	//test_extractparam2();
+	//cell_extract_test();
+	test_extractparam2();
 	return 0;
 #endif
     w.show();

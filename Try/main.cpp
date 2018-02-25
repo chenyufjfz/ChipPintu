@@ -94,7 +94,7 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 
 void test_one_layer()
 {
-	ICLayerWrInterface * new_db = ICLayerWrInterface::create("C:/chenyu/data/hanzhou/M1/PL.db", false);
+	ICLayerWrInterface * new_db = ICLayerWrInterface::create("C:/chenyu/data/hanzhou/M1/PL.db", false, 1.0, 1.0, 0, 0, 2, 0, 0);
 	//new_db.generateDatabase("F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_", 1, 60, 1, 75);
 	GenerateDatabaseParam gdp;
 	gdp.path = "F:/chenyu/work/ChipStitch/data/hanzhou/PL/Project_";
@@ -104,7 +104,8 @@ void test_one_layer()
 	gdp.to_col = 7;
 	new_db->generateDatabase(gdp);
 	delete new_db;
-	ICLayerWrInterface * read_db = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", false);
+	ICLayerWrInterface * read_db = ICLayerWrInterface::create("F:/chenyu/work/ChipStitch/data/hanzhou/M1/PL.db", true,
+		1.0, 1.0, 0, 0, 2, 0, 0);
 	int bx, by, width;
 	read_db->getBlockNum(bx, by);
 	width = read_db->getBlockWidth();
@@ -161,6 +162,8 @@ public:
 			LET_N0(lpa.block_num_y, (int)(*it)["block_num_y"]);
 			LET_N0(lpa.quality, (float)(*it)["quality"]);
 			LET_N0(lpa.zoom, (double)(*it)["zoom"]);
+			LET_N0(lpa.zoom_x, (double)(*it)["zoom_x"]);
+			LET_N0(lpa.zoom_y, (double)(*it)["zoom_y"]);
 			lpa.offset_x = (double)(*it)["offset_x"];
 			lpa.offset_y = (double)(*it)["offset_y"];
 			lpa.clip_left = (int)(*it)["clip_left"];
@@ -173,6 +176,8 @@ public:
 			lpa.db_type = (int)(*it)["db_type"];
 			LET_N0(lpa.wr_type, (int)(*it)["wr_type"]);
 			l.push_back(lpa);
+			lpa.zoom_x = lpa.zoom * lpa.zoom_x;
+			lpa.zoom_y = lpa.zoom * lpa.zoom_y;
 		}
 	}
 } gen;
@@ -187,9 +192,9 @@ int main(int argc, char *argv[])
 	qInfo("Start to generate %s", gen.prj_name.c_str());
 	bk_img_db->open(gen.prj_name, false);
 	for (int i = 0; i < gen.l.size(); i++) {
-		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d, block_num_x=%d, block_num_y=%d, offset_x=%f, offset_y=%f, zoom=%f", 
+		qInfo("Start to generate layer %s, path=%s, from_row=%d, to_row=%d, from_col=%d, to_col=%d, block_num_x=%d, block_num_y=%d, offset_x=%f, offset_y=%f, zoomx=%f,zoomy=%f", 
 			gen.l[i].db_name.c_str(), gen.l[i].path.c_str(), gen.l[i].from_row, gen.l[i].to_row, gen.l[i].from_col, 
-			gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].offset_x, gen.l[i].offset_y, gen.l[i].zoom);
+			gen.l[i].to_col, gen.l[i].block_num_x, gen.l[i].block_num_y, gen.l[i].offset_x, gen.l[i].offset_y, gen.l[i].zoom_x, gen.l[i].zoom_y);
 		qInfo("clip_l=%d, clip_r=%d, clip_u=%d, clip_d=%d, bundle_x=%d, bundle_y=%d, gen_width=%d, quality=%f", 
 			gen.l[i].clip_left, gen.l[i].clip_right, gen.l[i].clip_up, gen.l[i].clip_down, gen.l[i].bundle_x, gen.l[i].bundle_y, 
 			gen.l[i].gen_image_width, gen.l[i].quality);

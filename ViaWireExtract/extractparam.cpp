@@ -239,6 +239,11 @@ bool ExtractParam::read_file(string filename)
 				int gs = (int) (*it)["gs"];
 				int border_size = (int)(*it)["border_size"];
 				int computer_border = (int)(*it)["computer_border"];
+				int via_connect = (int)(*it)["via_connect"];
+				int via_merge = (int)(*it)["via_merge"];
+				int wire_connect = (int)(*it)["wire_connect"];
+				int wire_merge = (int)(*it)["wire_merge"];
+				int end_wire = (int)(*it)["end_wire"];
 				if (gs > 256 || computer_border > 256 || border_size > 256) {
 					qCritical("ParamItems file error, name=%s, gs=%d, computer_border=%d, border_size=%d", 
 						name.c_str(), gs, computer_border, border_size);
@@ -247,6 +252,8 @@ bool ExtractParam::read_file(string filename)
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_SET_PARAM << 16;
 				param.pi[2] = 1 << 24 | border_size << 16 | computer_border << 8 | gs;
+				param.pi[3] = via_connect << 24 | via_merge << 16 | wire_connect << 8 | wire_merge;
+				param.pi[4] = end_wire;
 			}
 			break;
 
@@ -1145,23 +1152,24 @@ bool ExtractParam::read_file(string filename)
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
 				int assemble_opt = (int)(*it)["assemble_opt"];
-				int layer1 = (int)(*it)["layer1"];
+				int layer1 = (int)(*it)["layer_num"];
 				int cgray_ratio = (int)(*it)["cgray_ratio"];
 				int swide_min = (int)(*it)["swide_min"];
 				int v_type = (int)(*it)["v_type"];
+				int connect_rd = (int)(*it)["connect_rd"];
 				if (layer1 > 255 || assemble_opt > 255) {
-					qCritical("ParamItems file error, name=%s, layer1=%d, assemble_opt=%d", name.c_str(), layer1, assemble_opt);
+					qCritical("ParamItems file error, name=%s, layer_num=%d, assemble_opt=%d", name.c_str(), layer1, assemble_opt);
 					check_pass = false;
 				}
-				if (cgray_ratio > 255 || swide_min > 255 || v_type > 255) {
-					qCritical("ParamItems file error, name=%s, cgray_ratio=%d, swide_min=%d, v_type=%d", 
-						name.c_str(), cgray_ratio, swide_min, v_type);
+				if (cgray_ratio > 255 || swide_min > 255 || v_type > 255 || connect_rd > 255) {
+					qCritical("ParamItems file error, name=%s, cgray_ratio=%d, swide_min=%d, v_type=%d, connect_rd=%d", 
+						name.c_str(), cgray_ratio, swide_min, v_type, connect_rd);
 					check_pass = false;
 				}
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_ASSEMBLE_VIA << 16;
 				param.pi[2] = assemble_opt << 8 | layer1;
-				param.pi[3] = v_type << 16 | cgray_ratio << 8 | swide_min;
+				param.pi[3] = connect_rd << 24 | v_type << 16 | cgray_ratio << 8 | swide_min;
 			}
 			break;
 		case CheckViaWireConnect:
@@ -1284,6 +1292,11 @@ void ExtractParam::write_file(string filename)
 			fs << "gs" << (it->second.pi[2] & 0xff);
 			fs << "border_size" << (it->second.pi[2] >> 16 & 0xff);
 			fs << "computer_border" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "via_connect" << (it->second.pi[3] >> 24 & 0xff);
+			fs << "via_merge" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "wire_connect" << (it->second.pi[3] >> 8 & 0xff);
+			fs << "wire_merge" << (it->second.pi[3] & 0xff);
+			fs << "end_wire" << (it->second.pi[4] & 0xff);
 			break;
 
 		case ViaInfo:
@@ -1613,10 +1626,11 @@ void ExtractParam::write_file(string filename)
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
 			fs << "assemble_opt" << (it->second.pi[2] >> 8 & 0xff);
-			fs << "layer1" << (it->second.pi[2] & 0xff);
+			fs << "layer_num" << (it->second.pi[2] & 0xff);
 			fs << "swide_min" << (it->second.pi[3] & 0xff);
 			fs << "cgray_ratio" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "v_type" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "connect_rd" << (it->second.pi[3] >> 24 & 0xff);
 			break;
 
 		case AssembleBranch:

@@ -184,9 +184,12 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 		if (obj.state != 4 && obj.type3 == layer) {
 			if (obj.state == 3)
 				painter.setPen(QPen(Qt::red, 1));
-			else
-				painter.setPen(QPen(Qt::blue, 1));
-
+			else {
+				if (obj.prob > 0.9)
+					painter.setPen(QPen(Qt::blue, 1));
+				else
+					painter.setPen(QPen(Qt::yellow, 1));
+			}
 			painter.drawLine(QLine(obj.p0, obj.p1));
 			if (obj.state != 0) {
 				painter.setPen(QPen(Qt::red, 1));

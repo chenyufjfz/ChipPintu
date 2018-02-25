@@ -54,6 +54,7 @@ public:
 	int wr_type; //if it is 0, choose ICLayerWr, if it is 1 choose ICLayerZoomWr
 	float quality;
 	double zoom; // zoom is destination image / source image, always <=1, >0
+	double zoom_x, zoom_y;
 	double offset_x, offset_y;
 	GenerateDatabaseParam() {
 		block_num_x = 0;
@@ -65,6 +66,8 @@ public:
 		clip_down = 0;
 		gen_image_width = 1024;
 		zoom = 1;
+		zoom_x = 1;
+		zoom_y = 1;
 		offset_x = 0;
 		offset_y = 0;
 		bundle_x = 1;
@@ -88,8 +91,8 @@ public:
 	  Input: _zoom, same as GenerateDatabaseParam zoom
 	  Input: _offset_x, _offset_y, same as GenerateDatabaseParam _offset_x, _offset_y
 	*/
-	static ICLayerWrInterface * create(const string file, bool _read, double _zoom = 1.0, double _offset_x = 0, double _offset_y = 0,
-		int _cache_size = 2, int dbtype = 0, int wrtype = 0);
+	static ICLayerWrInterface * create(const string file, bool _read, double _zoom_x, double _zoom_y, double _offset_x, double _offset_y,
+		int _cache_size, int dbtype, int wrtype);
 	//getBlockWidth can be called when read database
 	virtual int getBlockWidth() = 0;
 	//getBlockNum can be called when read database

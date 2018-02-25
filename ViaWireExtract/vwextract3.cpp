@@ -1254,7 +1254,8 @@ int VWExtractAnt::extract(string file_name, QRect , vector<MarkObj> & obj_sets)
 	qDebug("detect_gray, gray_i=%d, gray_w=%d", dw0.gray_i, dw0.gray_w);
 	dw0.gray_w = (dw0.gray_w - dw0.gray_i) * 0.7 + dw0.gray_i;
 	clip_img(img, dw0.gray_i, dw0.gray_w, detect_img);
-	integral_square(detect_img, ig, iig, Mat(), Mat(), false);
+	Mat temp1, temp2;
+	integral_square(detect_img, ig, iig, temp1, temp2, false);
 	dw0.gray_w -= dw0.gray_i;
 	dw0.gray_i = 0;
 	unsigned s = detect_wire_para(ig, iig, dw0, abs_org0, w_best, org_best);
