@@ -1404,6 +1404,7 @@ struct BranchMeta {
 				final_out.push_back(p);
 		}
 		else { //wire
+			CV_Assert(state != ALEADY_OUTPUT);
 			state = FPFD;
 			if (final_out.empty())
 				final_out.push_back(p);
@@ -1450,13 +1451,42 @@ struct BranchMeta {
 				final_out.insert(final_out.begin() + loc, p);
 		}
 	}
-
+	/*
+	Input other, it is parallel with this
+	Output d0, d1, difference length
+	Output o, overlap length
+	*/
+	void parallel_overlap(const BranchMeta & other, int & d0, int & o, int & d1) {
+		CV_Assert(dir >= 0 && (dir == other.dir || dir_1[dir] == other.dir));
+		int  a1, a2, b1, b2;
+		switch (dir) {
+		case DIR_UP:
+		case DIR_DOWN:
+			GET_MINMAX(bch.first.y, bch.second.y, a1, a2);
+			GET_MINMAX(other.bch.first.y, other.bch.second.y, b1, b2);			
+			break;
+		default:
+			GET_MINMAX(bch.first.x, bch.second.x, a1, a2);
+			GET_MINMAX(other.bch.first.x, other.bch.second.x, b1, b2);
+			break;
+		}
+		if (IS_NOT_INTERSECT(a1, a2, b1, b2)) {
+			d0 = (a1 > b1) ? b2 - b1 : a2 - a1;
+			d1 = (a1 > b1) ? a2 - a1 : b2 - b1;
+			o = 0;
+		}
+		else {
+			d0 = a1 - b1;
+			d1 = b2 - a2;
+			o = min(a2, b2) - max(a1, b1);
+		}
+	}
 	/*
 	Input other, it is parallel with this
 	Output new_bm, new_bm intersect with this and other
 	*/
-	bool parallel_intersect(BranchMeta & other, BranchMeta & new_bm) {
-		CV_Assert(dir == other.dir || dir_1[dir] == other.dir);
+	bool parallel_intersect(const BranchMeta & other, BranchMeta & new_bm) {
+		CV_Assert(dir >=0 && (dir == other.dir || dir_1[dir] == other.dir));
 		int  a1, a2, b1, b2, c1;
 		new_bm.dir = dir_2[dir];
 		new_bm.state = SubBranch;
@@ -2754,10 +2784,29 @@ public:
 					if (ret == -1)
 						direct_con.push_back(m_set[j]);
 					if (ret >= 0) {//parallel
-						if (same == -1 && ret <= guard3 && (bm.state > BranchMeta::FPFD || sbs[m_set[j]].state > BranchMeta::FPFD))
-							same = m_set[j];
-						else
-							parallel.push_back(m_set[j]);
+						bool is_parallel = true;
+						if (same == -1 && (bm.state > BranchMeta::FPFD || sbs[m_set[j]].state > BranchMeta::FPFD)) {
+							if (ret <= guard3) {
+								same = m_set[j];
+								is_parallel = false;
+							}
+							else {
+								if (bm.state == BranchMeta::SubBranch || sbs[m_set[j]].state == BranchMeta::SubBranch) {
+									int d0, o, d1;
+									if (bm.state == BranchMeta::SubBranch)
+										sbs[m_set[j]].parallel_overlap(bm, d0, o, d1);
+									else
+										bm.parallel_overlap(sbs[m_set[j]], d0, o, d1);
+									if (o > d0 && o > d1 && d0 < guard && d1 < guard) {
+										same = m_set[j];
+										is_parallel = false;
+									}
+								}
+							}
+						}
+						
+						if (is_parallel)
+							parallel.push_back(m_set[j]);					
 					}
 				}
 				else { //for via case
@@ -2816,14 +2865,30 @@ public:
 			//5 deal parallel intersect case	
 			for (int j = 0; j < parallel.size(); j++) {
 				int ret = sbs[same].intersect(sbs[parallel[j]], 30);
+				bool is_parallel = true;
 				if ((ret <= guard3 && sbs[same].dir>=0 || ret <= guard4 && sbs[same].dir<0) && 
 					(sbs[same].state > BranchMeta::FPFD || sbs[parallel[j]].state > BranchMeta::FPFD)) { //absort to same sbs
 					CV_Assert(ret >= 0);
+					is_parallel = false;
+				}
+				else {
+					if (sbs[same].dir >= 0 && (sbs[same].state == BranchMeta::SubBranch || sbs[parallel[j]].state == BranchMeta::SubBranch)) {
+						int d0, o, d1;
+						if (sbs[same].state == BranchMeta::SubBranch)
+							sbs[parallel[j]].parallel_overlap(sbs[same], d0, o, d1);
+						else
+							sbs[same].parallel_overlap(sbs[parallel[j]], d0, o, d1);
+						if (o > d0 && o > d1 && d0 < guard && d1 < guard)
+							is_parallel = false;
+					}
+				}
+				
+				if (is_parallel)
+					sbs[same].push_dc(parallel[j]);	
+				else {
 					sbs[same].merge(sbs[parallel[j]], true); //TODO, it can't be true here
 					del_branch(parallel[j]);
 				}
-				else 
-					sbs[same].push_dc(parallel[j]);					
 				
 			}
 			for (int i = 0; i<(int)sbs[same].dc.size(); i++) {
@@ -5386,7 +5451,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				wpara[i].w_type = d.l[layer].wts.add(vw->w2.type, vw->w2.subtype, vw->w2.pattern, wpara[i].w_wide);
 				wpara[i].i_wide = vw->w2.i_wide;
 				wpara[i].gamma = vw->w2.arfactor / 100.0;
-				finish = (wpara[i].w_wide > vw->w2.mwide_max);
+				finish = (wpara[i].w_wide >= vw->w2.mwide_max);
 			}
 			qInfo("%d:type=%d, dir=%d, pattern=%d, w_wide=%d, i_wide=%d, gamma=%f", i, wpara[i].w_type,
 				wpara[i].w_dir, wpara[i].w_pattern, wpara[i].w_wide, wpara[i].i_wide, wpara[i].gamma);
