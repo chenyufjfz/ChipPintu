@@ -615,6 +615,57 @@ int test_extractparam2()
 	fclose(fp);
 	return 0;
 }
+
+int test_single_wire_extract()
+{
+	BkImgRoMgr bkimg_faty;
+	ParamItem pa;
+#ifdef WIN32
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A13/chip.prj", 0);
+	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
+#else
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
+#endif
+	int wmax = 128, wmin = 5, channel = 0, gray_th = 50, opt = 0, ihigh = 5;
+	int scale = 2, layer = 3;
+	pa.pi[0] = layer;
+	pa.pi[1] = 0xffffffff;
+	pa.pi[2] = wmax << 16 | wmin;
+	pa.pi[3] = channel << 24 | gray_th << 16 | opt << 8 | ihigh;
+	pa.pi[4] = scale;
+	VWExtract * vwe = VWExtract::create_extract(1);
+	vwe->set_extract_param(pa.pi[0], pa.pi[1], pa.pi[2], pa.pi[3], pa.pi[4], pa.pi[5], pa.pi[6], pa.pi[7], pa.pi[8], pa.pf);
+	qInfo("extract single wire l=%d, i0=%x,i1=%x,i2=%x,i3=%x,i4=%x,i5=%x,i6=%x,i7=%x,i8=%x,f=%f",
+		pa.pi[0], pa.pi[1], pa.pi[2], pa.pi[3], pa.pi[4], pa.pi[5], pa.pi[6], pa.pi[7], pa.pi[8], pa.pf);
+	QRect rect(QPoint(500544, 120640), QPoint(500544, 120640));
+	vector<SearchArea> search;
+	search.push_back(SearchArea(rect, 0));
+	vector<ICLayerWrInterface *> pic;
+	pic.push_back(bk_img->get_layer(pa.pi[0]));
+	if (pic.back() == NULL)
+		qFatal("test_single_wire_extract receive layer[%d]=%d, invalid", pa.pi[0]);
+	else
+		qInfo("test_single_wire_extract receive layer[%d]=%d", pa.pi[0]);
+	vector <MarkObj> objs;
+	vwe->extract(pic, search, objs);
+	delete vwe;
+	FILE * fp;
+	scale = 32768 / bk_img->getBlockWidth();
+	fp = fopen("result.txt", "w");
+	for (int i = 0; i < objs.size(); i++) {
+		unsigned t = objs[i].type;
+		if (t == OBJ_POINT) {
+			fprintf(fp, "via, l=%d, x=%d, y=%d\n", pa.pi[0], objs[i].p0.x() / scale, objs[i].p0.y() / scale);
+		}
+		else {
+			fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d)\n", pa.pi[0], objs[i].p0.x() / scale, objs[i].p0.y() / scale,
+				objs[i].p1.x() / scale, objs[i].p1.y() / scale);
+		}
+		continue;
+	}
+	fclose(fp);
+	return 0;
+}
 #ifdef Q_OS_WIN
 #ifdef QT_DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -663,7 +714,8 @@ int main(int argc, char *argv[])
 	
 	//wire_extract_test_pipeprocess();
 	//cell_extract_test();
-	test_extractparam2();
+	//test_extractparam2();
+	test_single_wire_extract();
 	return 0;
 #endif
     w.show();

@@ -5,9 +5,8 @@
 #define S_TYPE(p) ((unsigned)((p) >> 8 & 0xff))
 #define S_SHAPE(p) ((unsigned)((p) & 0xff))
 #define MAKE_S(score, type, shape) ((unsigned)(score) << 16 | (unsigned)(type) << 8 | (shape))
-#define K_DISTORT1 1
-#define K_DISTORT2 6
-#define K_DISTORT3 20
+#define DETECT_GRAY_RADIUS 64
+#define DETECT_WIRE_RADIUS 64
 /*
 input: img
 input: rect
@@ -103,49 +102,16 @@ static struct Wire25ShapeConst3 {
 	int shape;
 } wire_25_shape[] = {
 	//   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
-	{ { -1, 00, 00, 00, -1, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, -1, 00, 00, 00, -1 }, BRICK_NO_WIRE },
-	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, .8, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_0 },
-	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 00, .8, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_i_90 },
-	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .8, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_i_180 },
-	{ { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, .8, 00, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_i_270 },
-	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_I_0 },
-	{ { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_I_90 },
-	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, 00, 01, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_L_0 },
-	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 00, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_L_90 },
-	{ { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, 01, 00, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_L_180 },
-	{ { -1, 00, 01, 00, -1, 00, 00, 01, 00, -1, 01, 01, 01, 00, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_L_270 },
-	{ { -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, 00, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1 }, BRICK_II_0 },
-	{ { -1, -1, 00, -1, -1, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_II_90 },
-	{ { -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, 00, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1 }, BRICK_II_180 },
-	{ { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, -1, -1, 00, -1, -1 }, BRICK_II_270 },
-	{ { -1, 01, 01, 01, -1, 00, 01, 01, 01, 00, 00, 01, 01, 01, 00, 00, 01, 01, 01, 00, -1, 01, 01, 01, -1 }, BRICK_III_0 },
-	{ { -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1 }, BRICK_III_90 },
-	{ { -1, -1, -1, -1, -1, -1, -1, 01, -1, -1, -1, .3, .3, .3, -1, -1, -1, 01, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
-	{ { -1, -1, -1, -1, -1, -1, -1, .3, -1, -1, -1, 01, .3, 01, -1, -1, -1, .3, -1, -1, -1, -1, -1, -1, -1 }, BRICK_HOLLOW },
-	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, 00, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_T_0 },
-	{ { -1, -1, -1, -1, -1, 00, 00, 00, 00, 00, 01, 01, 01, 01, 01, 00, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_T_90 },
-	{ { -1, 00, 01, 00, -1, 00, 00, 01, 00, -1, 01, 01, 01, 00, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_T_180 },
-	{ { -1, 00, 01, 00, -1, 00, 00, 01, 00, 00, 01, 01, 01, 01, 01, 00, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_T_270 },
-	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, 01, 01, 01, 01, 01, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_X_0 },
-	//   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24
-	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, .1, .5, .9, 00, -1, 01, 01, .5, 00, -1, 01, 01, .1, -1, -1 }, BRICK_J_0 },
-	{ { 01, 01, .1, -1, -1, 01, 01, .5, 00, 00, .1, .5, .9, 01, 01, -1, 00, 00, 00, 00, -1, -1, -1, -1, -1 }, BRICK_J_90 },
-	{ { -1, -1, .1, 01, 01, -1, 00, .5, 01, 01, -1, 00, .9, .5, .1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_J_180 },
-	{ { -1, -1, -1, -1, -1, 00, 00, 00, 00, -1, 01, 01, .9, .5, .1, 00, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_J_270 },
-
-	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, .9, .5, .1, -1, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_l_0 },
-	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, 00, .1, .5, .9, 01, 01, 01, 01, .5, 00, 00, 01, 01, .1, -1, -1 }, BRICK_l_90 },
-	{ { 01, 01, .1, -1, -1, 01, 01, .5, 00, -1, .1, .5, .9, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_l_180 },
-	{ { -1, -1, .1, 01, 01, 00, 00, .5, 01, 01, 01, 01, .9, .5, .1, 00, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_l_270 },
-
-	{ { -1, -1, .1, 01, 01, -1, 00, .5, 01, 01, .1, .5, .9, .5, .1, 01, 01, .5, 00, -1, 01, 01, .1, -1, -1 }, BRICK_Z_0 },
-	{ { 01, 01, .1, -1, -1, 01, 01, .5, 00, -1, .1, .5, .9, .5, .1, -1, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_Z_90 },
-	
-	{ { -1, -1, .1, 01, 01, -1, 00, .5, 01, 01, -1, 00, .9, .5, .1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_0 },	    
-	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, -1, 00, .9, .5, .1, -1, 00, .5, 01, 01, -1, -1, .1, 01, 01 }, BRICK_P_90 },	    
-	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, .1, .5, .9, 00, -1, 01, 01, .5, 00, -1, 01, 01, .1, -1, -1 }, BRICK_P_180 },	    
-	{ { 01, 01, .1, -1, -1, 01, 01, .5, 00, -1, .1, .5, .9, 00, -1, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_P_270 },
+	{ { -1, -1, 00, -1, -1, -1, 00, 00, 00, -1, 00, 00, 00, 00, 00, -1, 00, 00, 00, -1, -1, -1, 00, -1, -1 }, BRICK_NO_WIRE },
+	{ { -1, -1, 01, -1, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, 00, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_I_0 },
+	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_I_90 },
+	{ { -1, -1, 01, -1, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, 01, 01, 00, -1, -1, -1, 01, -1, -1 }, BRICK_II_0 },
+	{ { -1, -1, -1, -1, -1, -1, 01, 01, 01, -1, 01, 01, 01, 01, 01, -1, 00, 00, 00, -1, -1, -1, -1, -1, -1 }, BRICK_II_90 },
+	{ { -1, -1, 01, -1, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, 00, 01, 01, -1, -1, -1, 01, -1, -1 }, BRICK_II_180 },
+	{ { -1, -1, -1, -1, -1, -1, 00, 00, 00, -1, 01, 01, 01, 01, 01, -1, 01, 01, 01, -1, -1, -1, -1, -1, -1 }, BRICK_II_270 },
 	/*
+	{ { -1, -1, .1, -1, -1, -1, 00, .5, 01, -1, .1, .5, .9, .5, .1, -1, 01, .5, 00, -1, -1, -1, .1, -1, -1 }, BRICK_Z_0 },
+	{ { -1, -1, .1, -1, -1, -1, 01, .5, 00, -1, .1, .5, .9, .5, .1, -1, 00, .5, 01, -1, -1, -1, .1, -1, -1 }, BRICK_Z_90 },
 	{ { -1, 00, 01, 00, -1, -1, 00, 01, 00, 00, -1, .5, 01, 01, 01, -1, 01, .5, 00, 00, 01, -1, -1, -1, -1 }, BRICK_Y_45 },
 	{ { 01, -1, -1, -1, -1, -1, 01, .5, 00, 00, -1, .5, 01, 01, 01, -1, 00, 01, 00, 00, -1, 00, 01, 00, -1 }, BRICK_Y_135 },
 	{ { -1, -1, -1, -1, 01, 00, 00, .5, 01, -1, 01, 01, 01, .5, -1, 00, 00, 01, 00, -1, -1, 00, 01, 00, -1 }, BRICK_Y_225 },
@@ -169,10 +135,10 @@ struct WireParameter3 {
 	WireParameter3(int w, int gw, int gi, int _type=-1) {
 		w_high = w;
 		w_wide = w;
-		i_high = round(0.3 * w);
-		i_wide = round(0.3 * w);
-		w_high1 = round(0.4 * w);
-		w_wide1 = round(0.4 * w);
+		i_high = 4;
+		i_wide = 4;
+		w_high1 = 4;
+		w_wide1 = 4;
 		if (_type < 0)
 			type = w;
 		else
@@ -213,8 +179,6 @@ public:
 	int prepare(WireParameter3 & _wp, const Mat & ig, const Mat & iig) {
 		CV_Assert(ig.size() == iig.size() && ig.type()==CV_32SC1);
 		wp = _wp;
-		qInfo("Wire_25RectCompute3 Prepare w=%d,h=%d,w1=%d,h1=%d,i_w=%d,i_h=%d", wp.w_wide, wp.w_high,
-			wp.w_wide1, wp.w_high1, wp.i_wide, wp.i_high);
 		//following compute offset
 		dx[0] = -wp.w_wide1 - wp.i_wide - wp.w_wide / 2;
 		dx[1] = -wp.i_wide - wp.w_wide / 2;
@@ -264,11 +228,8 @@ public:
 				WirePartStat3 stat;
 				stat.part = k;
 				stat.sum = round((wp.gray_i * (1 - wire_25_shape[j].ratio[k]) + wp.gray_w * wire_25_shape[j].ratio[k]) * area[k]);
-#if 1
-				if (stat.sum < 0) {
-					qCritical("shape[%d].ratio[%d]=%f, area=%d, esum=%d", j, k, wire_25_shape[j].ratio[k], area[k], stat.sum);
-				}
-#endif
+				CV_Assert(stat.sum >= 0);
+				
 				vector<WirePartStat3>::iterator it = find(stats.begin(), stats.end(), stat); //check if stat already exit
 				if (it == stats.end()) {
 					sd.si.push_back((int)stats.size());
@@ -314,7 +275,8 @@ public:
 				sds[i].si.erase(sds[i].si.begin());
 			}
 		}
-		
+		qInfo("Wire_25RectCompute3 Prepare w=%d,h=%d,w1=%d,h1=%d,i_w=%d,i_h=%d,mode=%d", wp.w_wide, wp.w_high,
+			wp.w_wide1, wp.w_high1, wp.i_wide, wp.i_high, mode);
 		int tot_area = 0;
 		tot_area = area[12] + 2 * area[7] + 2 * area[11] + 4 * area[6] + 2 * area[2] + 2 * area[10];
 		if (mode > 0)
@@ -476,46 +438,65 @@ public:
 	}
 };
 
-
 struct AntStart {
 	int dir;
-	int forbiden_dirmask;
-	Point joint_pt;
-	Point abs_org; //origin in base (pixel unit)
-	int w;
-	AntStart(int _dir, int _forbiden_dirmask, Point _abs_org, Point _joint_pt, int _w) {
-		forbiden_dirmask = _forbiden_dirmask;
+	Point abs_org; //origin non-scale pixel unit
+	int w_wide, i_high; //scale image size
+	AntStart(int _dir, Point _abs_org, int w, int h) {
 		dir = _dir;
 		abs_org = _abs_org;
-		joint_pt = _joint_pt;
-		w = _w;
+		w_wide = w;
+		i_high = h;
 	}
 };
+
 /*
   Input: ig, iig
   Input: dw
-  Output: wp, best wire parameter
+  Input: org
+  Output: w_best, best wire parameter
   Output: org_best, best ant point
   scan all possible wire parameter to find best one
   Return best s
 */
-unsigned detect_wire_para(Mat & ig, Mat & iig, const DetectWirePara & dw, const Point &org, int & w_best, Point & org_best)
+unsigned detect_wire_para(Mat & ig, Mat & iig, const DetectWirePara & dw, int & w_best, Point & org_best)
 {
 	//following compute wp_best and org_best 
 	unsigned best_s = 0xffffffff;
+	const Point &org = dw.abs_org0;
 	Wire_25RectCompute3 wc;
-	for (int w = dw.w_min; w <= dw.w_max; w++) {		
+	for (int w = dw.w_min; w <= dw.w_max; w+=3) {		
 		WireParameter3 wp(w, dw.gray_w, dw.gray_i, 1);
 		wc.prepare(wp, ig, iig);
 		for (int dir = 0; dir < 8; dir++) {
 			if (dw.dir_mask >> dir & 1)
-			for (int d = 0; d <= w / 2; d++) {
+			for (int d = 0; d <= w / 2 + 1; d++) {
 				Point sp = org + Point(dxy[dir][1] * d, dxy[dir][0] * d);
 				unsigned s = wc.compute(sp, ig, iig);
 				if (s < best_s && (S_SHAPE(s) == BRICK_I_0 || S_SHAPE(s) == BRICK_I_90 || S_SHAPE(s) == BRICK_Z_0 || S_SHAPE(s) == BRICK_Z_90)) {
 					best_s = s;
 					w_best = w;
 					org_best = sp;
+				}
+			}
+		}
+	}
+	if (best_s != 0xffffffff) {
+		int w0 = w_best - 1, w1 = w_best + 1;
+		Point org_b = org_best;
+		for (int w = w0; w <= w1; w += 2) {
+			WireParameter3 wp(w, dw.gray_w, dw.gray_i, 1);
+			wc.prepare(wp, ig, iig);
+			for (int dir = 0; dir < 8; dir++) {
+				if (dw.dir_mask >> dir & 1)
+				for (int d = 0; d <= 2; d++) {
+					Point sp = org_b + Point(dxy[dir][1] * d, dxy[dir][0] * d);
+					unsigned s = wc.compute(sp, ig, iig);
+					if (s < best_s && (S_SHAPE(s) == BRICK_I_0 || S_SHAPE(s) == BRICK_I_90 || S_SHAPE(s) == BRICK_Z_0 || S_SHAPE(s) == BRICK_Z_90)) {
+						best_s = s;
+						w_best = w;
+						org_best = sp;
+					}
 				}
 			}
 		}
@@ -528,9 +509,10 @@ Input: img
 Inout: dw, 
   input dw.w_max, dw.org output dw.gray_i, dw.gray_w
 */
-void detect_gray(Mat & img, Point org, DetectWirePara & dw)
+void detect_gray(Mat & img,  DetectWirePara & dw)
 {
-	int ws = max(dw.w_max, 50);
+	int ws = max(dw.w_max, DETECT_GRAY_RADIUS);
+	Point org = dw.abs_org0;
 	QRect dr(org.x - ws, org.y - ws, ws * 2, ws * 2);
 	QRect img_rect(0, 0, img.cols, img.rows);
 	dr &= img_rect;
@@ -542,446 +524,281 @@ void detect_gray(Mat & img, Point org, DetectWirePara & dw)
 	dw.gray_w = th[1];
 }
 
-#define ANTWIRENUM	50
 class Ant {
 public:
 	int ant_idx;
 protected:
-	vector<Wire_25RectCompute3> wc;
-	vector<int> wc_init;
-	vector<Point> trails;
+	vector<Point> trails; //non-scaled trail
 
 public:
 	Ant(int idx) {
 		ant_idx = idx;
-		wc.resize(ANTWIRENUM);
-		wc_init.resize(ANTWIRENUM);
 	}
+
 	/*
-	Input img
-	Input lt, lt is img left-top xy(pixel unit)
-	Inout dw,
-		Inout dw.abs_org, abs_org is ant original xy(pixel unit)
-		input dw.w_max, dw.w_min, dw.dir_mask 
-		output dw.gray_i, dw.gray_w
-	inout w, wire width
-	input dir, 8 search dir
-	input scale 
-	Return last_S
+	input as, as.abs_org is start point; as.w_wide is rect width
+	input img_width
+	input scale
+	Return non-scale search rect
 	*/
-	unsigned go(const Mat & ig, const Mat & iig, Point lt, const DetectWirePara & dw, AntStart & as, int scale) {
+	QRect get_search_rect(const AntStart & as, int img_width, int scale) {
+		img_width = img_width << scale;
+		int xl = as.abs_org.x / img_width * img_width;
+		int yt = as.abs_org.y / img_width * img_width;
+		int xr = xl + img_width - (1 << scale);
+		int yb = yt + img_width - (1 << scale);
+		CV_Assert(as.abs_org.x <= xr && as.abs_org.y <= yb);
+		switch (as.dir) {
+		case DIR_UP:
+			if (as.abs_org.y - yt < 50 << scale)
+				yt -= img_width;
+			return QRect(QPoint(as.abs_org.x - (as.w_wide << scale), yt),
+				QPoint(as.abs_org.x + (as.w_wide << scale), as.abs_org.y + (1<< scale)));
+			
+		case DIR_DOWN:
+			if (yb - as.abs_org.y < 50 << scale)
+				yb += img_width;
+			return QRect(QPoint(as.abs_org.x - (as.w_wide << scale), as.abs_org.y - (1<<scale)),
+				QPoint(as.abs_org.x + (as.w_wide << scale), yb));
+
+		case DIR_LEFT:
+			if (as.abs_org.x - xl < 50 << scale)
+				xl -= img_width;
+			return QRect(QPoint(xl, as.abs_org.y - (as.w_wide << scale)),
+				QPoint(as.abs_org.x  + (1<<scale), as.abs_org.y + (as.w_wide << scale)));
+
+		case DIR_RIGHT:
+			if (xr - as.abs_org.x < 50 << scale)
+				xr += img_width;
+			return QRect(QPoint(as.abs_org.x - (1<<scale), as.abs_org.y - (as.w_wide << scale)), 
+				QPoint(xr, as.abs_org.y + (as.w_wide << scale)));
+		default:
+			return QRect(QPoint(xl, yt), QPoint(xr, yb)); //TODO fixme
+		}
+	}
+
+	/*
+	Input ig, iig
+	Input lt, lt is img left-top xy non-scale pixel unit
+	Input dw, input dw.gray_i, dw.gray_w, dw.gray_th
+	input as, input as.w_wide, as.i_high as.abs_org as.dir
+	input scale 
+	Return brick
+	*/
+	unsigned go(const Mat & ig, const Mat & iig, Point lt, const DetectWirePara & dw, const AntStart & as) {
 		CV_Assert(as.dir < 8);
+		int scale = dw.scale;
 		trails.clear();
 		//1 compute gray_i and gray_w, and then do preprocess
 		Point org = as.abs_org - lt;
-		org.x = org.x / scale;
-		org.y = org.y / scale;
-		as.w = as.w / scale;
-#if 0
-		detect_gray(img, org, dw);
-		clip_img(img, dw.gray_i, dw.gray_w, new_img);
-		integral_square(img, ig, iig, Mat(), Mat(), false);
-#endif
-		qDebug("Ant%d begin at (x=%d,y=%d), gray_i=%d, gray_w=%d", ant_idx, as.abs_org.x, as.abs_org.y, dw.gray_i, dw.gray_w);
-		//2 prepare Wire_25RectCompute
-		fill(wc_init.begin(), wc_init.end(), 0);
-		CV_Assert(as.w + 2 < wc.size() && as.w >= 3);
-		for (int i = as.w - 1; i <= as.w + 1; i++) {
-			WireParameter3 wp(i, dw.gray_w, dw.gray_i, i);
-			wc[i].prepare(wp, ig, iig);
-			wc_init[i] = 1;
-		}
-
-		int ep_brick;
-		Point dp1, dp2;
+		org.x = org.x >> scale;
+		org.y = org.y >> scale;
+		qDebug("Ant%d begin at (x=%d,y=%d), gray_i=%d, gray_w=%d,w=%d,i=%d", ant_idx, as.abs_org.x, as.abs_org.y, 
+			dw.gray_i, dw.gray_w, as.w_wide, as.i_high);
+		Point oxy[3][2];
+		int offset[3][4];
 		switch (as.dir) {
 		case DIR_UP:
+			oxy[0][0] = Point(-as.w_wide / 2, -as.i_high); //oxy[0] is wire
+			oxy[0][1] = Point(0, 0);
+			oxy[1][0] = Point(0, -as.i_high);
+			oxy[1][1] = Point(as.w_wide - as.w_wide / 2, 0);
+			oxy[2][0] = Point(-as.w_wide / 4, -as.i_high);
+			oxy[2][1] = Point(as.w_wide / 2 - as.w_wide / 4, 0);
+			break;
 		case DIR_DOWN:
-			ep_brick = BRICK_I_0;
-			dp1 = Point(1, 0);
-			dp2 = Point(-1, 0);
+			oxy[0][0] = Point(-as.w_wide / 2, 0);
+			oxy[0][1] = Point(0, as.i_high);
+			oxy[1][0] = Point(0, 0);
+			oxy[1][1] = Point(as.w_wide - as.w_wide / 2, as.i_high);
+			oxy[2][0] = Point(-as.w_wide / 4, 0);
+			oxy[2][1] = Point(as.w_wide / 2 - as.w_wide / 4, as.i_high);
 			break;
 		case DIR_LEFT:
-		case DIR_RIGHT:
-			ep_brick = BRICK_I_90;
-			dp1 = Point(0, 1);
-			dp2 = Point(0, -1);
+			oxy[0][0] = Point(-as.i_high, -as.w_wide / 2);
+			oxy[0][1] = Point(0, 0);
+			oxy[1][0] = Point(-as.i_high, 0);
+			oxy[1][1] = Point(0, as.w_wide - as.w_wide / 2);
+			oxy[2][0] = Point(-as.i_high, -as.w_wide / 4);
+			oxy[2][1] = Point(0, as.w_wide / 2 - as.w_wide / 4);
 			break;
-		case DIR_UPRIGHT:
-		case DIR_DOWNLEFT:
-			ep_brick = BRICK_Z_0;
-			dp1 = Point(-1, -1);
-			dp2 = Point(1, 1);
+		case DIR_RIGHT:
+			oxy[0][0] = Point(0, -as.w_wide / 2);
+			oxy[0][1] = Point(as.i_high, 0);
+			oxy[1][0] = Point(0, 0);
+			oxy[1][1] = Point(as.i_high, as.w_wide - as.w_wide / 2);
+			oxy[2][0] = Point(0, -as.w_wide / 4);
+			oxy[2][1] = Point(as.i_high, as.w_wide / 2 - as.w_wide / 4);
 			break;
 		default:
-			ep_brick = BRICK_Z_90;
-			dp1 = Point(-1, 1);
-			dp2 = Point(1, -1);
+			qCritical("not support dir %d", as.dir);
 			break;
 		}
-		int step = as.w / 10 + 1;
-		Point pdir(dxy[as.dir][1], dxy[as.dir][0]);		
-		
-		while (1) {
-			unsigned s[15];
-			unsigned min_s = 0xffffffff;
-			if (as.w >= ANTWIRENUM - 2) {
-				trails.clear();//Already wrong
-				return min_s;
-			}
-
-			CV_Assert(wc_init[as.w] && wc_init[as.w - 1] && wc_init[as.w + 1]);
-			if (org.x < 2 * as.w || org.y < 2 * as.w || org.x >= ig.cols - 2 * as.w || org.y >= ig.rows - 2 * as.w) {
-				if (!trails.empty())
-					as.abs_org = trails.back();
-				qDebug("Ant%d outbound at (x=%d,y=%d), s=0x%x", ant_idx, as.abs_org.x, as.abs_org.y, min_s);
-				return 0xffffffff;
-			}
-			s[0] = wc[as.w].compute(org, ig, iig);
-			s[1] = wc[as.w].compute(org + dp1, ig, iig);
-			s[2] = wc[as.w].compute(org + dp2, ig, iig);
-			s[3] = wc[as.w - 1].compute(org, ig, iig);
-			s[4] = wc[as.w - 1].compute(org + dp1, ig, iig);
-			s[5] = wc[as.w - 1].compute(org + dp2, ig, iig);
-			s[6] = wc[as.w + 1].compute(org, ig, iig);
-			s[7] = wc[as.w + 1].compute(org + dp1, ig, iig);
-			s[8] = wc[as.w + 1].compute(org + dp2, ig, iig);
-			for (int i = 0; i < 9; i++) {
-				CV_Assert(s[i] != 0xffffffff);
-				min_s = min(min_s, s[i]);
-			}
-			int cur_s = S_SHAPE(min_s);
-			if (cur_s == BRICK_NO_WIRE || cur_s == BRICK_HOLLOW) { //Wrong case, why it happen
-				if (trails.size() < as.w)
-					trails.clear();//Warning
-				else
-					as.abs_org = trails.back();
-				return min_s;
-			}
-			if (cur_s == ep_brick) { //still on line, continue search
-				if (S_TYPE(min_s) == as.w) {
-					if (min_s == s[1])
-						org += dp1;
-					if (min_s == s[2])
-						org += dp2;
-					step = as.w / 10 + 1;
-				} else
-				if (S_TYPE(min_s) == as.w - 1) { //adjust w
-					if (as.w > 3)
-						as.w--;
-					if (min_s == s[4])
-						org += dp1;
-					if (min_s == s[5])
-						org += dp2;
-					if (!wc_init[as.w - 1]) {						
-						WireParameter3 wp(as.w - 1, dw.gray_w, dw.gray_i, as.w - 1);
-						wc[as.w - 1].prepare(wp, ig, iig);
-						wc_init[as.w - 1] = 1;
-					}
-					step = 1;
-				}
-				else { //adjust w
-					if (as.w + 1 < ANTWIRENUM)
-						as.w++;
-					if (min_s == s[7])
-						org += dp1;
-					if (min_s == s[8])
-						org += dp2;
-					if (!wc_init[as.w + 1]) {
-						WireParameter3 wp(as.w + 1, dw.gray_w, dw.gray_i, as.w + 1);
-						wc[as.w + 1].prepare(wp, ig, iig);
-						wc_init[as.w + 1] = 1;
-					}
-					step = 1;
-				}
-				trails.push_back(lt + org * scale);
-				org += pdir * step;
-			} else 
-			if (cur_s == BRICK_FAKE_VIA || cur_s == BRICK_II_0 || cur_s == BRICK_II_90
-				|| cur_s == BRICK_II_180 || cur_s == BRICK_II_270 || cur_s == BRICK_III_0 ||
-				cur_s == BRICK_III_90 || cur_s == BRICK_INVALID) {
-
-				if (trails.size() < as.w) {
-					org += pdir * step;
-					continue;
-				}
-
-				switch (cur_s) { //adjust width
-				case BRICK_II_0:
-					as.w = min(S_TYPE(min_s) + 2, (unsigned)ANTWIRENUM - 2);
-					org += Point(-1, 0);
-					break;
-				case BRICK_II_90:
-					as.w = min(S_TYPE(min_s) + 2, (unsigned)ANTWIRENUM - 2);
-					org += Point(0, -1);
-					break;
-				case BRICK_II_180:
-					as.w = min(S_TYPE(min_s) + 2, (unsigned)ANTWIRENUM - 2);
-					org += Point(1, 0);
-					break;
-				case BRICK_II_270:
-					as.w = min(S_TYPE(min_s) + 2, (unsigned)ANTWIRENUM - 2);
-					org += Point(0, 1);
-					break;
-				case BRICK_III_0:
-				case BRICK_III_90:
-					as.w = min(S_TYPE(min_s) + 4, (unsigned)ANTWIRENUM - 2);
-					break;
-				}
-				step = 1;
-				trails.push_back(lt + org * scale);
-				org += pdir * step;
-				CV_Assert(as.w >= 3 && as.w + 1 <= ANTWIRENUM - 1);
-				for (int i = as.w - 1; i <= as.w + 1; i++)
-				if (!wc_init[i]) {
-					WireParameter3 wp(i, dw.gray_w, dw.gray_i, i);
-					wc[i].prepare(wp, ig, iig);
-					wc_init[i] = 1;
-				}
-			}
-			else
-			{ //search turn points, TODO detect wire width when met turn point
-				CV_Assert(cur_s <= BRICK_IN_USE);
-				Point turn_pt;
-				bool fit_dir = brick_conn.fit(as.dir, ep_brick, S_SHAPE(min_s));
-				if (trails.size() < as.w && (bricks[S_SHAPE(min_s)].shape & as.forbiden_dirmask ||!fit_dir)) { //Still in last turn point
-					org += pdir * step;
-					continue;
-				}
-				
-				unsigned turn_s = 0xffffffff;
-				int guard = as.w * 2;
-				for (int j = 1 - step; j < guard; j++) {
-					min_s = 0xffffffff;
-					Point o = org + pdir * j;
-					s[0] = wc[as.w].compute(o, ig, iig);
-					s[1] = wc[as.w].compute(o + dp1, ig, iig);
-					s[2] = wc[as.w].compute(o + dp2, ig, iig);
-					s[3] = wc[as.w - 1].compute(o, ig, iig);
-					s[4] = wc[as.w - 1].compute(o + dp1, ig, iig);
-					s[5] = wc[as.w - 1].compute(o + dp2, ig, iig);
-					s[6] = wc[as.w + 1].compute(o, ig, iig);
-					s[7] = wc[as.w + 1].compute(o + dp1, ig, iig);
-					s[8] = wc[as.w + 1].compute(o + dp2, ig, iig);
-					s[9] = wc[as.w].compute(o + dp1 + dp1, ig, iig);
-					s[10] = wc[as.w].compute(o + dp2 + dp2, ig, iig);
-					s[11] = wc[as.w - 1].compute(o + dp1 + dp1, ig, iig);
-					s[12] = wc[as.w - 1].compute(o + dp2 + dp2, ig, iig);
-					s[13] = wc[as.w + 1].compute(o + dp1 + dp1, ig, iig);
-					s[14] = wc[as.w + 1].compute(o + dp2 + dp2, ig, iig);
-					for (int i = 0; i < 15; i++) {
-						min_s = min(min_s, s[i]);
-					}					
-					if (brick_conn.fit(as.dir, ep_brick, S_SHAPE(min_s)) || S_SHAPE(min_s) == BRICK_HOLLOW) {
-						if (S_SHAPE(min_s) == ep_brick && j > 0) //search BRICK_I or BRICK_Z, stop
-							turn_s = min_s;
-						else
-							turn_s = min(turn_s, min_s);
-						if (turn_s == s[0] || turn_s == s[3] || turn_s == s[6])
-							turn_pt = o;
-						if (turn_s == s[1] || turn_s == s[4] || turn_s == s[7])
-							turn_pt = o + dp1;
-						if (turn_s == s[2] || turn_s == s[5] || turn_s == s[8])
-							turn_pt = o + dp2;
-						if (turn_s == s[9] || turn_s == s[11] || turn_s == s[13])
-							turn_pt = o + dp1 + dp1;
-						if (turn_s == s[10] || turn_s == s[12] || turn_s == s[14])
-							turn_pt = o + dp2 + dp2;
-						if (S_SHAPE(min_s) == ep_brick && j > 0)
-							break;
-						if (S_SHAPE(min_s) == BRICK_HOLLOW)
-							break;
-					}
-				}
-				if (turn_s == 0xffffffff) { //it is impossible to happen
-					qWarning("why reach here? Fixme! continue search...");
-					org += pdir * step;
-					continue;
-				}
-				org = turn_pt;
-				if (S_SHAPE(turn_s) == ep_brick)
-					as.w = S_TYPE(turn_s);
-				else
-				switch (S_SHAPE(turn_s)) {
-				case BRICK_II_0:
-					as.w = min(S_TYPE(turn_s) + 2, (unsigned) ANTWIRENUM - 2);
-					org += Point(-1, 0);
-					break;
-				case BRICK_II_90:
-					as.w = min(S_TYPE(turn_s) + 2, (unsigned)ANTWIRENUM - 2);
-					org += Point(0, -1);
-					break;
-				case BRICK_II_180:
-					as.w = min(S_TYPE(turn_s) + 2, (unsigned)ANTWIRENUM - 2);
-					org += Point(1, 0);
-					break;
-				case BRICK_II_270:
-					as.w = min(S_TYPE(turn_s) + 2, (unsigned)ANTWIRENUM - 2);
-					org += Point(0, 1);
-					break;
-				case BRICK_III_0:
-				case BRICK_III_90:
-					as.w = min(S_TYPE(turn_s) + 4, (unsigned)ANTWIRENUM - 2);
-					break;
-				case BRICK_NO_WIRE:
-				case BRICK_HOLLOW:					
-					if (trails.size() < as.w)
-						trails.clear();//Warning
-					else
-						as.abs_org = trails.back();
-					return turn_s;
-				default:
-					CV_Assert(S_SHAPE(turn_s) <= BRICK_IN_USE);
-					//BRICK_L, BRICK_T, BRICK_J, BRICK_l
-					as.abs_org = lt + org * scale;
-					trails.push_back(as.abs_org);
-					qDebug("Ant%d stop at (x=%d,y=%d), turn_s=0x%x", ant_idx, as.abs_org.x, as.abs_org.y, turn_s);
-					return turn_s;
-				}
-				step = 1;
-				trails.push_back(lt + org * scale);
-				org += pdir * step;
-				CV_Assert(as.w >= 3 && as.w + 1 <= ANTWIRENUM - 1);
-				for (int i = as.w - 1; i <= as.w + 1; i++) 
-				if (!wc_init[i]) {
-					WireParameter3 wp(i, dw.gray_w, dw.gray_i, i);
-					wc[i].prepare(wp, ig, iig);
-					wc_init[i] = 1;
-				}
-			}
+		for (int i = 0; i < 3; i++) { //offset0,1 is side rect, offset2 is middle rect
+			offset[i][0] = (oxy[i][0].y * (int)ig.step.p[0] + oxy[i][0].x * (int)ig.step.p[1]) / sizeof(int);
+			offset[i][1] = (oxy[i][0].y * (int)ig.step.p[0] + oxy[i][1].x * (int)ig.step.p[1]) / sizeof(int);
+			offset[i][2] = (oxy[i][1].y * (int)ig.step.p[0] + oxy[i][0].x * (int)ig.step.p[1]) / sizeof(int);
+			offset[i][3] = (oxy[i][1].y * (int)ig.step.p[0] + oxy[i][1].x * (int)ig.step.p[1]) / sizeof(int);
+		}		
+		int th0 = as.i_high * (as.w_wide / 2) * dw.gray_i + as.i_high * (as.w_wide / 2) * (dw.gray_w - dw.gray_i) * (dw.gray_th / 100.0); //th0 is wire threshold
+		int th1 = as.i_high * (as.w_wide - as.w_wide / 2) * dw.gray_i + as.i_high * (as.w_wide - as.w_wide / 2) * (dw.gray_w - dw.gray_i) * (dw.gray_th / 100.0); //th0 is wire threshold
+		int th2 = th0;
+		while(1) {
+			if ((as.dir == DIR_LEFT && org.x < as.i_high) || (as.dir == DIR_UP && org.y < as.i_high) ||
+				(as.dir == DIR_RIGHT && org.x >= ig.cols - as.i_high) || (as.dir == DIR_DOWN && org.y >= ig.rows - as.i_high))
+				return (as.dir == DIR_UP || as.dir == DIR_DOWN) ? BRICK_I_0 : BRICK_I_90; //wire outside
+			const unsigned * p_ig = ig.ptr<unsigned>(org.y, org.x);
+			int sum0 = p_ig[offset[0][3]] + p_ig[offset[0][0]] - p_ig[offset[0][1]] - p_ig[offset[0][2]];
+			int sum1 = p_ig[offset[1][3]] + p_ig[offset[1][0]] - p_ig[offset[1][1]] - p_ig[offset[1][2]];
+			int sum2 = p_ig[offset[2][3]] + p_ig[offset[2][0]] - p_ig[offset[2][1]] - p_ig[offset[2][2]];
+			if (sum0 < th0 || sum1 < th1 || sum2 < th2) 
+				return BRICK_NO_WIRE; //wire break
+			trails.push_back(org * (1<<scale) + lt);
+			org += Point(dxy[as.dir][1], dxy[as.dir][0]);			
 		}
 	}
 
-	//return 0 if path cut
-	int get_path(int layer, AntStart &as, vector<MarkObj> & obj_sets, int scale) {
-		static const int cnear[8][2] = {
-			//y, x
-			{ 0, 1 },	//up
-			{ 1, 0 },	//right
-			{ 0, 1 },	//down
-			{ 1, 0 },	//left
-			{ 1, 1 },	//right_up
-			{ 1, -1 },	//right_down
-			{ 1, 1 },	//left_down
-			{ 1, -1 }	//left_up
-		};
-		static const int cfar[8][2] = {
-			//y, x
-			{ 1, 0 },	//up
-			{ 0, 1 },	//right
-			{ 1, 0 },	//down
-			{ 0, 1 },	//left
-			{ 1, -1 },	//right_up
-			{ 1, 1 },	//right_down
-			{ 1, -1 },	//left_down
-			{ 1, 1 }	//left_up
-		};
+	//return 0 if success
+	int get_path(pair<Point, Point> & line) {
 		int ret = 1;
-		if (trails.empty())
-			return 0;
-		
-		//Following start checking
-		CV_Assert(as.abs_org == trails.back());
-		CV_Assert(as.dir < 8);
-		vector<Point> turn_pts;
-		turn_pts.push_back(as.joint_pt);
-		int org_xy = cnear[as.dir][0] * as.joint_pt.y + cnear[as.dir][1] * as.joint_pt.x;
-		int new_xy, last_xy = org_xy;
-		for (int i = 0; i < trails.size(); i++) {
-			new_xy = cnear[as.dir][0] * trails[i].y + cnear[as.dir][1] * trails[i].x;
-			if (new_xy == last_xy)
-				continue;
-			if (abs(new_xy - last_xy) >= 3 * scale) {
-				ret = 0;
-				break;
-			}
-			if ((new_xy - last_xy) * (new_xy - org_xy) <= 0) { //always online
-				while (turn_pts.size() > 1) { 
-					turn_pts.pop_back(); //pop stack
-					last_xy = cnear[as.dir][0] * turn_pts.back().y + cnear[as.dir][1] * turn_pts.back().x;
-					if ((new_xy - last_xy) * (new_xy - org_xy) > 0)
-						break;
-				}
-			}
-			else { //check if it is offline
-				if (turn_pts.size() > 1) {
-					Point & prev_last = turn_pts[turn_pts.size() - 2];
-					int prev_last_xy = cnear[as.dir][0] * prev_last.y + cnear[as.dir][1] * prev_last.x;
-					int new_yx = cfar[as.dir][0] * trails[i].y + cfar[as.dir][1] * trails[i].x;
-					int prev_last_yx = cfar[as.dir][0] * prev_last.y + cfar[as.dir][1] * prev_last.x;
-					if (abs(new_xy - prev_last_xy) * K_DISTORT1 > abs(new_yx - prev_last_yx)) {
-						ret = 0;
-						break;
-					}						
-				}
-				if (turn_pts.size() > 2) {
-					Point & prev_last = turn_pts[turn_pts.size() - 3];
-					int prev_last_xy = cnear[as.dir][0] * prev_last.y + cnear[as.dir][1] * prev_last.x;
-					int new_yx = cfar[as.dir][0] * trails[i].y + cfar[as.dir][1] * trails[i].x;
-					int prev_last_yx = cfar[as.dir][0] * prev_last.y + cfar[as.dir][1] * prev_last.x;
-					if (abs(new_xy - prev_last_xy) * K_DISTORT2 > abs(new_yx - prev_last_yx)) {
-						ret = 0;
-						break;
-					}
-				}
-				if (turn_pts.size() > 3) {
-					Point & prev_last = turn_pts[turn_pts.size() - 4];
-					int prev_last_xy = cnear[as.dir][0] * prev_last.y + cnear[as.dir][1] * prev_last.x;
-					int new_yx = cfar[as.dir][0] * trails[i].y + cfar[as.dir][1] * trails[i].x;
-					int prev_last_yx = cfar[as.dir][0] * prev_last.y + cfar[as.dir][1] * prev_last.x;
-					if (abs(new_xy - prev_last_xy) * K_DISTORT3 > abs(new_yx - prev_last_yx)) {
-						ret = 0;
-						break;
-					}
-				}
-			}
-			turn_pts.push_back(trails[i]);
-			last_xy = new_xy;
-		}
-		if (ret == 1)
-			turn_pts.push_back(trails.back());
-		else
-			qWarning("trails check failed at (x=%d,y=%d), newxy=%d", turn_pts.back().x, turn_pts.back().y, new_xy);
-		MarkObj wire;
-		wire.type = OBJ_LINE;
-		wire.type2 = LINE_WIRE_AUTO_EXTRACT;
-		wire.type3 = layer;
-		wire.state = 0;
-		wire.prob = 1;
-		wire.p0 = QPoint(as.joint_pt.x, as.joint_pt.y);
-		wire.p1 = QPoint(turn_pts.back().x, turn_pts.back().y);
-		obj_sets.push_back(wire);
-		return ret;
+		if (trails.empty() || trails.size() < 2)
+			return -1;
+		line.first = trails.front();
+		line.second = trails.back();
+		return 0;
 	}
 };
 
 VWExtractAnt::VWExtractAnt()
 {
-	
+	layer0 = -1;
 }
 
+/*
+input ic_layer
+input scale, 0,1,2,3...
+input rect, non-scale pixel unit
+Return image
+*/
+Mat VWExtractAnt::prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect rect, bool replace_buf)
+{
+	if (prev_scale != scale) {
+		img_bufs.clear();
+		prev_scale = scale;
+	}
+	if (replace_buf) {
+		for (int i = 0; i < img_bufs.size(); i++)
+			img_bufs[i].replace = true;
+	}
+	Mat img((rect.height() >> scale), (rect.width() >> scale), CV_8UC1);
+	int xl = (rect.left() / ic_layer->getBlockWidth() >> scale) << scale; //xl is picture idx x
+	int yt = (rect.top() / ic_layer->getBlockWidth() >> scale) << scale;
+	int xr = (rect.right() / ic_layer->getBlockWidth() >> scale) << scale;
+	int yb = (rect.bottom() / ic_layer->getBlockWidth() >> scale) << scale;
+	bool right_hit = false, bottom_hit = false;
+	for (int y = yt; y <= yb; y += 1<<scale) //both y & x is picture idx
+	for (int x = xl; x <= xr; x += 1<<scale) {
+		int idx = -1;
+		Mat raw_img;
+		for (int i = 0; i < img_bufs.size(); i++)
+			if (img_bufs[i].lt == Point(x, y)) {
+				qDebug("load img from buffer s=%d, x=%d,y=%d", scale, x, y);
+				idx = i;
+				img_bufs[i].replace = false;
+				raw_img = img_bufs[i].raw_img;
+				break;
+			}
+		if (idx < 0) {
+			vector<uchar> encode_img;
+			qDebug("load img from database scale=%d, x=%d,y=%d", scale, x, y);
+			if (ic_layer->getRawImgByIdx(encode_img, x, y, scale, 0, true) != 0) {
+				qCritical("load image error at s=%d, (%d,%d)", scale, x, y);
+				return Mat();
+			}
+			Mat dec_img = imdecode(Mat(encode_img), -1);
+			if (dec_img.channels() > 1) {
+				if (dec_img.channels() > 4 || dec_img.channels() <= dw0.channel) {
+					qCritical("load image error, channel =%d, dw0.channel =%d", dec_img.channels(), dw0.channel);
+					return Mat();
+				}
+				Mat mv[4];
+				split(dec_img, mv);
+				raw_img = mv[dw0.channel];
+			}
+			else
+				raw_img = dec_img;
+			if (replace_buf)
+				img_bufs.push_back(ImageBuf(Point(x, y), raw_img));
+		}
+		//now raw_img is loaded, copy it to img;
+		CV_Assert(raw_img.type() == CV_8UC1);
+		QRect raw_img_rect(x *ic_layer->getBlockWidth(), y *ic_layer->getBlockWidth(), ic_layer->getBlockWidth() << scale, ic_layer->getBlockWidth() << scale);
+		QRect overlap_rect = raw_img_rect & rect; //overlap rect is the copy rect, unit is pixel
+		QRect src = overlap_rect.translated(- raw_img_rect.topLeft());
+		QRect tgt = overlap_rect.translated(- rect.topLeft());
+		CV_Assert((tgt.left() >> scale) + (tgt.width() >> scale) <= img.cols &&
+			(tgt.top() >> scale) + (tgt.height() >> scale) <= img.rows);
+		CV_Assert((src.left() >> scale) + (src.width() >> scale) <= raw_img.cols &&
+			(src.top() >> scale) + (src.height() >> scale) <= raw_img.rows);
+		if ((tgt.left() >> scale) + (tgt.width() >> scale) == img.cols)
+			right_hit = true;
+		if ((src.top() >> scale) + (src.height() >> scale) == raw_img.rows)
+			bottom_hit = true;
+		raw_img(Rect(src.left() >> scale, src.top() >> scale, src.width() >> scale, src.height() >> scale)).copyTo(
+			img(Rect(tgt.left() >> scale, tgt.top() >> scale, tgt.width() >> scale, tgt.height() >> scale)));
+	}
+	if (!right_hit && !bottom_hit)
+		img = img(Rect(0, 0, img.cols - 1, img.rows - 1));
+	if (!right_hit && bottom_hit)
+		img = img(Rect(0, 0, img.cols - 1, img.rows));
+	if (right_hit && !bottom_hit)
+		img = img(Rect(0, 0, img.cols, img.rows - 1));
+	if (replace_buf) {
+		for (int i = 0; i < img_bufs.size(); i++) {
+			while (img_bufs[i].replace && !img_bufs[i].must_reserve) {
+				if (i != img_bufs.size() - 1) { //not the last one
+					img_bufs[i] = img_bufs.back(); //replace with last one
+					img_bufs.pop_back(); //delete last one
+				}
+				else { //it is the last one
+					img_bufs.pop_back(); //delete last one
+					break;
+				}					
+			}
+		}
+	}
+	return img;
+}
+
+/*
+	31..24 23..16 15..8 7..0
+pi1       w_max     w_min
+pi2 channel gray_th search_opt i_high
+pi3						scale
+*/
 int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, int pi4, int, int, int, float)
 {
 	dw0.w_min = pi1 & 0xffff;
 	dw0.w_max = pi1 >> 16 & 0xffff;
-	dw0.dir_mask = 0xffffffff;
-	search_opt = min(pi2, SEARCH_NET);
-	abs_org0.x = pi3;
-	abs_org0.y = pi4;	
-	layer0 = layer;
-	qInfo("VWExtractAnt set param: w_min=%d, w_max=%d, dir_mask=%x, x=%d, y=%d", dw0.w_min, dw0.w_max, 
-		dw0.dir_mask, abs_org0.x, abs_org0.y);
+	dw0.i_high = pi2 & 0xff;
+	search_opt = pi2 >> 8 & 0xff;
+	dw0.gray_th = pi2 >> 16 & 0xff;
+	dw0.dir_mask = (search_opt & SEARCH_DIR_MASK) ? 0xff : 0xf;
+	dw0.channel = pi2 >> 24 & 0xff;
+	dw0.w_max = max(dw0.w_min, dw0.w_max);
+	dw0.gray_th = min(dw0.gray_th, 80);
+	dw0.gray_th = max(20, dw0.gray_th);
+	dw0.i_high = min(dw0.i_high, 9);
+	dw0.i_high = max(2, dw0.i_high);
+	dw0.channel = min(3, dw0.channel);
+	dw0.scale = pi3 & 0xff;
+	if (layer0 != layer) {
+		img_bufs.clear();
+		layer0 = layer;
+	}
+	qInfo("VWExtractAnt set param: w_min=%d, w_max=%d, channel=%d, dir_mask=0x%x, gray_th=%d, i_high=%d, scale=%d", dw0.w_min,  
+		dw0.w_max, dw0.channel, dw0.dir_mask, dw0.gray_th, dw0.i_high, dw0.scale);
 	return 0;
-}
-
-Rect torect(QRect &r)
-{
-	return Rect(r.left(), r.top(), r.width(), r.height());
-}
-
-QRect toqrect(Rect &r)
-{
-	return QRect(r.x, r.y, r.width, r.height);
 }
 
 /*
@@ -1244,96 +1061,192 @@ void get_next_dir(int shape, AntStart as, vector <int> & next_dir)
 		break;
 	}
 }
-int VWExtractAnt::extract(string file_name, QRect , vector<MarkObj> & obj_sets)
+
+int VWExtractAnt::extract(string file_name, QRect rect, vector<MarkObj> & obj_sets)
 {
 	Mat img = imread(file_name, 0);
 	Mat detect_img, ig, iig;
 	Point org_best;
 	int w_best;
-	detect_gray(img, abs_org0, dw0);
+	dw0.abs_org0 = Point(rect.x(), rect.y());
+	detect_gray(img, dw0);
 	qDebug("detect_gray, gray_i=%d, gray_w=%d", dw0.gray_i, dw0.gray_w);
-	dw0.gray_w = (dw0.gray_w - dw0.gray_i) * 0.7 + dw0.gray_i;
 	clip_img(img, dw0.gray_i, dw0.gray_w, detect_img);
 	Mat temp1, temp2;
 	integral_square(detect_img, ig, iig, temp1, temp2, false);
 	dw0.gray_w -= dw0.gray_i;
 	dw0.gray_i = 0;
-	unsigned s = detect_wire_para(ig, iig, dw0, abs_org0, w_best, org_best);
+	unsigned s = detect_wire_para(ig, iig, dw0, w_best, org_best);
+	if (S_SHAPE(s) == BRICK_INVALID)
+		return -1;
 	qDebug("detect_wire_para, w_best=%d, org_best=(x=%d,y=%d), s=%x", w_best, org_best.x, org_best.y, s);
 	obj_sets.clear();
 
 	vector <AntStart> asq;
 	switch (S_SHAPE(s)) {
 	case BRICK_I_0:
-		asq.push_back(AntStart(DIR_UP, DIR_DOWN, org_best, org_best, w_best));
-		asq.push_back(AntStart(DIR_DOWN, DIR_UP, org_best, org_best, w_best));
+		asq.push_back(AntStart(DIR_UP, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_DOWN, org_best, w_best, dw0.i_high));
 		break;
 	case BRICK_I_90:
-		asq.push_back(AntStart(DIR_RIGHT, DIR_LEFT, org_best, org_best, w_best));
-		asq.push_back(AntStart(DIR_LEFT, DIR_RIGHT, org_best, org_best, w_best));
+		asq.push_back(AntStart(DIR_RIGHT, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_LEFT, org_best, w_best, dw0.i_high));
 		break;
 	case BRICK_Z_0:
-		asq.push_back(AntStart(DIR_UPRIGHT, DIR_DOWNLEFT, org_best, org_best, w_best));
-		asq.push_back(AntStart(DIR_DOWNLEFT, DIR_UPRIGHT, org_best, org_best, w_best));
+		asq.push_back(AntStart(DIR_UPRIGHT, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_DOWNLEFT, org_best, w_best, dw0.i_high));
 		break;
 	case BRICK_Z_90:
-		asq.push_back(AntStart(DIR_DOWNRIGHT, DIR_UPLEFT, org_best, org_best, w_best));
-		asq.push_back(AntStart(DIR_UPLEFT, DIR_DOWNRIGHT, org_best, org_best, w_best));
+		asq.push_back(AntStart(DIR_DOWNRIGHT, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_UPLEFT, org_best, w_best, dw0.i_high));
 		break;
 	default:
 		qWarning("click shape %d", S_SHAPE(s));
 		break;
 	}
 	Ant ant0(0);
-	while (!asq.empty()) {
-		AntStart as = asq.back();
-		asq.pop_back();
-		unsigned s = ant0.go(ig, iig, Point(0, 0), dw0, as, 1);
-		int ret = ant0.get_path(layer0, as, obj_sets, 1);
-		if (s == 0xffffffff || ret == 0)
-			continue;
-		if (search_opt == SEARCH_SINGLE_LINE)
-			continue;
-		vector<int> next_dir;
-		get_next_dir(S_SHAPE(s), as, next_dir);
-		for (int i = 0; i < (int)next_dir.size(); i++) {
-			CV_Assert(S_SHAPE(s) < BRICK_IN_USE);
-			if (search_opt == SEARCH_STRAIGHT_LINE && next_dir[i] != as.dir)
-				continue;
-			int forbiden_dir = bricks[S_SHAPE(s)].shape & ~(1 << next_dir[i]);
-			switch (next_dir[i]) {
-			case DIR_RIGHT:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(as.w * 0.5, 0), as.abs_org, as.w));
-				break;
-			case DIR_LEFT:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(-as.w * 0.5, 0), as.abs_org, as.w));
-				break;
-			case DIR_UP:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(0, -as.w * 0.5), as.abs_org, as.w));
-				break;
-			case DIR_DOWN:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(0, as.w * 0.5), as.abs_org, as.w));
-				break;
-			case DIR_UPRIGHT:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(as.w * 0.5, -as.w * 0.5), as.abs_org, as.w));
-				break;
-			case DIR_DOWNRIGHT:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(as.w * 0.5, as.w * 0.5), as.abs_org, as.w));
-				break;
-			case DIR_DOWNLEFT:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(-as.w * 0.5, as.w * 0.5), as.abs_org, as.w));
-				break;
-			case DIR_UPLEFT:
-				asq.push_back(AntStart(next_dir[i], forbiden_dir, as.abs_org + Point(-as.w * 0.5, -as.w * 0.5), as.abs_org, as.w));
-				break;
-			}
-		}	
+	pair<Point, Point> lines[2];
+	for (int i = 0; i < 2; i++) {
+		lines[i].first = org_best;
+		lines[i].second = org_best;
+		unsigned s = ant0.go(ig, iig, Point(0, 0), dw0, asq[i]);
+		int ret = ant0.get_path(lines[i]);
 	}
+	MarkObj wire;
+	wire.p0 = QPoint(lines[0].second.x, lines[0].second.y);
+	wire.p1 = QPoint(lines[1].second.x, lines[1].second.y);
+	wire.prob = 1;
+	wire.type = OBJ_LINE;
+	wire.type2 = LINE_WIRE_AUTO_EXTRACT;
+	wire.type3 = layer0;
+	wire.state = 0;
+	obj_sets.push_back(wire);
 	return 0;
 }
 
-int VWExtractAnt::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
+int VWExtractAnt::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & _area, vector<MarkObj> & obj_sets)
 {
+	obj_sets.clear();
+	Point org = Point(_area[0].rect.x(), _area[0].rect.y());
+	org.x = org.x / (32768 / ic_layer[0]->getBlockWidth());
+	org.y = org.y / (32768 / ic_layer[0]->getBlockWidth());
+	DetectWirePara dw1 = dw0; //backup dw0 for restore before return
+	//change non-scale pixel w_min, w_max to scale pixel unit
+	dw0.w_min = dw0.w_min >> dw0.scale;
+	dw0.w_max = dw0.w_max >> dw0.scale;
+	dw0.w_min = max(3, dw0.w_min);
+	dw0.w_max = max(dw0.w_min, dw0.w_max);
+	dw0.w_max = min(DETECT_WIRE_RADIUS, dw0.w_max);
+	dw0.w_min = min(dw0.w_min, dw0.w_max);
+	dw0.abs_org0 = Point(DETECT_WIRE_RADIUS, DETECT_WIRE_RADIUS);
+	for (int i = 0; i < img_bufs.size(); i++)
+		img_bufs[i].must_reserve = false;
+	Mat img = prepare_img(ic_layer[0], dw0.scale, QRect(org.x - (DETECT_WIRE_RADIUS << dw0.scale), org.y - (DETECT_WIRE_RADIUS << dw0.scale), 
+		DETECT_WIRE_RADIUS << (1 + dw0.scale), DETECT_WIRE_RADIUS << (1 + dw0.scale)), true);
+	for (int i = 0; i < img_bufs.size(); i++)
+		img_bufs[i].must_reserve = true;
+	if (img.empty()) {
+		dw0 = dw1;
+		return -1;
+	}
+	Mat detect_img, ig, iig;
+	Point org_best;
+	int w_best;
+	detect_gray(img, dw0);
+	qDebug("detect_gray, gray_i=%d, gray_w=%d", dw0.gray_i, dw0.gray_w);
+	dw1.gray_w = dw0.gray_w;
+	dw1.gray_i = dw0.gray_i;
+	clip_img(img, dw0.gray_i, dw0.gray_w, detect_img);	
+	Mat temp1, temp2;
+	integral_square(detect_img, ig, iig, temp1, temp2, false);
+	dw0.gray_w -= dw0.gray_i;
+	dw0.gray_i = 0;
+	unsigned s = detect_wire_para(ig, iig, dw0, w_best, org_best);
+	if (S_SHAPE(s) == BRICK_INVALID) {
+		dw0 = dw1;
+		return -1;
+	}
+	org_best.x = org.x - (DETECT_WIRE_RADIUS << dw0.scale) + (org_best.x << dw0.scale);
+	org_best.y = org.y - (DETECT_WIRE_RADIUS << dw0.scale) + (org_best.y << dw0.scale);
+	qDebug("detect_wire_para, scale=%d, w_best=%d, org_best=(x=%d,y=%d), s=%x", dw0.scale, w_best << dw0.scale, org_best.x, org_best.y, s);
+	if (w_best <= 6 && dw0.scale > 0) { //zoom in 
+		vector<SearchArea> areas(_area);
+		dw0 = dw1;
+		dw0.w_min = w_best << dw0.scale; //change back to non-scale
+		dw0.w_max = w_best << dw0.scale; //use exact w_best to reduce detect_wire_para time
+		dw0.scale--;
+		int ret = extract(ic_layer, areas, obj_sets);
+		dw0 = dw1;
+		return ret;
+	}
+	if (w_best >= 32 && dw0.scale < ic_layer[0]->getMaxScale()) { //zoom out
+		vector<SearchArea> areas(_area);
+		dw0 = dw1;
+		dw0.w_min = w_best << dw0.scale; //change back to non-scale
+		dw0.w_max = w_best << dw0.scale; //use exact w_best to reduce detect_wire_para time
+		while (w_best >= 32 && dw0.scale < ic_layer[0]->getMaxScale()) {			
+			dw0.scale++;
+			w_best = w_best >> 1;
+		}
+		int ret = extract(ic_layer, areas, obj_sets);
+		dw0 = dw1;
+		return ret;
+	}
+	vector <AntStart> asq;
+	switch (S_SHAPE(s)) {
+	case BRICK_I_0:
+		asq.push_back(AntStart(DIR_UP, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_DOWN, org_best, w_best, dw0.i_high));
+		break;
+	case BRICK_I_90:
+		asq.push_back(AntStart(DIR_RIGHT, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_LEFT, org_best, w_best, dw0.i_high));
+		break;
+	case BRICK_Z_0:
+		asq.push_back(AntStart(DIR_UPRIGHT, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_DOWNLEFT, org_best, w_best, dw0.i_high));
+		break;
+	case BRICK_Z_90:
+		asq.push_back(AntStart(DIR_DOWNRIGHT, org_best, w_best, dw0.i_high));
+		asq.push_back(AntStart(DIR_UPLEFT, org_best, w_best, dw0.i_high));
+		break;
+	default:
+		qWarning("click shape %d", S_SHAPE(s));
+		break;
+	}
+	Ant ant0(0);
+	pair<Point, Point> lines[2];
+	for (int i = 0; i < 2; i++) {
+		unsigned s;
+		do {
+			QRect srect = ant0.get_search_rect(asq[i], ic_layer[0]->getBlockWidth(), dw0.scale);
+			qDebug("SearchRect=(l=%d,t=%d,r=%d,b=%d),start=(x=%d,y=%d)", srect.left(), srect.top(),
+				srect.right(), srect.bottom(), asq[i].abs_org.x, asq[i].abs_org.y);
+
+			img = prepare_img(ic_layer[0], dw0.scale, srect, true);
+			clip_img(img, dw1.gray_i, dw1.gray_w, detect_img);
+			integral_square(detect_img, ig, iig, temp1, temp2, false);
+
+			s = ant0.go(ig, iig, Point(srect.left(), srect.top()), dw0, asq[i]);
+			lines[i].first = asq[i].abs_org;
+			lines[i].second = asq[i].abs_org;
+			int ret = ant0.get_path(lines[i]);
+			asq[i].abs_org = lines[i].second;
+		} while (s != BRICK_NO_WIRE);
+	}
+	qInfo("extract single wire (%d,%d)->(%d,%d)", asq[0].abs_org.x, asq[0].abs_org.y, asq[1].abs_org.x, asq[1].abs_org.y);
+	MarkObj wire;
+	asq[0].abs_org = asq[0].abs_org * (32768 / ic_layer[0]->getBlockWidth());
+	asq[1].abs_org = asq[1].abs_org * (32768 / ic_layer[0]->getBlockWidth());
+	wire.p0 = QPoint(asq[0].abs_org.x, asq[0].abs_org.y);
+	wire.p1 = QPoint(asq[1].abs_org.x, asq[1].abs_org.y);
+	wire.prob = 1;
+	wire.type = OBJ_LINE;
+	wire.type2 = LINE_WIRE_AUTO_EXTRACT;
+	wire.type3 = layer0;
+	wire.state = 0;
+	obj_sets.push_back(wire);
+	dw0 = dw1;
 	return 0;
 }
 void VWExtractAnt::get_feature(int, int, int, std::vector<float> &, std::vector<int> &)

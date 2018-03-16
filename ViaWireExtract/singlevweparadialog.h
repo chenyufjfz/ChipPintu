@@ -13,11 +13,11 @@ class SingleVWEParaDialog : public QDialog
 
 public:
     unsigned wmin, wmax;
-    unsigned opt;
+    unsigned opt, gray_th, sep;
     unsigned gray_w, gray_i, w_wide;
     double w_wide1, i_wide;
-    explicit SingleVWEParaDialog(QWidget *parent = 0, unsigned _wmin = 1, unsigned _wmax=50, unsigned _opt=1,
-             unsigned _gw=70, unsigned _gi=20, unsigned _ww=10, double _ww1=0.3, double _iw=0.4);
+    explicit SingleVWEParaDialog(QWidget *parent, unsigned _wmin, unsigned _wmax, unsigned _gray_th, unsigned _sep,
+             unsigned _opt, unsigned _gw, unsigned _gi, unsigned _ww, double _ww1, double _iw);
     ~SingleVWEParaDialog();
 
 private slots:

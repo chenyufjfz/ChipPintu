@@ -3,19 +3,41 @@
 #include "vwextract.h"
 
 struct DetectWirePara {
-	int w_min, w_max;
+	int w_min, w_max; //in non-scale pixel unit
 	int gray_i, gray_w;
 	int dir_mask;
+	int i_high; //scale image pixel
+	int gray_th; //0~100
+	int channel; //0~3
+	int scale;
+	Point abs_org0; //scale image pixel
 };
 
+struct ImageBuf {
+	Point lt;
+	Mat raw_img;
+	bool must_reserve;
+	bool replace;
+	ImageBuf() {
+
+	}
+    ImageBuf(const Point & _lt, Mat & _raw_img) {
+		lt = _lt;
+		raw_img = _raw_img;
+		replace = false;
+		must_reserve = false;
+	}
+};
 
 class VWExtractAnt : public VWExtract
 {
 protected:
 	DetectWirePara dw0;
-	Point abs_org0;
 	int layer0;
 	int search_opt;
+	int prev_scale;
+	vector<ImageBuf> img_bufs;
+	Mat prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect rect, bool replace_buf);
 
 public:
 	VWExtractAnt();
@@ -29,7 +51,7 @@ public:
 	int train(string, const std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
 	int train(vector<ICLayerWrInterface *> &, const std::vector<MarkObj> &) { return 0; }
-	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
+	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & _area, vector<MarkObj> & obj_sets);
 	void get_feature(int, int, int, std::vector<float> &, std::vector<int> &);
 };
 #endif // VWEXTRACT3_H
