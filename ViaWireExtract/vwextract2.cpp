@@ -10,10 +10,15 @@
 #include "vwextract_public.h"
 #include <deque>
 
-#define PARALLEL 0
 #define SAVE_RST_TO_FILE	0
+#ifdef QT_DEBUG
 #define DEBUG_LEFT_TOP_IMG  1
+#else
+#define DEBUG_LEFT_TOP_IMG  0
+#endif
 
+
+#define OPT_PARALLEL		1
 #define OPT_DEBUG_EN		0x8000
 #define OPT_DEBUG_OUT_EN	0x4000
 
@@ -43,6 +48,7 @@
 #define ASSEMBLE_VIA_SEARCH_SKIN				2
 #define ASSEMBLE_BRANCH_ALLOW_45				1
 #define ASSEMBLE_BRANCH_SEARCH_CROSS			2
+#define ASSEMBLE_BRANCH_NOT_REMARK_BORDER		4
 
 #define CHECK_VW_HOTLINE_CLEAR_MASK				1
 #define CHECK_VW_SEARCH_CLEAR_COLOR				2
@@ -1343,14 +1349,18 @@ struct BranchMeta {
 		SubBranch = 4
 	};
 	pair<Point, Point> bch; //branch start and end point
-	int dir, map_bra, state, idx; //dir=-1, this layer via, dir=-2 down layer via
+	int dir; //dir=-1, this layer via, dir=-2 down layer via
+	int map_bra; //if other BranchMeta merge me, map_bra point to that one.
+	int state, idx;
+	int fa_idx; //fa_idx point to mainbch, it also means connect to local network
     vector<int> dc; //dirrect connect branch
 	vector<Point> final_out;
 
     BranchMeta() {
 		idx = -1;
+		map_bra = -1;
 	}
-    BranchMeta(int _idx, Point p0, Point p1, int is_via, bool main) {		
+    BranchMeta(int _idx, Point p0, Point p1, int is_via, bool main, int _fa_idx) {		
 		if (is_via == 0)
 			dir = check_dir(p1.x - p0.x, p1.y - p0.y, true);
 		else
@@ -1365,6 +1375,7 @@ struct BranchMeta {
 			state = SubBranch;
 		map_bra = -1;
 		idx = _idx;
+		fa_idx = _fa_idx;
 	}
 
 	void print_info() {
@@ -1382,7 +1393,11 @@ struct BranchMeta {
 		if (_idx != idx && !EXIST(dc, _idx))
 			dc.push_back(_idx);
 	}
-
+	void del_dc(int _idx) {
+		vector<int>::iterator it = find(dc.begin(), dc.end(), _idx);
+		if (it != dc.end())
+			dc.erase(it);
+	}
 	void extend(Point o) {
 		int cl = cnear[dir][0] * bch.first.y + cnear[dir][1] * bch.first.x; //line c-value
 		int cp = cnear[dir][0] * o.y + cnear[dir][1] * o.x; //via point c-value
@@ -1550,6 +1565,7 @@ struct BranchMeta {
 		return true;
 	}
 
+	//pri=true, I eat other if in same state
 	void merge(const BranchMeta & other, bool pri) {
 		if (dir >= 0) { //wire case
 			CV_Assert(state > MERGED && other.state > MERGED);
@@ -1604,7 +1620,7 @@ struct BranchMeta {
 			else //other eat me
 				bch = other.bch;			
 		}
-
+		//merge dc and final out
 		for (int i = 0; i < other.dc.size(); i++)
 			push_dc(other.dc[i]);
 
@@ -1615,10 +1631,54 @@ struct BranchMeta {
 				push_out(other.final_out[i]);
 		}
 	}
+
+	void cut(const BranchMeta & other) {
+		if (dir < 0)
+			return;
+		pair<Point, Point> new_bch = bch;
+		CV_Assert(dir == other.dir || dir_1[dir] == other.dir);
+		switch (dir) {
+		case DIR_UP:
+		case DIR_DOWN:
+			if (new_bch.first.y + new_bch.second.y < other.bch.first.y + other.bch.second.y) {
+				new_bch.first.y = min(new_bch.first.y, new_bch.second.y);
+				new_bch.second.y = min(other.bch.first.y, other.bch.second.y);
+			}
+			else {
+				new_bch.second.y = max(new_bch.first.y, new_bch.second.y);
+				new_bch.first.y = max(other.bch.first.y, other.bch.second.y);
+			}
+			break;
+		case DIR_LEFT:
+		case DIR_RIGHT:
+			if (new_bch.first.x + new_bch.second.x < other.bch.first.x + other.bch.second.x) {
+				new_bch.first.x = min(new_bch.first.x, new_bch.second.x);
+				new_bch.second.x = min(other.bch.first.x, other.bch.second.x);
+			}
+			else {
+				new_bch.second.x = max(new_bch.first.x, new_bch.second.x);
+				new_bch.first.x = max(other.bch.first.x, other.bch.second.x);
+			}
+			break;
+		default:
+			if (new_bch.first.x + new_bch.second.x < other.bch.first.x + other.bch.second.x) {
+				new_bch.first.x = min(new_bch.first.x, new_bch.second.x);
+				new_bch.second.x = min(other.bch.first.x, other.bch.second.x);
+			}
+			else {
+				new_bch.second.x = max(new_bch.first.x, new_bch.second.x);
+				new_bch.first.x = max(other.bch.first.x, other.bch.second.x);
+			}
+			int c = cnear[dir][0] * bch.first.y + cnear[dir][1] * bch.first.x;
+			new_bch.first.y = (c - cnear[dir][1] * new_bch.first.x) * cnear[dir][0];
+			new_bch.second.y = (c - cnear[dir][1] * new_bch.second.x) * cnear[dir][0];
+			break;
+		}
+		bch = new_bch;
+	}
 	/* for two wire case
 	   if parallel, if distance <= guard return distance  else return -2
-	   if orthogonal intersected, return -1 
-	   if not intersected, return -2
+	   if orthogonal intersected, return -1, if not intersected, return -2
 	   for two via case
 	   if distance <= guard return distance  else return -2
 	*/
@@ -1714,6 +1774,10 @@ struct BranchMeta {
 		else
 			return POINT_DIS(bch.first, o);
 	}
+	
+	int length() {
+		return max(abs(bch.first.x- bch.second.x), abs(bch.first.y - bch.second.y));
+	}
 };
 /*
   For this layer wire, dir>=0, xy contain all point
@@ -1801,12 +1865,12 @@ public:
 					Point((avg - cnear[dir][0] * maxy) * cnear[dir][1], maxy));
 				break;
 			}
-            sbs[idx] = BranchMeta(idx, main_bch.first, main_bch.second, 0, true);
+            sbs[idx] = BranchMeta(idx, main_bch.first, main_bch.second, 0, true, idx);
 			if (children.empty())
 				children.push_back(idx);
 		}
 		else {
-            sbs[idx] = BranchMeta(idx, xy[0], xy[0], -dir, true);
+            sbs[idx] = BranchMeta(idx, xy[0], xy[0], -dir, true, idx);
 			if (children.empty())
 				children.push_back(idx);
 		}
@@ -1823,6 +1887,12 @@ class BranchMark {
 	int oft1[8], oft2[8]; //8 dir offset
 	int prev_jp_idx;
     vector<BranchMeta> sbs;
+	struct CbchLink {
+		vector<int> cbch; //local connect branch set based on merge, < local_sbs_num
+		vector<int> cbch_link; //first is distance, second is link point, < local_sbs_num
+		vector<int> cbch2; //local connect branch set based on distance
+	};
+	int merge_num;
 	friend class SearchWireBranch;
 	friend class SearchViaBranch;
 protected:
@@ -1852,7 +1922,7 @@ protected:
 		} 
 		else { //add new_idx to connect bra, and new_idx belong to b0's child
 			sbs[bra].push_dc(new_idx);
-			sbs.push_back(BranchMeta(new_idx, p0, p1, 0, false));
+			sbs.push_back(BranchMeta(new_idx, p0, p1, 0, false, b0));
 			sbs[new_idx].push_dc(bra);
 			bs[b0].children.push_back(new_idx);		
 		}
@@ -2028,6 +2098,7 @@ protected:
 
 public:
 	BranchMark() {
+		merge_num = 0;
 		current_sq = 0;
 		bs.push_back(Branch(0, 0, 0, 0, 0));
 	}
@@ -2057,7 +2128,7 @@ public:
 	input xy, mark xy
 	input branch_idx
 	input len, distance to branch, if len=0, this point is branch
-	input dir, how to reach branch
+	input dir, how to reach branch, it's dir mask
 	input is_skin, if 1, this point is skin, else it is bone.
 	via_center overwrite everything except previous via_center, 
 	*/
@@ -2089,6 +2160,25 @@ public:
 			current_sq = min(current_sq, len);
 		}
 		return ret;
+	}
+
+	void remark_border_skin(int border) {
+		Rect l_r(0, 0, border, mark.rows);
+		Rect t_r(0, 0, mark.cols, border);
+
+		for (int i = (int)bs.size(); i < (int)sbs.size(); i++)
+			if (l_r.contains(sbs[i].bch.first) || l_r.contains(sbs[i].bch.second) ||
+				t_r.contains(sbs[i].bch.first) || t_r.contains(sbs[i].bch.second)) {
+				vector<Point> pts;
+				get_line_pts(sbs[i].bch.first, sbs[i].bch.second, pts);
+				for (int j = 0; j < pts.size(); j++)
+				if (l_r.contains(pts[j]) || t_r.contains(pts[j]))
+					push_mark(pts[j], i, 0, 0x80, 1, pts[j].x, pts[j].y, false);
+			}
+	}
+
+	bool is_sub_branch(int branch) {
+		return (branch >= bs.size() && branch < sbs.size());
 	}
 
 	/*input allow45 allow 45 degree line
@@ -2187,6 +2277,30 @@ public:
 		}
 	}
 
+	int get_skin_wide(int branch)
+	{
+		if (branch < bs.size())
+			return bs[branch].get_skin_wide();
+		while (branch != sbs[branch].fa_idx)
+			branch = sbs[branch].fa_idx;
+		CV_Assert(branch > 0);
+		if (branch < bs.size())
+			return bs[branch].get_skin_wide();
+		else
+			return bs[1].get_skin_wide();
+	}
+	int get_th(int branch)
+	{
+		if (branch < bs.size())
+			return bs[branch].get_th();
+		while (branch != sbs[branch].fa_idx)
+			branch = sbs[branch].fa_idx;
+		CV_Assert(branch > 0);
+		if (branch < bs.size())
+			return bs[branch].get_th();
+		else
+			return bs[1].get_th();			
+	}
 	/*
 	input ig
 	input allow45
@@ -2196,8 +2310,8 @@ public:
 		int dir_limit = allow45 ? 8 : 4;
 		while (get_expand_skin(skin)) {
 			CV_Assert(MARK_BRANCH(skin.second) != INVALID_BRANCH);
-			int swide = bs[MARK_BRANCH(skin.second)].get_skin_wide();
-			int th = bs[MARK_BRANCH(skin.second)].get_th();
+			int swide = get_skin_wide(MARK_BRANCH(skin.second));
+			int th = get_th(MARK_BRANCH(skin.second));
 			int len0 = MARK_LEN(skin.second) + 1;
 			int dir_mask = MARK_DIRMASK(skin.second);
 			for (int dir = 0; dir < dir_limit; dir++)
@@ -2495,6 +2609,12 @@ public:
 		return idx;
 	}
 
+	void release() {
+		mark.release();
+		mark2.release();
+	}
+
+
 	void stitch_at(Point o) {
 		for (int i = 1; i < sbs.size(); i++) {
 			sbs[i].bch.first += o;
@@ -2535,15 +2655,29 @@ public:
 	Input right_limit, right border for output, exceed right border won't output
 	Input bottom_limit, bottom border for output, exceed bottom border won't output
 	end_len_limit, to merge [bch.first, bch.second] with intersection
+	get_result output mark_outbij within Rect(0,0,right_limit,bottom_limit)
 	*/
 	void get_result(int right_limit, int bottom_limit, int end_len_limit, int layer, vector<MarkObj> & obj_sets) {
 		self_check();
 		for (int i = 1; i < sbs.size(); i++) {
 			if (sbs[i].state == BranchMeta::ALEADY_OUTPUT) //if it is deleted, continue
 				continue;
+#if 1
+			if (sbs[i].bch.first.x >= 13629 && sbs[i].bch.first.x <= 13650 &&
+				sbs[i].bch.first.y >= 13210 && sbs[i].bch.first.y <= 13220 &&
+				sbs[i].bch.second.x >= 13629 && sbs[i].bch.second.x <= 13650 &&
+				sbs[i].bch.second.y >= 13210 && sbs[i].bch.second.y <= 13220)
+				sbs[i].bch.first.y = sbs[i].bch.first.y * 2 - sbs[i].bch.first.y;
+#endif
 			for (int j = 0; j < sbs[i].dc.size(); j++) {
 				int k = sbs[i].dc[j];
 				if (k < i) { //compute intersection of sbs[i] and sbs[k] 
+					if (sbs[k].state == BranchMeta::ALEADY_OUTPUT) {
+						qCritical("(%d,%d) (%d,%d) meet delete line (%d,%d) (%d,%d)", 
+							sbs[i].bch.first.x, sbs[i].bch.first.y, sbs[i].bch.second.x, sbs[i].bch.second.y,
+							sbs[k].bch.first.x, sbs[k].bch.first.y, sbs[k].bch.second.x, sbs[k].bch.second.y);
+						continue;
+					}
 					Point pis;
 					if (sbs[i].dir < 0 && sbs[k].dir < 0) { //two via connect
 						if (sbs[i].bch.first.x < right_limit && sbs[i].bch.first.y < bottom_limit)
@@ -2563,8 +2697,14 @@ public:
 								BranchMeta bm;
 								bool ret = sbs[i].parallel_intersect(sbs[k], bm);
 								if (ret) { //create new bm to connect sbs[i] and sbs[k]
-									sbs[i].push_dc(sbs.size() - 1);
-									sbs[k].push_dc(sbs.size() - 1);
+									if (bm.bch.first.x >= right_limit && bm.bch.second.x >= right_limit &&
+										bm.bch.first.y >= bottom_limit && bm.bch.second.y >= bottom_limit)
+										continue;
+									j--;
+									sbs[i].del_dc(k);
+									sbs[k].del_dc(i);
+									sbs[i].push_dc((int) sbs.size() - 1);
+									sbs[k].push_dc((int) sbs.size() - 1);
 									bm.push_dc(i);
 									bm.push_dc(k);
 									sbs.push_back(bm);
@@ -2638,7 +2778,7 @@ public:
 					if (!sbs[i].final_out.empty() && j == sbs[i].final_out.size() &&
 						p1.x - p0.x + p1.y - p0.y < end_len_limit) //get rid of bch.second because bch.second overlap final_out.back
 						break;
-					wire.prob = (j == 0 || j == sbs[i].final_out.size()) ? 0.5 : 1;
+					wire.prob = 1; // (j == 0 || j == sbs[i].final_out.size()) ? 0.5 : 1;
 					wire.p0 = QPoint(p0.x, p0.y);
 					wire.p1 = QPoint(p1.x, p1.y);
 					obj_sets.push_back(wire);
@@ -2669,6 +2809,7 @@ public:
 			//3 update subBranch state
             sbs[i].state = BranchMeta::ALEADY_OUTPUT;
 		}
+		release();
 	}
 
 	void del_branch(int idx) {
@@ -2678,6 +2819,21 @@ public:
 			vector<int>::iterator it = find(sbs[other].dc.begin(), sbs[other].dc.end(), idx);
 			if (it != sbs[other].dc.end()) //if other contain idx
 				sbs[other].dc.erase(it);
+		}
+		sbs[idx].dc.clear();
+	}
+
+	/*Let branch idx's connected branch redirect to idx2, normally used after merge
+	  sbs[idx2].merge(sbs[idx]);
+	  replace_barnch(idx, idx2);*/
+	void replace_branch(int idx, int idx2) {
+		sbs[idx].state = BranchMeta::ALEADY_OUTPUT;
+		for (int i = 0; i < sbs[idx].dc.size(); i++) {
+			int other = sbs[idx].dc[i];
+			vector<int>::iterator it = find(sbs[other].dc.begin(), sbs[other].dc.end(), idx);
+			if (it != sbs[other].dc.end()) //if other contain idx
+				sbs[other].dc.erase(it);
+			sbs[other].push_dc(idx2);
 		}
 		sbs[idx].dc.clear();
 	}
@@ -2777,7 +2933,7 @@ public:
 			int same = -1;
 			vector<int> & m_set = (bm.dir >= 0) ? ml_set : mv_set;
 			int guard = (bm.dir >= 0) ? guard1 : guard2;
-			for (int j = 0; j < m_set.size(); j++) 
+			for (int j = 0; j < (int) m_set.size(); j++) 
 			if (sbs[m_set[j]].state != BranchMeta::ALEADY_OUTPUT) { //it is not deleteded in parallel case
 				int ret = sbs[m_set[j]].intersect(bm, guard);
 				if (bm.dir >= 0) { //for wire case
@@ -2922,6 +3078,496 @@ public:
 			}
 		}
 	}
+
+	/*
+	Inout o, other sbs
+	Input up_merge, up merge or left merge
+	Input guard1 for two wire cover distance
+	Input guard3 for two wire merge distance
+	Input guard4 for two via merge distance
+	Input overlap, overlap rect between local and sbs
+	Input limit, if up_merge, it is limit_x right; if left merge, it is limit_y bottom*/
+	void merge(BranchMark & o, bool up_merge, int guard1, int guard3, int guard4, const Rect & overlap, int bound_min, int limit) {
+		bool force = o.merge_num > 0;
+		o.merge_num++;
+		Point lt = overlap.tl();
+		vector<int> ml_set, mv_set; //merge line set and merge via set
+		int local_sbs_num = (int) sbs.size();
+		//1 following collect local boundary branch ml_set and mv_idx
+		int bound_min2 = (up_merge) ? overlap.y : overlap.x;
+		int bound_max = (up_merge) ? overlap.y + overlap.height - 1 : overlap.x + overlap.width - 1;
+		if (up_merge) {
+			int miny, maxy;
+			for (int i = 1; i < sbs.size(); i++) {
+#if 1
+				if (sbs[i].bch.first.x >= 13628 && sbs[i].bch.first.x <= 13632 &&
+					sbs[i].bch.first.y >= 13060 && sbs[i].bch.first.y <= 13280 &&
+					sbs[i].bch.second.x >= 13628 && sbs[i].bch.second.x <= 13632 &&
+					sbs[i].bch.second.y >= 13060 && sbs[i].bch.second.y <= 13280)
+					sbs[i].bch.first.x = sbs[i].bch.first.x * 2 - sbs[i].bch.first.x;
+#endif
+				GET_MINMAX(sbs[i].bch.first.y, sbs[i].bch.second.y, miny, maxy);
+				if (IS_NOT_INTERSECT(miny, maxy, bound_min, bound_max))
+					continue;
+				if (sbs[i].dir >= 0)
+					ml_set.push_back(i);
+				else
+					mv_set.push_back(i);
+			}
+		}
+		else {
+			int minx, maxx;
+			for (int i = 1; i < sbs.size(); i++) {
+#if 1
+				if (sbs[i].bch.first.x >= 13628 && sbs[i].bch.first.x <= 13632 &&
+					sbs[i].bch.first.y >= 13060 && sbs[i].bch.first.y <= 13280 &&
+					sbs[i].bch.second.x >= 13628 && sbs[i].bch.second.x <= 13632 &&
+					sbs[i].bch.second.y >= 13060 && sbs[i].bch.second.y <= 13280)
+					sbs[i].bch.first.x = sbs[i].bch.first.x * 2 - sbs[i].bch.first.x;
+#endif
+				GET_MINMAX(sbs[i].bch.first.x, sbs[i].bch.second.x, minx, maxx);
+				if (IS_NOT_INTERSECT(minx, maxx, bound_min, bound_max))
+					continue;
+				if (sbs[i].dir >= 0)
+					ml_set.push_back(i);
+				else
+					mv_set.push_back(i);
+			}
+		}
+		int local_ov_wire_num = (int) ml_set.size();
+		int local_ov_via_num = (int) mv_set.size();
+		//2 following collect other boundary branch to ml_set, mv_set
+		for (int i = 1; i < o.sbs.size(); i++) {
+			if (o.sbs[i].state == BranchMeta::ALEADY_OUTPUT) //fetch all left branch
+				continue;
+			if (force) {
+				if (up_merge) {
+					int miny, maxy;
+					GET_MINMAX(o.sbs[i].bch.first.y, o.sbs[i].bch.second.y, miny, maxy);
+					if (IS_NOT_INTERSECT(miny, maxy, bound_min, bound_max)) //print some error, normally it should not happen
+						qCritical("fetch line (%d,%d) (%d,%d) not in y boundary (%d, %d)", o.sbs[i].bch.first.x, o.sbs[i].bch.first.y,
+						o.sbs[i].bch.second.x, o.sbs[i].bch.second.y, bound_min, bound_max);
+				}
+				else {
+					int minx, maxx;
+					GET_MINMAX(o.sbs[i].bch.first.x, o.sbs[i].bch.second.x, minx, maxx);
+					if (IS_NOT_INTERSECT(minx, maxx, bound_min, bound_max)) //print some error, normally it should not happen
+						qCritical("fetch line (%d,%d) (%d,%d) not in x boundary (%d, %d)", o.sbs[i].bch.first.x, o.sbs[i].bch.first.y,
+						o.sbs[i].bch.second.x, o.sbs[i].bch.second.y, bound_min, bound_max);
+				}
+			}
+			else { //fetch boundary branch
+				if (up_merge) {
+					int miny, maxy;
+					GET_MINMAX(o.sbs[i].bch.first.y, o.sbs[i].bch.second.y, miny, maxy);
+					CV_Assert(maxy <= bound_max);
+					if (IS_NOT_INTERSECT(miny, maxy, bound_min, bound_max))
+						continue;
+				}
+				else {
+					int minx, maxx;
+					GET_MINMAX(o.sbs[i].bch.first.x, o.sbs[i].bch.second.x, minx, maxx);
+					CV_Assert(maxx <= bound_max);
+					if (IS_NOT_INTERSECT(minx, maxx, bound_min, bound_max))
+						continue;
+				}
+			}
+			BranchMeta & bm = o.sbs[i]; //here bm intersect with boundary
+#if 1
+			if (bm.bch.first.x >= 13628 && bm.bch.first.x <= 13632 &&
+				bm.bch.first.y >= 13060 && bm.bch.first.y <= 13280 &&
+				bm.bch.second.x >= 13628 && bm.bch.second.x <= 13632 &&
+				bm.bch.second.y >= 13060 && bm.bch.second.y <= 13280)
+				bm.bch.first.y = bm.bch.first.y * 2 - bm.bch.first.y;
+#endif
+			CV_Assert(bm.state != BranchMeta::ALEADY_OUTPUT);
+			vector<int> direct_con; //will replace bm.dc
+			vector<int> & m_set = (bm.dir >= 0) ? ml_set : mv_set;
+			//2.1 recompute direct_con for other boundary branch 
+			for (int j = 0; j < bm.dc.size(); j++)
+			if (o.sbs[bm.dc[j]].state == BranchMeta::MERGED) {
+				int map_bra = o.sbs[bm.dc[j]].map_bra;
+				CV_Assert(map_bra>=local_sbs_num);
+				direct_con.push_back(map_bra);
+			}
+			bm.dc.swap(direct_con);
+			sbs.push_back(bm);
+			sbs.back().idx = (int)sbs.size() - 1;
+			sbs.back().map_bra = -1;
+			sbs.back().fa_idx = -1; //init as not connect to local
+			bm.map_bra = (int)sbs.size() - 1;
+			m_set.push_back(bm.map_bra);
+			bm.state = BranchMeta::MERGED;
+			for (int i = 0; i<(int)bm.dc.size(); i++) {
+				int idx = bm.dc[i];
+				sbs[idx].push_dc(bm.map_bra);
+			}
+			bm.dc.swap(direct_con);
+		}
+
+		vector<CbchLink> cbch_set(sbs.size() - local_sbs_num);
+		//3 now ml_set and mv_set contain all overlap obj, now delete same via
+		for (int i = local_ov_via_num; i < mv_set.size(); i++) {
+			CV_Assert(mv_set[i] >= local_sbs_num);
+			int find = -1;
+			for (int j = 0; j < local_ov_via_num; j++) 
+			if (sbs[mv_set[i]].dir == sbs[mv_set[j]].dir && POINT_DIS(sbs[mv_set[i]].bch.first, sbs[mv_set[j]].bch.first) <= guard4) {
+				find = mv_set[j];
+				break;
+			}
+			if (find != -1) {
+				bool pri;
+				if (up_merge) {
+					int dy1 = bound_max - sbs[mv_set[i]].bch.first.y;
+					int dy2 = sbs[find].bch.first.y - bound_min2;
+					pri = (dy1 >= dy2); //y<=(bound_max+bound_min2) /2 
+				}
+				else {
+					int dx1 = bound_max - sbs[mv_set[i]].bch.first.x;
+					int dx2 = sbs[find].bch.first.x - bound_min2;
+					pri = (dx1 >= dx2); //x<=(bound_max+bound_min2) /2 
+				}
+				sbs[mv_set[i]].merge(sbs[find], pri);
+				sbs[mv_set[i]].fa_idx = find;
+				replace_branch(find, mv_set[i]);
+				sbs[find].map_bra = mv_set[i];
+			}
+			
+			Point pt = sbs[mv_set[i]].bch.first - lt;
+			if (pt.x >= 0 && pt.y >= 0) {
+				unsigned long long m = mark.at<unsigned long long>(pt.y, pt.x);
+				if (MARK_BRANCH(m) != INVALID_BRANCH) {
+					cbch_set[mv_set[i] - local_sbs_num].cbch.push_back(MARK_BRANCH(m));
+					cbch_set[mv_set[i] - local_sbs_num].cbch_link.push_back(MARK_LEN(m));
+				}
+			}
+		}
+		//4 delete same wire		
+		for (int i = local_ov_wire_num; i < ml_set.size(); i++) {
+			CV_Assert(ml_set[i] >= local_sbs_num);
+			BranchMeta & bm = sbs[ml_set[i]];
+#if 1
+			if (bm.bch.first.x >= 12628 && bm.bch.first.x <= 13632 &&
+				bm.bch.first.y >= 13060 && bm.bch.first.y <= 13280 &&
+				bm.bch.second.x >= 13628 && bm.bch.second.x <= 13632 &&
+				bm.bch.second.y >= 13060 && bm.bch.second.y <= 13280)
+				bm.bch.first.y = bm.bch.first.y * 2 - bm.bch.first.y;
+#endif
+			pair<Point, Point> line = bm.bch; //other boundary line in local mark
+			line.first.x = max(0, line.first.x - lt.x); //TODO: how to do with 45 line
+			line.first.y = max(0, line.first.y - lt.y);
+			line.second.x = max(0, line.second.x - lt.x);
+			line.second.y = max(0, line.second.y - lt.y);
+			CV_Assert(line.first.x < overlap.width && line.second.x < overlap.width && 
+					line.first.y < overlap.height && line.second.y < overlap.height);
+			//4.1 compute local connect branch set
+			vector<int> cbch, cbch2; //local connect branch set
+			vector<int> cbch_link; //distance
+			if (!(line.first.x == 0 && line.second.x == 0 || line.first.y == 0 && line.second.y == 0)) {
+				vector<Point> pts;
+				get_line_pts(line.first, line.second, pts);				
+				int prev_branch = -1, prev_cbch_idx;
+				for (int j = 0; j < (int)pts.size(); j += 2) { //collect connect branch set by mark
+					unsigned long long m = mark.at<unsigned long long>(pts[j].y, pts[j].x);
+					if (MARK_BRANCH(m) != INVALID_BRANCH) {
+						if (MARK_BRANCH(m) != prev_branch) {
+							prev_branch = MARK_BRANCH(m);
+							CV_Assert(prev_branch < local_sbs_num);
+							prev_cbch_idx = -1;
+							for (int i = 0; i < cbch.size(); i++)
+							if (cbch[i] == prev_branch) {
+								prev_cbch_idx = i;
+								break;
+							}
+							if (prev_cbch_idx < 0) {
+								prev_cbch_idx = (int)cbch.size();
+								cbch.push_back(prev_branch);
+								cbch_link.push_back(MARK_LEN(m));
+							}
+						}
+						CV_Assert(cbch[prev_cbch_idx] == prev_branch);
+						if (cbch_link[prev_cbch_idx] >  MARK_LEN(m))
+							cbch_link[prev_cbch_idx] = MARK_LEN(m);
+					}
+				}
+			}
+			for (int j = 0; j < local_ov_wire_num; j++) { //collect connect branch set by distance
+				int ret = sbs[ml_set[j]].intersect(bm, guard3);
+				if (ret == -1)
+					ret = 0;
+				if (ret >= 0) {
+					if (ret <= 3) {
+						if (!EXIST(cbch, ml_set[j])) {
+							cbch.push_back(ml_set[j]);
+							cbch_link.push_back(ret);
+						}
+					}
+					else
+						cbch2.push_back(ml_set[j]);
+				}
+			}
+			//4.2 First merge and delete extend line
+			for (int j = 0; j < (int)cbch.size(); j++) 			
+			if (bm.dir == sbs[cbch[j]].dir || dir_1[bm.dir] == sbs[cbch[j]].dir) { //parallel
+				int k = cbch[j];
+				CV_Assert(k < local_sbs_num);
+				while (k >= 0 && sbs[k].state == BranchMeta::ALEADY_OUTPUT)
+					k = sbs[k].map_bra;
+				if (k<0 || k == ml_set[i]) {
+					if (k<0)
+						qCritical("Merge extend found invalid map_bra %d", cbch[j]);
+					continue;
+				}
+				int ret = bm.intersect(sbs[k], 1);
+				if (ret == 0 || (ret == 1 && sbs[k].length() < mark.cols - 200 && //in local rect
+					(bm.state > BranchMeta::FPFD || sbs[k].state > BranchMeta::FPFD))) {
+					bm.merge(sbs[k], true);
+					bm.fa_idx = cbch[j];
+					replace_branch(k, ml_set[i]);
+					sbs[k].map_bra = ml_set[i];
+					cbch.erase(cbch.begin() + j);
+					cbch_link.erase(cbch_link.begin() + j);
+					j--;
+				}
+			}
+			
+			//4.3 Then merge and delete cover line
+			for (int j = 0; j < (int)cbch.size(); j++) 
+			if (bm.dir == sbs[cbch[j]].dir || dir_1[bm.dir] == sbs[cbch[j]].dir) { //parallel
+				int k = cbch[j];
+				while (k >= 0 && sbs[k].state == BranchMeta::ALEADY_OUTPUT)
+					k = sbs[k].map_bra;
+				if (k<0 || k == ml_set[i]) {
+					if (k<0)
+						qCritical("merge cover found invalid map_bra %d", k);
+					continue;
+				}
+				int ret = bm.intersect(sbs[k], guard3);
+				if (ret >= 0) {
+					int d0, o, d1;
+					bm.parallel_overlap(sbs[k], d0, o, d1);
+					bool cover = d0 < guard1 && d1 < guard1; //bm cover local
+					bool covered = -d0 < guard1 && -d1 < guard1; //local cover bm
+					if (cover && sbs[k].state > BranchMeta::FPFD || covered && bm.state > BranchMeta::FPFD) {
+						bm.merge(sbs[k], cover && sbs[k].state > BranchMeta::FPFD);
+						bm.fa_idx = cbch[j];
+						replace_branch(k, ml_set[i]);
+						sbs[k].map_bra = ml_set[i];
+						cbch.erase(cbch.begin() + j);
+						cbch_link.erase(cbch_link.begin() + j);
+						j = -1;
+					}
+				}
+			}	
+			CV_Assert(cbch.size() == cbch_link.size());
+			cbch_set[ml_set[i] - local_sbs_num].cbch.swap(cbch);
+			cbch_set[ml_set[i] - local_sbs_num].cbch2.swap(cbch2);
+			cbch_set[ml_set[i] - local_sbs_num].cbch_link.swap(cbch_link);
+		}
+		//4.4 Then merge and delete cover line further
+		for (int i = local_ov_wire_num; i < (int)ml_set.size(); i++) {
+			CV_Assert(ml_set[i] >= local_sbs_num);
+			BranchMeta & bm = sbs[ml_set[i]];
+			vector<int> & cbch2 = cbch_set[ml_set[i] - local_sbs_num].cbch2; //local connect branch set
+			for (int j = 0; j < (int)cbch2.size(); j++) 
+			if (bm.dir == sbs[cbch2[j]].dir || dir_1[bm.dir] == sbs[cbch2[j]].dir) {
+				int k = cbch2[j];
+				CV_Assert(k < local_sbs_num);
+				while (k >= 0 && sbs[k].state == BranchMeta::ALEADY_OUTPUT)
+					k = sbs[k].map_bra;
+				if (k < 0 || k == ml_set[i]) {
+					if (k<0)
+						qCritical("merge parallel found invalid map_bra %d", k);
+					continue;
+				}
+				bool connected = false;
+				for (int m = 0; m < (int) sbs[k].dc.size(); m++)
+					if (EXIST(bm.dc, sbs[k].dc[m]))
+						connected = true;
+				if (connected) {
+					int d0, o, d1;
+					bm.parallel_overlap(sbs[k], d0, o, d1);
+					bool cover = d0 < guard1 && d1 < guard1; //bm cover local
+					bool covered = -d0 < guard1 && -d1 < guard1; //local cover bm
+					if (cover && sbs[k].state > BranchMeta::FPFD || covered && bm.state > BranchMeta::FPFD) {
+						bm.merge(sbs[k], cover && sbs[k].state > BranchMeta::FPFD);
+						bm.fa_idx = cbch2[j];
+						replace_branch(k, ml_set[i]);
+						sbs[k].map_bra = ml_set[i];
+						j = -1;
+					}
+				}
+			}
+		}
+		qInfo("merge finish delete same");
+		//5 Now all same via & wire are deleted, cut parallel intersect line
+		for (int i = local_ov_wire_num; i < (int) ml_set.size(); i++) {
+			CV_Assert(ml_set[i] >= local_sbs_num);
+			BranchMeta & bm = sbs[ml_set[i]];
+#if 1
+			if (bm.bch.first.x >= 13628 && bm.bch.first.x <= 13632 &&
+				bm.bch.first.y >= 13060 && bm.bch.first.y <= 13280 &&
+				bm.bch.second.x >= 13628 && bm.bch.second.x <= 13632 &&
+				bm.bch.second.y >= 13060 && bm.bch.second.y <= 13280)
+				bm.bch.first.y = bm.bch.first.y * 2 - bm.bch.first.y;
+#endif
+			vector<int> & cbch = cbch_set[ml_set[i] - local_sbs_num].cbch; //local connect branch set
+			for (int j = 0; j < (int)cbch.size(); j++)
+			if (bm.dir == sbs[cbch[j]].dir || dir_1[bm.dir] == sbs[cbch[j]].dir) { //parallel
+				int k = cbch[j];
+				while (k >= 0 && sbs[k].state == BranchMeta::ALEADY_OUTPUT)
+					k = sbs[k].map_bra;
+				if (k < 0 || k == ml_set[i]) {
+					if (k<0)
+						qCritical("merge parallel found invalid map_bra %d", k);
+					continue;
+				}
+				int ret = bm.intersect(sbs[k], guard3);
+				if (ret >= 0) {
+					int d0, o, d1;
+					bm.parallel_overlap(sbs[k], d0, o, d1);
+					bool cover = d0 <= 0 && d1 <=0; //bm cover local
+					bool covered = -d0 <=0 && -d1 <=0; //local cover bm
+					if (!cover && !covered) {
+						//5.1 cut overlap
+						bm.cut(sbs[k]);
+						//5.2 reassign connected dc
+						for (int m = 0; m < (int) bm.dc.size(); m++) {
+							int nb = bm.dc[m];
+							bool cb, ck; //cb means sbs[nb] like connect to bm, ck means sbs[nb] like connect to sbs[k]
+							switch (bm.dir) {
+							case DIR_UP:
+							case DIR_DOWN:
+								cb = (sbs[nb].bch.first.y - bm.bch.first.y) * (sbs[nb].bch.first.y - bm.bch.second.y) <= 0;
+								ck = (sbs[nb].bch.first.y - sbs[k].bch.first.y) * (sbs[nb].bch.first.y - sbs[k].bch.second.y) <= 0;
+								break;
+							default:
+								cb = (sbs[nb].bch.first.x - bm.bch.first.x) * (sbs[nb].bch.first.x - bm.bch.second.x) <= 0;
+								ck = (sbs[nb].bch.first.x - sbs[k].bch.first.x) * (sbs[nb].bch.first.x - sbs[k].bch.second.x) <= 0;
+								break;
+							}
+							if (EXIST(sbs[k].dc, bm.dc[m])) { //nb connect to both bm and sbs[k]								
+								if (sbs[nb].dc.size() == 2 && sbs[nb].dir >=0) { //sbs[nb] only connet to sbs[k] and bm, delete sbs[nb]
+									CV_Assert(sbs[nb].dc[0] + sbs[nb].dc[1] == k + ml_set[i]); 
+									m--;
+									bm.del_dc(nb);
+									sbs[nb].del_dc(ml_set[i]);
+									sbs[k].del_dc(nb);
+									sbs[nb].del_dc(k);
+									sbs[nb].state = BranchMeta::ALEADY_OUTPUT;
+									continue;
+								}								
+								if (cb && !ck) { //reassign nb only to bm
+									sbs[k].del_dc(nb);
+									sbs[nb].del_dc(k);									
+								}
+								else { //reassign nb only to sbs[k]
+									m--;
+									bm.del_dc(nb);
+									sbs[nb].del_dc(ml_set[i]);
+								}
+							}
+							else { //nb connect only to both bm 
+								if (ck && !cb) { //reassign nb only to sbs[k]
+									m--;
+									bm.del_dc(nb);
+									sbs[nb].del_dc(ml_set[i]);
+									sbs[k].push_dc(nb);
+									sbs[nb].push_dc(k);
+									if (sbs[nb].fa_idx < 0)
+										sbs[nb].fa_idx = cbch[j];
+								}
+							}
+						}
+						//5.3 add each to dc
+						bm.push_dc(k);
+						sbs[k].push_dc(ml_set[i]);
+						bm.fa_idx = cbch[j];
+					}
+				}
+			}
+		}
+
+		//6 connect remote sbs to local wire and via
+		//6.1 Add all already localize wire and via to connected_queue
+		vector<int> connected_queue;
+		for (int i = local_sbs_num; i < sbs.size(); i++) 
+		if (sbs[i].fa_idx >= 0) //already connnected to local
+			connected_queue.push_back(i);
+		//6.2 explore more localize wire and via in connected_queue
+		while (!connected_queue.empty()) {
+			int i = connected_queue.back();
+			connected_queue.pop_back();
+			for (int j = 0; j < (int)sbs[i].dc.size(); j++) { 
+				int k = sbs[i].dc[j];
+				if (sbs[k].fa_idx < 0) {
+					sbs[k].fa_idx = sbs[i].fa_idx;
+					connected_queue.push_back(k); //push new sbs to connected_queue
+				}
+			}
+		}
+		//6.3 Try to add dc for unlocalize wire and via
+		for (int i = local_sbs_num; i < sbs.size(); i++) {
+#if 1
+			if (sbs[i].bch.first.x >= 13628 && sbs[i].bch.first.x <= 13632 &&
+				sbs[i].bch.first.y >= 13060 && sbs[i].bch.first.y <= 13280 &&
+				sbs[i].bch.second.x >= 13628 && sbs[i].bch.second.x <= 13632 &&
+				sbs[i].bch.second.y >= 13060 && sbs[i].bch.second.y <= 13280)
+				sbs[i].bch.first.x = sbs[i].bch.first.x * 2 - sbs[i].bch.first.x;
+#endif
+			if (sbs[i].fa_idx < 0 && !cbch_set[i - local_sbs_num].cbch.empty()) {
+				vector<int> & cbch = cbch_set[i - local_sbs_num].cbch; //local connect branch set
+				vector<int> & cbch_link = cbch_set[i - local_sbs_num].cbch_link; //first is distance, second is link point
+				CV_Assert(cbch.size() == cbch_link.size());
+				int min_dis = 0xfffff, cn;
+				for (int j = 0; j < (int)cbch.size(); j++)
+				if (cbch_link[j] < min_dis) { //search min distance
+					min_dis = cbch_link[j];
+					cn = cbch[j];
+				}
+				sbs[i].fa_idx = cn;
+				while (cn >= 0 && sbs[cn].state == BranchMeta::ALEADY_OUTPUT)
+					cn = sbs[cn].map_bra;
+				sbs[i].push_dc(cn);
+				sbs[cn].push_dc(i);
+				connected_queue.push_back(i);
+				while (!connected_queue.empty()) {
+					int ii = connected_queue.back();
+					connected_queue.pop_back();
+					for (int j = 0; j < (int)sbs[ii].dc.size(); j++) {
+						int k = sbs[ii].dc[j];
+						if (sbs[k].fa_idx < 0) {
+							sbs[k].fa_idx = sbs[ii].fa_idx;
+							connected_queue.push_back(k); //push new sbs to connected_queue
+						}
+					}
+				}
+			}
+		}
+		for (int i = local_sbs_num; i < sbs.size(); i++)
+		if (sbs[i].fa_idx < 0)
+			sbs[i].fa_idx = sbs[i].idx;
+
+		//7 change other sbs too
+		for (int i = 1; i < o.sbs.size(); i++)
+		if (o.sbs[i].state == BranchMeta::MERGED) {
+			o.sbs[i].state = BranchMeta::ALEADY_OUTPUT;			
+			if ((up_merge && (o.sbs[i].bch.first.x >= limit || o.sbs[i].bch.second.x >= limit)) ||
+				(!up_merge && (o.sbs[i].bch.first.y >= limit || o.sbs[i].bch.second.y >= limit))) {
+					o.sbs[i].state = BranchMeta::MainBranch;
+					int k = o.sbs[i].map_bra;
+					while (k >= 0 && sbs[k].state == BranchMeta::ALEADY_OUTPUT)
+						k = sbs[k].map_bra;
+					o.sbs[i].bch = sbs[k].bch;
+					o.sbs[i].bch.first.x = min(o.sbs[i].bch.first.x, overlap.br().x - 2);
+					o.sbs[i].bch.second.x = min(o.sbs[i].bch.second.x, overlap.br().x - 2);
+					o.sbs[i].bch.first.y = min(o.sbs[i].bch.first.y, overlap.br().y - 2);
+					o.sbs[i].bch.second.y = min(o.sbs[i].bch.second.y, overlap.br().y - 2);
+				}			
+			o.sbs[i].map_bra = -1;
+		}
+		
+	}
 };
 
 class PipeDataPerLayer {
@@ -2931,6 +3577,7 @@ public:
 	Mat prob;
 	int gs;
 	int border_size;
+	bool allow_45;
 	int img_pixel_x0, img_pixel_y0; // it is load image pixel zuobiao
 	struct {
 		int type;
@@ -2977,10 +3624,6 @@ public:
 		}
 		qInfo("via_connect=%d, via_merge=%d, wire_connect=%d, wire_merge=%d, end_wire=%d", 
 			guard.via_connect, guard.via_merge, guard.wire_connect, guard.wire_merge, guard.end_wire);
-		if (guard.via_connect < guard.via_merge || guard.wire_connect < guard.wire_merge) {
-			qCritical("invalid via_connect, via_merge or wire_connect, wire_merge");
-			return;
-		}
 		guard_len = guard;
 	}
 
@@ -3020,6 +3663,7 @@ public:
 		lineset[1].clear();
 		for (int i = 0; i < 16; i++)
 			v[i].d.release();
+		bm.release();
 	}
 };
 
@@ -4978,7 +5622,7 @@ WireComputeScore * WireComputeScore::create_wire_compute_score(WireParameter &wp
 /*		31..24  23..16		15..8		7..0
 opt0:	  1  border_size compute_border gs
 opt1:	via_connect via_merge wire_connect wire_merge
-opt2:                                   end_limit
+opt2:                         opt       end_limit
 */
 void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
 {
@@ -4996,6 +5640,7 @@ void set_pipeline_param(PipeData & d, ProcessParameter & cpara)
 		guard.wire_connect = cpara.opt1 >> 8 & 0xff;
 		guard.wire_merge = cpara.opt1 & 0xff;
 		guard.end_wire = cpara.opt2 & 0xff;
+
 		if (gs > 32 || gs <= 3 || gs * 2 > compute_border || compute_border >= border_size) {
 			qCritical("gs invalid");
 			return;
@@ -8462,11 +9107,11 @@ struct SkinPoint {
 };
 
 class SearchWireBranch {
-	int offset[3][4];
+	int offset[4][4];
 	vector<SkinPoint> skps;
 	int prev_dir, prev_wide;	
 	const WireParameter2 * prev_wp;
-	int th0, th1, th2;
+	int th[4];
 public:
 	SearchWireBranch() {
 		prev_wp = NULL;
@@ -8486,10 +9131,10 @@ public:
 	bool search_branch(Point pt1, Point pt2, int dir, int wide, const WireParameter2 * wp, int b_idx, const Mat & ig, BranchMark & bm) {
 		int wide1 = max(5, wide - 2);
 		if (prev_dir != dir || prev_wide != wide1 || prev_wp != wp) { //reinit skps and offset
-			Point oxy[3][2];
+			Point oxy[4][2];
 			skps.clear();
-			oxy[2][0] = Point(-wp->swide_min / 2, -wp->swide_min / 2); //oxy[1] is skin rec
-			oxy[2][1] = Point(wp->swide_min - wp->swide_min / 2, wp->swide_min - wp->swide_min / 2);
+			oxy[3][0] = Point(-wp->swide_min / 2, -wp->swide_min / 2); //oxy[1] is skin rec
+			oxy[3][1] = Point(wp->swide_min - wp->swide_min / 2, wp->swide_min - wp->swide_min / 2);
 			int bone_wide_2 = wide1 / 2;
 			switch (dir) {
 			case DIR_UP:
@@ -8497,6 +9142,8 @@ public:
 				oxy[0][1] = Point(0, -wp->swide_min / 2);
 				oxy[1][0] = Point(0, -wp->i_high - wp->swide_min / 2);
 				oxy[1][1] = Point(wide1 - wide1 / 2, -wp->swide_min / 2);
+				oxy[2][0] = Point(-wide1 / 4, -wp->i_high - wp->swide_min / 2);
+				oxy[2][1] = Point(wide1 / 2- wide1 / 4, -wp->swide_min / 2);
 				skps.push_back(SkinPoint(Point(0, 0), DIR_DOWN1_MASK, false));
 				for (int i = 1; i <= bone_wide_2; i++) { //push heng line
 					skps.push_back(SkinPoint(Point(i, 0), DIR_LEFT1_MASK | DIR_UPLEFT_MASK | DIR_DOWNLEFT_MASK, false));
@@ -8510,6 +9157,8 @@ public:
 				oxy[0][1] = Point(0, wp->i_high + wp->swide_min / 2);
 				oxy[1][0] = Point(0, wp->swide_min / 2);
 				oxy[1][1] = Point(wide1 - wide1 / 2, wp->i_high + wp->swide_min / 2);
+				oxy[2][0] = Point(-wide1 / 4, wp->swide_min / 2);
+				oxy[2][1] = Point(wide1 / 2 - wide1 / 4, wp->i_high + wp->swide_min / 2);
 				skps.push_back(SkinPoint(Point(0, 0), DIR_UP1_MASK, false));
 				for (int i = 1; i <= bone_wide_2; i++) { //push heng line
 					skps.push_back(SkinPoint(Point(i, 0), DIR_LEFT1_MASK | DIR_UPLEFT_MASK | DIR_DOWNLEFT_MASK, false));
@@ -8523,6 +9172,8 @@ public:
 				oxy[0][1] = Point(wp->i_high + wp->swide_min / 2, 0);
 				oxy[1][0] = Point(wp->swide_min / 2, 0);
 				oxy[1][1] = Point(wp->i_high + wp->swide_min / 2, wide1 - wide1 / 2);
+				oxy[2][0] = Point(wp->swide_min / 2, -wide1 / 4);
+				oxy[2][1] = Point(wp->i_high + wp->swide_min / 2, wide1 / 2 - wide1 / 4);
 				skps.push_back(SkinPoint(Point(0, 0), DIR_LEFT1_MASK, false));
 				for (int i = 1; i <= bone_wide_2; i++) { //push shu line
 					skps.push_back(SkinPoint(Point(0, i), DIR_UP1_MASK | DIR_UPLEFT_MASK | DIR_UPRIGHT_MASK, false));
@@ -8536,6 +9187,8 @@ public:
 				oxy[0][1] = Point(-wp->swide_min / 2, 0);
 				oxy[1][0] = Point(-wp->i_high - wp->swide_min / 2, 0);
 				oxy[1][1] = Point(-wp->swide_min / 2, wide1 - wide1 / 2);
+				oxy[2][0] = Point(-wp->i_high - wp->swide_min / 2, -wide1 / 4);
+				oxy[2][1] = Point(-wp->swide_min / 2, wide1 / 2 - wide1 / 4);
 				skps.push_back(SkinPoint(Point(0, 0), DIR_RIGHT1_MASK, false));
 				for (int i = 1; i <= bone_wide_2; i++) { //push shu line
 					skps.push_back(SkinPoint(Point(0, i), DIR_UP1_MASK | DIR_UPLEFT_MASK | DIR_UPRIGHT_MASK, false));
@@ -8545,7 +9198,7 @@ public:
 				skps.push_back(SkinPoint(Point(0, -bone_wide_2 - 1), DIR_DOWN1_MASK | DIR_DOWNLEFT_MASK | DIR_DOWNRIGHT_MASK, true));
 				break;
 			}
-			for (int i = 0; i < 3; i++) {
+			for (int i = 0; i < 4; i++) {
 				offset[i][0] = (oxy[i][0].y * (int)ig.step.p[0] + oxy[i][0].x * (int)ig.step.p[1]) / sizeof(int);
 				offset[i][1] = (oxy[i][0].y * (int)ig.step.p[0] + oxy[i][1].x * (int)ig.step.p[1]) / sizeof(int);
 				offset[i][2] = (oxy[i][1].y * (int)ig.step.p[0] + oxy[i][0].x * (int)ig.step.p[1]) / sizeof(int);
@@ -8554,9 +9207,10 @@ public:
 			prev_dir = dir;
 			prev_wide = wide1;
 			prev_wp = wp;
-			th0 = wp->i_high * (wide1 / 2) * wp->gray_i + wp->i_high * (wide1 / 2) * (wp->gray_w - wp->gray_i) * (wp->mth_low / 100.0); //th0 is wire threshold
-			th1 = wp->i_high * (wide1 - wide1 / 2) * wp->gray_i + wp->i_high * (wide1 - wide1 / 2) * (wp->gray_w - wp->gray_i) * (wp->mth_low / 100.0); //th0 is wire threshold
-			th2 = wp->swide_min * wp->swide_min* wp->gray_i + wp->swide_min * wp->swide_min *(wp->gray_w - wp->gray_i) * (wp->s_th / 100.0); //th1 is skin threshold 
+			th[0] = wp->i_high * (wide1 / 2) * wp->gray_i + wp->i_high * (wide1 / 2) * (wp->gray_w - wp->gray_i) * (wp->mth_low / 100.0); //th0 is wire threshold
+			th[1] = wp->i_high * (wide1 - wide1 / 2) * wp->gray_i + wp->i_high * (wide1 - wide1 / 2) * (wp->gray_w - wp->gray_i) * (wp->mth_low / 100.0); //th0 is wire threshold
+			th[2] = th[0];
+			th[3] = wp->swide_min * wp->swide_min* wp->gray_i + wp->swide_min * wp->swide_min *(wp->gray_w - wp->gray_i) * (wp->s_th / 100.0); //th1 is skin threshold 
 		}
 		
 		vector<Point> pts;
@@ -8564,7 +9218,7 @@ public:
 		const Mat & mark = bm.get_mark();
 		for (int i = 0; i < (int)pts.size(); i++) {
 			const unsigned * p_ig = ig.ptr<unsigned>(pts[i].y, pts[i].x);
-			int sum0 = 0, sum1 = 0;			
+			int sum0 = 0, sum1 = 0, sum2 = 0;
 			bool inside = pts[i].x > wp->i_high + wp->swide_min / 2 && pts[i].y > wp->i_high + wp->swide_min / 2 &&
 				pts[i].x > wp->swide_min && pts[i].y > wp->swide_min && pts[i].x < ig.cols - wp->swide_min && pts[i].y < ig.rows - wp->swide_min &&
 				pts[i].x < ig.cols - wp->i_high - wp->swide_min / 2 && pts[i].y < ig.rows - wp->i_high - wp->swide_min / 2;
@@ -8572,6 +9226,7 @@ public:
 			if (inside) {
 				sum0 = p_ig[offset[0][3]] + p_ig[offset[0][0]] - p_ig[offset[0][1]] - p_ig[offset[0][2]];
 				sum1 = p_ig[offset[1][3]] + p_ig[offset[1][0]] - p_ig[offset[1][1]] - p_ig[offset[1][2]];
+				sum2 = p_ig[offset[2][3]] + p_ig[offset[2][0]] - p_ig[offset[2][1]] - p_ig[offset[2][2]];
 				const unsigned long long * p_mark = mark.ptr<unsigned long long>(pts[i].y, pts[i].x);
 				if (p_mark[0] != 0xffffffffffffffffULL) { //meet another branch
 					int ano_bra = MARK_BRANCH(p_mark[0]);
@@ -8580,15 +9235,15 @@ public:
 						meet_parallel = true;
 				}
 			}
-			if (sum0 >= th0 && sum1 >= th1 && inside && !meet_parallel) { //wire continue, push wire
+			if (sum0 >= th[0] && sum1 >= th[1] && sum2 >= th[2] && inside && !meet_parallel) { //wire continue, push wire
 				for (int j = 0; j < (int)skps.size(); j++) {
 					Point skin_pt = skps[j].xy + pts[i];
 					if (!skps[j].check) //push bone
 						bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 0, pts[i].x, pts[i].y, false);
 					else {						
 						p_ig = ig.ptr<unsigned>(skin_pt.y, skin_pt.x);
-						int sum2 = p_ig[offset[2][3]] + p_ig[offset[2][0]] - p_ig[offset[2][1]] - p_ig[offset[2][2]];
-						if (sum2 >= th2) //push skin
+						int sum3 = p_ig[offset[3][3]] + p_ig[offset[3][0]] - p_ig[offset[3][1]] - p_ig[offset[3][2]];
+						if (sum3 >= th[3]) //push skin
 							bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 1, pts[i].x, pts[i].y, false);
 					}
 				}
@@ -8603,8 +9258,8 @@ public:
 							bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 0, extend_pt.x, extend_pt.y, false);
 						else {
 							p_ig = ig.ptr<unsigned>(skin_pt.y, skin_pt.x);
-							int sum2 = p_ig[offset[2][3]] + p_ig[offset[2][0]] - p_ig[offset[2][1]] - p_ig[offset[2][2]];
-							if (sum2 >= th2) // push skin
+							int sum3 = p_ig[offset[3][3]] + p_ig[offset[3][0]] - p_ig[offset[3][1]] - p_ig[offset[3][2]];
+							if (sum3 >= th[3]) // push skin
 								bm.push_mark(skin_pt, b_idx, skps[j].len, skps[j].dir_mask, 1, extend_pt.x, extend_pt.y, false);
 						}
 					}
@@ -9047,6 +9702,7 @@ static void assemble_branch(PipeData & d, ProcessParameter & cpara)
 	int assemble_opt = cpara.opt0 >> 8 & 0xff;
 	bool allow_45 = (assemble_opt & ASSEMBLE_BRANCH_ALLOW_45) ? true : false;
 	bool search_cross = (assemble_opt & ASSEMBLE_BRANCH_SEARCH_CROSS) ? true : false;
+	bool remark_border = (assemble_opt & ASSEMBLE_BRANCH_NOT_REMARK_BORDER) ? false : true;
 	Mat & img = d.l[layer].img;
 	d.l[layer].validate_ig();
 
@@ -9054,26 +9710,35 @@ static void assemble_branch(PipeData & d, ProcessParameter & cpara)
 
 	if (search_cross)
 		d.l[layer].bm.search_cross_points(allow_45, false, 15, 20);
-
+	d.l[layer].allow_45 = allow_45;
 	d.l[layer].bm.draw_mark2(true, allow_45);
-
 	d.l[layer].bm.self_check();
+
+	if (remark_border) {
+		d.l[layer].bm.remark_border_skin(d.l[layer].border_size * 2);
+		d.l[layer].bm.search_skin(d.l[layer].ig, allow_45);
+	}
 	if (cpara.method & OPT_DEBUG_EN) {
 		Mat mark2 = d.l[layer].bm.get_mark2();
+		Mat mark = d.l[layer].bm.get_mark();
 		Mat debug_draw;
 		cvtColor(img, debug_draw, CV_GRAY2BGR);
 		for (int y = 0; y < debug_draw.rows; y++) {
 			unsigned char * p_draw = debug_draw.ptr<unsigned char>(y);
 			unsigned * p_mark2 = mark2.ptr<unsigned>(y);
+			unsigned long long  * p_mark = mark.ptr<unsigned long long>(y);
 			for (int x = 0; x < debug_draw.cols; x++) {
 				if (p_mark2[x]) {
 					if (MARK2_LEN(p_mark2[x]) == 0)
 						p_draw[3 * x + 1] = 255; //draw branch green
-					if (MARK2_FLAG(p_mark2[x]))
-						p_draw[3 * x] = 255;  //draw flag blue
 					if (MARK2_VIA(p_mark2[x]))
-						p_draw[3 * x + 2] = 255; //draw via red
+						p_draw[3 * x] = 255; //draw via blue
 				}
+				else {
+					if (d.l[layer].bm.is_sub_branch(MARK_BRANCH(p_mark[x])))
+						p_draw[3 * x + 2] = 255; //draw border red
+				}
+				
 			}
 		}
 		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_assemble_branch.jpg", debug_draw);
@@ -9188,10 +9853,36 @@ struct PipeProcess {
 		{ PP_ASSEMBLE_BRANCH, assemble_branch }
 };
 
-static void merge_tile_get_result(int method, PipeData &cpd, PipeData & lpd, PipeData & upd, int layer_num, QRect & sb, 
-	QPoint sr_tl_pixel, vector<MarkObj> & objs)
+class ProcessTileData {
+public:
+	vector<ProcessFunc> * process_func;
+	vector<ProcessParameter> * vwp;
+	PipeData * d; //current pipe data
+	PipeData * lpd; //left pipe data
+	PipeData * upd; //upper pipe data
+	QRect * sb;
+	QPoint * sr_tl_pixel; //top left pixel for generate objects
+	int merge_method;
+	ProcessTileData() {
+		process_func = NULL;
+		vwp = NULL;
+		d = NULL;
+	}
+	void release_temp_data() const {
+		for (int l = 0; l < (int)d->l.size(); l++)
+			d->l[l].release_temp_data();
+	}
+};
+
+static void merge_tile_get_result(vector<MarkObj> & objs, const ProcessTileData & t)
 {
-	switch (method) {
+	int layer_num = (int) t.d->l.size();
+	const QRect & sb = *(t.sb);
+	const QPoint & sr_tl_pixel = *(t.sr_tl_pixel);
+	PipeData & cpd = *(t.d);	
+	PipeData & lpd = *(t.lpd);
+	PipeData & upd = *(t.upd);
+	switch (t.merge_method) {
 	case 0:
 		for (int l = 0; l < layer_num; l++) {
 			//0.1 copy left RIGHT_BORDER via to FinalVia
@@ -9299,9 +9990,10 @@ static void merge_tile_get_result(int method, PipeData &cpd, PipeData & lpd, Pip
 		for (int l = 0; l < layer_num; l++) {
 			cpd.l[l].bm.stitch_at(Point(cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y()));
 			int x_limit = (cpd.x0 == sb.right()) ? cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() + cpd.l[l].raw_img.cols + 60 :
-				cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 3;
+				cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() + cpd.l[l].raw_img.cols - cpd.l[l].border_size * 2 - 20;
 			int y_limit = (cpd.y0 == sb.bottom()) ? cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() + cpd.l[l].raw_img.rows + 60 :
-				cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 3;
+				cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() + cpd.l[l].raw_img.rows - cpd.l[l].border_size * 2 - 20;
+			/*
 			if (cpd.x0 > sb.left())
 				cpd.l[l].bm.merge(lpd.l[l].bm, false, cpd.l[l].guard_len.wire_connect, cpd.l[l].guard_len.via_connect, 
 				cpd.l[l].guard_len.wire_merge, cpd.l[l].guard_len.via_merge, cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() - cpd.l[l].border_size,
@@ -9310,30 +10002,28 @@ static void merge_tile_get_result(int method, PipeData &cpd, PipeData & lpd, Pip
 				cpd.l[l].bm.merge(upd.l[l].bm, true, cpd.l[l].guard_len.wire_connect, cpd.l[l].guard_len.via_connect, 
 				cpd.l[l].guard_len.wire_merge, cpd.l[l].guard_len.via_merge, cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() - cpd.l[l].border_size,
 				cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() + cpd.l[l].border_size * 2, cpd.l[l].img_pixel_y0 + sr_tl_pixel.y(), x_limit, false);
+			*/
+			if (cpd.x0 > sb.left())
+				cpd.l[l].bm.merge(lpd.l[l].bm, false, cpd.l[l].guard_len.wire_connect, cpd.l[l].guard_len.wire_merge, cpd.l[l].guard_len.via_merge,
+					Rect(cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y(),
+					cpd.l[l].border_size * 2, cpd.l[l].raw_img.rows), cpd.l[l].img_pixel_x0 + sr_tl_pixel.x() - 20, y_limit);
+			if (cpd.y0 > sb.top())
+				cpd.l[l].bm.merge(upd.l[l].bm, true, cpd.l[l].guard_len.wire_connect, cpd.l[l].guard_len.wire_merge, cpd.l[l].guard_len.via_merge, 
+				Rect(cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y(), 
+				cpd.l[l].raw_img.cols, cpd.l[l].border_size * 2), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y() -20, x_limit);
+
 			
-			if (l==0)
-				qInfo("get result for Rect(lt=%d,%d, rb=%d,%d, erb=%d,%d)", cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y(),
-				x_limit, y_limit, x_limit + cpd.l[l].border_size * 3, y_limit + cpd.l[l].border_size * 3);
+			qInfo("get result for l=%d, Rect(lt=%d,%d, rb=%d,%d, erb=%d,%d)", l, cpd.l[l].img_pixel_x0 + sr_tl_pixel.x(), cpd.l[l].img_pixel_y0 + sr_tl_pixel.y(),
+				x_limit, y_limit, x_limit + cpd.l[l].border_size * 2, y_limit + cpd.l[l].border_size * 2);
 			cpd.l[l].bm.get_result(x_limit, y_limit, cpd.l[l].guard_len.end_wire, l, objs);
 		}
 		break;
 	}
+	t.release_temp_data();
 }
 
-class ProcessTileData {
-public:
-	vector<ProcessFunc> * process_func;
-	vector<ProcessParameter> * vwp;
-	PipeData * d;
-	ProcessTileData() {
-		process_func = NULL;
-		vwp = NULL;
-		d = NULL;
-	}
-};
-
 //Process tile for all layer
-static void process_tile(ProcessTileData & t)
+static ProcessTileData process_tile(const ProcessTileData & t)
 {
 	vector<ProcessParameter> & vwp = *(t.vwp);
 	vector<ProcessFunc> & process_func = *(t.process_func);
@@ -9344,11 +10034,12 @@ static void process_tile(ProcessTileData & t)
 		int method = vwp[i].method & 0xff;
 		if (process_func[method] == NULL && method != PP_OBJ_PROCESS) {
 			qCritical("process func method %d invalid", method);
-			return;
+			return t;
 		}
 		if (process_func[method] != NULL)
 			process_func[method](d, vwp[i]);
 	}
+	return t;
 }
 
 VWExtractPipe::VWExtractPipe()
@@ -9572,6 +10263,7 @@ int VWExtractPipe::extract(string file_name, QRect, vector<MarkObj> & obj_sets)
 int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
 {
 	int BORDER_SIZE = 16;
+	int PARALLEL = 0;
 	int im_dec_flag[100] = { 0 };
 	vector<ObjProcessHook> obj_process;
 	QDir *qdir = new QDir;
@@ -9590,8 +10282,10 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		qInfo("extract vw%d:l=0x%x,m=0x%x,mo=0x%x,o0=0x%x,o1=0x%x,o2=0x%x,o3=0x%x,o4=0x%x,o5=0x%x,o6=0x%x,i8=0x%x,f0=%f",
 			i, vwp[i].layer, vwp[i].method, vwp[i].method_opt, vwp[i].opt0, vwp[i].opt1, vwp[i].opt2,
 			vwp[i].opt3, vwp[i].opt4, vwp[i].opt5, vwp[i].opt6, vwp[i].opt_f0);	
-		if ((vwp[i].opt0 >> 24) == 1 && (vwp[i].method & 0xff) == PP_SET_PARAM)
+		if ((vwp[i].opt0 >> 24) == 1 && (vwp[i].method & 0xff) == PP_SET_PARAM) {
 			BORDER_SIZE = vwp[i].opt0 >> 16 & 0xff;
+			PARALLEL = vwp[i].opt2 >> 8 & OPT_PARALLEL;
+		}
 		if ((vwp[i].method & 0xff) == PP_RGB2GRAY) {
 			qInfo("Layer %d is color RGB", vwp[i].layer);
 			im_dec_flag[vwp[i].layer] = 1;
@@ -9637,7 +10331,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		int cl = 1;
 		int cl_num;
 		QPoint sr_tl_pixel = sr.topLeft() / scale;
-		qInfo("extract Rect, lt=(%d,%d), rb=(%d,%d)", sr_tl_pixel.x(), sr_tl_pixel.y(), sr.right() /scale, sr.bottom() /scale);
+		qInfo("extract Rect, lt=(%d,%d), rb=(%d,%d), PARRALLEL=%d", sr_tl_pixel.x(), sr_tl_pixel.y(), sr.right() /scale, sr.bottom() /scale, PARALLEL);
 		for (int xay = sb.left() + sb.top(); xay <= sb.right() + sb.bottom(); xay++) {
 			for (int i = 0; i < diag_line[cl].size(); i++) //release current diag_line memory
 				for (int j = 0; j < diag_line[cl][i].l.size(); j++)
@@ -9808,6 +10502,19 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 				ptd_sets[i].process_func = &process_func;
 				ptd_sets[i].vwp = &vwp;
 				ptd_sets[i].d = &diag_line[cl][i];
+				ptd_sets[i].lpd = &diag_line[1 - cl][i];
+				ptd_sets[i].upd = &diag_line[1 - cl][i];
+				ptd_sets[i].merge_method = 1;
+				ptd_sets[i].sb = &sb;
+				ptd_sets[i].sr_tl_pixel = &sr_tl_pixel;
+				if (ptd_sets[i].d->y0 > sb.top() && ptd_sets[i].d->x0 != ptd_sets[i].upd->x0)
+					ptd_sets[i].upd = &diag_line[1 - cl][i + 1];
+				if (ptd_sets[i].d->x0 > sb.left() && ptd_sets[i].d->y0 != ptd_sets[i].lpd->y0)
+					ptd_sets[i].lpd = &diag_line[1 - cl][i - 1];
+				if (ptd_sets[i].d->x0 > sb.left())
+					CV_Assert(ptd_sets[i].d->y0 == ptd_sets[i].lpd->y0);
+				if (ptd_sets[i].d->y0 > sb.top())
+					CV_Assert(ptd_sets[i].d->x0 == ptd_sets[i].upd->x0);
 #if DEBUG_LEFT_TOP_IMG
 				if (xay == sb.left() + sb.top()) {
 					for (int l = 0; l < layer_num; l++) {
@@ -9818,36 +10525,24 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 				}
 #endif
 			}
-#if PARALLEL 
-			//each thread process all layer on same tile
-			QtConcurrent::blockingMap<vector <ProcessTileData> >(ptd_sets, process_tile);
-#else
-			for (int i = 0; i < ptd_sets.size(); i++)
-				process_tile(ptd_sets[i]);
+			if (PARALLEL) {
+				//each thread process all layer on same tile
+				vector<MarkObj> temp_vec;
+				temp_vec.swap(QtConcurrent::blockingMappedReduced<vector<MarkObj>, vector<ProcessTileData> >(ptd_sets, process_tile, merge_tile_get_result,
+					QtConcurrent::OrderedReduce | QtConcurrent::SequentialReduce));
+				obj_sets.insert(obj_sets.end(), temp_vec.begin(), temp_vec.end());
+			}
+			else 
+				for (int i = 0; i < ptd_sets.size(); i++) {
+					process_tile(ptd_sets[i]);
+					//3 output result to obj_sets
+					merge_tile_get_result(obj_sets, ptd_sets[i]);
+				}
 
-#endif
 #if DEBUG_LEFT_TOP_IMG
 			for (int i = 0; i < vwp.size(); i++)
 				vwp[i].method &= ~OPT_DEBUG_EN;
 #endif
-
-			//3 output result to obj_sets
-			for (int i = 0; i < cl_num; i++) {
-				PipeData * lpd = &diag_line[1 - cl][i];
-				PipeData * upd = &diag_line[1 - cl][i];
-				PipeData & cpd = diag_line[cl][i];
-				if (cpd.y0 > sb.top() && cpd.x0 != upd->x0)
-					upd = &diag_line[1 - cl][i + 1];
-				if (cpd.x0 > sb.left() && cpd.y0 != lpd->y0)
-					lpd = &diag_line[1 - cl][i - 1];
-				if (cpd.x0 > sb.left())
-					CV_Assert(cpd.y0 == lpd->y0);
-				if (cpd.y0 > sb.top())
-					CV_Assert(cpd.x0 == upd->x0);
-				
-				merge_tile_get_result(1, cpd, *lpd, *upd, layer_num, sb, sr_tl_pixel, obj_sets);
-			}
-
 		}
 	}
 

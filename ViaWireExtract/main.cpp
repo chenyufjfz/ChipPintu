@@ -592,8 +592,8 @@ int test_extractparam2()
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
 	//search.push_back(SearchArea(QRect(QPoint(100000, 100000), QPoint(224000, 672000)), 0));
-	//search.push_back(SearchArea(QRect(QPoint(115000, 683000), QPoint(1124000, 1377000)), 0));
-	search.push_back(SearchArea(QRect(QPoint(232192, 308864), QPoint(485888, 521344)), 0));
+	search.push_back(SearchArea(QRect(QPoint(330000, 330000), QPoint(450000, 450000)), 0));
+	//search.push_back(SearchArea(QRect(QPoint(8000*32, 13000*32), QPoint(11000 *32, 15000*32)), 0));
 	vector <MarkObj> objs;
 	vwe->extract(pic, search, objs);
 	delete vwe;
@@ -604,11 +604,11 @@ int test_extractparam2()
 	for (int i = 0; i < objs.size(); i++) {
 		unsigned t = objs[i].type;
 		if (t == OBJ_POINT) {
-			fprintf(fp, "via, l=%d, x=%d, y=%d\n", map_layer[objs[i].type3], objs[i].p0.x() / scale, objs[i].p0.y() / scale);
+			fprintf(fp, "via, l=%d, x=%d, y=%d, prob=%f\n", map_layer[objs[i].type3], objs[i].p0.x() / scale, objs[i].p0.y() / scale, objs[i].prob);
 		}
 		else {
-			fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d)\n", map_layer[objs[i].type3], objs[i].p0.x() / scale, objs[i].p0.y() / scale,
-				objs[i].p1.x() / scale, objs[i].p1.y() / scale);
+			fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d), prob=%f\n", map_layer[objs[i].type3], objs[i].p0.x() / scale, objs[i].p0.y() / scale,
+				objs[i].p1.x() / scale, objs[i].p1.y() / scale, objs[i].prob);
 		}
 		continue;
 	}
@@ -714,8 +714,8 @@ int main(int argc, char *argv[])
 	
 	//wire_extract_test_pipeprocess();
 	//cell_extract_test();
-	//test_extractparam2();
-	test_single_wire_extract();
+	test_extractparam2();
+	//test_single_wire_extract();
 	return 0;
 #endif
     w.show();
