@@ -738,6 +738,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			w_wide = bse_param.w_wide - 2;
 			break;
 		} 
+		/*
 		int i_wide = bse_param.w_wide * bse_param.i_wide;
 		int w_wide1 = bse_param.w_wide * bse_param.w_wide1;
 		dx[0] = -w_wide1 - i_wide - w_wide / 2;
@@ -764,7 +765,45 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 				g = (g - bse_param.gray_i) / (bse_param.gray_w - bse_param.gray_i);
 				len += sprintf(s + len, "%.2f,", g);
 			}
+		}*/
+		w_wide = max(1, w_wide);
+		w_wide = min(80, w_wide);
+		int i_wide = bse_param.i_wide;
+		int w_wide1 = bse_param.w_wide1;
+		i_wide = max(1, i_wide);
+		i_wide = min(5, i_wide);
+		w_wide1 = max(1, w_wide1);
+		w_wide1 = min(30, w_wide1);
+		int len = 0;
+		int sumg = 0;
+		for (int y = -w_wide / 2; y < w_wide - w_wide / 2; y++)
+		for (int x = -w_wide / 2; x < w_wide - w_wide / 2; x++)
+			sumg += bk_img_mask.pixel(point + QPoint(x, y)) & 0xff;
+		len += sprintf(s + len, "s=%d,", sumg / (w_wide * w_wide));
+		int s0 = 0, s1 = 0;
+		for (int y = -i_wide; y <= i_wide; y++) {
+			if (y == 0)
+				continue;
+			for (int x = -w_wide1 / 2; x < w_wide1 - w_wide1 / 2; x++) {
+				if (y < 0)
+					s0 += bk_img_mask.pixel(point + QPoint(x, y)) & 0xff;
+				else
+					s1 += bk_img_mask.pixel(point + QPoint(x, y)) & 0xff;
+			}
 		}
+		len += sprintf(s + len, "ud=%d,", (s0 - s1) / (i_wide * w_wide1));
+		s0 = 0, s1 = 0;
+		for (int y = -w_wide1 / 2; y < w_wide1 - w_wide1 / 2; y++) {
+			for (int x = -i_wide; x <= i_wide; x++) {
+				if (x == 0)
+					continue;
+				if (x < 0)
+					s0 += bk_img_mask.pixel(point + QPoint(x, y)) & 0xff;
+				else
+					s1 += bk_img_mask.pixel(point + QPoint(x, y)) & 0xff;
+			}
+		}
+		len += sprintf(s + len, "lr=%d,", (s0 - s1) / (i_wide * w_wide1));
 		emit mouse_change(event->pos() / scale, QString(s));
 		return;
 	}

@@ -592,8 +592,11 @@ int test_extractparam2()
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
 	//search.push_back(SearchArea(QRect(QPoint(100000, 100000), QPoint(224000, 672000)), 0));
-	search.push_back(SearchArea(QRect(QPoint(330000, 330000), QPoint(450000, 450000)), 0));
+	search.push_back(SearchArea(QRect(QPoint(1151872, 1167840), QPoint(1522816, 1381856)), 0));
 	//search.push_back(SearchArea(QRect(QPoint(8000*32, 13000*32), QPoint(11000 *32, 15000*32)), 0));
+	//search.push_back(SearchArea(QRect(QPoint(106496, 786528), QPoint(200302, 905000)), 0));
+	//search.push_back(SearchArea(QRect(QPoint(106496, 720992), QPoint(674304, 1181792)), 0));
+
 	vector <MarkObj> objs;
 	vwe->extract(pic, search, objs);
 	delete vwe;
@@ -710,7 +713,7 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	
 	//wire_extract_test_pipeprocess();
 	//cell_extract_test();

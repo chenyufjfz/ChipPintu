@@ -38,7 +38,8 @@ enum {
 	HotPointSearch,
 	AssembleVia,
 	AssembleBranch,
-	FilterObj
+	FilterObj,
+	ShapeCheck
 };
 
 string method_name[] = {
@@ -59,7 +60,8 @@ string method_name[] = {
 	"HotPointSearch",
 	"AssembleVia",
 	"AssembleBranch",
-	"FilterObj"
+	"FilterObj",
+	"ShapeCheck"
 };
 
 ExtractParam::ExtractParam()
@@ -172,8 +174,14 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 		method = AssembleBranch;
 		break;
 	case PP_OBJ_PROCESS:
-		if ((pi2 & 0xff) ==0)
+		switch (pi2 & 0xff) {
+		case 0:
 			method = FilterObj;
+			break;
+		case 1:
+			method = ShapeCheck;
+			break;
+		}			
 		break;
 	default:
 		qCritical("set_param unknow method");
@@ -1253,6 +1261,24 @@ bool ExtractParam::read_file(string filename)
 				}
 			}
 			break;
+		case ShapeCheck:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int filter_method = (int)(*it)["filter_method"];
+				int opt1 = (int)(*it)["opt1"];
+				int opt2 = (int)(*it)["opt2"];
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_OBJ_PROCESS << 16;
+				param.pi[2] = filter_method << 8 | 1;
+				param.pi[3] = opt1;
+				param.pi[4] = opt2;
+				if (filter_method > 255) {
+					qCritical("ParamItems file error, name=%s, filter=%d", name.c_str(), filter_method);
+					check_pass = false;
+				}
+			}
+			break;
 		}
 		if (check_pass)
 			params[name] = param;
@@ -1673,7 +1699,15 @@ void ExtractParam::write_file(string filename)
 			fs << "layer" << it->second.pi[0];
 			fs << "filter_method" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "opt1" << it->second.pi[3];
-			fs << "dir" << it->second.pi[4];
+			fs << "opt2" << it->second.pi[4];
+			break;
+
+		case ShapeCheck:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "filter_method" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "opt1" << it->second.pi[3];
+			fs << "opt2" << it->second.pi[4];
 			break;
 		}
 		fs << "}";
