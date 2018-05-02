@@ -660,7 +660,6 @@ public:
 
 	//return 0 if success
 	int get_path(pair<Point, Point> & line) {
-		int ret = 1;
 		if (trails.empty() || trails.size() < 2)
 			return -1;
 		line.first = trails.front();
@@ -776,7 +775,7 @@ pi1       w_max     w_min
 pi2 channel gray_th search_opt i_high
 pi3						scale
 */
-int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, int pi4, int, int, int, float)
+int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, int , int, int, int, float)
 {
 	dw0.w_min = pi1 & 0xffff;
 	dw0.w_max = pi1 >> 16 & 0xffff;
@@ -1109,8 +1108,8 @@ int VWExtractAnt::extract(string file_name, QRect rect, vector<MarkObj> & obj_se
 	for (int i = 0; i < 2; i++) {
 		lines[i].first = org_best;
 		lines[i].second = org_best;
-		unsigned s = ant0.go(ig, iig, Point(0, 0), dw0, asq[i]);
-		int ret = ant0.get_path(lines[i]);
+		ant0.go(ig, iig, Point(0, 0), dw0, asq[i]);
+		ant0.get_path(lines[i]);
 	}
 	MarkObj wire;
 	wire.p0 = QPoint(lines[0].second.x, lines[0].second.y);
@@ -1230,7 +1229,7 @@ int VWExtractAnt::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<
 			s = ant0.go(ig, iig, Point(srect.left(), srect.top()), dw0, asq[i]);
 			lines[i].first = asq[i].abs_org;
 			lines[i].second = asq[i].abs_org;
-			int ret = ant0.get_path(lines[i]);
+			ant0.get_path(lines[i]);
 			asq[i].abs_org = lines[i].second;
 		} while (s != BRICK_NO_WIRE);
 	}

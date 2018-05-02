@@ -15,7 +15,7 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    vw_view = new ViaWireEditView(this);
+    vw_view = new ViaWireEditView(NULL);
 
     scroll_view = new QScrollArea;
     scroll_view->setBackgroundRole(QPalette::Dark);
@@ -117,6 +117,8 @@ void MainWindow::on_actionSave_Objects_triggered()
 void MainWindow::on_actionLoad_Objects_triggered()
 {
     std::string file_name = image_file_name.toStdString();
+	if (file_name.empty())
+		return;
     file_name.erase(file_name.size()-4);
     file_name.append(".xml");
 

@@ -18,6 +18,8 @@ using namespace cv;
 #define PP_HOTPOINT_SEARCH		12
 #define PP_ASSEMBLE_VIA			13
 #define PP_ASSEMBLE_BRANCH		14
+#define PP_EDGE_DETECT			15
+#define PP_IMAGE_ENHANCE		16
 #define PP_OBJ_PROCESS			254
 
 enum {
@@ -38,6 +40,8 @@ enum {
 	HotPointSearch,
 	AssembleVia,
 	AssembleBranch,
+	EdgeDetect,
+	ImageEnhance,
 	FilterObj,
 	ShapeCheck
 };
@@ -60,6 +64,8 @@ string method_name[] = {
 	"HotPointSearch",
 	"AssembleVia",
 	"AssembleBranch",
+	"EdgeDetect",
+	"ImageEnhance",
 	"FilterObj",
 	"ShapeCheck"
 };
@@ -166,6 +172,12 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 		break;
 	case PP_HOTPOINT_SEARCH:
 		method = HotPointSearch;
+		break;
+	case PP_EDGE_DETECT:
+		method = EdgeDetect;
+		break;
+	case PP_IMAGE_ENHANCE:
+		method = ImageEnhance;
 		break;
 	case PP_ASSEMBLE_VIA:
 		method = AssembleVia;
@@ -492,6 +504,7 @@ bool ExtractParam::read_file(string filename)
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
 				int opidx_tp = (int)(*it)["opidx_tp"];
+				int gray_lvl_opt = (int)(*it)["gray_lvl_opt"]; 
 				int low_sep_min = (int)(*it)["low_sep_min"];
 				int low_sep_max = (int)(*it)["low_sep_max"];
 				int low_win = (int)(*it)["low_win"];
@@ -561,7 +574,7 @@ bool ExtractParam::read_file(string filename)
 				param.pi[2] = low_dis_min << 24 | low_win << 16 | low_sep_max << 8 | low_sep_min;
 				param.pi[3] = mid_dis_min << 24 | mid_win << 16 | mid_sep_max << 8 | mid_sep_min;
 				param.pi[4] = high_dis_min << 24 | high_win << 16 | high_sep_max << 8 | high_sep_min;
-				param.pi[5] = low_k2 << 16 | low_k1 << 8 | low_k0;
+				param.pi[5] = gray_lvl_opt<< 24 | low_k2 << 16 | low_k1 << 8 | low_k0;
 				param.pi[6] = mid_k2 << 16 | mid_k1 << 8 | mid_k0;
 				param.pi[7] = high_k2 << 16 | high_k1 << 8 | high_k0;
 			}
@@ -1180,6 +1193,7 @@ bool ExtractParam::read_file(string filename)
 				param.pi[3] = connect_rd << 24 | v_type << 16 | cgray_ratio << 8 | swide_min;
 			}
 			break;
+
 		case CheckViaWireConnect:
 			{
 				int layer = (int)(*it)["layer"];
@@ -1208,7 +1222,7 @@ bool ExtractParam::read_file(string filename)
 				int w_len_near2 = (int)(*it)["w_len_near2"];
 				int w_len_far2 = (int)(*it)["w_len_far2"];
 				int extend2 = (int)(*it)["extend2"];
-				if (opidx_tp > 16 || opidx_hl_mask > 16) {
+				if (opidx_tp >= 16 || opidx_hl_mask >= 16) {
 					qCritical("ParamItems file error, name=%s, opidx_tp=%d, opidx_hl_mask=%d", name.c_str(), opidx_tp, opidx_hl_mask);
 					check_pass = false;
 				}
@@ -1243,6 +1257,141 @@ bool ExtractParam::read_file(string filename)
 				param.pi[8] = extend2 << 8 | w_len_far2;
 			}
 			break;
+		case EdgeDetect:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
+				int opidx_edge_det = (int)(*it)["opidx_edge_det"];
+				int detect_opt = (int)(*it)["detect_opt"];
+				int ed_long = (int)(*it)["ed_long"];
+				int ed_guard = (int)(*it)["ed_guard"];
+				int grad_low_l = (int)(*it)["grad_low_l"];
+				int grad_high_l = (int)(*it)["grad_high_l"];
+				int gi_high_l = (int)(*it)["gi_high_l"];
+				int gw_low_l = (int)(*it)["gw_low_l"];
+				int gw_high_l = (int)(*it)["gw_high_l"];
+				int dw_high_l = (int)(*it)["dw_high_l"];
+				int grad_low_r = (int)(*it)["grad_low_r"];
+				int grad_high_r = (int)(*it)["grad_high_r"];
+				int gi_high_r = (int)(*it)["gi_high_r"];
+				int gw_low_r = (int)(*it)["gw_low_r"];
+				int gw_high_r = (int)(*it)["gw_high_r"];
+				int dw_high_r = (int)(*it)["dw_high_r"];
+				int grad_low_u = (int)(*it)["grad_low_u"];
+				int grad_high_u = (int)(*it)["grad_high_u"];
+				int gi_high_u = (int)(*it)["gi_high_u"];
+				int gw_low_u = (int)(*it)["gw_low_u"];
+				int gw_high_u = (int)(*it)["gw_high_u"];
+				int dw_high_u = (int)(*it)["dw_high_u"];
+				int grad_low_d = (int)(*it)["grad_low_d"];
+				int grad_high_d = (int)(*it)["grad_high_d"];
+				int gi_high_d = (int)(*it)["gi_high_d"];
+				int gw_low_d = (int)(*it)["gw_low_d"];
+				int gw_high_d = (int)(*it)["gw_high_d"];
+				int dw_high_d = (int)(*it)["dw_high_d"];
+				if (opidx_rv_mask >= 16 || opidx_edge_det >= 16) {
+					qCritical("ParamItems file error, name=%s, opidx_rv_mask=%d, opidx_edge_det=%d", name.c_str(), opidx_rv_mask, opidx_edge_det);
+					check_pass = false;
+				}
+				if (detect_opt > 255 || ed_long > 255 || ed_guard > 255) {
+					qCritical("ParamItems file error, name=%s, detect_opt=%d, ed_long=%d, ed_guard=%d", name.c_str(), detect_opt, ed_long, ed_guard);
+					check_pass = false;
+				}
+				if (grad_low_l > 255 || grad_high_l > 255 || gi_high_l > 255 || gw_low_l > 255 || gw_high_l > 255 || dw_high_l > 255) {
+					qCritical("ParamItems file error, name=%s, grad_low_l=%d,grad_high_l=%d,gi_high_l=%d,gw_low_l=%d, gw_high_l=%d, dw_high_l=%d",  
+						name.c_str(), grad_low_l, grad_high_l, gi_high_l, gw_low_l, gw_high_l, dw_high_l);
+					check_pass = false;
+				}
+				if (grad_low_r > 255 || grad_high_r > 255 || gi_high_r > 255 || gw_low_r > 255 || gw_high_r > 255 || dw_high_r > 255) {
+					qCritical("ParamItems file error, name=%s, grad_low_r=%d,grad_high_r=%d,gi_high_r=%d,gw_low_r=%d, gw_high_r=%d, dw_high_r=%d",
+						name.c_str(), grad_low_r, grad_high_r, gi_high_r, gw_low_r, gw_high_r, dw_high_r);
+					check_pass = false;
+				}
+				if (grad_low_u > 255 || grad_high_u > 255 || gi_high_u > 255 || gw_low_u > 255 || gw_high_u > 255 || dw_high_u > 255) {
+					qCritical("ParamItems file error, name=%s, grad_low_u=%d,grad_high_u=%d,gi_high_u=%d,gw_low_u=%d, gw_high_u=%d, dw_high_u=%d",
+						name.c_str(), grad_low_u, grad_high_u, gi_high_u, gw_low_u, gw_high_u, dw_high_u);
+					check_pass = false;
+				}
+				if (grad_low_d > 255 || grad_high_d > 255 || gi_high_d > 255 || gw_low_d > 255 || gw_high_d > 255 || dw_high_d > 255) {
+					qCritical("ParamItems file error, name=%s, grad_low_d=%d,grad_high_d=%d,gi_high_d=%d,gw_low_d=%d, gw_high_d=%d, dw_high_d=%d",
+						name.c_str(), grad_low_d, grad_high_d, gi_high_d, gw_low_d, gw_high_d, dw_high_d);
+					check_pass = false;
+				}
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_EDGE_DETECT << 16 | opidx_edge_det << 4 | opidx_rv_mask;
+				param.pi[2] = ed_guard << 16 | ed_long << 8 | detect_opt;
+				param.pi[3] = grad_low_l << 24 | grad_high_l << 16 | gi_high_l << 8 | gw_low_l;
+				param.pi[4] = gw_high_l << 24 | dw_high_l << 16 | grad_low_r << 8 | grad_high_r;
+				param.pi[5] = gi_high_r << 24 | gw_low_r << 16 | gw_high_r << 8 | dw_high_r;
+				param.pi[6] = grad_low_u << 24 | grad_high_u << 16 | gi_high_u << 8 | gw_low_u;
+				param.pi[7] = gw_high_u << 24 | dw_high_u << 16 | grad_low_d << 8 | grad_high_d;
+				param.pi[8] = gi_high_d << 24 | gw_low_d << 16 | gw_high_d << 8 | dw_high_d;
+			}
+			break;
+
+		case ImageEnhance:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
+				int opidx_edge_det = (int)(*it)["opidx_edge_det"];
+				int opidx_tp = (int)(*it)["opidx_tp"];
+				int enhance_opt = (int)(*it)["enhance_opt"];
+				int extend_len = (int)(*it)["extend_len"];
+				int extend_guard = (int)(*it)["extend_guard"];
+				int wlr_max = (int)(*it)["wlr_max"];
+				int wlr_min = (int)(*it)["wlr_min"];
+				int ilr_min = (int)(*it)["ilr_min"];
+				int ilr_max = (int)(*it)["ilr_max"];
+				int wud_max = (int)(*it)["wud_max"];
+				int wud_min = (int)(*it)["wud_min"];
+				int iud_min = (int)(*it)["iud_min"];
+				int iud_max = (int)(*it)["iud_max"];
+				int th_para0 = (int)(*it)["th_para0"];
+				int th_para1 = (int)(*it)["th_para1"];
+				int enhance_x0 = (int)(*it)["enhance_x0"];
+				int enhance_x1 = (int)(*it)["enhance_x1"];
+				int enhance_y = (int)(*it)["enhance_y"];
+				if (opidx_rv_mask >= 16 || opidx_edge_det >= 16 || opidx_tp >= 16) {
+					qCritical("ParamItems file error, name=%s, opidx_rv_mask=%d,opidx_edge_det=%d,opidx_tp=%d", name.c_str(), 
+						opidx_rv_mask, opidx_edge_det, opidx_tp);
+					check_pass = false;
+				}
+				if (enhance_opt > 255 || extend_len > 255 || extend_guard > 255) {
+					qCritical("ParamItems file error, name=%s, enhance_opt=%d, extend_len=%d, extend_guard=%d", name.c_str(), 
+						enhance_opt, extend_len, extend_guard);
+					check_pass = false;
+				}
+				if (wlr_max > 255 || wlr_min > 255 || ilr_min > 255 || ilr_max > 255) {
+					qCritical("ParamItems file error, name=%s, wlr_max=%d, wlr_min=%d, ilr_min=%d, ilr_max=%d", name.c_str(),
+						wlr_max, wlr_min, ilr_min, ilr_max);
+					check_pass = false;
+				}
+				if (wud_max > 255 || wud_min > 255 || iud_min > 255 || iud_max > 255) {
+					qCritical("ParamItems file error, name=%s, wud_max=%d, wud_min=%d, iud_min=%d, iud_max=%d", name.c_str(),
+						wud_max, wud_min, iud_min, iud_max);
+					check_pass = false;
+				}
+				if (th_para0 > 255 || th_para1 > 255) {
+					qCritical("ParamItems file error, name=%s, th_para0=%d, th_para1=%d,", name.c_str(), th_para0, th_para1);
+					check_pass = false;
+				}
+				if (enhance_x0 > 255 || enhance_x1 > 255 || enhance_y > 255) {
+					qCritical("ParamItems file error, name=%s, enhance_x0=%d, enhance_x1=%d, enhance_y=%d", name.c_str(),
+						enhance_x0, enhance_x1, enhance_y);
+					check_pass = false;
+				}
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_IMAGE_ENHANCE << 16 | opidx_tp << 8 | opidx_edge_det << 4 | opidx_rv_mask;
+				param.pi[2] = extend_guard << 16 | extend_len << 8 | enhance_opt;
+				param.pi[3] = ilr_max << 24 | ilr_min << 16 | wlr_min << 8 | wlr_max;
+				param.pi[4] = iud_max << 24 | iud_min << 16 | wud_min << 8 | wud_max;
+				param.pi[5] = th_para1 << 8 | th_para0;
+				param.pi[6] = enhance_y << 16 | enhance_x1 << 8 | enhance_x0;
+			}
+			break;
+
 		case FilterObj:
 			{
 				int layer = (int)(*it)["layer"];
@@ -1415,6 +1564,7 @@ void ExtractParam::write_file(string filename)
 		case GrayLevel:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
+			fs << "gray_lvl_opt" << (it->second.pi[5] >> 24 & 0xff);
 			fs << "opidx_tp" << (it->second.pi[1] & 0xf);
 			fs << "low_sep_min" << (it->second.pi[2] & 0xff);
 			fs << "low_sep_max" << (it->second.pi[2] >> 8 & 0xff);
@@ -1692,7 +1842,65 @@ void ExtractParam::write_file(string filename)
 			fs << "w_len_near2" << (it->second.pi[7] & 0xff);
 			fs << "extend2" << (it->second.pi[8] >> 8 & 0xff);
 			fs << "w_len_far2" << (it->second.pi[8] & 0xff);
-			break;		
+			break;	
+
+		case EdgeDetect:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "opidx_rv_mask" << (it->second.pi[1] & 0xf);
+			fs << "opidx_edge_det" << (it->second.pi[1] >> 4 & 0xf);
+			fs << "detect_opt" << (it->second.pi[2] & 0xff);
+			fs << "ed_long" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "ed_guard" << (it->second.pi[2] >> 16 & 0xff);
+			fs << "gw_low_l" << (it->second.pi[3] & 0xff);
+			fs << "gi_high_l" << (it->second.pi[3] >> 8 & 0xff);
+			fs << "grad_high_l" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "grad_low_l" << (it->second.pi[3] >> 24 & 0xff);
+			fs << "grad_high_r" << (it->second.pi[4] & 0xff);
+			fs << "grad_low_r" << (it->second.pi[4] >> 8 & 0xff);
+			fs << "dw_high_l" << (it->second.pi[4] >> 16 & 0xff);
+			fs << "gw_high_l" << (it->second.pi[4] >> 24 & 0xff);
+			fs << "dw_high_r" << (it->second.pi[5] & 0xff);
+			fs << "gw_high_r" << (it->second.pi[5] >> 8 & 0xff);
+			fs << "gw_low_r" << (it->second.pi[5] >> 16 & 0xff);
+			fs << "gi_high_r" << (it->second.pi[5] >> 24 & 0xff);
+			fs << "gw_low_u" << (it->second.pi[6] & 0xff);
+			fs << "gi_high_u" << (it->second.pi[6] >> 8 & 0xff);
+			fs << "grad_high_u" << (it->second.pi[6] >> 16 & 0xff);
+			fs << "grad_low_u" << (it->second.pi[6] >> 24 & 0xff);
+			fs << "grad_high_d" << (it->second.pi[7] & 0xff);
+			fs << "grad_low_d" << (it->second.pi[7] >> 8 & 0xff);
+			fs << "dw_high_u" << (it->second.pi[7] >> 16 & 0xff);
+			fs << "gw_high_u" << (it->second.pi[7] >> 24 & 0xff);
+			fs << "dw_high_d" << (it->second.pi[8] & 0xff);
+			fs << "gw_high_d" << (it->second.pi[8] >> 8 & 0xff);
+			fs << "gw_low_d" << (it->second.pi[8] >> 16 & 0xff);
+			fs << "gi_high_d" << (it->second.pi[8] >> 24 & 0xff);
+			break;
+
+		case ImageEnhance:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "opidx_rv_mask" << (it->second.pi[1] & 0xf);
+			fs << "opidx_edge_det" << (it->second.pi[1] >> 4 & 0xf);
+			fs << "opidx_tp" << (it->second.pi[1] >> 8 & 0xf);
+			fs << "enhance_opt" << (it->second.pi[2] & 0xff);
+			fs << "extend_len" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "extend_guard" << (it->second.pi[2] >> 16 & 0xff);
+			fs << "wlr_max" << (it->second.pi[3] & 0xff);
+			fs << "wlr_min" << (it->second.pi[3] >> 8 & 0xff);			
+			fs << "ilr_min" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "ilr_max" << (it->second.pi[3] >> 24 & 0xff);
+			fs << "wud_max" << (it->second.pi[4] & 0xff);
+			fs << "wud_min" << (it->second.pi[4] >> 8 & 0xff);
+			fs << "iud_min" << (it->second.pi[4] >> 16 & 0xff);
+			fs << "iud_max" << (it->second.pi[4] >> 24 & 0xff);
+			fs << "th_para0" << (it->second.pi[5] & 0xff);
+			fs << "th_para1" << (it->second.pi[5] >> 8 & 0xff);
+			fs << "enhance_x0" << (it->second.pi[6] & 0xff);
+			fs << "enhance_x1" << (it->second.pi[6] >> 8 & 0xff);
+			fs << "enhance_y" << (it->second.pi[6] >> 16 & 0xff);
+			break;
 
 		case FilterObj:
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);

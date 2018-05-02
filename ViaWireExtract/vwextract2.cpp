@@ -26,6 +26,8 @@
 #define VIA_NEAR_NO_WIRE_SCORE	8
 #define VIA_NEAR_WIRE_SCORE 1
 
+#define ADJUST_GRAY_LVL_MANUAL_SET				1
+
 #define REMOVE_VIA_MASK							1
 #define CLEAR_REMOVE_VIA_MASK					2
 #define REMOVE_VIA_NOCHG_IMG					4
@@ -59,6 +61,11 @@
 #define H_SHAPE_CHECK							1
 #define VIA_CONNECT_CHECK						2
 
+#define EDGE_DETECT_HAS_VIA_MASK				1
+#define EDGE_DETECT_WIDE_2						2
+#define EDGE_DETECT_ERODE						4
+#define IMG_ENHANCE_HAS_VIA_MASK				1
+
 typedef pair<unsigned long long, unsigned long long> PAIR_ULL;
 
 #define POINT_DIS(p0, p1) (abs(p0.x - p1.x) + abs(p0.y -p1.y))
@@ -70,7 +77,8 @@ enum {
 	TYPE_FINE_WIRE_MASK,
 	TYPE_REMOVE_VIA_MASK,
 	TYPE_SHADOW_PROB,
-	TYPE_HOT_POINT_MASK
+	TYPE_HOT_POINT_MASK,
+	TYPE_EDGE_MASK
 };
 
 enum {
@@ -5308,7 +5316,7 @@ static void imgpp_compute_min_stat(PipeData & d, ProcessParameter & cpara)
 opt0: dis_min  wsize  sep_max  sep_min for most dark obj (may or may not be insu)
 opt1: dis_min  wsize  sep_max  sep_min for middle bright obj (may or may not be wire)
 opt2: dis_max  wsize  sep_max  sep_min for most bright obj (may or may not be via)
-opt3:           k2       k1      k0      k0 is dark gray level compress rate, k1 & k2 is rate between most dark and middle bright
+opt3: gray_lvl_opt  k2       k1      k0      k0 is dark gray level compress rate, k1 & k2 is rate between most dark and middle bright
 opt4:           k2       k1      k0      k0 is middle bright level compress rate, k1 & k2 is rate between middle bright and most bright
 opt5:           k2       k1      k0      k0 is most bright compress rate, k1 & k2 is rate between most bright
 sep_min & sep_max means minmum and maximum gray level, L0.wsize is sep window size between L1 and L0
@@ -5323,7 +5331,11 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	int layer = cpara.layer;
 	Mat & img = d.l[layer].img;
 	CV_Assert(img.type() == CV_8UC1);
-
+	int gray_lvl_opt = cpara.opt3 >> 24 & 0xff;
+	int idx0 = cpara.method_opt & 0xf;
+	qInfo("imgpp_adjust_gray_lvl l=%d, tp_idx=%d", layer, idx0);
+	d.l[layer].v[idx0].type = TYPE_GRAY_LEVEL;
+	
 	struct {
 		int sep_min, sep_max;
 		int wsize;
@@ -5339,6 +5351,65 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 		(cpara.opt5 & 0xff) / 100.0, (cpara.opt5 >> 8 & 0xff) / 100.0, (cpara.opt5 >> 16 & 0xff) / 100.0 }
 	};
 
+	Mat & m = d.l[layer].v[idx0].d;
+	m.create(11, 5, CV_32SC1);
+	if (gray_lvl_opt & ADJUST_GRAY_LVL_MANUAL_SET) {
+		m.at<int>(0, 0) = GRAY_ZERO;
+		m.at<int>(0, 1) = 0;
+		m.at<int>(0, 2) = 0;
+		m.at<int>(0, 3) = 0;
+		m.at<int>(0, 4) = 0;
+		m.at<int>(1, 0) = GRAY_L1;
+		m.at<int>(1, 1) = lmh[0].sep_min;
+		m.at<int>(1, 2) = lmh[0].sep_min;
+		m.at<int>(1, 3) = lmh[0].k0 * 100;
+		m.at<int>(1, 4) = lmh[0].k0 * 100;
+		m.at<int>(2, 0) = GRAY_L0;
+		m.at<int>(2, 1) = (lmh[0].sep_min + lmh[0].sep_max) / 2;
+		m.at<int>(2, 2) = m.at<int>(2, 1);
+		m.at<int>(2, 3) = lmh[0].k0 * 100;
+		m.at<int>(2, 4) = lmh[0].k0 * 100;
+		m.at<int>(3, 0) = GRAY_L2;
+		m.at<int>(3, 1) = lmh[0].sep_max;
+		m.at<int>(3, 2) = lmh[0].sep_max;
+		m.at<int>(3, 3) = lmh[0].k1 * 100;
+		m.at<int>(3, 4) = lmh[0].k2 * 100;
+		m.at<int>(4, 0) = GRAY_M1;
+		m.at<int>(4, 1) = lmh[1].sep_min;
+		m.at<int>(4, 2) = lmh[1].sep_min;
+		m.at<int>(4, 3) = lmh[1].k0 * 100;
+		m.at<int>(4, 4) = lmh[1].k0 * 100;
+		m.at<int>(5, 0) = GRAY_M0;
+		m.at<int>(5, 1) = (lmh[1].sep_min + lmh[1].sep_max) / 2;
+		m.at<int>(5, 2) = m.at<int>(5, 1);
+		m.at<int>(5, 3) = lmh[1].k0 * 100;
+		m.at<int>(5, 4) = lmh[1].k0 * 100;
+		m.at<int>(6, 0) = GRAY_M2;
+		m.at<int>(6, 1) = lmh[1].sep_max;
+		m.at<int>(6, 2) = lmh[1].sep_max;
+		m.at<int>(6, 3) = lmh[1].k1 * 100;
+		m.at<int>(6, 4) = lmh[1].k2 * 100;
+		m.at<int>(7, 0) = GRAY_H1;
+		m.at<int>(7, 1) = lmh[2].sep_min;
+		m.at<int>(7, 2) = lmh[2].sep_min;
+		m.at<int>(7, 3) = lmh[2].k0 * 100;
+		m.at<int>(7, 4) = lmh[2].k0 * 100;
+		m.at<int>(8, 0) = GRAY_H0;
+		m.at<int>(8, 1) = (lmh[2].sep_min + lmh[2].sep_max) / 2;;
+		m.at<int>(8, 2) = m.at<int>(8, 1);
+		m.at<int>(8, 3) = lmh[2].k0 * 100;
+		m.at<int>(8, 4) = lmh[2].k0 * 100;
+		m.at<int>(9, 0) = GRAY_H2;
+		m.at<int>(9, 1) = lmh[2].sep_max;
+		m.at<int>(9, 2) = lmh[2].sep_max;
+		m.at<int>(9, 3) = 0;  
+		m.at<int>(9, 4) = 0;  
+		m.at<int>(10, 0) = GRAY_FULL;
+		m.at<int>(10, 1) = 255;
+		m.at<int>(10, 2) = m.at<int>(9, 2);
+		return;
+	}
+
 	vector<int> stat(257, 0);
 	for (int y = 0; y < img.rows; y += 2) {
 		const unsigned char * p_img = img.ptr<unsigned char>(y);
@@ -5347,8 +5418,7 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 			stat[256]++;
 		}
 	}
-	int idx0 = cpara.method_opt & 0xf;
-	qInfo("imgpp_adjust_gray_lvl l=%d, tp_idx=%d", layer, idx0);
+	
 	if (cpara.method & OPT_DEBUG_EN) {
 		qDebug("imgpp_adjust_gray_lvl gray distribution");
 		for (int i = 0; i < 32; i++) {
@@ -5400,9 +5470,6 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 		lmh[1].g0, lmh[1].wsize, lmh[2].g0, lmh[2].wsize);
 
 	//following compute Gray level table
-	d.l[layer].v[idx0].type = TYPE_GRAY_LEVEL;
-	Mat & m = d.l[layer].v[idx0].d;
-	m.create(11, 5, CV_32SC1);
 	m.at<int>(0, 0) = GRAY_ZERO;
 	m.at<int>(0, 1) = 0;
 	m.at<int>(0, 2) = max(0, lmh[0].g0 - (int)(lmh[0].wsize * lmh[0].k0 / 2));;
@@ -5490,6 +5557,934 @@ struct WireDetectInfo {
 	int i_wide;
 	float gamma;
 };
+
+/*		31..24  23..16   15..8   7..0
+opt0:		    ed_guard ed_long detect_opt
+opt1: grad_low_l grad_high_l gi_high_l gw_low_l
+opt2: gw_high_l  dw_high_l grad_low_r grad_high_r 
+opt3: gi_high_r gw_low_r gw_high_r dw_high_r
+opt4: grad_low_u grad_high_u gi_high_u gw_low_u
+opt5: gw_high_u  dw_high_u grad_low_d grad_high_d
+opt6: gi_high_d gw_low_d gw_high_d dw_high_d
+compute grad for [ed_wide*ed_long], ed_long chose 3..30
+edge is detected with grad within [grad_low, grad_low], gi(gray insu) within [0, gi_high],
+gw(gray wire) within [gw_low, gw_high], dw(wire variance) within [0, dw_high]
+Then edge is erode for lr edge, erode up and down; for ud edge, erode left and right. 
+Finally check ud edge has is wider than ed_guard and lr edge is higer than ed_guard.
+method_opt
+0: for remove via mask input
+1: for edge detect output
+*/
+#define SEEM_BE_WIRE		0x11
+#define SEEM_BE_INSU		0x10
+#define SEEM_CONFLICT		0xfe
+static void edge_detect(PipeData & d, ProcessParameter & cpara)
+{
+	int layer = cpara.layer;
+	Mat & img = d.l[layer].img;
+	int idx = cpara.method_opt & 0xf;
+	int idx1 = cpara.method_opt >> 4 & 0xf;
+	int detect_opt = cpara.opt0 & 0xff;
+	int ed_long = cpara.opt0 >> 8 & 0xff;
+	int ed_guard = cpara.opt0 >> 16 & 0xff;
+	int ed_wide = (detect_opt & EDGE_DETECT_WIDE_2) ? 2 : 1;
+	int grad_low_l = (cpara.opt1 >> 24 & 0xff) * ed_long * ed_wide;
+	int grad_high_l = (cpara.opt1 >> 16 & 0xff) * ed_long * ed_wide;
+	int gi_high_l = (cpara.opt1 >> 8 & 0xff) * ed_long * ed_wide;
+	int gw_low_l = (cpara.opt1 & 0xff) * ed_long * ed_wide;
+	int gw_high_l = (cpara.opt2 >> 24 & 0xff) * ed_long * ed_wide;
+	int dw_high_l = (cpara.opt2 >> 16 & 0xff) * ed_wide;
+	dw_high_l = dw_high_l * dw_high_l * ed_long * ed_long * ed_wide * ed_wide;
+	int grad_low_r = (cpara.opt2 >> 8 & 0xff) * ed_long * ed_wide;
+	int grad_high_r = (cpara.opt2 & 0xff) * ed_long * ed_wide;
+	int gi_high_r = (cpara.opt3 >> 24 & 0xff) * ed_long * ed_wide;
+	int gw_low_r = (cpara.opt3 >> 16 & 0xff) * ed_long * ed_wide;
+	int gw_high_r = (cpara.opt3 >> 8 & 0xff) * ed_long * ed_wide;
+	int dw_high_r = (cpara.opt3 & 0xff);
+	dw_high_r = dw_high_r * dw_high_r * ed_long * ed_long * ed_wide * ed_wide;
+	int grad_low_u = (cpara.opt4 >> 24 & 0xff) * ed_long * ed_wide;
+	int grad_high_u = (cpara.opt4 >> 16 & 0xff) * ed_long * ed_wide;
+	int gi_high_u = (cpara.opt4 >> 8 & 0xff) * ed_long * ed_wide;
+	int gw_low_u = (cpara.opt4 & 0xff) * ed_long * ed_wide;
+	int gw_high_u = (cpara.opt5 >> 24 & 0xff) * ed_long * ed_wide;
+	int dw_high_u = (cpara.opt5 >> 16 & 0xff);
+	dw_high_u = dw_high_u * dw_high_u * ed_long * ed_long * ed_wide * ed_wide;
+	int grad_low_d = (cpara.opt5 >> 8 & 0xff) * ed_long * ed_wide;
+	int grad_high_d = (cpara.opt5 & 0xff) * ed_long * ed_wide;
+	int gi_high_d = (cpara.opt6 >> 24 & 0xff) * ed_long * ed_wide;
+	int gw_low_d = (cpara.opt6 >> 16 & 0xff) * ed_long * ed_wide;
+	int gw_high_d = (cpara.opt6 >> 8 & 0xff) * ed_long * ed_wide;
+	int dw_high_d = (cpara.opt6 & 0xff);
+	dw_high_d = dw_high_d * dw_high_d * ed_long * ed_long * ed_wide * ed_wide;
+
+	Mat via_mask;
+	if (detect_opt & EDGE_DETECT_HAS_VIA_MASK) {
+		if (d.l[layer].v[idx].type != TYPE_REMOVE_VIA_MASK) {
+			qCritical("edge_detect remove_mask[%d]=%d, error", idx, d.l[layer].v[idx].type);
+			return;
+		}
+		via_mask = d.l[layer].v[idx].d;
+		CV_Assert(via_mask.size() == img.size());
+	}
+	d.l[layer].validate_ig();
+	d.l[layer].v[idx1].type = TYPE_EDGE_MASK;
+	d.l[layer].v[idx1].d.create(img.rows, img.cols, CV_8UC1);
+	Mat & edge = d.l[layer].v[idx1].d;
+	edge = Scalar::all(0xff);
+	Mat grad(img.rows, img.cols, CV_16SC1);
+	grad = Scalar::all(0);
+	if (grad_low_l > 0 && grad_low_r > 0) { //following compute left right grad which satisfied grad, gray condition
+		qInfo("edge_detect,ed_wide=%d,ed_long=%d,grad_low_l=%d,grad_high_l=%d,gi_high_l=%d,gw_low_l=%d,gw_high_l=%d,dw_high_l=%d",
+			ed_wide, ed_long, grad_low_l, grad_high_l, gi_high_l, gw_low_l, gw_high_l, dw_high_l);
+		qInfo("edge_detect,ed_guard=%d,grad_low_r=%d,grad_high_r=%d,gi_high_r=%d,gw_low_r=%d,gw_high_r=%d,dw_high_r=%d", ed_guard,
+			grad_low_r, grad_high_r, gi_high_r, gw_low_r, gw_high_r, dw_high_r);
+		if (grad_high_l <= grad_low_l || grad_high_r <= grad_low_r) {
+			qCritical("Edge detect leftright grad Error");
+			return;
+		}
+		if (gi_high_l > gw_high_l || gw_low_l > gw_high_l || gi_high_r > gw_high_r || gw_low_r > gw_high_r) {
+			qCritical("Edge detect leftright gray Error");
+			return;
+		}
+		for (int y = ed_long / 2; y < img.rows - ed_long / 2; y++) {
+			int * p_ig0 = d.l[layer].ig.ptr<int>(y - ed_long / 2); //ed_long * ed_wide rect
+			int * p_ig1 = d.l[layer].ig.ptr<int>(y + ed_long - ed_long / 2);
+			int * p_iig0 = d.l[layer].iig.ptr<int>(y - ed_long / 2);
+			int * p_iig1 = d.l[layer].iig.ptr<int>(y + ed_long - ed_long / 2);
+			short * p_grad = grad.ptr<short>(y);
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			unsigned char * p_viamask = via_mask.empty() ? NULL : via_mask.ptr<unsigned char>(y);
+			for (int x = ed_long / 2; x < img.cols - ed_long / 2; x++) 
+			if (p_viamask == NULL || p_viamask[x] == 0) {
+				int sum0 = p_ig1[x] - p_ig1[x - ed_wide] - p_ig0[x] + p_ig0[x - ed_wide];
+				int sum1 = p_ig1[x + 1 + ed_wide] - p_ig1[x + 1] - p_ig0[x + 1 + ed_wide] + p_ig0[x + 1];
+				int g = sum1 - sum0;
+				if (g > grad_low_l && g < grad_high_l && sum0 < gi_high_l && sum1 > gw_low_l && sum1 < gw_high_l) { //grad in range, gray in range
+					int dw = ed_long * ed_wide * (p_iig1[x + 1 + ed_wide] - p_iig1[x + 1] - p_iig0[x + 1 + ed_wide] + p_iig0[x + 1]) - sum1 * sum1;
+					if (dw < dw_high_l) { //variance in range
+						p_grad[x] = g;
+						p_edge[x] = DIR_RIGHT;
+					}
+				}
+				else
+				if (-g > grad_low_r && -g < grad_high_r && sum1 < gi_high_r && sum0 > gw_low_r && sum0 < gw_high_r) {
+					int dw = ed_long * ed_wide * (p_iig1[x] - p_iig1[x - ed_wide] - p_iig0[x] + p_iig0[x - ed_wide]) - sum0 * sum0;
+					if (dw < dw_high_r) {
+						p_grad[x] = -g;
+						p_edge[x] = DIR_LEFT;
+					}
+				}
+			}
+			else
+				p_edge[x] = SEEM_CONFLICT;
+		}
+	}
+	if (grad_low_u > 0 && grad_low_d > 0) {//following compute up down grad which satisfied grad, gray condition
+		qInfo("edge_detect,ed_wide=%d,ed_long=%d,grad_low_u=%d,grad_high_u=%d,gi_high_u=%d,gw_low_u=%d,gw_high_u=%d,dw_high_u=%d", ed_wide, ed_long,
+			grad_low_u, grad_high_u, gi_high_u, gw_low_u, gw_high_u, dw_high_u);
+		qInfo("edge_detect,ed_guard=%d,grad_low_d=%d,grad_high_d=%d,gi_high_d=%d,gw_low_d=%d,gw_high_d=%d,dw_high_d=%d", ed_guard,
+			grad_low_d, grad_high_d, gi_high_d, gw_low_d, gw_high_d, dw_high_d);
+		if (grad_high_u <= grad_low_u || grad_high_d <= grad_low_d) {
+			qCritical("Edge detect updown grad Error");
+			return;
+		}
+		if (gi_high_u > gw_high_u || gw_low_u > gw_high_u || gi_high_d > gw_high_d || gw_low_d > gw_high_d) {
+			qCritical("Edge detect updown gray Error");
+			return;
+		}
+		for (int y = ed_long / 2; y < img.rows - ed_long / 2; y++) {
+			int * p_ig0 = d.l[layer].ig.ptr<int>(y - ed_wide); //ed_wide*ed_long rect
+			int * p_ig1 = d.l[layer].ig.ptr<int>(y);
+			int * p_ig2 = d.l[layer].ig.ptr<int>(y + 1);
+			int * p_ig3 = d.l[layer].ig.ptr<int>(y + 1 + ed_wide);
+			int * p_iig0 = d.l[layer].iig.ptr<int>(y - ed_wide);
+			int * p_iig1 = d.l[layer].iig.ptr<int>(y);
+			int * p_iig2 = d.l[layer].iig.ptr<int>(y + 1);
+			int * p_iig3 = d.l[layer].iig.ptr<int>(y + 1 + ed_wide);
+			short * p_grad = grad.ptr<short>(y);
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			unsigned char * p_viamask = via_mask.empty() ? NULL : via_mask.ptr<unsigned char>(y);
+			for (int x = ed_long / 2; x < img.cols - ed_long / 2; x++) 
+			if (p_viamask == NULL || p_viamask[x] == 0) {
+				int sum0 = p_ig1[x + ed_long - ed_long / 2] - p_ig1[x - ed_long / 2] - p_ig0[x + ed_long - ed_long / 2] + p_ig0[x - ed_long / 2];
+				int sum1 = p_ig3[x + ed_long - ed_long / 2] - p_ig3[x - ed_long / 2] - p_ig2[x + ed_long - ed_long / 2] + p_ig2[x - ed_long / 2];
+				int g = sum1 - sum0;
+				if (g > grad_low_u && g < grad_high_u && sum0 < gi_high_u && sum1 > gw_low_u && sum1 < gw_high_u) { //grad in range, gray in range
+					int dw = ed_long * ed_wide * (p_iig3[x + ed_long - ed_long / 2] - p_iig3[x - ed_long / 2] - 
+						p_iig2[x + ed_long - ed_long / 2] + p_iig2[x - ed_long / 2]) - sum1 * sum1;
+					if (dw < dw_high_u && g > p_grad[x]) {//variance in range
+						p_grad[x] = g;
+						p_edge[x] = DIR_DOWN;
+					}
+				}
+				else
+				if (-g > grad_low_d && -g < grad_high_d && sum1 < gi_high_d && sum0 > gw_low_d && sum0 < gw_high_d) {
+					int dw = ed_long * ed_wide * (p_iig1[x + ed_long - ed_long / 2] - p_iig1[x - ed_long / 2] -
+						p_iig0[x + ed_long - ed_long / 2] + p_iig0[x - ed_long / 2]) - sum0 * sum0;
+					if (dw < dw_high_d && -g > p_grad[x]) {
+						p_grad[x] = -g;
+						p_edge[x] = DIR_UP;
+					}
+				}
+			}
+			else
+				p_edge[x] = SEEM_CONFLICT;
+		}
+	}
+
+	if (detect_opt & EDGE_DETECT_ERODE) {
+#define ERODE(v, v1) if (v1==0xff) v1=8+v; else if (v1 & 8 && v1 != 8 + v) v1=SEEM_CONFLICT
+		for (int y = 1; y < img.rows - 1; y++) {
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			unsigned char * p_edge_u = edge.ptr<unsigned char>(y - 1);
+			unsigned char * p_edge_d = edge.ptr<unsigned char>(y + 1);
+			for (int x = 1; x < img.cols - 1; x++) {
+				if (p_edge[x] != 0xff) {
+					switch (p_edge[x]) {
+					case DIR_UP:
+					case DIR_DOWN:
+						ERODE(p_edge[x], p_edge[x - 1]);
+						ERODE(p_edge[x], p_edge[x + 1]);
+						break;
+					case DIR_LEFT:
+					case DIR_RIGHT:
+						ERODE(p_edge[x], p_edge_u[x]);
+						ERODE(p_edge[x], p_edge_d[x]);
+						break;
+					}
+				}
+				if (p_edge_u[x] & 8 && p_edge_u[x] < 16)
+					p_edge_u[x] -= 8;
+			}
+			p_edge[0] = 0xff;
+			p_edge[img.cols - 1] = 0xff;
+		}
+		unsigned char * p_edge_u = edge.ptr<unsigned char>(img.rows - 2);
+		unsigned char * p_edge = edge.ptr<unsigned char>(img.rows-1);
+		unsigned char * p_edge_d = edge.ptr<unsigned char>(0);
+		for (int x = 1; x < img.cols - 1; x++) {
+			p_edge[x] = 0xff;
+			if (p_edge_u[x] & 8 && p_edge_u[x] < 16)
+				p_edge_u[x] -= 8;
+			p_edge_d[x] = 0xff;
+		}
+#undef ERODE
+	}
+
+	if (ed_guard > 1) {
+#define TRANS(e0, e1, l0, l1) { if ((e1)==(e0)) l1=max(l1, (unsigned short) ((l0) + 1));}
+#define CHECK(x, y, l1, l0, q) { \
+		unsigned short * pl1 = l1; \
+		if (*pl1 > 0 && *pl1 <= (l0)) {	\
+			unsigned short old_l1 = *pl1; \
+			*pl1 = (l0) + 1; \
+			if (old_l1 < ed_guard - 1) \
+				q.push_back(MAKE_PROB(*pl1, x, y)); \
+		} }
+		Mat elen(img.rows, img.cols, CV_16SC2);
+		elen = Scalar::all(0);
+		vector <unsigned long long> ext_ul, ext_dr;
+		for (int y = 1; y < img.rows - 1; y++) {
+			const unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			const unsigned char * p_edge_u = edge.ptr<unsigned char>(y - 1);
+			const unsigned char * p_edge_d = edge.ptr<unsigned char>(y + 1);
+			unsigned short * p_elen = elen.ptr<unsigned short>(y);
+			unsigned short * p_elen_u = elen.ptr<unsigned short>(y - 1);
+			unsigned short * p_elen_d = elen.ptr<unsigned short>(y + 1);
+			for (int i = 1; i < img.cols - 1; i++) { // i is x
+				unsigned short prev_elen_u = p_elen_u[i * 2 + 2];
+				if (p_edge[i] == DIR_UP || p_edge[i] == DIR_DOWN) {
+					if (p_elen[i * 2] == 0)
+						p_elen[i * 2] = 1;
+					TRANS(p_edge[i], p_edge_u[i + 1], p_elen[i * 2], p_elen_u[i * 2 + 2]);
+					TRANS(p_edge[i], p_edge[i + 1], p_elen[i * 2], p_elen[i * 2 + 2]);									
+					TRANS(p_edge[i], p_edge_d[i + 1], p_elen[i * 2], p_elen_d[i * 2 + 2]);
+				}
+				if (p_edge_u[i] == DIR_UP || p_edge_u[i] == DIR_DOWN) {
+					TRANS(p_edge_u[i], p_edge_u[i + 1], p_elen_u[i * 2], p_elen_u[i * 2 + 2]);
+					TRANS(p_edge_u[i], p_edge[i + 1], p_elen_u[i * 2], p_elen[i * 2 + 2]);
+					TRANS(p_edge_u[i], p_edge_d[i + 1], p_elen_u[i * 2], p_elen_d[i * 2 + 2]);
+				}
+				if (p_edge_d[i] == DIR_UP || p_edge_d[i] == DIR_DOWN) {					
+					TRANS(p_edge_d[i], p_edge_u[i + 1], p_elen_d[i * 2], p_elen_u[i * 2 + 2]);
+					TRANS(p_edge_d[i], p_edge[i + 1], p_elen_d[i * 2], p_elen[i * 2 + 2]);
+					TRANS(p_edge_d[i], p_edge_d[i + 1], p_elen_d[i * 2], p_elen_d[i * 2 + 2]);
+				}
+				if (p_elen_u[i * 2 + 2] > prev_elen_u && prev_elen_u < ed_guard - 1)
+					ext_dr.push_back(MAKE_PROB(p_elen_u[i * 2 + 2], i + 1, y - 1));
+			}
+
+			for (int i = img.cols - 2; i > 0; i--) { //i is x
+				unsigned short prev_elen_u = p_elen_u[i * 2 - 1];
+				if (p_edge[i] == DIR_UP || p_edge[i] == DIR_DOWN) {
+					if (p_elen[i * 2 + 1] == 0)
+						p_elen[i * 2 + 1] = 1;
+					TRANS(p_edge[i], p_edge_u[i - 1], p_elen[i * 2 + 1], p_elen_u[i * 2 - 1]);
+					TRANS(p_edge[i], p_edge[i - 1], p_elen[i * 2 + 1], p_elen[i * 2 - 1]);					
+					TRANS(p_edge[i], p_edge_d[i - 1], p_elen[i * 2 + 1], p_elen_d[i * 2 - 1]);
+				}
+				if (p_edge_u[i] == DIR_UP || p_edge_u[i] == DIR_DOWN) {
+					TRANS(p_edge_u[i], p_edge_u[i - 1], p_elen_u[i * 2 + 1], p_elen_u[i * 2 - 1]);
+					TRANS(p_edge_u[i], p_edge[i - 1], p_elen_u[i * 2 + 1], p_elen[i * 2 - 1]);
+					TRANS(p_edge_u[i], p_edge_d[i - 1], p_elen_u[i * 2 + 1], p_elen_d[i * 2 - 1]);
+				}
+				if (p_edge_d[i] == DIR_UP || p_edge_d[i] == DIR_DOWN) {
+					TRANS(p_edge_d[i], p_edge_u[i - 1], p_elen_d[i * 2 + 1], p_elen_u[i * 2 - 1]);
+					TRANS(p_edge_d[i], p_edge[i - 1], p_elen_d[i * 2 + 1], p_elen[i * 2 - 1]);
+					TRANS(p_edge_d[i], p_edge_d[i - 1], p_elen_d[i * 2 + 1], p_elen_d[i * 2 - 1]);
+				}
+				if (p_elen_u[i * 2 - 1] > prev_elen_u && prev_elen_u < ed_guard - 1)
+					ext_ul.push_back(MAKE_PROB(p_elen_u[i * 2 - 1], i - 1, y - 1));
+			}
+		}
+		while (!ext_dr.empty()) {
+			unsigned long long temp = ext_dr.back();
+			ext_dr.pop_back();
+			int y = PROB_Y(temp);
+			int x = PROB_X(temp);
+			int l = PROB_S(temp);
+			unsigned short cl = elen.at<unsigned short>(y, 2 * x);
+			if (cl > l)
+				continue;
+			CV_Assert(cl == l);
+			CHECK(x + 1, y, elen.ptr<unsigned short>(y, x + 1), l, ext_dr);
+			CHECK(x + 1, y - 1, elen.ptr<unsigned short>(y - 1, x + 1), l, ext_dr);
+			CHECK(x + 1, y + 1, elen.ptr<unsigned short>(y + 1, x + 1), l, ext_dr);
+			if (y > 2)
+				CHECK(x + 1, y - 2, elen.ptr<unsigned short>(y - 2, x + 1), l, ext_dr);
+			if (y< img.rows - 2)
+				CHECK(x + 1, y + 2, elen.ptr<unsigned short>(y + 2, x + 1), l, ext_dr);
+		}
+		while (!ext_ul.empty()) {
+			unsigned long long temp = ext_ul.back();
+			ext_ul.pop_back();
+			int y = PROB_Y(temp);
+			int x = PROB_X(temp);
+			int l = PROB_S(temp);
+			unsigned short cl = elen.at<unsigned short>(y, 2 * x + 1);
+			if (cl > l)
+				continue;
+			CV_Assert(cl == l);
+			CHECK(x - 1, y, elen.ptr<unsigned short>(y, x - 1) + 1, l, ext_ul);
+			CHECK(x - 1, y - 1, elen.ptr<unsigned short>(y - 1, x - 1) + 1, l, ext_ul);
+			CHECK(x - 1, y + 1, elen.ptr<unsigned short>(y + 1, x - 1) + 1, l, ext_ul);
+			if (y > 2)
+				CHECK(x - 1, y - 2, elen.ptr<unsigned short>(y - 2, x - 1) + 1, l, ext_ul);
+			if (y< img.rows - 2)
+				CHECK(x - 1, y + 2, elen.ptr<unsigned short>(y + 2, x - 1) + 1, l, ext_ul);
+		}
+		for (int y = 1; y < img.rows - 1; y++) {
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			unsigned short * p_elen = elen.ptr<unsigned short>(y);
+			for (int x = 1; x < img.cols - 1; x++)
+			if (p_edge[x] == DIR_UP || p_edge[x] == DIR_DOWN) {
+				if (p_elen[x * 2] + p_elen[x * 2 + 1] - 1 <= ed_guard)
+					p_edge[x] = SEEM_CONFLICT;
+			}
+		}
+		elen = Scalar::all(0);
+		vector<unsigned char> edge_buf(img.rows * 3, 0xff);
+		vector<unsigned short> elen_buf(img.rows * 6, 0);
+		unsigned char * p_edge = &edge_buf[img.rows];
+		unsigned char * p_edge_u = &edge_buf[0];
+		unsigned char * p_edge_d = &edge_buf[img.rows * 2];
+		unsigned short * p_elen = &elen_buf[img.rows * 2];
+		unsigned short * p_elen_u = &elen_buf[0];
+		unsigned short * p_elen_d = &elen_buf[img.rows * 4];
+		for (int x = 0; x <= img.cols; x++) {
+			for (int y = 0; y < img.rows; y++) 
+			if (x > 1) {
+				elen.at<unsigned short>(y, 2 * x - 4) = p_elen_u[2 * y];
+				elen.at<unsigned short>(y, 2 * x - 3) = p_elen_u[2 * y + 1];
+			}
+			swap(p_edge_u, p_edge);
+			swap(p_edge, p_edge_d);
+			swap(p_elen_u, p_elen);
+			swap(p_elen, p_elen_d);
+			if (x >= img.cols - 1)
+				continue;
+			for (int y = 0; y < img.rows; y++) {
+				p_edge_d[y] = (x < img.cols - 1) ? edge.at<unsigned char>(y, x + 1) : 0xff;
+				p_elen_d[y * 2] = 0;
+				p_elen_d[y * 2 + 1] = 0;
+			}
+			if (x < 1)
+				continue;
+			for (int i = 1; i < img.rows - 1; i++) { // i is y
+				unsigned short prev_elen_u = p_elen_u[i * 2 + 2];
+				if (p_edge[i] == DIR_LEFT || p_edge[i] == DIR_RIGHT) {
+					if (p_elen[i * 2] == 0)
+						p_elen[i * 2] = 1;
+					TRANS(p_edge[i], p_edge_u[i + 1], p_elen[i * 2], p_elen_u[i * 2 + 2]);
+					TRANS(p_edge[i], p_edge[i + 1], p_elen[i * 2], p_elen[i * 2 + 2]);
+					TRANS(p_edge[i], p_edge_d[i + 1], p_elen[i * 2], p_elen_d[i * 2 + 2]);
+				}
+				if (p_edge_u[i] == DIR_LEFT || p_edge_u[i] == DIR_RIGHT) {
+					TRANS(p_edge_u[i], p_edge_u[i + 1], p_elen_u[i * 2], p_elen_u[i * 2 + 2]);
+					TRANS(p_edge_u[i], p_edge[i + 1], p_elen_u[i * 2], p_elen[i * 2 + 2]);
+					TRANS(p_edge_u[i], p_edge_d[i + 1], p_elen_u[i * 2], p_elen_d[i * 2 + 2]);
+				}
+				if (p_edge_d[i] == DIR_LEFT || p_edge_d[i] == DIR_RIGHT) {
+					TRANS(p_edge_d[i], p_edge_u[i + 1], p_elen_d[i * 2], p_elen_u[i * 2 + 2]);
+					TRANS(p_edge_d[i], p_edge[i + 1], p_elen_d[i * 2], p_elen[i * 2 + 2]);
+					TRANS(p_edge_d[i], p_edge_d[i + 1], p_elen_d[i * 2], p_elen_d[i * 2 + 2]);
+				}
+				if (p_elen_u[i * 2 + 2] > prev_elen_u && prev_elen_u < ed_guard - 1)
+					ext_dr.push_back(MAKE_PROB(p_elen_u[i * 2 + 2], x - 1, i + 1));
+			}
+
+			for (int i = img.rows - 2; i > 0; i--) { //i is y
+				unsigned short prev_elen_u = p_elen_u[i * 2 - 1];
+				if (p_edge[i] == DIR_LEFT || p_edge[i] == DIR_RIGHT) {
+					if (p_elen[i * 2 + 1] == 0)
+						p_elen[i * 2 + 1] = 1;
+					TRANS(p_edge[i], p_edge_u[i - 1], p_elen[i * 2 + 1], p_elen_u[i * 2 - 1]);
+					TRANS(p_edge[i], p_edge[i - 1], p_elen[i * 2 + 1], p_elen[i * 2 - 1]);
+					TRANS(p_edge[i], p_edge_d[i - 1], p_elen[i * 2 + 1], p_elen_d[i * 2 - 1]);
+				}
+				if (p_edge_u[i] == DIR_LEFT || p_edge_u[i] == DIR_RIGHT) {
+					TRANS(p_edge_u[i], p_edge_u[i - 1], p_elen_u[i * 2 + 1], p_elen_u[i * 2 - 1]);
+					TRANS(p_edge_u[i], p_edge[i - 1], p_elen_u[i * 2 + 1], p_elen[i * 2 - 1]);
+					TRANS(p_edge_u[i], p_edge_d[i - 1], p_elen_u[i * 2 + 1], p_elen_d[i * 2 - 1]);
+				}
+				if (p_edge_d[i] == DIR_LEFT || p_edge_d[i] == DIR_RIGHT) {
+					TRANS(p_edge_d[i], p_edge_u[i - 1], p_elen_d[i * 2 + 1], p_elen_u[i * 2 - 1]);
+					TRANS(p_edge_d[i], p_edge[i - 1], p_elen_d[i * 2 + 1], p_elen[i * 2 - 1]);
+					TRANS(p_edge_d[i], p_edge_d[i - 1], p_elen_d[i * 2 + 1], p_elen_d[i * 2 - 1]);
+				}
+				if (p_elen_u[i * 2 - 1] > prev_elen_u && prev_elen_u < ed_guard - 1)
+					ext_ul.push_back(MAKE_PROB(p_elen_u[i * 2 - 1], x - 1, i - 1));
+			}
+		}
+		while (!ext_dr.empty()) {
+			unsigned long long temp = ext_dr.back();
+			ext_dr.pop_back();
+			int y = PROB_Y(temp);
+			int x = PROB_X(temp);
+			int l = PROB_S(temp);
+			unsigned short cl = elen.at<unsigned short>(y, 2 * x);
+			if (cl > l)
+				continue;
+			CV_Assert(cl == l);
+			CHECK(x, y + 1, elen.ptr<unsigned short>(y + 1, x), l, ext_dr);
+			CHECK(x - 1, y + 1, elen.ptr<unsigned short>(y + 1, x - 1), l, ext_dr);
+			CHECK(x + 1, y + 1, elen.ptr<unsigned short>(y + 1, x + 1), l, ext_dr);
+			if (x > 2)
+				CHECK(x - 2, y + 1, elen.ptr<unsigned short>(y + 1, x - 2), l, ext_dr);
+			if (x< img.cols - 2)
+				CHECK(x + 2, y + 1, elen.ptr<unsigned short>(y + 1, x + 2), l, ext_dr);
+		}
+		while (!ext_ul.empty()) {
+			unsigned long long temp = ext_ul.back();
+			ext_ul.pop_back();
+			int y = PROB_Y(temp);
+			int x = PROB_X(temp);
+			int l = PROB_S(temp);
+			unsigned short cl = elen.at<unsigned short>(y, 2 * x + 1);
+			if (cl > l)
+				continue;
+			CV_Assert(cl == l);
+			CHECK(x, y - 1, elen.ptr<unsigned short>(y - 1, x) + 1, l, ext_ul);
+			CHECK(x - 1, y - 1, elen.ptr<unsigned short>(y - 1, x - 1) + 1, l, ext_ul);
+			CHECK(x + 1, y - 1, elen.ptr<unsigned short>(y - 1, x + 1) + 1, l, ext_ul);
+			if (x > 2)
+				CHECK(x - 2, y - 1, elen.ptr<unsigned short>(y - 1, x - 2) + 1, l, ext_ul);
+			if (x< img.cols - 2)
+				CHECK(x + 2, y - 1, elen.ptr<unsigned short>(y - 1, x + 2) + 1, l, ext_ul);
+		}
+		for (int y = 1; y < img.rows - 1; y++) {
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			unsigned short * p_elen = elen.ptr<unsigned short>(y);
+			for (int x = 1; x < img.cols - 1; x++) 
+			if(p_edge[x] == DIR_LEFT || p_edge[x] == DIR_RIGHT)  {
+				if (p_elen[x * 2] + p_elen[x * 2 + 1] - 1 <= ed_guard)
+					p_edge[x] = SEEM_CONFLICT;
+			}
+		}
+#undef TRANS
+#undef CHECK
+	}
+	if (cpara.method & OPT_DEBUG_EN) {
+		Mat debug_draw;
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
+		CV_Assert(debug_draw.type() == CV_8UC3 && debug_draw.rows == edge.rows && debug_draw.cols == edge.cols);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			unsigned char * p_draw = debug_draw.ptr<unsigned char>(y);
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			for (int x = 0; x < debug_draw.cols; x++) {
+				switch (p_edge[x]) {
+				case DIR_UP:
+					p_draw[3 * x + 2] = 255; //draw skin red
+					break;
+				case DIR_DOWN:
+					p_draw[3 * x + 1] = 255; //draw skin green
+					break;
+				case DIR_RIGHT:
+					p_draw[3 * x] = 255; //draw skin blue
+					break;
+				case DIR_LEFT:
+					p_draw[3 * x + 2] = 255; //draw skin yellow
+					p_draw[3 * x + 1] = 255;
+					break;
+				case SEEM_CONFLICT:
+					p_draw[3 * x + 2] = 255;
+					p_draw[3 * x] = 255;
+					break;
+				}
+			}
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_edgedet.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
+		}
+	}
+}
+
+/*     31..24 23..16   15..8   7..0
+opt0:		extend_guard extend_len enhance_opt
+opt1:  ilr_max ilr_min wlr_min wlr_max
+opt2:  iud_max iud_min wud_min wud_max
+opt3:				   th_para1 th_para0
+opt4:		  enhance_y enhance_x1 enhance_x0
+extend_guard is to remove conflict edge
+extend_len is to remove extend edge
+enhance_opt is HAS_VIA_MASK
+enhance include increase wire gray and reduce insu gray
+enhance insu which satisfy ilr(insu lr width) within [ilr_min, ilr_max] or iud(insu ud width) within [iud_min, iud_max]
+enhance wire which satisfy wlr(wire lr width) within [wlr_min, wlr_max] or wud(wire ud width) within [wud_min, wud_max]
+method_opt
+0: for remove via mask input
+1: for edge detect input
+2: for gray level turn_points inout
+*/
+static void image_enhance(PipeData & d, ProcessParameter & cpara)
+{
+	int layer = cpara.layer;
+	Mat & img = d.l[layer].img;
+	int idx = cpara.method_opt & 0xf;
+	int idx1 = cpara.method_opt >> 4 & 0xf;
+	int idx2 = cpara.method_opt >> 8 & 0xf;
+	int enhance_opt = cpara.opt0 & 0xff;
+	int extend_len = cpara.opt0 >> 8 & 0xff;
+	int extend_guard = cpara.opt0 >> 16 & 0xff;
+	int ilr_max = cpara.opt1 >> 24 & 0xff;
+	int ilr_min = cpara.opt1 >> 16 & 0xff;
+	int wlr_min = cpara.opt1 >> 8 & 0xff;
+	int wlr_max = cpara.opt1 & 0xff;
+	int iud_max = cpara.opt2 >> 24 & 0xff;
+	int iud_min = cpara.opt2 >> 16 & 0xff;
+	int wud_min = cpara.opt2 >> 8 & 0xff;
+	int wud_max = cpara.opt2 & 0xff;
+	float th_para0 = (cpara.opt3 & 0xff) / 100.0;
+	float th_para1 = (cpara.opt3 >> 8 & 0xff) / 10000.0;
+	int enhance_x0 = cpara.opt4 & 0xff;
+	int enhance_x1 = cpara.opt4 >> 8 & 0xff;
+	int enhance_y = cpara.opt4 >> 16 & 0xff;
+	Mat & edge = d.l[layer].v[idx1].d;
+	
+	Mat via_mask;
+	if (enhance_opt & IMG_ENHANCE_HAS_VIA_MASK) {
+		if (d.l[layer].v[idx].type != TYPE_REMOVE_VIA_MASK) {
+			qCritical("image_enhance remove_mask[%d]=%d, error", idx, d.l[layer].v[idx].type);
+			return;
+		}
+		via_mask = d.l[layer].v[idx].d;
+		CV_Assert(via_mask.size() == img.size());
+	}
+
+	if (d.l[layer].v[idx1].type != TYPE_EDGE_MASK) {
+		qCritical("image_enhance edge[%d]=%d, error", idx1, d.l[layer].v[idx1].type);
+		return;
+	}
+	if (d.l[layer].v[idx2].type != TYPE_GRAY_LEVEL) {
+		qCritical("image_enhance gray_lvl[%d]=%d, error", idx2, d.l[layer].v[idx2].type);
+		return;
+	}
+	CV_Assert(edge.size() == img.size());
+	qInfo("image_enhance extend_guard=%d, extend_len=%d", extend_guard, extend_len);
+
+	//2 connect same edge
+
+	//3 find insu and wire
+	qInfo("image_enhance, ilr in [%d,%d], iud in [%d,%d]. wlr in [%d,%d], wud in [%d,%d]", ilr_min, ilr_max,
+		iud_min, iud_max, wlr_min, wlr_max, wud_min, wud_max);
+	int clr_max = max(wlr_max, ilr_max);
+	int cud_max = max(wud_max, iud_max);
+	for (int iter = 0; iter < 2; iter++) {
+		if (wlr_max > 0 && ilr_max > 0)
+		for (int y = 1; y < edge.rows - 1; y++) {
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			unsigned prev_edge = 0xff;
+			bool conflict = false; //in conflict state, prev_edge=INSU or WIRE
+			int prev_idx = 0, conflict_idx = 0;
+			for (int x = 1; x < edge.cols - 1; x++)
+			if (p_edge[x] != 0xff) {
+				unsigned cur_edge = p_edge[x];
+				switch (prev_edge) {
+				case DIR_RIGHT:
+				case SEEM_BE_WIRE:
+					if (cur_edge == DIR_LEFT || cur_edge == SEEM_BE_WIRE) {
+						if (x - prev_idx > 1 && (cur_edge == SEEM_BE_WIRE || prev_edge == SEEM_BE_WIRE || x - prev_idx >= wlr_min)
+							&& x - prev_idx <= wlr_max) {
+							for (int i = prev_idx + 1; i < x; i++) //mark SEEM_BE_WIRE
+								p_edge[i] = SEEM_BE_WIRE;
+						}
+					}
+					if (cur_edge == SEEM_BE_INSU) { //conflict
+						if (prev_edge == DIR_RIGHT) {
+							conflict = true;
+							conflict_idx = prev_idx;
+						}
+						else { //prev_edge==SEEM_BE_WIRE
+							if (conflict) {
+								if (x - conflict_idx <= clr_max)
+								for (int i = conflict_idx + 1; i < x; i++) { //mark CONFLICT
+									CV_Assert(p_edge[i] == 0xff || p_edge[i] == SEEM_BE_INSU || p_edge[i] == SEEM_BE_WIRE);
+									p_edge[i] = SEEM_CONFLICT;
+								}
+								conflict_idx = x;
+							}
+							else {
+								conflict = true;
+								conflict_idx = prev_idx;
+							}
+						}
+					}
+					if (cur_edge == DIR_RIGHT) {
+						if (prev_edge == SEEM_BE_WIRE) { //conflict
+							if (conflict) {
+								if (x - conflict_idx <= clr_max)
+								for (int i = conflict_idx + 1; i < x; i++) { //mark CONFLICT
+									CV_Assert(p_edge[i] == 0xff || p_edge[i] == SEEM_BE_INSU || p_edge[i] == SEEM_BE_WIRE);
+									p_edge[i] = SEEM_CONFLICT;
+								}
+							}
+						}
+					}
+					break;
+
+				case DIR_LEFT:
+				case SEEM_BE_INSU:
+					if (cur_edge == DIR_RIGHT || cur_edge == SEEM_BE_INSU) {
+						if (x - prev_idx > 1 && (cur_edge == SEEM_BE_INSU || prev_edge == SEEM_BE_INSU || x - prev_idx >= ilr_min)
+							&& x - prev_idx <= ilr_max) {
+							for (int i = prev_idx + 1; i < x; i++) //mark SEEM_BE_INSU
+								p_edge[i] = SEEM_BE_INSU;
+						}
+					}
+					if (cur_edge == SEEM_BE_WIRE) { //conflict
+						if (prev_edge == DIR_LEFT) {
+							conflict = true;
+							conflict_idx = prev_idx;
+						}
+						else { //prev_edge==SEEM_BE_INSU
+							if (conflict) {
+								if (x - conflict_idx <= clr_max)
+								for (int i = conflict_idx + 1; i < x; i++) { //mark CONFLICT
+									CV_Assert(p_edge[i] == 0xff || p_edge[i] == SEEM_BE_INSU || p_edge[i] == SEEM_BE_WIRE);
+									p_edge[i] = SEEM_CONFLICT;
+								}
+								conflict_idx = x;
+							}
+							else {
+								conflict = true;
+								conflict_idx = prev_idx;
+							}
+						}
+					}
+					if (cur_edge == DIR_LEFT) {
+						if (prev_edge == SEEM_BE_INSU) { //conflict
+							if (conflict) {
+								if (x - conflict_idx <= clr_max)
+								for (int i = conflict_idx + 1; i < x; i++) {//mark CONFLICT
+									CV_Assert(p_edge[i] == 0xff || p_edge[i] == SEEM_BE_INSU || p_edge[i] == SEEM_BE_WIRE);
+									p_edge[i] = SEEM_CONFLICT;
+								}
+							}
+						}
+					}
+					break;
+				}
+				if (cur_edge == DIR_LEFT || cur_edge == DIR_RIGHT || cur_edge == SEEM_BE_WIRE || cur_edge == SEEM_BE_INSU)
+					prev_edge = cur_edge;
+				else
+					prev_edge = 0xff;
+				if (cur_edge != SEEM_BE_WIRE && cur_edge != SEEM_BE_INSU)
+					conflict = false;
+				prev_idx = x;
+			}
+		}
+		if (wud_max > 0 && iud_max > 0)
+		for (int x = 1; x < edge.cols - 1; x++) {
+			unsigned prev_edge = 0xff;
+			bool conflict = false; //in conflict state, prev_edge=INSU or WIRE
+			int prev_idx = 0, conflict_idx = 0;
+			for (int y = 1; y < edge.rows - 1; y++)
+			if (edge.at<unsigned char>(y, x) != 0xff) {
+				unsigned cur_edge = edge.at<unsigned char>(y, x);
+				switch (prev_edge) {
+				case DIR_DOWN:
+				case SEEM_BE_WIRE:
+					if (cur_edge == DIR_UP || cur_edge == SEEM_BE_WIRE) {
+						if (y - prev_idx > 1 && (cur_edge == SEEM_BE_WIRE || prev_edge == SEEM_BE_WIRE || y - prev_idx >= wud_min)
+							&& y - prev_idx <= wud_max) {
+							for (int i = prev_idx + 1; i < y; i++) //mark SEEM_BE_WIRE
+								edge.at<unsigned char>(i, x) = SEEM_BE_WIRE;
+						}
+					}
+					if (cur_edge == SEEM_BE_INSU) { //conflict
+						if (prev_edge == DIR_DOWN) {
+							conflict = true;
+							conflict_idx = prev_idx;
+						}
+						else { //prev_edge==SEEM_BE_WIRE
+							if (conflict) {
+								if (y - conflict_idx <= cud_max)
+								for (int i = conflict_idx + 1; i < y; i++) { //mark CONFLICT
+									unsigned char e = edge.at<unsigned char>(i, x);
+									CV_Assert(e == 0xff || e == SEEM_BE_INSU || e == SEEM_BE_WIRE);
+									edge.at<unsigned char>(i, x) = SEEM_CONFLICT;
+								}
+								conflict_idx = y;
+							}
+							else {
+								conflict = true;
+								conflict_idx = prev_idx;
+							}
+						}
+					}
+					if (cur_edge == DIR_DOWN) {
+						if (prev_edge == SEEM_BE_WIRE) { //conflict
+							if (conflict) {
+								if (y - conflict_idx <= cud_max)
+								for (int i = conflict_idx + 1; i < y; i++) { //mark CONFLICT
+									unsigned char e = edge.at<unsigned char>(i, x);
+									CV_Assert(e == 0xff || e == SEEM_BE_INSU || e == SEEM_BE_WIRE);
+									edge.at<unsigned char>(i, x) = SEEM_CONFLICT;
+								}
+							}
+						}
+					}
+					break;
+
+				case DIR_UP:
+				case SEEM_BE_INSU:
+					if (cur_edge == DIR_DOWN || cur_edge == SEEM_BE_INSU) {
+						if (y - prev_idx > 1 && (cur_edge == SEEM_BE_INSU || prev_edge == SEEM_BE_INSU || y - prev_idx >= iud_min)
+							&& y - prev_idx <= iud_max) {
+							for (int i = prev_idx + 1; i < y; i++) //mark SEEM_BE_INSU
+								edge.at<unsigned char>(i, x) = SEEM_BE_INSU;
+						}
+					}
+					if (cur_edge == SEEM_BE_WIRE) {
+						if (prev_edge == DIR_UP) {
+							conflict = true;
+							conflict_idx = prev_idx;
+						}
+						else { //prev_edge==SEEM_BE_INSU
+							if (conflict) {
+								if (y - conflict_idx <= cud_max)
+								for (int i = conflict_idx + 1; i < y; i++) { //mark CONFLICT
+									unsigned char e = edge.at<unsigned char>(i, x);
+									CV_Assert(e == 0xff || e == SEEM_BE_INSU || e == SEEM_BE_WIRE);
+									edge.at<unsigned char>(i, x) = SEEM_CONFLICT;
+								}
+								conflict_idx = y;
+							}
+							else {
+								conflict = true;
+								conflict_idx = prev_idx;
+							}
+						}
+					}
+					if (cur_edge == DIR_UP) {
+						if (prev_edge == SEEM_BE_INSU) { //conflict
+							if (conflict) {
+								if (y - conflict_idx <= cud_max)
+								for (int i = conflict_idx + 1; i < y; i++) { //mark CONFLICT
+									unsigned char e = edge.at<unsigned char>(i, x);
+									CV_Assert(e == 0xff || e == SEEM_BE_INSU || e == SEEM_BE_WIRE);
+									edge.at<unsigned char>(i, x) = SEEM_CONFLICT;
+								}
+							}
+						}
+					}
+					break;
+				}
+				if (cur_edge == DIR_UP || cur_edge == DIR_DOWN || cur_edge == SEEM_BE_WIRE || cur_edge == SEEM_BE_INSU)
+					prev_edge = cur_edge;
+				else
+					prev_edge = 0xff;
+				if (cur_edge != SEEM_BE_WIRE && cur_edge != SEEM_BE_INSU)
+					conflict = false;
+				prev_idx = y;
+			}
+		}
+	}
+	//4 calculate pdf and determine best Threshold
+	vector<int> stat0(256, 0);
+	vector<int> stat1(256, 0);
+	for (int y = 0; y < edge.rows; y++) {
+		unsigned char * p_vmsk = via_mask.empty() ? NULL : via_mask.ptr<unsigned char>(y);
+		unsigned char * p_edge = edge.ptr<unsigned char>(y);
+		unsigned char * p_img = img.ptr<unsigned char>(y);
+		for (int x = 0; x < edge.cols; x++) 
+		if (p_vmsk == NULL || p_vmsk[x]==0) {
+			if (p_edge[x] == SEEM_BE_WIRE)
+				stat1[p_img[x]]++;
+			if (p_edge[x] == SEEM_BE_INSU)
+				stat0[p_img[x]]++;
+		}
+	}
+	
+	int gv = find_index(d.l[layer].v[idx2].d, (int)GRAY_H1);
+	gv = d.l[layer].v[idx2].d.at<int>(gv, 2);
+	int tot_stat0 = 0, tot_stat1 = 0;
+	float m0 = 0, l0 = 0;
+	for (int i = 0; i < gv; i++) {
+		tot_stat0 += stat0[i];
+		tot_stat1 += stat1[i];
+	}
+	if (tot_stat0 < 300 || tot_stat1 < 300) {
+		qWarning("image_enhance stat too small, tot_stat0=%d, tot_stat1=%d", tot_stat0, tot_stat1);
+		return;
+	}
+	vector<float> f0(256, 0); //f0 is insu PDF
+	vector<float> f1(256, 0); //f1 is wire PDF
+	for (int i = 0; i < gv; i++) {
+		f0[i] = (float) stat0[i] / tot_stat0;
+		l0 += f0[i] * i; 
+		f1[i] = (float) stat1[i] / tot_stat1;
+		m0 += f1[i] * i;
+	}
+	
+	for (int i = 1; i < 256; i++) {		
+		f1[i] += f1[i - 1];
+		f0[255 - i] += f0[256 - i];
+	}
+	CV_Assert(abs(f1[255] - 1) < 0.01 && abs(f0[0] - 1) < 0.01);
+	float min_cost = 2;
+	int gray_th;
+	th_para0 = min(th_para0, 0.80f);
+	th_para0 = max(th_para0, 0.20f);
+	for (int i = 0; i < gv; i++) {
+		float cost = f1[i] * th_para0 + f0[i] * (1 - th_para0) + th_para1 * fabs((m0+l0)/2-i);
+		if (cost < min_cost) {
+			gray_th = i;
+			min_cost = cost;
+		}
+	}
+	qInfo("image_enhance, best_th=%d, l0=%f, m0=%f min_cost=%f with th_para0=%f, th_para1=%f", gray_th, l0, m0, min_cost, th_para0, th_para1);
+	if (gray_th < 10) {
+		qWarning("gray_th too small");
+		return;
+	}
+	//5 enhance image
+	qInfo("image_enhance, original x0=%d, x1=%d, y=%d", enhance_x0, enhance_x1, enhance_y);
+	if (enhance_x1 + enhance_y > gray_th) {
+		float ratio = (float)gray_th / (enhance_x1 + enhance_y);
+		enhance_x1 = enhance_x1 * ratio;
+		enhance_y = enhance_y * ratio;
+	}
+	if (enhance_x1 + enhance_y > 255 - gray_th) {
+		float ratio = (float)(255 - gray_th) / (enhance_x1 + enhance_y);
+		enhance_x1 = enhance_x1 * ratio;
+		enhance_y = enhance_y * ratio;
+	}
+	qInfo("image_enhance, after adjust x1=%d, y=%d, gm=%d, gi=%d", enhance_x1, enhance_y, 
+		gray_th + enhance_x1 + enhance_y, gray_th - enhance_x1 - enhance_y);
+	vector<int> lut1(256), lut0(256);
+	for (int i = 0; i < 256; i++) {
+		lut1[i] = i;
+		lut0[i] = i;
+	}
+	CV_Assert(enhance_x1 + enhance_y <= gray_th && enhance_x1 + enhance_y <= 255 - gray_th);
+	for (int i = 0; i < 256; i++) {
+		if (i >= gray_th - enhance_x1 - enhance_y && i < gray_th + enhance_x0) {
+			if (i < gray_th - enhance_x1)
+				lut0[i] = gray_th - enhance_x1 - enhance_y;
+			else
+				lut0[i] = ((enhance_y + enhance_x0 + enhance_x1) * i - enhance_y* (enhance_x0 + gray_th)) / (enhance_x0 + enhance_x1);
+		}
+		if (i >= gray_th - enhance_x0 && i < gray_th + enhance_x1 + enhance_y) {
+			if (i < gray_th + enhance_x1)
+				lut1[i] = ((enhance_y + enhance_x0 + enhance_x1) * i - enhance_y* (gray_th - enhance_x0)) / (enhance_x0 + enhance_x1);
+			else
+				lut1[i] = gray_th + enhance_x1 + enhance_y;
+		}
+	}
+	if (cpara.method & OPT_DEBUG_EN) {
+		for (int i = 0; i < 20; i++)
+			qDebug("lut0 %3d:%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d\n", lut0[i * 10], lut0[i * 10 + 1], lut0[i * 10 + 2],
+				lut0[i * 10 + 3], lut0[i * 10 + 4], lut0[i * 10 + 5], lut0[i * 10 + 6], lut0[i * 10 + 7], lut0[i * 10 + 8], lut0[i * 10 +9]);
+		for (int i = 0; i < 20; i++)
+			qDebug("lut1 %3d:%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d\n", lut1[i * 10], lut1[i * 10 + 1], lut1[i * 10 + 2],
+			lut1[i * 10 + 3], lut1[i * 10 + 4], lut1[i * 10 + 5], lut1[i * 10 + 6], lut1[i * 10 + 7], lut1[i * 10 + 8], lut1[i * 10 + 9]);
+	}
+
+	for (int y = 0; y < img.rows; y++) {
+		unsigned char * p_img = img.ptr<unsigned char>(y);
+		unsigned char * p_edge = edge.ptr<unsigned char>(y);
+		for (int x = 0; x < img.cols; x++)
+		switch (p_edge[x]) {
+		case SEEM_BE_INSU:
+			p_img[x] = lut0[p_img[x]];
+			break;
+		case SEEM_BE_WIRE:
+			p_img[x] = lut1[p_img[x]];
+			break;
+		}
+	}
+	d.l[layer].ig_valid = false;
+
+	Mat & m = d.l[layer].v[idx2].d;
+	m.at<int>(6, 1) = max(gray_th + enhance_x1 + enhance_y, gv - 10);
+	m.at<int>(6, 2) = lut1[m.at<int>(6, 1)];
+	m.at<int>(5, 1) = gray_th + enhance_x1;
+	m.at<int>(5, 2) = gray_th + enhance_x1 + enhance_y;
+	m.at<int>(4, 1) = gray_th + enhance_x1 / 2;
+	m.at<int>(4, 2) = gray_th + (enhance_x1 + enhance_y)/2;
+	m.at<int>(3, 1) = gray_th - enhance_x1 / 2;
+	m.at<int>(3, 2) = gray_th - (enhance_x1 - enhance_y)/2;
+	m.at<int>(2, 1) = gray_th - enhance_x1;
+	m.at<int>(2, 2) = gray_th - enhance_x1 - enhance_y;
+	m.at<int>(1, 1) = min(gray_th - enhance_x1 - enhance_y, 10);
+	m.at<int>(1, 2) = lut0[m.at<int>(1, 1)];
+
+	if (cpara.method & OPT_DEBUG_EN) {
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = img.clone();
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_enhance.jpg", img);
+		Mat debug_draw;
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
+		CV_Assert(debug_draw.type() == CV_8UC3 && debug_draw.rows == edge.rows && debug_draw.cols == edge.cols);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			unsigned char * p_draw = debug_draw.ptr<unsigned char>(y);
+			unsigned char * p_edge = edge.ptr<unsigned char>(y);
+			for (int x = 0; x < debug_draw.cols; x++) {
+				switch (p_edge[x]) {
+				case SEEM_BE_INSU:
+					p_draw[3 * x + 2] += max(p_draw[3 * x + 2] >> 3, 10); //draw skin red
+					break;
+				case SEEM_BE_WIRE:
+					p_draw[3 * x + 1] += max(p_draw[3 * x + 1] >> 3, 10); //draw skin green
+					break;
+				}
+			}
+		}
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			debug_idx = (debug_idx + 1) & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_enhance_iw.jpg", debug_draw);
+	}
+	
+}
+
 /*     31..24 23..16   15..8   7..0
 opt0:   inc1   inc0   w_long1 w_long0
 opt1:up_prob search_opt  th    w_num
@@ -5892,7 +6887,7 @@ static void coarse_via_search_mask(PipeData & d, ProcessParameter & cpara)
 	mask.create(img.rows, img.cols, CV_32S);
 	mask = Scalar::all(0);
 	d.l[layer].validate_ig();
-	vector<unsigned> record[1025];
+	vector<vector<unsigned> >record(1025);
 	for (int i = 0; i < vnum; i++) {
 		int d1 = -v_wide[i] / 2;
 		int d2 = v_wide[i] - v_wide[i] / 2;
@@ -8187,6 +9182,8 @@ static ObjProcessHook obj_process_translate(ProcessParameter & cpara)
 #define PP_HOTPOINT_SEARCH		12
 #define PP_ASSEMBLE_VIA			13
 #define PP_ASSEMBLE_BRANCH		14
+#define PP_EDGE_DETECT			15
+#define PP_IMAGE_ENHANCE		16
 #define PP_OBJ_PROCESS			254
 
 typedef void(*ProcessFunc)(PipeData & d, ProcessParameter & cpara);
@@ -8199,6 +9196,8 @@ struct PipeProcess {
 	{ PP_COMPUTE_MIN_STAT, imgpp_compute_min_stat },
 	{ PP_ADJUST_GRAY_LVL, imgpp_adjust_gray_lvl },
 	{ PP_COARSE_LINE_SEARCH, coarse_line_search },
+	{ PP_EDGE_DETECT, edge_detect },
+	{ PP_IMAGE_ENHANCE, image_enhance },
 	{ PP_COARSE_VIA_MASK, coarse_via_search_mask },
 	{ PP_FINE_VIA_SEARCH, fine_via_search },
 	{ PP_REMOVE_VIA, remove_via },

@@ -7,6 +7,8 @@
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
 #include <QGuiApplication>
+#include <QScrollArea>
+#include <QScrollBar>
 using namespace std;
 using namespace cv;
 
@@ -834,6 +836,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 {
 	int new_layer = layer;
+	QScrollArea * scroll_view = dynamic_cast <QScrollArea*> (parentWidget()->parentWidget());
 	switch (e->key()) {
 	case Qt::Key_0:
 		if (bk_img.size() > 0)
@@ -875,13 +878,51 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		if (bk_img.size() > 9)
 			new_layer = 9;
 		break;
-	case Qt::Key_PageUp:
-		if (bk_img.size() > layer + 1)
-			new_layer = layer + 1;
+	case Qt::Key_PageUp:				
+		if (scroll_view != NULL) {				
+			int x = scroll_view->horizontalScrollBar()->value() / scale;
+			int y = scroll_view->verticalScrollBar()->value() / scale;
+			set_scale(scale * 2);
+			scroll_view->horizontalScrollBar()->setValue(x*scale);
+			scroll_view->verticalScrollBar()->setValue(y*scale);
+		}		
 		break;
-	case Qt::Key_PageDown:
-		if (layer > 0)
-			new_layer = layer - 1;
+	case Qt::Key_PageDown:		
+		if (scroll_view != NULL) {
+			int x = scroll_view->horizontalScrollBar()->value() / scale;
+			int y = scroll_view->verticalScrollBar()->value() / scale;
+			set_scale(scale / 2);
+			scroll_view->horizontalScrollBar()->setValue(x*scale);
+			scroll_view->verticalScrollBar()->setValue(y*scale);
+		}		
+		break;
+	case Qt::Key_Up:
+		if (scroll_view != NULL && mark_state == SELECT_OBJ && select_idx==-1) {
+			int y = scroll_view->verticalScrollBar()->value();
+			y -= 200;
+			scroll_view->verticalScrollBar()->setValue(y);
+		}
+		break;
+	case Qt::Key_Down:
+		if (scroll_view != NULL && mark_state == SELECT_OBJ && select_idx == -1) {
+			int y = scroll_view->verticalScrollBar()->value();
+			y += 200;
+			scroll_view->verticalScrollBar()->setValue(y);
+		}
+		break;
+	case Qt::Key_Left:
+		if (scroll_view != NULL && mark_state == SELECT_OBJ && select_idx == -1) {
+			int x = scroll_view->horizontalScrollBar()->value();
+			x -= 200;
+			scroll_view->horizontalScrollBar()->setValue(x);
+		}
+		break;
+	case Qt::Key_Right:
+		if (scroll_view != NULL && mark_state == SELECT_OBJ && select_idx == -1) {
+			int x = scroll_view->horizontalScrollBar()->value();
+			x += 200;
+			scroll_view->horizontalScrollBar()->setValue(x);
+		}
 		break;
 	}
 	if (new_layer != layer) {
