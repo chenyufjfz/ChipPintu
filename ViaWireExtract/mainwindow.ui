@@ -190,10 +190,16 @@
    <property name="text">
     <string>Zoom in</string>
    </property>
+   <property name="shortcut">
+    <string>PgDown</string>
+   </property>
   </action>
   <action name="actionZoom_out">
    <property name="text">
     <string>Zoom out</string>
+   </property>
+   <property name="shortcut">
+    <string>PgUp</string>
    </property>
   </action>
   <action name="actionShow_Select">

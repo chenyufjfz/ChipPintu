@@ -1417,11 +1417,17 @@ bool ExtractParam::read_file(string filename)
 				int filter_method = (int)(*it)["filter_method"];
 				int opt1 = (int)(*it)["opt1"];
 				int opt2 = (int)(*it)["opt2"];
+				int opt3 = (int)(*it)["opt3"];
+				int opt4 = (int)(*it)["opt4"];
+				int opt5 = (int)(*it)["opt5"];
 				param.pi[0] = layer;
 				param.pi[1] = debug_opt << 24 | PP_OBJ_PROCESS << 16;
 				param.pi[2] = filter_method << 8 | 1;
 				param.pi[3] = opt1;
 				param.pi[4] = opt2;
+				param.pi[5] = opt3;
+				param.pi[6] = opt4;
+				param.pi[7] = opt5;
 				if (filter_method > 255) {
 					qCritical("ParamItems file error, name=%s, filter=%d", name.c_str(), filter_method);
 					check_pass = false;

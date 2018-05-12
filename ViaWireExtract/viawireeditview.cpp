@@ -878,24 +878,6 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		if (bk_img.size() > 9)
 			new_layer = 9;
 		break;
-	case Qt::Key_PageUp:				
-		if (scroll_view != NULL) {				
-			int x = scroll_view->horizontalScrollBar()->value() / scale;
-			int y = scroll_view->verticalScrollBar()->value() / scale;
-			set_scale(scale * 2);
-			scroll_view->horizontalScrollBar()->setValue(x*scale);
-			scroll_view->verticalScrollBar()->setValue(y*scale);
-		}		
-		break;
-	case Qt::Key_PageDown:		
-		if (scroll_view != NULL) {
-			int x = scroll_view->horizontalScrollBar()->value() / scale;
-			int y = scroll_view->verticalScrollBar()->value() / scale;
-			set_scale(scale / 2);
-			scroll_view->horizontalScrollBar()->setValue(x*scale);
-			scroll_view->verticalScrollBar()->setValue(y*scale);
-		}		
-		break;
 	case Qt::Key_Up:
 		if (scroll_view != NULL && mark_state == SELECT_OBJ && select_idx==-1) {
 			int y = scroll_view->verticalScrollBar()->value();

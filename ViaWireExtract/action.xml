@@ -224,15 +224,15 @@
     <opidx_rv_mask>5</opidx_rv_mask>
     <wlong0>20</wlong0>
     <wlong1>20</wlong1>
-    <inc0>10</inc0>
-    <inc1>10</inc1>
+    <inc0>12</inc0>
+    <inc1>12</inc1>
     <wnum>1</wnum>
     <th>32</th>
     <search_opt>1</search_opt>
     <update_prob>1</update_prob>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <dir0>3</dir0>
+    <dir0>1</dir0>
     <pattern0>1</pattern0></_>  
   <_>
     <name>CoarseLineSearch_103</name>
@@ -243,15 +243,15 @@
     <opidx_rv_mask>5</opidx_rv_mask>
     <wlong0>20</wlong0>
     <wlong1>20</wlong1>
-    <inc0>10</inc0>
-    <inc1>10</inc1>
+    <inc0>12</inc0>
+    <inc1>12</inc1>
     <wnum>1</wnum>
     <th>23</th>
     <search_opt>1</search_opt>
     <update_prob>1</update_prob>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <dir0>3</dir0>
+    <dir0>2</dir0>
     <pattern0>1</pattern0></_>   
   <_>
     <name>CoarseLineSearch_104</name>
@@ -260,17 +260,17 @@
     <opidx_tp>0</opidx_tp>
     <opidx_shadow_prob>3</opidx_shadow_prob>
     <opidx_rv_mask>5</opidx_rv_mask>
-    <wlong0>32</wlong0>
-    <wlong1>32</wlong1>
-    <inc0>16</inc0>
-    <inc1>16</inc1>
+    <wlong0>20</wlong0>
+    <wlong1>20</wlong1>
+    <inc0>12</inc0>
+    <inc1>12</inc1>
     <wnum>1</wnum>
-    <th>32</th>
+    <th>23</th>
     <search_opt>1</search_opt>
     <update_prob>1</update_prob>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <dir0>3</dir0>
+    <dir0>1</dir0>
     <pattern0>1</pattern0>
     <subtype1>1</subtype1>
     <type1>1</type1>
@@ -411,6 +411,39 @@
     <wide4>0</wide4>
     <percent4>0</percent4></_>
   <_>
+  	<name>EdgeDetect_2</name>
+  	<debug_opt>224</debug_opt>
+    <layer>2</layer>
+    <opidx_rv_mask>5</opidx_rv_mask>
+    <opidx_edge_det>6</opidx_edge_det>
+    <detect_opt>7</detect_opt>
+    <ed_long>8</ed_long>
+    <ed_guard>5</ed_guard>
+    <grad_low_l>9</grad_low_l>
+    <grad_high_l>60</grad_high_l>
+    <gi_high_l>45</gi_high_l>
+    <gw_low_l>38</gw_low_l>
+    <gw_high_l>118</gw_high_l>
+    <dw_high_l>15</dw_high_l>
+    <grad_low_r>9</grad_low_r>
+    <grad_high_r>60</grad_high_r>
+    <gi_high_r>45</gi_high_r>
+    <gw_low_r>38</gw_low_r>
+    <gw_high_r>118</gw_high_r>
+    <dw_high_r>15</dw_high_r>
+    <grad_low_u>9</grad_low_u>
+    <grad_high_u>60</grad_high_u>
+    <gi_high_u>45</gi_high_u>
+    <gw_low_u>38</gw_low_u>
+    <gw_high_u>118</gw_high_u>
+    <dw_high_u>15</dw_high_u>
+    <grad_low_d>9</grad_low_d>
+    <grad_high_d>60</grad_high_d>
+    <gi_high_d>45</gi_high_d>
+    <gw_low_d>38</gw_low_d>
+    <gw_high_d>118</gw_high_d>
+    <dw_high_d>15</dw_high_d></_>    
+  <_>
   	<name>EdgeDetect_3</name>
   	<debug_opt>224</debug_opt>
     <layer>3</layer>
@@ -431,13 +464,13 @@
     <gw_low_r>64</gw_low_r>
     <gw_high_r>118</gw_high_r>
     <dw_high_r>7</dw_high_r>
-    <grad_low_u>7</grad_low_u>
+    <grad_low_u>6</grad_low_u>
     <grad_high_u>30</grad_high_u>
     <gi_high_u>68</gi_high_u>
     <gw_low_u>64</gw_low_u>
     <gw_high_u>118</gw_high_u>
     <dw_high_u>7</dw_high_u>
-    <grad_low_d>7</grad_low_d>
+    <grad_low_d>6</grad_low_d>
     <grad_high_d>30</grad_high_d>
     <gi_high_d>68</gi_high_d>
     <gw_low_d>64</gw_low_d>
@@ -455,25 +488,25 @@
     <grad_low_l>3</grad_low_l>
     <grad_high_l>16</grad_high_l>
     <gi_high_l>38</gi_high_l>
-    <gw_low_l>35</gw_low_l>
+    <gw_low_l>33</gw_low_l>
     <gw_high_l>60</gw_high_l>
     <dw_high_l>5</dw_high_l>
     <grad_low_r>3</grad_low_r>
     <grad_high_r>16</grad_high_r>
     <gi_high_r>38</gi_high_r>
-    <gw_low_r>35</gw_low_r>
+    <gw_low_r>33</gw_low_r>
     <gw_high_r>60</gw_high_r>
     <dw_high_r>5</dw_high_r>
     <grad_low_u>3</grad_low_u>
     <grad_high_u>16</grad_high_u>
     <gi_high_u>38</gi_high_u>
-    <gw_low_u>35</gw_low_u>
+    <gw_low_u>33</gw_low_u>
     <gw_high_u>60</gw_high_u>
     <dw_high_u>5</dw_high_u>
     <grad_low_d>3</grad_low_d>
     <grad_high_d>16</grad_high_d>
     <gi_high_d>38</gi_high_d>
-    <gw_low_d>35</gw_low_d>
+    <gw_low_d>33</gw_low_d>
     <gw_high_d>60</gw_high_d>
     <dw_high_d>5</dw_high_d></_>      
   <_>
@@ -488,13 +521,18 @@
     <debug_opt>0</debug_opt>
     <layer>-1</layer>
     <filter_method>1</filter_method>
-    <opt1>30</opt1>
-    <opt2>20</opt2></_>    
+    <opt1>25</opt1>
+    <opt2>35</opt2></_>    
   <_>
     <name>ShapeCheck_202</name>
     <debug_opt>0</debug_opt>
     <layer>-1</layer>
-    <filter_method>2</filter_method></_>      
+    <filter_method>2</filter_method>
+    <opt1>50</opt1>
+    <opt2>35</opt2>
+    <opt3>3</opt3>
+    <opt4>9</opt4>
+    <opt5>1</opt5></_>      
   <_>
     <name>ShapeCheck_301</name>
     <debug_opt>0</debug_opt>
@@ -619,7 +657,7 @@
     <update_fv>1</update_fv>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <th0>40</th0>
+    <th0>38</th0>
     <pattern0>254</pattern0>
     <subtype1>0</subtype1>
     <type1>0</type1>
@@ -645,15 +683,15 @@
     <opidx_via_mask>1</opidx_via_mask>
     <opidx_via_info>2</opidx_via_info>
     <opidx_shadow_prob>3</opidx_shadow_prob>
-    <vnum>1</vnum>
+    <vnum>2</vnum>
     <update_fv>1</update_fv>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <th0>40</th0>
+    <th0>38</th0>
     <pattern0>254</pattern0>
-    <subtype1>0</subtype1>
-    <type1>0</type1>
-    <th1>32</th1>
+    <subtype1>3</subtype1>
+    <type1>2</type1>
+    <th1>38</th1>
     <pattern1>254</pattern1>
     <subtype2>0</subtype2>
     <type2>0</type2>
@@ -679,7 +717,7 @@
     <update_fv>1</update_fv>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <th0>40</th0>
+    <th0>38</th0>
     <pattern0>254</pattern0>
     <subtype1>0</subtype1>
     <type1>0</type1>
@@ -730,14 +768,14 @@
   <_>
     <name>LayerInfo_1</name>
     <debug_opt>0</debug_opt>
-    <layer>1</layer>
+    <layer>-1</layer>
     <gs>5</gs>
     <border_size>48</border_size>
     <computer_border>30</computer_border>
-    <via_connect>8</via_connect>
-    <via_merge>7</via_merge>
-    <wire_connect>7</wire_connect>
-    <wire_merge>7</wire_merge>
+    <via_connect>13</via_connect>
+    <via_merge>13</via_merge>
+    <wire_connect>11</wire_connect>
+    <wire_merge>11</wire_merge>
     <end_wire>20</end_wire></_>
   <_>
     <name>LayerInfo_2</name>
@@ -805,6 +843,7 @@
     <name>GrayLevel_2</name>
     <debug_opt>208</debug_opt>
     <layer>2</layer>
+    <gray_lvl_opt>1</gray_lvl_opt>
     <opidx_tp>0</opidx_tp>
     <low_sep_min>0</low_sep_min>
     <low_sep_max>33</low_sep_max>
@@ -820,7 +859,7 @@
     <mid_k0>25</mid_k0>
     <mid_k1>100</mid_k1>
     <mid_k2>100</mid_k2>
-    <high_sep_min>200</high_sep_min>
+    <high_sep_min>210</high_sep_min>
     <high_sep_max>255</high_sep_max>
     <high_win>20</high_win>
     <high_dis_min>3</high_dis_min>
@@ -847,7 +886,7 @@
     <mid_k0>30</mid_k0>
     <mid_k1>100</mid_k1>
     <mid_k2>100</mid_k2>
-    <high_sep_min>230</high_sep_min>
+    <high_sep_min>210</high_sep_min>
     <high_sep_max>255</high_sep_max>
     <high_win>32</high_win>
     <high_dis_min>3</high_dis_min>
@@ -874,7 +913,7 @@
     <mid_k0>30</mid_k0>
     <mid_k1>100</mid_k1>
     <mid_k2>100</mid_k2>
-    <high_sep_min>250</high_sep_min>
+    <high_sep_min>210</high_sep_min>
     <high_sep_max>255</high_sep_max>
     <high_win>32</high_win>
     <high_dis_min>3</high_dis_min>
@@ -1067,6 +1106,29 @@
     <clong0>30</clong0>
     <cwide0>4</cwide0></_>
   <_>
+    <name>ImageEnhance_2</name>
+    <debug_opt>240</debug_opt>
+    <layer>2</layer>
+    <opidx_rv_mask>5</opidx_rv_mask>
+    <opidx_edge_det>6</opidx_edge_det>
+    <opidx_tp>0</opidx_tp>
+    <enhance_opt>1</enhance_opt>
+    <extend_len>2</extend_len>
+    <extend_guard>3</extend_guard>
+    <wlr_min>5</wlr_min>
+    <wlr_max>30</wlr_max>
+    <ilr_min>5</ilr_min>
+    <ilr_max>50</ilr_max>
+    <wud_min>5</wud_min>
+    <wud_max>30</wud_max>
+    <iud_min>5</iud_min>
+    <iud_max>50</iud_max>
+    <th_para0>50</th_para0>
+    <th_para1>1</th_para1>
+    <enhance_x0>5</enhance_x0>
+    <enhance_x1>6</enhance_x1>
+    <enhance_y>22</enhance_y></_>     
+  <_>
     <name>ImageEnhance_3</name>
     <debug_opt>240</debug_opt>
     <layer>3</layer>
@@ -1149,7 +1211,7 @@
     <layer_num>2</layer_num>  
     <connect_rd>2</connect_rd>  
     <swide_min>6</swide_min>
-    <cgray_ratio>80</cgray_ratio>
+    <cgray_ratio>70</cgray_ratio>
     <v_type>1</v_type>
     <assemble_opt>2</assemble_opt></_>  
   <_>   
@@ -1209,18 +1271,18 @@
   <_>
     <name>RemoveVia_2</name>
     <debug_opt>208</debug_opt>
-    <layer>-1</layer>
+    <layer>2</layer>
     <opidx_via_info>2</opidx_via_info>
     <opidx_rv_mask>5</opidx_rv_mask>
-    <vnum>1</vnum>
-    <check_len>16</check_len>
-    <default_dir>255</default_dir>
+    <vnum>2</vnum>
+    <check_len>1</check_len>
+    <default_dir>10</default_dir>
     <remove_opt>3</remove_opt>
     <subtype0>3</subtype0>
     <type0>1</type0>
     <pattern0>254</pattern0>
-    <subtype1>0</subtype1>
-    <type1>0</type1>
+    <subtype1>3</subtype1>
+    <type1>2</type1>
     <pattern1>254</pattern1>
     <subtype2>0</subtype2>
     <type2>0</type2>
@@ -1238,10 +1300,10 @@
     <opidx_via_info>2</opidx_via_info>
     <opidx_rv_mask>5</opidx_rv_mask>
     <vnum>1</vnum>
-    <check_len>16</check_len>
-    <default_dir>255</default_dir>
-    <remove_opt>7</remove_opt>
-    <subtype0>4</subtype0>
+    <check_len>1</check_len>
+    <default_dir>5</default_dir>
+    <remove_opt>3</remove_opt>
+    <subtype0>3</subtype0>
     <type0>1</type0>
     <pattern0>254</pattern0>
     <subtype1>0</subtype1>
@@ -1294,23 +1356,47 @@
     <shape>254</shape>
     <type>1</type>
     <subtype>3</subtype>
-    <guard>10</guard>
-    <remove_rd>15</remove_rd>
+    <guard>16</guard>
+    <remove_rd>16</remove_rd>
     <arfactor>50</arfactor>
     <pair_d>0</pair_d>
     <connect_rd>10</connect_rd>
     <cgray_d>2</cgray_d>
     <cgray_ratio>80</cgray_ratio>
-    <connect_d>13</connect_d>
+    <connect_d>15</connect_d>
     <rd0>9</rd0>
     <rd1>14</rd1>
     <rd2>10</rd2>
     <rd3>10</rd3>
-    <gray0>8</gray0>
+    <gray0>7</gray0>
     <gray1>5</gray1>
     <gray2>1</gray2>
     <gray3>0</gray3>
     <swide_min>6</swide_min></_>
+  <_>
+    <name>ViaInfo_21</name>
+    <debug_opt>192</debug_opt>
+    <layer>2</layer>
+    <shape>254</shape>
+    <type>2</type>
+    <subtype>3</subtype>
+    <guard>16</guard>
+    <remove_rd>16</remove_rd>
+    <arfactor>50</arfactor>
+    <pair_d>0</pair_d>
+    <connect_rd>10</connect_rd>
+    <cgray_d>2</cgray_d>
+    <cgray_ratio>80</cgray_ratio>
+    <connect_d>15</connect_d>
+    <rd0>10</rd0>
+    <rd1>14</rd1>
+    <rd2>10</rd2>
+    <rd3>10</rd3>
+    <gray0>7</gray0>
+    <gray1>5</gray1>
+    <gray2>1</gray2>
+    <gray3>0</gray3>
+    <swide_min>6</swide_min></_>    
   <_>
     <name>ViaInfo_3</name>
     <debug_opt>192</debug_opt>
@@ -1319,10 +1405,10 @@
     <type>1</type>
     <subtype>3</subtype>
     <guard>18</guard>
-    <remove_rd>15</remove_rd>
+    <remove_rd>16</remove_rd>
     <arfactor>50</arfactor>
     <pair_d>0</pair_d>
-    <connect_rd>11</connect_rd>
+    <connect_rd>10</connect_rd>
 	<cgray_d>2</cgray_d>
     <cgray_ratio>80</cgray_ratio>
     <connect_d>15</connect_d>
@@ -1330,7 +1416,7 @@
     <rd1>15</rd1>
     <rd2>12</rd2>
     <rd3>10</rd3>
-    <gray0>8</gray0>
+    <gray0>7</gray0>
     <gray1>5</gray1>
     <gray2>5</gray2>
     <gray3>0</gray3>
@@ -1377,8 +1463,8 @@
     <slen_max>200</slen_max>
     <slen_min>10</slen_min>
     <mth_high>78</mth_high>
-    <mth_low>40</mth_low>
-    <s_th>80</s_th></_>  
+    <mth_low>45</mth_low>
+    <s_th>70</s_th></_>  
   <_>
     <name>WireInfo_6</name>
     <debug_opt>128</debug_opt>
@@ -1386,7 +1472,7 @@
     <pattern>1</pattern>
     <type>1</type>
     <subtype>3</subtype>
-    <guard>9</guard>
+    <guard>10</guard>
     <arfactor>50</arfactor>
     <i_wide>6</i_wide>
     <i_high>5</i_high>
@@ -1397,8 +1483,8 @@
     <slen_max>200</slen_max>
     <slen_min>10</slen_min>
     <mth_high>70</mth_high>
-    <mth_low>40</mth_low>
-    <s_th>80</s_th></_> 
+    <mth_low>45</mth_low>
+    <s_th>65</s_th></_> 
   <_>
     <name>WireInfo_8</name>
     <debug_opt>128</debug_opt>
@@ -1406,19 +1492,19 @@
     <pattern>1</pattern>
     <type>1</type>
     <subtype>3</subtype>
-    <guard>9</guard>
+    <guard>12</guard>
     <arfactor>50</arfactor>
     <i_wide>6</i_wide>
     <i_high>5</i_high>
-    <mwide_max>13</mwide_max>
-    <mwide_min>10</mwide_min>
+    <mwide_max>15</mwide_max>
+    <mwide_min>9</mwide_min>
     <swide_max>20</swide_max>
     <swide_min>5</swide_min>
     <slen_max>200</slen_max>
     <slen_min>10</slen_min>
     <mth_high>70</mth_high>
     <mth_low>40</mth_low>
-    <s_th>80</s_th></_>
+    <s_th>70</s_th></_>
   <_>
     <name>WireInfo_9</name>
     <debug_opt>128</debug_opt>
@@ -1458,7 +1544,7 @@
   <_>
     <name>action_all_layer</name>
     <items>
-      layer1_via layer2_via_wire layer3_via_wire</items></_>
+      layer1_via layer2_via_wire layer3_via_wire layer4_wire</items></_>
   <_>
     <name>layer1_via</name>
     <items>
@@ -1466,22 +1552,22 @@
   <_>
     <name>layer2_via</name>
     <items>
-      GrayLevel_2 LayerInfo_2 CoarseViaSearch_2 ViaInfo_2 FineViasSearch_2</items></_>
+      GrayLevel_2 LayerInfo_1 CoarseViaSearch_2 ViaInfo_2 ViaInfo_21 FineViasSearch_2</items></_>
   <_>
     <name>layer2_via_wire</name>
     <items>
-      layer2_via WireInfo_4 RemoveVia_2 CoarseLineSearch_102 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>
+      layer2_via WireInfo_4 RemoveVia_2 EdgeDetect_2 ImageEnhance_2 CoarseLineSearch_102 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>
   <_>
     <name>layer3_via</name>
     <items>
-      GrayLevel_3 LayerInfo_3 CoarseViaSearch_3 ViaInfo_3 FineViasSearch_3</items></_>
+      GrayLevel_3 LayerInfo_1 CoarseViaSearch_3 ViaInfo_3 FineViasSearch_3</items></_>
   <_>
     <name>layer3_via_wire</name>
     <items>
-      layer3_via WireInfo_6 RemoveVia_2 EdgeDetect_3 ImageEnhance_3 CoarseLineSearch_103 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>      
+      layer3_via WireInfo_6 RemoveVia_3 EdgeDetect_3 ImageEnhance_3 CoarseLineSearch_103 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>      
   <_>
     <name>layer4_wire</name>
     <items>
-      GrayLevel_4 LayerInfo_4 WireInfo_8 EdgeDetect_4 ImageEnhance_4</items></_>
+      GrayLevel_4 LayerInfo_1 WireInfo_8 EdgeDetect_4 ImageEnhance_4 CoarseLineSearch_104 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>
 </ParamSets>    
 </opencv_storage>
