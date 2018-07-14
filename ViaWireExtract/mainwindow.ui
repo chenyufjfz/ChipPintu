@@ -211,10 +211,16 @@
    <property name="text">
     <string>Set Param</string>
    </property>
+   <property name="shortcut">
+    <string>F7</string>
+   </property>
   </action>
   <action name="actionExtract">
    <property name="text">
     <string>Extract</string>
+   </property>
+   <property name="shortcut">
+    <string>F8</string>
    </property>
   </action>
   <action name="actionMark_Cell">

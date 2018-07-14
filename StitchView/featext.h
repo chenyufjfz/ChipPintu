@@ -2,6 +2,7 @@
 #define FEATEXT_H
 
 #include <string>
+#include <math.h>
 #include "opencv2/imgproc/imgproc.hpp"
 
 using namespace cv;
@@ -14,13 +15,31 @@ public:
 	int canny_high_th;
 	int canny_low_th;
 	int sobel_w;
+	int sobel_th;
+	int edge_dialte;
+	float alpha;
+	char lut[256];
 public:
+	TuningPara() {
+		bfilt_w = 8;
+		bfilt_csigma = 20;
+		canny_high_th = 30;
+		canny_low_th = 15;
+		sobel_w = 3;
+		sobel_th = 0;
+		alpha = 1;	
+		edge_dialte = 1;
+	}
+
 	void read_file(const FileNode& node) {
 		bfilt_w = (int)node["bfilt_w"];
 		bfilt_csigma = (int)node["bfilt_csigma"];
 		canny_high_th = (int)node["canny_high_th"];
 		canny_low_th = (int)node["canny_low_th"];
 		sobel_w = (int)node["sobel_w"];
+		sobel_th = (int)node["sobel_th"];
+		alpha = (float)node["alpha"];
+		edge_dialte = (int)node["edge_dialte"];
 	}
 
 	void write_file(FileStorage& fs) const {
@@ -28,7 +47,19 @@ public:
 		fs << "bfilt_csigma" << bfilt_csigma;
 		fs << "canny_high_th" << canny_high_th;
 		fs << "canny_low_th" << canny_low_th;
-		fs << "sobel_w" << sobel_w << "}";
+		fs << "sobel_w" << sobel_w;
+		fs << "sobel_th" << sobel_th;
+		fs << "alpha" << alpha;
+		fs << "edge_dialte" << edge_dialte << "}";
+	}
+
+	void recompute_lut() {
+		for (int i = 0; i < sizeof(lut) / sizeof(lut[0]); i++) {
+			if (i <= sobel_th)
+				lut[i] = 0;
+			else
+				lut[i] = pow(i - sobel_th, alpha) + 0.5;
+		}	
 	}
 };
 

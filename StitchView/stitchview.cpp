@@ -147,11 +147,15 @@ void StitchView::paintEvent(QPaintEvent *)
 						map_it->second.plist--;
 						Q_ASSERT(*(map_it->second.plist) == map_id);
 						char file_name[200];
-						sprintf(file_name, "%s/%d_%d.jpg", cpara[layer].img_path.c_str(), y + 1, x + 1);
+						sprintf(file_name, "%s%d_%d.jpg", cpara[layer].img_path.c_str(), y + 1, x + 1);
 						qDebug("loadImage, %s", file_name);
 						ifstream fs;
 						int length;
 						fs.open(file_name, ios::binary);	// open input file  
+						if (!fs.good()) {
+							QMessageBox::information(this, "Info", "File not exist");
+							exit(-1);
+						}
 						fs.seekg(0, ios::end);				// go to the end  
 						length = fs.tellg();				// report location (this is the length)  
 						fs.seekg(0, ios::beg);				// go to the begin
@@ -445,6 +449,7 @@ int StitchView::set_tune_para(int _layer, const TuningPara & _tpara)
 	if (_layer >= tpara.size() || _layer < 0)
 		return -1;
 	tpara[_layer] = _tpara;
+	tpara[_layer].recompute_lut();
 	return 0;
 }
 

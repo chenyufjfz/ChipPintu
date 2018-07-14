@@ -6,7 +6,7 @@
 #define NOT_VISIT	0
 #define VISIT		1
 
-//state for edge
+//state for edge, Free means it can move with bundle freely, merged means it is bundle internal edge
 #define FREE	0
 #define MERGED	1
 #define SHARED	2
@@ -79,6 +79,11 @@ void BundleAdjust::release_new_eds()
 	}
 }
 
+/*
+input fet,
+input _img_num_h, if < 0, img_num_h = fet.cpara.img_num_h
+input _img_num_w, if < 0, img_num_w = fet.cpara.img_num_w
+*/
 void BundleAdjust::init(FeatExt & fet, int _img_num_h, int _img_num_w)
 {
 	ConfigPara cpara = fet.get_config_para();
@@ -119,6 +124,11 @@ void BundleAdjust::init(FeatExt & fet, int _img_num_h, int _img_num_w)
 	edge_mqueue.sort();
 }
 
+/*
+Input fet
+Input ed
+Add new edge diff to edge_mqueue
+*/
 void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 {
 	map<unsigned, Edge *> share_edges;
@@ -163,25 +173,27 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 			if (img_d == NULL)
 				continue;
 			unsigned ei2 = img->get_edge_idx(dir);
-			Edge * e2 = get_edge(ei2);
+			Edge * e2 = get_edge(ei2); //e2 is between img and img_d
 			CV_Assert(e2 != NULL);
 			if (img_d->bundle_idx == dead_bdx) {
-				if (img_d->state == NOT_VISIT) {
-					img_d->state = VISIT;
-					img_d->offset += oo;		//recompute dead img offset 
+				if (img_d->state == NOT_VISIT) { //At first all image state is NOT_VISIT, 
+					img_d->state = VISIT;	//merge img_d
+					img_d->offset += oo;		//recompute dead img offset based on new bundle
 					visit_img.push_back(img_d);
 					CV_Assert(e2->state == MERGED);
 				}
 			} else
 				if (img_d->bundle_idx == killer_bdx) {
 					CV_Assert(img_d->state == NOT_VISIT);
-					e2->state = MERGED;
+					e2->state = MERGED; 
+					//following compute merge cost
 					EdgeDiff * oed = fet.get_edge(ei2);
 					Point edge_o = img_d->offset - img->offset;
 					if (dir == DIR_UP || dir == DIR_LEFT)
 						edge_o = -edge_o;
-					e2->score = oed->get_diff(edge_o, scale);
-					max_merge_ed = max(e2->score, max_merge_ed);
+					CV_Assert(edge_o.y + edge_o.x > 0);
+					e2->score = oed->get_diff(edge_o, scale); //e2 score is e2 merge cost, big is bad
+					max_merge_ed = max(e2->score, max_merge_ed); //compute max_merge_ed for confirm edge merge
 				}
 				else {
 					if (e2->state == FREE) {
@@ -211,7 +223,7 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 			if (img_d == NULL)
 				continue;
 			unsigned ei2 = img->get_edge_idx(dir);
-			Edge * e1 = get_edge(ei2);
+			Edge * e1 = get_edge(ei2); //e1 is between img_d and img
 			CV_Assert(e1 != NULL);
 			if (img_d->bundle_idx == killer_bdx) {
 				if (img_d->state == NOT_VISIT) {
@@ -226,7 +238,7 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 				else 
 					if (e1->state == FREE) {
 						map<unsigned, Edge *>::iterator iter = share_edges.find(img_d->bundle_idx);
-						if (iter != share_edges.end()) {
+						if (iter != share_edges.end()) { //e1 has share edge in dead image, recompute edge diff
 							Edge * e2 = iter->second;							
 							if (e1->diff == fet.get_edge(e1->diff->edge_idx)) {
 								e1->diff = e1->diff->clone();

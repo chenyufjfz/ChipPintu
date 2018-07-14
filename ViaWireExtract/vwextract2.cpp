@@ -2046,18 +2046,18 @@ public:
 		if (draw_main_bch) {
 			sbs.reserve(bs.size() * 2);
 			sbs.resize(bs.size());
-			for (int i = 1; i < (int)bs.size(); i++) {	
+			for (int i = 1; i < (int)bs.size(); i++) {
 				CV_Assert(bs[i].idx == i);
 				if (bs[i].dir >= 0) { //draw main branch
 					bs[i].compute_main_branch(sbs);
-					vector<int> link_bch;					
+					vector<int> link_bch;
 					draw_mark2_line(sbs[bs[i].idx].bch.first, sbs[bs[i].idx].bch.second, bs[i].idx, link_bch, true);
 					CV_Assert(bs[i].idx == i);
 					for (int j = 0; j < link_bch.size(); j++) {
 						sbs[i].push_dc(link_bch[j]);
 						sbs[link_bch[j]].push_dc(i);
 						Point pis;
-						bool ret=intersect_line(sbs[i].bch.first, sbs[i].dir, sbs[link_bch[j]].bch.first, sbs[link_bch[j]].dir, pis);
+						bool ret = intersect_line(sbs[i].bch.first, sbs[i].dir, sbs[link_bch[j]].bch.first, sbs[link_bch[j]].dir, pis);
 						if (ret)
 							add_joint_point(pis, pis, i, pis, pis, link_bch[j], GUARD_FOR_JOINT, 0, 20);
 					}
@@ -2334,7 +2334,7 @@ public:
 					wire.prob = sbs[i].prob; // (j == 0 || j == sbs[i].final_out.size()) ? 0.5 : 1;
 					wire.p0 = QPoint(p0.x, p0.y);
 					wire.p1 = QPoint(p1.x, p1.y);
-					if (p0!=p1)
+					if (p0 != p1)
 						obj_sets.push_back(wire);
 					p0 = p1;
 				}
@@ -2520,8 +2520,8 @@ public:
 
 		vector<CbchLink> cbch_set(sbs.size() - local_sbs_num);
 		//3 now ml_set and mv_set contain all overlap obj, now delete same via
-		for (int i = local_ov_via_num; i < (int) mv_set.size(); i++) {
-			CV_Assert(mv_set[i] >= local_sbs_num && sbs[mv_set[i]].state !=BranchMeta::ALEADY_OUTPUT);
+		for (int i = local_ov_via_num; i < (int)mv_set.size(); i++) {
+			CV_Assert(mv_set[i] >= local_sbs_num && sbs[mv_set[i]].state != BranchMeta::ALEADY_OUTPUT);
 			int find = -1;
 			for (int j = 0; j < local_ov_via_num; j++)
 			if (sbs[mv_set[i]].dir == sbs[mv_set[j]].dir && POINT_DIS(sbs[mv_set[i]].bch.first, sbs[mv_set[j]].bch.first) <= guard4) {
@@ -2556,7 +2556,7 @@ public:
 			}
 		}
 		//4 delete same wire		
-		for (int i = local_ov_wire_num; i < ml_set.size(); i++) {			
+		for (int i = local_ov_wire_num; i < ml_set.size(); i++) {
 			BranchMeta & bm = sbs[ml_set[i]];
 			CV_Assert(ml_set[i] >= local_sbs_num && bm.state != BranchMeta::ALEADY_OUTPUT);
 #if 0
@@ -2630,7 +2630,7 @@ public:
 					k = sbs[k].map_bra;
 				if (k<0 || k == ml_set[i]) {
 					if (k<0)
-						qCritical("merge extend found invalid map_bra (%d,%d) (%d,%d)", 
+						qCritical("merge extend found invalid map_bra (%d,%d) (%d,%d)",
 						sbs[cbch[j]].bch.first.x, sbs[cbch[j]].bch.first.y, sbs[cbch[j]].bch.second.x, sbs[cbch[j]].bch.second.y);
 					continue;
 				}
@@ -2655,7 +2655,7 @@ public:
 					k = sbs[k].map_bra;
 				if (k<0 || k == ml_set[i]) {
 					if (k<0)
-						qCritical("merge cover found invalid map_bra (%d,%d) (%d,%d)", 
+						qCritical("merge cover found invalid map_bra (%d,%d) (%d,%d)",
 						sbs[cbch[j]].bch.first.x, sbs[cbch[j]].bch.first.y, sbs[cbch[j]].bch.second.x, sbs[cbch[j]].bch.second.y);
 					continue;
 				}
@@ -2682,7 +2682,7 @@ public:
 			cbch_set[ml_set[i] - local_sbs_num].cbch_link.swap(cbch_link);
 		}
 		//4.4 Then merge and delete cover line further
-		for (int i = local_ov_wire_num; i < (int)ml_set.size(); i++) 
+		for (int i = local_ov_wire_num; i < (int)ml_set.size(); i++)
 		if (sbs[ml_set[i]].state != BranchMeta::ALEADY_OUTPUT) {
 			CV_Assert(ml_set[i] >= local_sbs_num);
 			BranchMeta & bm = sbs[ml_set[i]];
@@ -2724,7 +2724,7 @@ public:
 		}
 		qInfo("merge finish delete same");
 		//5 Now all same via & wire are deleted, cut parallel intersect line
-		for (int i = local_ov_wire_num; i < (int)ml_set.size(); i++) 
+		for (int i = local_ov_wire_num; i < (int)ml_set.size(); i++)
 		if (sbs[ml_set[i]].state != BranchMeta::ALEADY_OUTPUT){
 			CV_Assert(ml_set[i] >= local_sbs_num);
 			BranchMeta & bm = sbs[ml_set[i]];
@@ -2743,7 +2743,7 @@ public:
 					k = sbs[k].map_bra;
 				if (k < 0 || k == ml_set[i]) {
 					if (k<0)
-						qCritical("merge parallel cut found invalid map_bra (%d,%d) (%d,%d)", 
+						qCritical("merge parallel cut found invalid map_bra (%d,%d) (%d,%d)",
 						sbs[cbch[j]].bch.first.x, sbs[cbch[j]].bch.first.y, sbs[cbch[j]].bch.second.x, sbs[cbch[j]].bch.second.y);
 					continue;
 				}
@@ -2880,14 +2880,14 @@ public:
 			sbs[i].fa_idx = sbs[i].idx;
 
 		//7 delete double via-wire connected
-		for (int j = 0; j < (int)sbs.size(); j++) 
+		for (int j = 0; j < (int)sbs.size(); j++)
 		if (sbs[j].dir<0 && sbs[j].dc.size() == 2) {
 			int k1 = sbs[j].dc[0];
 			int k2 = sbs[j].dc[1];
-			if (sbs[k1].dir >= 0 && sbs[k2].dir >= 0 && sbs[k1].dir!=sbs[k2].dir && dir_1[sbs[k1].dir]!=sbs[k2].dir) {
+			if (sbs[k1].dir >= 0 && sbs[k2].dir >= 0 && sbs[k1].dir != sbs[k2].dir && dir_1[sbs[k1].dir] != sbs[k2].dir) {
 				int d1 = sbs[k1].distance(sbs[j].bch.first);
 				int d2 = sbs[k2].distance(sbs[j].bch.first);
-				if (EXIST(sbs[k1].dc, k2)) {						
+				if (EXIST(sbs[k1].dc, k2)) {
 					if (d2 > 0 && d1 > 0) {
 						if (d1 < d2) {
 							sbs[j].del_dc(k2);
@@ -2897,7 +2897,7 @@ public:
 							sbs[j].del_dc(k1);
 							sbs[k1].del_dc(j);
 						}
-					}						
+					}
 				}
 				else {
 					if (d2 > 0 && d1 > 0 && d1 <= 3 && d2 <= 3) {
@@ -2915,7 +2915,7 @@ public:
 				}
 			}
 		}
-		
+
 		//8 change other sbs too
 		for (int i = 1; i < o.sbs.size(); i++)
 		if (o.sbs[i].state == BranchMeta::MERGED) {
@@ -2927,7 +2927,7 @@ public:
 				while (k >= 0 && sbs[k].state == BranchMeta::ALEADY_OUTPUT)
 					k = sbs[k].map_bra;
 				if (k < 0) {
-					qCritical("Merge meet invalid map_bra (%d,%d) (%d,%d)", 
+					qCritical("Merge meet invalid map_bra (%d,%d) (%d,%d)",
 						o.sbs[i].bch.first.x, o.sbs[i].bch.first.y, o.sbs[i].bch.second.x, o.sbs[i].bch.second.y);
 					continue;
 				}
@@ -3675,7 +3675,7 @@ class ViaCircleRemove : public ViaRemove {
 protected:
 	vector<int> d2;
 	int gd, connect_rd, remove_rd, connect_d;
-	Mat ig;	
+	Mat ig;
 	vector< vector<int> > offset[4];
 	vector<int> avg[4];
 	Point corner[4][2];
@@ -3700,7 +3700,7 @@ public:
 		corner[2][1] = Point(connect_d / 2, remove_rd);
 		corner[3][0] = Point(-remove_rd, -connect_d / 2);
 		corner[3][1] = Point(-remove_rd, connect_d / 2);
-		for (int i = 0; i < 4; i++) {	
+		for (int i = 0; i < 4; i++) {
 			offset[i].clear();
 			Point oxy, dxy;
 			for (int l = connect_rd; l <= remove_rd; l++) {
@@ -3741,11 +3741,11 @@ public:
 			Point corner1 = center + corner[i][1];
 			if (corner0.x >= 0 && corner0.y >= 0 && corner0.x < img.cols && corner0.y < img.rows &&
 				corner1.x >= 0 && corner1.y >= 0 && corner1.x < img.cols && corner1.y < img.rows) {
-				for (int l = 0; l < (int) offset[i].size(); l++) {		
+				for (int l = 0; l < (int)offset[i].size(); l++) {
 					if (erode_len >= 1 && (dir & 1 << i))
 					for (int j = 0; j < (int)offset[i][l].size(); j++) {
 						unsigned char min_img = p_img[offset[i][l][j]];
-						for (int m = 1; m <= erode_len && l + m < offset[i].size() ; m++)
+						for (int m = 1; m <= erode_len && l + m < offset[i].size(); m++)
 							min_img = min(min_img, p_img[offset[i][l + m][j]]);
 						p_img[offset[i][l][j]] = min_img;
 					}
@@ -4847,7 +4847,7 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	int idx0 = cpara.method_opt & 0xf;
 	qInfo("imgpp_adjust_gray_lvl l=%d, tp_idx=%d", layer, idx0);
 	d.l[layer].v[idx0].type = TYPE_GRAY_LEVEL;
-	
+
 	struct {
 		int sep_min, sep_max;
 		int wsize;
@@ -4914,8 +4914,8 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 		m.at<int>(9, 0) = GRAY_H2;
 		m.at<int>(9, 1) = lmh[2].sep_max;
 		m.at<int>(9, 2) = lmh[2].sep_max;
-		m.at<int>(9, 3) = 0;  
-		m.at<int>(9, 4) = 0;  
+		m.at<int>(9, 3) = 0;
+		m.at<int>(9, 4) = 0;
 		m.at<int>(10, 0) = GRAY_FULL;
 		m.at<int>(10, 1) = 255;
 		m.at<int>(10, 2) = m.at<int>(9, 2);
@@ -4930,7 +4930,7 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 			stat[256]++;
 		}
 	}
-	
+
 	if (cpara.method & OPT_DEBUG_EN) {
 		qDebug("imgpp_adjust_gray_lvl gray distribution");
 		for (int i = 0; i < 32; i++) {
@@ -5073,15 +5073,15 @@ struct WireDetectInfo {
 /*		31..24  23..16   15..8   7..0
 opt0:		    ed_guard ed_long detect_opt
 opt1: grad_low_l grad_high_l gi_high_l gw_low_l
-opt2: gw_high_l  dw_high_l grad_low_r grad_high_r 
+opt2: gw_high_l  dw_high_l grad_low_r grad_high_r
 opt3: gi_high_r gw_low_r gw_high_r dw_high_r
 opt4: grad_low_u grad_high_u gi_high_u gw_low_u
 opt5: gw_high_u  dw_high_u grad_low_d grad_high_d
 opt6: gi_high_d gw_low_d gw_high_d dw_high_d
-compute grad for [ed_wide*ed_long], ed_long chose 3..30
+compute grad for [ed_wide*ed_long], ed_long chose 3..30, grad_low_u means down is wire, up is insu; grad_low_l means left is insu
 edge is detected with grad within [grad_low, grad_low], gi(gray insu) within [0, gi_high],
 gw(gray wire) within [gw_low, gw_high], dw(wire variance) within [0, dw_high]
-Then edge is erode for lr edge, erode up and down; for ud edge, erode left and right. 
+Then edge is erode for lr edge, erode up and down; for ud edge, erode left and right.
 Finally check ud edge has is wider than ed_guard and lr edge is higer than ed_guard.
 method_opt
 0: for remove via mask input
@@ -5166,7 +5166,7 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 			short * p_grad = grad.ptr<short>(y);
 			unsigned char * p_edge = edge.ptr<unsigned char>(y);
 			unsigned char * p_viamask = via_mask.empty() ? NULL : via_mask.ptr<unsigned char>(y);
-			for (int x = ed_long / 2; x < img.cols - ed_long / 2; x++) 
+			for (int x = ed_long / 2; x < img.cols - ed_long / 2; x++)
 			if (p_viamask == NULL || p_viamask[x] == 0) {
 				int sum0 = p_ig1[x] - p_ig1[x - ed_wide] - p_ig0[x] + p_ig0[x - ed_wide];
 				int sum1 = p_ig1[x + 1 + ed_wide] - p_ig1[x + 1] - p_ig0[x + 1 + ed_wide] + p_ig0[x + 1];
@@ -5188,7 +5188,7 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 				}
 			}
 			else
-				p_edge[x] = SEEM_CONFLICT;
+				p_edge[x] = SEEM_CONFLICT; //for via, mark as conflict
 		}
 	}
 	if (grad_low_u > 0 && grad_low_d > 0) {//following compute up down grad which satisfied grad, gray condition
@@ -5216,13 +5216,13 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 			short * p_grad = grad.ptr<short>(y);
 			unsigned char * p_edge = edge.ptr<unsigned char>(y);
 			unsigned char * p_viamask = via_mask.empty() ? NULL : via_mask.ptr<unsigned char>(y);
-			for (int x = ed_long / 2; x < img.cols - ed_long / 2; x++) 
+			for (int x = ed_long / 2; x < img.cols - ed_long / 2; x++)
 			if (p_viamask == NULL || p_viamask[x] == 0) {
 				int sum0 = p_ig1[x + ed_long - ed_long / 2] - p_ig1[x - ed_long / 2] - p_ig0[x + ed_long - ed_long / 2] + p_ig0[x - ed_long / 2];
 				int sum1 = p_ig3[x + ed_long - ed_long / 2] - p_ig3[x - ed_long / 2] - p_ig2[x + ed_long - ed_long / 2] + p_ig2[x - ed_long / 2];
 				int g = sum1 - sum0;
 				if (g > grad_low_u && g < grad_high_u && sum0 < gi_high_u && sum1 > gw_low_u && sum1 < gw_high_u) { //grad in range, gray in range
-					int dw = ed_long * ed_wide * (p_iig3[x + ed_long - ed_long / 2] - p_iig3[x - ed_long / 2] - 
+					int dw = ed_long * ed_wide * (p_iig3[x + ed_long - ed_long / 2] - p_iig3[x - ed_long / 2] -
 						p_iig2[x + ed_long - ed_long / 2] + p_iig2[x - ed_long / 2]) - sum1 * sum1;
 					if (dw < dw_high_u && g > p_grad[x]) {//variance in range
 						p_grad[x] = g;
@@ -5240,7 +5240,7 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 				}
 			}
 			else
-				p_edge[x] = SEEM_CONFLICT;
+				p_edge[x] = SEEM_CONFLICT; //for via, mark as conflict
 		}
 	}
 
@@ -5255,24 +5255,24 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 					switch (p_edge[x]) {
 					case DIR_UP:
 					case DIR_DOWN:
-						ERODE(p_edge[x], p_edge[x - 1]);
+						ERODE(p_edge[x], p_edge[x - 1]); //for up-down edge, erode left and right
 						ERODE(p_edge[x], p_edge[x + 1]);
 						break;
 					case DIR_LEFT:
 					case DIR_RIGHT:
-						ERODE(p_edge[x], p_edge_u[x]);
+						ERODE(p_edge[x], p_edge_u[x]); //for left-right edge, erode up and down
 						ERODE(p_edge[x], p_edge_d[x]);
 						break;
 					}
 				}
-				if (p_edge_u[x] & 8 && p_edge_u[x] < 16)
+				if (p_edge_u[x] & 8 && p_edge_u[x] < 16) //up is fixed, so change it back to edge
 					p_edge_u[x] -= 8;
 			}
 			p_edge[0] = 0xff;
 			p_edge[img.cols - 1] = 0xff;
 		}
 		unsigned char * p_edge_u = edge.ptr<unsigned char>(img.rows - 2);
-		unsigned char * p_edge = edge.ptr<unsigned char>(img.rows-1);
+		unsigned char * p_edge = edge.ptr<unsigned char>(img.rows - 1);
 		unsigned char * p_edge_d = edge.ptr<unsigned char>(0);
 		for (int x = 1; x < img.cols - 1; x++) {
 			p_edge[x] = 0xff;
@@ -5286,16 +5286,16 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 	if (ed_guard > 1) {
 #define TRANS(e0, e1, l0, l1) { if ((e1)==(e0)) l1=max(l1, (unsigned short) ((l0) + 1));}
 #define CHECK(x, y, l1, l0, q) { \
-		unsigned short * pl1 = l1; \
+	unsigned short * pl1 = l1; \
 		if (*pl1 > 0 && *pl1 <= (l0)) {	\
-			unsigned short old_l1 = *pl1; \
-			*pl1 = (l0) + 1; \
-			if (old_l1 < ed_guard - 1) \
-				q.push_back(MAKE_PROB(*pl1, x, y)); \
+		unsigned short old_l1 = *pl1; \
+		*pl1 = (l0)+1; \
+		if (old_l1 < ed_guard - 1) \
+		q.push_back(MAKE_PROB(*pl1, x, y)); \
 		} }
-		Mat elen(img.rows, img.cols, CV_16SC2);
+		Mat elen(img.rows, img.cols, CV_16SC2); //elen channel 0 is most right len for updown edge, channel 1 is most left len
 		elen = Scalar::all(0);
-		vector <unsigned long long> ext_ul, ext_dr;
+		vector <unsigned long long> ext_ul, ext_dr; //additional check queue
 		for (int y = 1; y < img.rows - 1; y++) {
 			const unsigned char * p_edge = edge.ptr<unsigned char>(y);
 			const unsigned char * p_edge_u = edge.ptr<unsigned char>(y - 1);
@@ -5303,13 +5303,13 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 			unsigned short * p_elen = elen.ptr<unsigned short>(y);
 			unsigned short * p_elen_u = elen.ptr<unsigned short>(y - 1);
 			unsigned short * p_elen_d = elen.ptr<unsigned short>(y + 1);
-			for (int i = 1; i < img.cols - 1; i++) { // i is x
+			for (int i = 1; i < img.cols - 1; i++) { // i is x, update elen channel 0 from left to right
 				unsigned short prev_elen_u = p_elen_u[i * 2 + 2];
 				if (p_edge[i] == DIR_UP || p_edge[i] == DIR_DOWN) {
 					if (p_elen[i * 2] == 0)
 						p_elen[i * 2] = 1;
 					TRANS(p_edge[i], p_edge_u[i + 1], p_elen[i * 2], p_elen_u[i * 2 + 2]);
-					TRANS(p_edge[i], p_edge[i + 1], p_elen[i * 2], p_elen[i * 2 + 2]);									
+					TRANS(p_edge[i], p_edge[i + 1], p_elen[i * 2], p_elen[i * 2 + 2]);
 					TRANS(p_edge[i], p_edge_d[i + 1], p_elen[i * 2], p_elen_d[i * 2 + 2]);
 				}
 				if (p_edge_u[i] == DIR_UP || p_edge_u[i] == DIR_DOWN) {
@@ -5317,22 +5317,22 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 					TRANS(p_edge_u[i], p_edge[i + 1], p_elen_u[i * 2], p_elen[i * 2 + 2]);
 					TRANS(p_edge_u[i], p_edge_d[i + 1], p_elen_u[i * 2], p_elen_d[i * 2 + 2]);
 				}
-				if (p_edge_d[i] == DIR_UP || p_edge_d[i] == DIR_DOWN) {					
+				if (p_edge_d[i] == DIR_UP || p_edge_d[i] == DIR_DOWN) {
 					TRANS(p_edge_d[i], p_edge_u[i + 1], p_elen_d[i * 2], p_elen_u[i * 2 + 2]);
 					TRANS(p_edge_d[i], p_edge[i + 1], p_elen_d[i * 2], p_elen[i * 2 + 2]);
 					TRANS(p_edge_d[i], p_edge_d[i + 1], p_elen_d[i * 2], p_elen_d[i * 2 + 2]);
 				}
-				if (p_elen_u[i * 2 + 2] > prev_elen_u && prev_elen_u < ed_guard - 1)
-					ext_dr.push_back(MAKE_PROB(p_elen_u[i * 2 + 2], i + 1, y - 1));
+				if (p_elen_u[i * 2 + 2] > prev_elen_u && prev_elen_u < ed_guard - 1) //i+1, y-1 is updated, may need more elen value populate
+					ext_dr.push_back(MAKE_PROB(p_elen_u[i * 2 + 2], i + 1, y - 1)); //add to additional check queue
 			}
 
-			for (int i = img.cols - 2; i > 0; i--) { //i is x
+			for (int i = img.cols - 2; i > 0; i--) { //i is x,  update elen channel 1 from right to left
 				unsigned short prev_elen_u = p_elen_u[i * 2 - 1];
 				if (p_edge[i] == DIR_UP || p_edge[i] == DIR_DOWN) {
 					if (p_elen[i * 2 + 1] == 0)
 						p_elen[i * 2 + 1] = 1;
 					TRANS(p_edge[i], p_edge_u[i - 1], p_elen[i * 2 + 1], p_elen_u[i * 2 - 1]);
-					TRANS(p_edge[i], p_edge[i - 1], p_elen[i * 2 + 1], p_elen[i * 2 - 1]);					
+					TRANS(p_edge[i], p_edge[i - 1], p_elen[i * 2 + 1], p_elen[i * 2 - 1]);
 					TRANS(p_edge[i], p_edge_d[i - 1], p_elen[i * 2 + 1], p_elen_d[i * 2 - 1]);
 				}
 				if (p_edge_u[i] == DIR_UP || p_edge_u[i] == DIR_DOWN) {
@@ -5345,11 +5345,11 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 					TRANS(p_edge_d[i], p_edge[i - 1], p_elen_d[i * 2 + 1], p_elen[i * 2 - 1]);
 					TRANS(p_edge_d[i], p_edge_d[i - 1], p_elen_d[i * 2 + 1], p_elen_d[i * 2 - 1]);
 				}
-				if (p_elen_u[i * 2 - 1] > prev_elen_u && prev_elen_u < ed_guard - 1)
-					ext_ul.push_back(MAKE_PROB(p_elen_u[i * 2 - 1], i - 1, y - 1));
+				if (p_elen_u[i * 2 - 1] > prev_elen_u && prev_elen_u < ed_guard - 1) //i-1, y-1 is updated, may need more elen value populate
+					ext_ul.push_back(MAKE_PROB(p_elen_u[i * 2 - 1], i - 1, y - 1)); //add to additional check queue
 			}
 		}
-		while (!ext_dr.empty()) {
+		while (!ext_dr.empty()) { //right propogate more elen update
 			unsigned long long temp = ext_dr.back();
 			ext_dr.pop_back();
 			int y = PROB_Y(temp);
@@ -5367,7 +5367,7 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 			if (y< img.rows - 2)
 				CHECK(x + 1, y + 2, elen.ptr<unsigned short>(y + 2, x + 1), l, ext_dr);
 		}
-		while (!ext_ul.empty()) {
+		while (!ext_ul.empty()) { //left propogate more elen update
 			unsigned long long temp = ext_ul.back();
 			ext_ul.pop_back();
 			int y = PROB_Y(temp);
@@ -5385,12 +5385,12 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 			if (y< img.rows - 2)
 				CHECK(x - 1, y + 2, elen.ptr<unsigned short>(y + 2, x - 1) + 1, l, ext_ul);
 		}
-		for (int y = 1; y < img.rows - 1; y++) {
+		for (int y = 1; y < img.rows - 1; y++) { //total elen= elen_left + elen_right
 			unsigned char * p_edge = edge.ptr<unsigned char>(y);
 			unsigned short * p_elen = elen.ptr<unsigned short>(y);
 			for (int x = 1; x < img.cols - 1; x++)
 			if (p_edge[x] == DIR_UP || p_edge[x] == DIR_DOWN) {
-				if (p_elen[x * 2] + p_elen[x * 2 + 1] - 1 <= ed_guard)
+				if (p_elen[x * 2] + p_elen[x * 2 + 1] - 1 <= ed_guard) //less than eguard
 					p_edge[x] = SEEM_CONFLICT;
 			}
 		}
@@ -5404,7 +5404,7 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 		unsigned short * p_elen_u = &elen_buf[0];
 		unsigned short * p_elen_d = &elen_buf[img.rows * 4];
 		for (int x = 0; x <= img.cols; x++) {
-			for (int y = 0; y < img.rows; y++) 
+			for (int y = 0; y < img.rows; y++)
 			if (x > 1) {
 				elen.at<unsigned short>(y, 2 * x - 4) = p_elen_u[2 * y];
 				elen.at<unsigned short>(y, 2 * x - 3) = p_elen_u[2 * y + 1];
@@ -5422,7 +5422,7 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 			}
 			if (x < 1)
 				continue;
-			for (int i = 1; i < img.rows - 1; i++) { // i is y
+			for (int i = 1; i < img.rows - 1; i++) { // i is y, update elen channel 0 from up to down
 				unsigned short prev_elen_u = p_elen_u[i * 2 + 2];
 				if (p_edge[i] == DIR_LEFT || p_edge[i] == DIR_RIGHT) {
 					if (p_elen[i * 2] == 0)
@@ -5441,11 +5441,11 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 					TRANS(p_edge_d[i], p_edge[i + 1], p_elen_d[i * 2], p_elen[i * 2 + 2]);
 					TRANS(p_edge_d[i], p_edge_d[i + 1], p_elen_d[i * 2], p_elen_d[i * 2 + 2]);
 				}
-				if (p_elen_u[i * 2 + 2] > prev_elen_u && prev_elen_u < ed_guard - 1)
-					ext_dr.push_back(MAKE_PROB(p_elen_u[i * 2 + 2], x - 1, i + 1));
+				if (p_elen_u[i * 2 + 2] > prev_elen_u && prev_elen_u < ed_guard - 1) //x-1, i+1 is updated, may need more elen value populate
+					ext_dr.push_back(MAKE_PROB(p_elen_u[i * 2 + 2], x - 1, i + 1)); //add to additional check queue
 			}
 
-			for (int i = img.rows - 2; i > 0; i--) { //i is y
+			for (int i = img.rows - 2; i > 0; i--) { //i is y, update elen channel 1 from down to up
 				unsigned short prev_elen_u = p_elen_u[i * 2 - 1];
 				if (p_edge[i] == DIR_LEFT || p_edge[i] == DIR_RIGHT) {
 					if (p_elen[i * 2 + 1] == 0)
@@ -5464,8 +5464,8 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 					TRANS(p_edge_d[i], p_edge[i - 1], p_elen_d[i * 2 + 1], p_elen[i * 2 - 1]);
 					TRANS(p_edge_d[i], p_edge_d[i - 1], p_elen_d[i * 2 + 1], p_elen_d[i * 2 - 1]);
 				}
-				if (p_elen_u[i * 2 - 1] > prev_elen_u && prev_elen_u < ed_guard - 1)
-					ext_ul.push_back(MAKE_PROB(p_elen_u[i * 2 - 1], x - 1, i - 1));
+				if (p_elen_u[i * 2 - 1] > prev_elen_u && prev_elen_u < ed_guard - 1) //x-1, i-1 is updated, may need more elen value populate
+					ext_ul.push_back(MAKE_PROB(p_elen_u[i * 2 - 1], x - 1, i - 1)); //add to additional check queue
 			}
 		}
 		while (!ext_dr.empty()) {
@@ -5507,8 +5507,8 @@ static void edge_detect(PipeData & d, ProcessParameter & cpara)
 		for (int y = 1; y < img.rows - 1; y++) {
 			unsigned char * p_edge = edge.ptr<unsigned char>(y);
 			unsigned short * p_elen = elen.ptr<unsigned short>(y);
-			for (int x = 1; x < img.cols - 1; x++) 
-			if(p_edge[x] == DIR_LEFT || p_edge[x] == DIR_RIGHT)  {
+			for (int x = 1; x < img.cols - 1; x++)
+			if (p_edge[x] == DIR_LEFT || p_edge[x] == DIR_RIGHT)  {
 				if (p_elen[x * 2] + p_elen[x * 2 + 1] - 1 <= ed_guard)
 					p_edge[x] = SEEM_CONFLICT;
 			}
@@ -5565,6 +5565,7 @@ enhance_opt is HAS_VIA_MASK
 enhance include increase wire gray and reduce insu gray
 enhance insu which satisfy ilr(insu lr width) within [ilr_min, ilr_max] or iud(insu ud width) within [iud_min, iud_max]
 enhance wire which satisfy wlr(wire lr width) within [wlr_min, wlr_max] or wud(wire ud width) within [wud_min, wud_max]
+th_para0 is for Bayes probability
 method_opt
 0: for remove via mask input
 1: for edge detect input
@@ -5594,7 +5595,7 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 	int enhance_x1 = cpara.opt4 >> 8 & 0xff;
 	int enhance_y = cpara.opt4 >> 16 & 0xff;
 	Mat & edge = d.l[layer].v[idx1].d;
-	
+
 	Mat via_mask;
 	if (enhance_opt & IMG_ENHANCE_HAS_VIA_MASK) {
 		if (d.l[layer].v[idx].type != TYPE_REMOVE_VIA_MASK) {
@@ -5655,7 +5656,10 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 									CV_Assert(p_edge[i] == 0xff || p_edge[i] == SEEM_BE_INSU || p_edge[i] == SEEM_BE_WIRE);
 									p_edge[i] = SEEM_CONFLICT;
 								}
-								conflict_idx = x;
+								if (x - conflict_idx >= wlr_min)
+									conflict_idx = x;
+								else
+									conflict = false;
 							}
 							else {
 								conflict = true;
@@ -5697,7 +5701,10 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 									CV_Assert(p_edge[i] == 0xff || p_edge[i] == SEEM_BE_INSU || p_edge[i] == SEEM_BE_WIRE);
 									p_edge[i] = SEEM_CONFLICT;
 								}
-								conflict_idx = x;
+								if (x - conflict_idx >= ilr_min)
+									conflict_idx = x;
+								else
+									conflict = false;
 							}
 							else {
 								conflict = true;
@@ -5758,7 +5765,10 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 									CV_Assert(e == 0xff || e == SEEM_BE_INSU || e == SEEM_BE_WIRE);
 									edge.at<unsigned char>(i, x) = SEEM_CONFLICT;
 								}
-								conflict_idx = y;
+								if (y - conflict_idx >= wud_min)
+									conflict_idx = y;
+								else
+									conflict = false;
 							}
 							else {
 								conflict = true;
@@ -5802,7 +5812,10 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 									CV_Assert(e == 0xff || e == SEEM_BE_INSU || e == SEEM_BE_WIRE);
 									edge.at<unsigned char>(i, x) = SEEM_CONFLICT;
 								}
-								conflict_idx = y;
+								if (y - conflict_idx >= iud_min)
+									conflict_idx = y;
+								else
+									conflict = false;
 							}
 							else {
 								conflict = true;
@@ -5841,15 +5854,15 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 		unsigned char * p_vmsk = via_mask.empty() ? NULL : via_mask.ptr<unsigned char>(y);
 		unsigned char * p_edge = edge.ptr<unsigned char>(y);
 		unsigned char * p_img = img.ptr<unsigned char>(y);
-		for (int x = 0; x < edge.cols; x++) 
-		if (p_vmsk == NULL || p_vmsk[x]==0) {
+		for (int x = 0; x < edge.cols; x++)
+		if (p_vmsk == NULL || p_vmsk[x] == 0) {
 			if (p_edge[x] == SEEM_BE_WIRE)
 				stat1[p_img[x]]++;
 			if (p_edge[x] == SEEM_BE_INSU)
 				stat0[p_img[x]]++;
 		}
 	}
-	
+
 	int gv = find_index(d.l[layer].v[idx2].d, (int)GRAY_H1);
 	gv = d.l[layer].v[idx2].d.at<int>(gv, 2);
 	int tot_stat0 = 0, tot_stat1 = 0;
@@ -5865,13 +5878,13 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 	vector<float> f0(256, 0); //f0 is insu PDF
 	vector<float> f1(256, 0); //f1 is wire PDF
 	for (int i = 0; i < gv; i++) {
-		f0[i] = (float) stat0[i] / tot_stat0;
-		l0 += f0[i] * i; 
-		f1[i] = (float) stat1[i] / tot_stat1;
+		f0[i] = (float)stat0[i] / tot_stat0;
+		l0 += f0[i] * i;
+		f1[i] = (float)stat1[i] / tot_stat1;
 		m0 += f1[i] * i;
 	}
-	
-	for (int i = 1; i < 256; i++) {		
+
+	for (int i = 1; i < 256; i++) {
 		f1[i] += f1[i - 1];
 		f0[255 - i] += f0[256 - i];
 	}
@@ -5881,7 +5894,7 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 	th_para0 = min(th_para0, 0.80f);
 	th_para0 = max(th_para0, 0.20f);
 	for (int i = 0; i < gv; i++) {
-		float cost = f1[i] * th_para0 + f0[i] * (1 - th_para0) + th_para1 * fabs((m0+l0)/2-i);
+		float cost = f1[i] * th_para0 + f0[i] * (1 - th_para0) + th_para1 * fabs((m0 + l0) / 2 - i);
 		if (cost < min_cost) {
 			gray_th = i;
 			min_cost = cost;
@@ -5904,7 +5917,7 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 		enhance_x1 = enhance_x1 * ratio;
 		enhance_y = enhance_y * ratio;
 	}
-	qInfo("image_enhance, after adjust x1=%d, y=%d, gm=%d, gi=%d", enhance_x1, enhance_y, 
+	qInfo("image_enhance, after adjust x1=%d, y=%d, gm=%d, gi=%d", enhance_x1, enhance_y,
 		gray_th + enhance_x1 + enhance_y, gray_th - enhance_x1 - enhance_y);
 	vector<int> lut1(256), lut0(256);
 	for (int i = 0; i < 256; i++) {
@@ -5928,10 +5941,10 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 	}
 	if (cpara.method & OPT_DEBUG_EN) {
 		for (int i = 0; i < 20; i++)
-			qDebug("lut0 %3d:%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d\n", i*10, lut0[i * 10], lut0[i * 10 + 1], lut0[i * 10 + 2],
-				lut0[i * 10 + 3], lut0[i * 10 + 4], lut0[i * 10 + 5], lut0[i * 10 + 6], lut0[i * 10 + 7], lut0[i * 10 + 8], lut0[i * 10 +9]);
+			qDebug("lut0 %3d:%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d\n", i * 10, lut0[i * 10], lut0[i * 10 + 1], lut0[i * 10 + 2],
+			lut0[i * 10 + 3], lut0[i * 10 + 4], lut0[i * 10 + 5], lut0[i * 10 + 6], lut0[i * 10 + 7], lut0[i * 10 + 8], lut0[i * 10 + 9]);
 		for (int i = 0; i < 20; i++)
-			qDebug("lut1 %3d:%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d\n", i*10, lut1[i * 10], lut1[i * 10 + 1], lut1[i * 10 + 2],
+			qDebug("lut1 %3d:%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d,%3d\n", i * 10, lut1[i * 10], lut1[i * 10 + 1], lut1[i * 10 + 2],
 			lut1[i * 10 + 3], lut1[i * 10 + 4], lut1[i * 10 + 5], lut1[i * 10 + 6], lut1[i * 10 + 7], lut1[i * 10 + 8], lut1[i * 10 + 9]);
 	}
 
@@ -5939,13 +5952,13 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 		unsigned char * p_img = img.ptr<unsigned char>(y);
 		unsigned char * p_edge = edge.ptr<unsigned char>(y);
 		for (int x = 0; x < img.cols; x++)
-		switch (p_edge[x]) {
-		case SEEM_BE_INSU:
-			p_img[x] = lut0[p_img[x]];
-			break;
-		case SEEM_BE_WIRE:
-			p_img[x] = lut1[p_img[x]];
-			break;
+			switch (p_edge[x]) {
+			case SEEM_BE_INSU:
+				p_img[x] = lut0[p_img[x]];
+				break;
+			case SEEM_BE_WIRE:
+				p_img[x] = lut1[p_img[x]];
+				break;
 		}
 	}
 	d.l[layer].ig_valid = false;
@@ -5956,9 +5969,9 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 	m.at<int>(5, 1) = gray_th + enhance_x1;
 	m.at<int>(5, 2) = gray_th + enhance_x1 + enhance_y;
 	m.at<int>(4, 1) = gray_th + enhance_x1 / 2;
-	m.at<int>(4, 2) = gray_th + (enhance_x1 + enhance_y)/2;
+	m.at<int>(4, 2) = gray_th + (enhance_x1 + enhance_y) / 2;
 	m.at<int>(3, 1) = gray_th - enhance_x1 / 2;
-	m.at<int>(3, 2) = gray_th - (enhance_x1 - enhance_y)/2;
+	m.at<int>(3, 2) = gray_th - (enhance_x1 - enhance_y) / 2;
 	m.at<int>(2, 1) = gray_th - enhance_x1;
 	m.at<int>(2, 2) = gray_th - enhance_x1 - enhance_y;
 	m.at<int>(1, 1) = min(gray_th - enhance_x1 - enhance_y, 10);
@@ -5994,7 +6007,7 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 		}
 		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_enhance_iw.jpg", debug_draw);
 	}
-	
+
 }
 
 /*     31..24 23..16   15..8   7..0
@@ -6657,7 +6670,7 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 
 
 /*
-		31..24 23..16   15..8   7..0
+31..24 23..16   15..8   7..0
 opt0:	remove_opt default_dir check_len vnum
 opt1:			pattern	subtype type
 opt2:			pattern	subtype	type
@@ -6735,7 +6748,7 @@ static void remove_via(PipeData & d, ProcessParameter & cpara)
 		int y0 = via_info[i].xy.y;
 		//Following compute dir
 		int dir = default_dir;
-		if (dir < 2) {
+		if (dir == 255) {
 			int cr = v_rr[sel] + check_len;
 			int remove_check = (cr - 1) / d.l[layer].gs + 1;
 			int y1 = max(y0 / d.l[layer].gs - remove_check, 0), y2 = min(y0 / d.l[layer].gs + remove_check, d.l[layer].prob.rows - 1);
@@ -8181,30 +8194,30 @@ static void shape_check(void * objs, int layer, int obj_type, ProcessParameter &
 	int filt_method = cpara.opt0 >> 8 & 0xff;
 	switch (filt_method) {
 	case H_SHAPE_CHECK:
-		{
-			int clen = cpara.opt1 & 0xff;
-			int dlen = cpara.opt2 & 0xff;
-			qInfo("hshape_check,cl=%d,dl=%d", clen, dlen);
-			for (int i = 1; i < (int)sbs.size(); i++) {
-				if (sbs[i].state != BranchMeta::READY_OUTPUT || sbs[i].dir < 0)
-					continue;
-				if (sbs[i].length() <= dlen && sbs[i].dc.size() >= 2) {
-					int dir = sbs[i].dir;
-					int c = cnear[dir][0] * sbs[i].bch.first.y + cnear[dir][1] * sbs[i].bch.first.x;
-					int h_cnt = 0;
-					for (int j = 0; j < (int)sbs[i].dc.size(); j++) {
-						int k = sbs[i].dc[j];
-						int c1 = cnear[dir][0] * sbs[k].bch.first.y + cnear[dir][1] * sbs[k].bch.first.x;
-						int c2 = cnear[dir][0] * sbs[k].bch.second.y + cnear[dir][1] * sbs[k].bch.second.x;
-						if (abs(c - c1) > clen && abs(c - c2) > clen)
-							h_cnt++;
-					}
-					if (h_cnt >= 2)
-						sbs[i].prob = 0.5;
-				}
-			}
-			break;
-		}
+	{
+						  int clen = cpara.opt1 & 0xff;
+						  int dlen = cpara.opt2 & 0xff;
+						  qInfo("hshape_check,cl=%d,dl=%d", clen, dlen);
+						  for (int i = 1; i < (int)sbs.size(); i++) {
+							  if (sbs[i].state != BranchMeta::READY_OUTPUT || sbs[i].dir < 0)
+								  continue;
+							  if (sbs[i].length() <= dlen && sbs[i].dc.size() >= 2) {
+								  int dir = sbs[i].dir;
+								  int c = cnear[dir][0] * sbs[i].bch.first.y + cnear[dir][1] * sbs[i].bch.first.x;
+								  int h_cnt = 0;
+								  for (int j = 0; j < (int)sbs[i].dc.size(); j++) {
+									  int k = sbs[i].dc[j];
+									  int c1 = cnear[dir][0] * sbs[k].bch.first.y + cnear[dir][1] * sbs[k].bch.first.x;
+									  int c2 = cnear[dir][0] * sbs[k].bch.second.y + cnear[dir][1] * sbs[k].bch.second.x;
+									  if (abs(c - c1) > clen && abs(c - c2) > clen)
+										  h_cnt++;
+								  }
+								  if (h_cnt >= 2)
+									  sbs[i].prob = 0.5;
+							  }
+						  }
+						  break;
+	}
 	case VIA_CONNECT_CHECK:
 	{
 #define GET_ROOT_PATH(x, xpath) { int r = x;  while (check_net[r] != r) { xpath.push_back(r); r = check_net[r]; } xpath.push_back(r); reverse(xpath.begin(), xpath.end());}
@@ -8214,92 +8227,86 @@ static void shape_check(void * objs, int layer, int obj_type, ProcessParameter &
 							  CV_Assert(t >= 1); \
 							  for (int u = xpath.size() - 1; u >= t; u--) if (sbs[xpath[u]].dir >= 0) zpath.push_back(xpath[u]); \
 							  for (int u = t - 1; u < ypath.size(); u++) if (sbs[ypath[u]].dir >= 0) zpath.push_back(ypath[u]); }
-			int wlen = cpara.opt1 & 0xff;
-			int dlen_max = cpara.opt2 & 0xff;
-			int dlen_min = cpara.opt3 & 0xff;
-			int olen = cpara.opt4 & 0xff;
-			int check_opt = cpara.opt5 & 0xff;
-			qInfo("hshape_check,wlen=%d,dmax=%d,dmin=%d,olen=%d,check_opt=%d", wlen, dlen_max, dlen_min, olen, check_opt);
-			vector<int> check_net(sbs.size(), -1); //check_net save father node idx
-			for (int i = 1; i < (int)sbs.size(); i++) {
-				if (sbs[i].state == BranchMeta::ALEADY_OUTPUT || check_net[i]>0)
-					continue;				
-				vector <int> vias; //network vias
-				vector <int> wires; //network wires
-				vector <int> sq; //deep first search
-				check_net[i] = i; //i is root node
-				sq.push_back(i);
-				while (!sq.empty()) {
-					int b = sq.back(); //b is expand node
-					sq.pop_back();
-					if (sbs[b].dir >= 0)
-						wires.push_back(b);
-					else {
-						if (sbs[b].final_out.size() >= 2)
-							sbs[b].prob = 0.5;
-						vias.push_back(b);
-					}
-					for (int j = 0; j < (int)sbs[b].dc.size(); j++) {
-						int k = sbs[b].dc[j];
-						if (k != check_net[b] && sbs[k].state != BranchMeta::ALEADY_OUTPUT) { //k is not b's father
-							if (check_net[k] > 0 && check_opt & CHECK_LOOP) { //loop happen
-								vector<int> k2root, b2root, path;
-								GET_ROOT_PATH(k, k2root);
-								GET_ROOT_PATH(b, b2root);
-								GET_P2P_PATH(k2root, b2root, path); //path is loop
-								if (path.size() < 3)
-									continue;
-								int min_len = 0x70000000, min_idx;
-								for (int l = 0; l < (int)path.size(); l++)
-								if (sbs[path[l]].length() < min_len) { //pick shortest wire and 
-									min_len = sbs[path[l]].length();
-									min_idx = path[l];
-								}
-								sbs[min_idx].prob = 0.5;
-							}
-							else
-							if (check_net[k] < 0) {
-								check_net[k] = b;
-								sq.push_back(k);
-							}
-						}
-					}
-				}
-				//check h shape
-				if (vias.size() > 0 && wires.size() > 1)
-				for (int j = 0; j < (int) wires.size(); j++) 
-				if (sbs[wires[j]].length() >= wlen) {
-#if 1
-					BranchMeta & bm = sbs[wires[j]];
-					if (bm.bch.first.y >= 10188 && bm.bch.first.y <= 10222 && bm.bch.second.y >= 10188 && bm.bch.second.y <= 10222
-						&& bm.bch.first.x >= 34885)
-						bm.bch.first.y = bm.bch.first.y * 2 - bm.bch.first.y;
-#endif
-					vector <int> j2root;
-					GET_ROOT_PATH(wires[j], j2root);
-					for (int k = j + 1; k < (int) wires.size(); k++)
-					if (sbs[wires[k]].length() >= wlen) {
-						int distance = sbs[wires[j]].intersect(sbs[wires[k]], dlen_max);
-						if (distance == -1 || distance >=dlen_min) {
-							//find the path from j to k
-							vector<int> k2root, path;
-							GET_ROOT_PATH(wires[k], k2root);
-							GET_P2P_PATH(j2root, k2root, path);
-							for (int l = 0; l < (int)path.size() - 1; l++) {
-								Point pis;
-								intersect_line(sbs[path[l]].bch.first, sbs[path[l]].dir, sbs[path[l+1]].bch.first, sbs[path[l+1]].dir, pis);
-								for (int v = 0; v < (int)vias.size(); v++)
-								if (sbs[vias[v]].dir == -1 && sbs[vias[v]].distance(pis)<=olen)
-								if (sbs[path[l]].length() < sbs[path[l + 1]].length())
-									sbs[path[l]].prob = 0.5;
-								else
-									sbs[path[l + 1]].prob = 0.5;
-							}
-						}
-					}
-				}
-			}
-		}
+							  int wlen = cpara.opt1 & 0xff;
+							  int dlen_max = cpara.opt2 & 0xff;
+							  int dlen_min = cpara.opt3 & 0xff;
+							  int olen = cpara.opt4 & 0xff;
+							  int check_opt = cpara.opt5 & 0xff;
+							  qInfo("hshape_check,wlen=%d,dmax=%d,dmin=%d,olen=%d,check_opt=%d", wlen, dlen_max, dlen_min, olen, check_opt);
+							  vector<int> check_net(sbs.size(), -1); //check_net save father node idx
+							  for (int i = 1; i < (int)sbs.size(); i++) {
+								  if (sbs[i].state == BranchMeta::ALEADY_OUTPUT || check_net[i]>0)
+									  continue;
+								  vector <int> vias; //network vias
+								  vector <int> wires; //network wires
+								  vector <int> sq; //deep first search
+								  check_net[i] = i; //i is root node
+								  sq.push_back(i);
+								  while (!sq.empty()) {
+									  int b = sq.back(); //b is expand node
+									  sq.pop_back();
+									  if (sbs[b].dir >= 0)
+										  wires.push_back(b);
+									  else {
+										  if (sbs[b].final_out.size() >= 2)
+											  sbs[b].prob = 0.5;
+										  vias.push_back(b);
+									  }
+									  for (int j = 0; j < (int)sbs[b].dc.size(); j++) {
+										  int k = sbs[b].dc[j];
+										  if (k != check_net[b] && sbs[k].state != BranchMeta::ALEADY_OUTPUT) { //k is not b's father
+											  if (check_net[k] > 0 && check_opt & CHECK_LOOP) { //loop happen
+												  vector<int> k2root, b2root, path;
+												  GET_ROOT_PATH(k, k2root);
+												  GET_ROOT_PATH(b, b2root);
+												  GET_P2P_PATH(k2root, b2root, path); //path is loop
+												  if (path.size() < 3)
+													  continue;
+												  int min_len = 0x70000000, min_idx;
+												  for (int l = 0; l < (int)path.size(); l++)
+												  if (sbs[path[l]].length() < min_len) { //pick shortest wire and 
+													  min_len = sbs[path[l]].length();
+													  min_idx = path[l];
+												  }
+												  sbs[min_idx].prob = 0.5;
+											  }
+											  else
+											  if (check_net[k] < 0) {
+												  check_net[k] = b;
+												  sq.push_back(k);
+											  }
+										  }
+									  }
+								  }
+								  //check h shape
+								  if (vias.size() > 0 && wires.size() > 1)
+								  for (int j = 0; j < (int)wires.size(); j++)
+								  if (sbs[wires[j]].length() >= wlen) {
+									  vector <int> j2root;
+									  GET_ROOT_PATH(wires[j], j2root);
+									  for (int k = j + 1; k < (int)wires.size(); k++)
+									  if (sbs[wires[k]].length() >= wlen) {
+										  int distance = sbs[wires[j]].intersect(sbs[wires[k]], dlen_max);
+										  if (distance == -1 || distance >= dlen_min) {
+											  //find the path from j to k
+											  vector<int> k2root, path;
+											  GET_ROOT_PATH(wires[k], k2root);
+											  GET_P2P_PATH(j2root, k2root, path);
+											  for (int l = 0; l < (int)path.size() - 1; l++) {
+												  Point pis;
+												  intersect_line(sbs[path[l]].bch.first, sbs[path[l]].dir, sbs[path[l + 1]].bch.first, sbs[path[l + 1]].dir, pis);
+												  for (int v = 0; v < (int)vias.size(); v++)
+												  if (sbs[vias[v]].dir == -1 && sbs[vias[v]].distance(pis) <= olen)
+												  if (sbs[path[l]].length() < sbs[path[l + 1]].length())
+													  sbs[path[l]].prob = 0.5;
+												  else
+													  sbs[path[l + 1]].prob = 0.5;
+											  }
+										  }
+									  }
+								  }
+							  }
+	}
 	}
 
 }
@@ -8947,8 +8954,8 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 			if (parallel_search) {
 				//each thread process all layer on same tile
 				vector<MarkObj> temp_vec;
-				temp_vec.swap(QtConcurrent::blockingMappedReduced<vector<MarkObj>, vector<ProcessTileData> >(ptd_sets, process_tile, merge_tile_get_result,
-					QtConcurrent::OrderedReduce | QtConcurrent::SequentialReduce));
+				temp_vec = QtConcurrent::blockingMappedReduced<vector<MarkObj>, vector<ProcessTileData> >(ptd_sets, process_tile, merge_tile_get_result,
+					QtConcurrent::OrderedReduce | QtConcurrent::SequentialReduce);
 				obj_sets.insert(obj_sets.end(), temp_vec.begin(), temp_vec.end());
 			}
 			else

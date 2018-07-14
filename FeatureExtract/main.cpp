@@ -4,6 +4,7 @@
 #include "bundleadjust.h"
 #include "opencv2/highgui/highgui.hpp"
 #include <QDateTime>
+#include <QThread>
 
 static FILE * fp = NULL;
 
@@ -20,22 +21,30 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 	QString str_dt = datetime.toString("hh:mm:ss.zzz");
 
 	if (context.function == NULL) {
+		unsigned thread_id = quintptr(QThread::currentThreadId());
 		switch (type) {
 		case QtDebugMsg:
-			fprintf(fp, "<D>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+			fprintf(fp, "<D>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+#if QMSG_FLUSH
+			fflush(fp);
+#endif
 			break;
 		case QtInfoMsg:
-			fprintf(fp, "<I>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+			fprintf(fp, "<I>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+#if QMSG_FLUSH
+			fflush(fp);
+#endif
 			break;
 		case QtWarningMsg:
-			fprintf(fp, "<W>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+			fprintf(fp, "<W>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fflush(fp);
 			break;
 		case QtCriticalMsg:
-			fprintf(fp, "<E>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+			fprintf(fp, "<E>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
 			fflush(fp);
 			break;
 		case QtFatalMsg:
-			fprintf(fp, "<F>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+			fprintf(fp, "<F>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
 			fclose(fp);
 			exit(-1);
 		}
@@ -104,32 +113,40 @@ void test_bundleadjust()
 int main(int argc, char** argv)
 {
 	qInstallMessageHandler(myMessageOutput);
-    test_bundleadjust();
-    return 0;
     FeatExt feature;
     ConfigPara cpara;
 
-    cpara.clip_l = 6;
+    cpara.clip_l = 0;
     cpara.clip_r = 0;
     cpara.clip_u = 0;
-    cpara.clip_d = 12;
-    cpara.rescale = 8;
+    cpara.clip_d = 0;
+    cpara.rescale = 4;
     cpara.max_lr_xshift = 80;
     cpara.max_lr_yshift = 16;
     cpara.max_ud_xshift = 16;
     cpara.max_ud_yshift = 80;
-    cpara.img_path = "F:/chenyu/work/ChipStitch/data/m3/";
-    cpara.img_num_w = 71;
-	cpara.img_num_h = 101;
+    cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
+    cpara.img_num_w = 3;
+	cpara.img_num_h = 3;
     cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
     for (int y = 0; y < cpara.img_num_h; y++) {
         for (int x = 0; x < cpara.img_num_w; x++) {
-            cpara.offset(y, x)[1] = 1780 * x;
-            cpara.offset(y, x)[0] = 1572 * y;
+			cpara.offset(y, x)[1] = 1817 * x;
+			cpara.offset(y, x)[0] = 1558 * y;
         }
     }
+	TuningPara _tpara;
+	_tpara.bfilt_w = 16;
+	_tpara.bfilt_csigma = 23;
+	_tpara.canny_high_th = 80;
+	_tpara.canny_low_th = 40;
+	_tpara.sobel_w = 3;
+	_tpara.sobel_th = 1;
+	_tpara.alpha = 0.6;
+	_tpara.edge_dialte = 0;
 #if 1
 	feature.set_cfg_para(cpara);
+	feature.set_tune_para(_tpara);
     feature.generate_feature_diff();
     feature.write_diff_file("diff.xml");
 #else
@@ -137,13 +154,18 @@ int main(int argc, char** argv)
 #endif
     double minval, maxval;
     Point minloc, maxloc;
-	minMaxLoc(feature.get_edge(1, 1, 0)->diff, &minval, &maxval, &minloc, &maxloc);
+	int y0 = 3, x0 = 1, y1 = 3, x1 = 2;
+	char img1_name[50], img2_name[50];
+	sprintf(img1_name, "%d_%d.jpg", y0, x0);
+	sprintf(img2_name, "%d_%d.jpg", y1, x1);
+	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->diff, &minval, &maxval, &minloc, &maxloc);
 	minloc *= cpara.rescale;
-    Mat img1 = imread(cpara.img_path + "2_1.jpg", 0);
-    Mat img2 = imread(cpara.img_path + "2_2.jpg", 0);
+	Mat img1 = imread(cpara.img_path + img1_name, 0);
+	Mat img2 = imread(cpara.img_path + img2_name, 0);
     img1 = img1(Rect(cpara.clip_l, cpara.clip_u, img1.cols - cpara.clip_l - cpara.clip_r, img1.rows - cpara.clip_u - cpara.clip_d));
     img2 = img2(Rect(cpara.clip_l, cpara.clip_u, img2.cols - cpara.clip_l - cpara.clip_r, img2.rows - cpara.clip_u - cpara.clip_d));
-	Point offset = feature.get_edge(1, 1, 0)->offset + minloc;
+	Point offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + minloc;
+	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", minloc.y, minloc.x, offset.y, offset.x, minval);
 	Mat left = img1(Rect(offset.x, max(offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
 	Mat right = img2(Rect(0, max(-offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
     resize(left, left, Size(left.cols / cpara.rescale, left.rows / cpara.rescale));
@@ -151,13 +173,17 @@ int main(int argc, char** argv)
     imshow("x0", left);
     imshow("x1", right);
 
-	minMaxLoc(feature.get_edge(0, 2, 1)->diff, &minval, &maxval, &minloc, &maxloc);
+	y0 = 1, x0 = 2, y1 = 2, x1 = 2;
+	sprintf(img1_name, "%d_%d.jpg", y0, x0);
+	sprintf(img2_name, "%d_%d.jpg", y1, x1);
+	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->diff, &minval, &maxval, &minloc, &maxloc);
 	minloc *= cpara.rescale;
-    img1 = imread(cpara.img_path + "3_2.jpg", 0);
-    img2 = imread(cpara.img_path + "4_2.jpg", 0);
+	img1 = imread(cpara.img_path + img1_name, 0);
+    img2 = imread(cpara.img_path + img2_name, 0);
     img1 = img1(Rect(cpara.clip_l, cpara.clip_u, img1.cols - cpara.clip_l - cpara.clip_r, img1.rows - cpara.clip_u - cpara.clip_d));
     img2 = img2(Rect(cpara.clip_l, cpara.clip_u, img2.cols - cpara.clip_l - cpara.clip_r, img2.rows - cpara.clip_u - cpara.clip_d));
-	offset = feature.get_edge(0, 2, 1)->offset + minloc;
+	offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + minloc;
+	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", minloc.y, minloc.x, offset.y, offset.x, minval);
     Mat up = img1(Rect(max(offset.x, 0), offset.y, img1.cols - abs(offset.x), img1.rows - offset.y));
     Mat down = img2(Rect(max(-offset.x, 0), 0, img1.cols - abs(offset.x), img1.rows - offset.y));
     resize(up, up, Size(up.cols / cpara.rescale, up.rows / cpara.rescale));

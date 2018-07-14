@@ -676,6 +676,8 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
                 cal_threshold(bins, th, 0.5, 0.02);
                 threshold(image, mark, th[1], 1, THRESH_BINARY);
                 CV_Assert(mark.cols == image.cols && mark.rows == image.rows);
+				if (image.cols == 0 || image.rows == 0)
+					continue;
                 mark.copyTo(img(Rect(x, y, image.cols, image.rows)));
             }
         Mat ig;
@@ -749,6 +751,8 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
                     cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
                     cal_threshold(bins, th, 0.5, 0.02);
                     threshold(image, mark, th[1], 1, THRESH_BINARY);
+					if (image.cols == 0 || image.rows == 0)
+						continue;
                     mark.copyTo(img(Rect(0, y, image.cols, image.rows)));
                 }
                 Mat ign;

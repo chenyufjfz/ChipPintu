@@ -49,23 +49,23 @@ void MainWindow::on_actionConfig_Para_triggered()
 	ConfigPara cpara;
 	int ret = stitch_view->get_config_para(-1, cpara);
 	if (ret < 0) {
-		cpara.clip_l = 6;
+		cpara.clip_l = 0;
 		cpara.clip_r = 0;
 		cpara.clip_u = 0;
-		cpara.clip_d = 12;
+		cpara.clip_d = 0;
 		cpara.rescale = 8;
 		cpara.max_lr_xshift = 80;
 		cpara.max_lr_yshift = 16;
 		cpara.max_ud_xshift = 16;
 		cpara.max_ud_yshift = 80;
-		cpara.img_path = "F:/chenyu/work/ChipStitch/data/m3/";
-		cpara.img_num_w = 71;
-		cpara.img_num_h = 101;
+		cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
+		cpara.img_num_w = 3;
+		cpara.img_num_h = 3;
 		cpara.offset.create(2, 2);
 		cpara.offset(0, 0) = Vec2i(0, 0);
-		cpara.offset(0, 1) = Vec2i(0, 1780);
-		cpara.offset(1, 0) = Vec2i(1572, 0);
-		cpara.offset(0, 1) = Vec2i(1572, 1780);
+		cpara.offset(0, 1) = Vec2i(0, 1817);
+		cpara.offset(1, 0) = Vec2i(1558, 0);
+		cpara.offset(0, 1) = Vec2i(1558, 1817);
 	}
 	bool new_layer = (stitch_view->get_layer_num() == 0);
 	CparaDialog para_dlg(cpara, new_layer, this);

@@ -74,10 +74,10 @@ Algorithm
 class BundleAdjust
 {
 protected:
-	vector<Edge> eds[2];
-	vector<ImgMeta> imgs;
-	list<EdgeDiff *> new_eds;
-	list<Edge *> edge_mqueue;
+	vector<Edge> eds[2]; //Originally eds.diff point to FeatExt, during merge, it point to new_eds
+	vector<ImgMeta> imgs; //row * col raw image
+	list<EdgeDiff *> new_eds; //new diff during merge
+	list<Edge *> edge_mqueue; //merge edge priority queue
 	int img_num_h, img_num_w, scale;
 	float progress;
 

@@ -8,18 +8,20 @@
 #define PARALLEL 1
 #define TOTAL_PROP 1000
 
-void edge_mixer(const Mat & img_in, const Mat & mask, Mat & img_out)
+void edge_mixer(const Mat & img_in, const Mat & mask, Mat & img_out, const TuningPara * tvar)
 {
-
+	int lut_size = sizeof(tvar->lut) / sizeof(tvar->lut[0]);
     CV_Assert(img_in.type() == CV_16SC1 && mask.type() == CV_8UC1);
     Mat out(img_in.rows, img_in.cols, CV_8SC1);
     for (int y = 0; y < img_in.rows; y++) {
-        const unsigned short * p_img_in = img_in.ptr<unsigned short>(y);
+        const short * p_img_in = img_in.ptr<short>(y);
         const unsigned char * p_mask = mask.ptr<unsigned char>(y);
-        unsigned char * p_img_out = out.ptr<unsigned char>(y);
+        char * p_img_out = out.ptr<char>(y);
         for (int x = 0; x < img_in.cols; x++)
-        if (p_mask[x])
-            p_img_out[x] = p_img_in[x] >> 4;
+		if (p_mask[x]) {
+			p_img_out[x] = (abs(p_img_in[x]) >= lut_size) ? tvar->lut[lut_size - 1] : tvar->lut[abs(p_img_in[x])];
+			p_img_out[x] = p_img_in[x] > 0 ? p_img_out[x] : -p_img_out[x];
+		}
         else
             p_img_out[x] = 0;
 
@@ -43,16 +45,26 @@ void prepare_grad(const Mat & img_in, Mat & grad_x, Mat & grad_y, const TuningPa
     else
         rescaled_mat = tailor_mat;
 
-    bilateralFilter(rescaled_mat, filt_mat, tvar->bfilt_w, tvar->bfilt_csigma, 0);
-    
-    Canny(filt_mat, edge_mask, tvar->canny_low_th, tvar->canny_high_th, 3);
-    dilate(edge_mask, edge_mask, Mat());
+	if (tvar->bfilt_w > cvar->rescale)
+		bilateralFilter(rescaled_mat, filt_mat, tvar->bfilt_w / cvar->rescale, tvar->bfilt_csigma, 0);
+	else
+		filt_mat = rescaled_mat;
+
+	if (tvar->canny_low_th > 0) {
+		Canny(filt_mat, edge_mask, tvar->canny_low_th, tvar->canny_high_th, 3);
+		if (tvar->edge_dialte)
+			dilate(edge_mask, edge_mask, Mat());
+	}
+	else {
+		edge_mask.create(filt_mat.rows, filt_mat.cols, CV_8UC1);
+		edge_mask = Scalar::all(1);
+	}
 
     Sobel(filt_mat, grad_x, CV_16S, 1, 0, tvar->sobel_w);
-    edge_mixer(grad_x, edge_mask, grad_x);
-
     Sobel(filt_mat, grad_y, CV_16S, 0, 1, tvar->sobel_w);
-    edge_mixer(grad_y, edge_mask, grad_y);
+
+	edge_mixer(grad_x, edge_mask, grad_x, tvar);
+    edge_mixer(grad_y, edge_mask, grad_y, tvar);
 }
 
 /*
@@ -231,6 +243,7 @@ FeatExt::FeatExt()
 void FeatExt::set_tune_para(const TuningPara & _tpara)
 {
 	tpara = _tpara;
+	tpara.recompute_lut();
 }
 
 void FeatExt::set_cfg_para(const ConfigPara & _cpara)
@@ -281,6 +294,15 @@ void FeatExt::generate_feature_diff()
 #else
 			for (int i = 0; i < image.size(); i++)
 				prepare_extract(image[i]);
+#endif
+#if 1
+			if (x <= 2) {
+				char filename[50];
+				sprintf(filename, "g0_M%d.jpg", x*2);
+				imwrite(filename, abs(grad_x[x & 1][0]) * 8);
+				sprintf(filename, "g0_M%d.jpg", x*2+1);
+				imwrite(filename, abs(grad_y[x & 1][0]) * 8);
+			}
 #endif
 			total_load += (int) image.size() - 1;
 			progress = (float)total_load / (cpara.img_num_h * cpara.img_num_w);

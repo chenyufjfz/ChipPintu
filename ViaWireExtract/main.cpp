@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QDateTime>
 #include <set>
+#include <QThread>
 #include "viawireeditview.h"
 #include "extractparam.h"
 using namespace cv;
@@ -61,29 +62,37 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 		fflush(fp);
 		return;
 	}
-    if (context.function==NULL) {
-        switch (type) {
-        case QtDebugMsg:
-            fprintf(fp, "<D>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
-            break;
-        case QtInfoMsg:
-            fprintf(fp, "<I>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
-            break;
-        case QtWarningMsg:
-            fprintf(fp, "<W>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+	
+	if (context.function == NULL) {
+		unsigned thread_id = quintptr(QThread::currentThreadId());
+		switch (type) {
+		case QtDebugMsg:
+			fprintf(fp, "<D>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+#if QMSG_FLUSH
 			fflush(fp);
-            break;
-        case QtCriticalMsg:
-            fprintf(fp, "<E>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
-            fflush(fp);
-            break;
-        case QtFatalMsg:
-            fprintf(fp, "<F>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
-            fclose(fp);
-            exit(-1);
-        }
-        return;
-    }
+#endif
+			break;
+		case QtInfoMsg:
+			fprintf(fp, "<I>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+#if QMSG_FLUSH
+			fflush(fp);
+#endif
+			break;
+		case QtWarningMsg:
+			fprintf(fp, "<W>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fflush(fp);
+			break;
+		case QtCriticalMsg:
+			fprintf(fp, "<E>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fflush(fp);
+			break;
+		case QtFatalMsg:
+			fprintf(fp, "<F>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fclose(fp);
+			exit(-1);
+		}
+		return;
+	}
     char func[100];
     char file[100];
     int size, kuo=0;
@@ -713,7 +722,7 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	
 	//wire_extract_test_pipeprocess();
 	//cell_extract_test();
