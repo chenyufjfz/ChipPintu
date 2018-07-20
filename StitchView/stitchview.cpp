@@ -61,8 +61,10 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
     cache_size = 150;
 	preimg_size = 18;
     layer = -1;
+	edge_cost = 0;
 	feature_layer = -1;
-	choose = QPoint(-1, -1);
+	for (int i=0; i<3; i++)
+		choose[i] = QPoint(-1, -1);
     resize(1800, 1000);
 	setMouseTracking(true);
 	setAutoFillBackground(false);
@@ -102,15 +104,15 @@ void StitchView::paintEvent(QPaintEvent *)
 	QRect screen_rect(0, 0, width(), height());	
 
 	//first loop, decode image
-	for (int draw_order = 0; draw_order < 2; draw_order++) {
+	for (int draw_order = 0; draw_order < 4; draw_order++) {
 		int max_x, max_y, start_x, start_y, end_x, end_y;
-		if (draw_order == 1) {
-			if (choose == QPoint(-1, -1)) 				
-				break;		
+		if (draw_order >= 1) {
+			if (choose[draw_order - 1] == QPoint(-1, -1))
+				continue;		
 			else {
-				start_y = choose.y();
+				start_y = choose[draw_order - 1].y();
 				end_y = start_y + 1;
-				start_x = choose.x();
+				start_x = choose[draw_order - 1].x();
 				end_x = start_x + 1;
 			}
 		}
@@ -182,15 +184,15 @@ void StitchView::paintEvent(QPaintEvent *)
 	}
 	int dec_idx = 0;
 	//second loop, draw image
-	for (int draw_order = 0; draw_order < 2; draw_order++) {
+	for (int draw_order = 0; draw_order < 4; draw_order++) {
 		int max_x, max_y, start_x, start_y, end_x, end_y;
-		if (draw_order == 1) {
-			if (choose == QPoint(-1, -1))
-				break;
+		if (draw_order >= 1) {
+			if (choose[draw_order - 1] == QPoint(-1, -1))
+				continue;
 			else {
-				start_y = choose.y();
+				start_y = choose[draw_order - 1].y();
 				end_y = start_y + 1;
-				start_x = choose.x();
+				start_x = choose[draw_order - 1].x();
 				end_x = start_x + 1;
 			}
 		}
@@ -331,7 +333,10 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 	if (cpara.empty())
 		return;
 	QPoint mouse_point(event->localPos().x(), event->localPos().y());
+	Point offset;
 	mouse_point = mouse_point * scale + view_rect.topLeft();
+
+	QPoint prev_may_choose = may_choose;
 	for (int y = 0; y<cpara[layer].img_num_h; y++)
 		for (int x = 0; x<cpara[layer].img_num_w; x++)
 			if (cpara[layer].offset(y, x)[0] < mouse_point.y() && 
@@ -340,9 +345,26 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 				(x + 1 == cpara[layer].img_num_w || cpara[layer].offset(y, x + 1)[1] > mouse_point.x())) {
 				may_choose.setX(x);
 				may_choose.setY(y);
+				offset.x = mouse_point.x() - cpara[layer].offset(y, x)[1];
+				offset.y = mouse_point.y() - cpara[layer].offset(y, x)[0];
+				y = cpara[layer].img_num_h;
 				break;
 			}
-	emit MouseChange(may_choose);
+	
+	if (may_choose != prev_may_choose && feature.is_valid()) {
+		const EdgeDiff * ed = feature.get_edge(may_choose.y(), may_choose.x(), prev_may_choose.y(), prev_may_choose.x());
+		if (ed) {
+			Point o0(cpara[layer].offset(may_choose.y(), may_choose.x())[1], 
+				cpara[layer].offset(may_choose.y(), may_choose.x())[0]);
+			Point o1(cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[1],
+				cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[0]);
+			Point oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
+			edge_cost = ed->get_diff(oo, 1);
+		}
+	}
+	char info[200];
+	sprintf(info, "x=%d,y=%d,ox=%d,oy=%d, cost=%d", may_choose.x(), may_choose.y(),offset.x, offset.y, edge_cost);
+	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
 }
 
@@ -350,10 +372,11 @@ void StitchView::mouseReleaseEvent(QMouseEvent *event)
 {
 	if (cpara.empty())
 		return;
-	if (choose == may_choose)
-		choose = QPoint(-1, -1);
-	else
-		choose = may_choose;
+	if (choose[2] != may_choose) {
+		choose[0] = choose[1];
+		choose[1] = choose[2];
+		choose[2] = may_choose;
+	}
 	update();
 	QWidget::mouseReleaseEvent(event);
 }
@@ -413,11 +436,6 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 		feature_file.push_back(string());		
 		if (tpara.empty()) {
 			TuningPara _tpara;
-			_tpara.bfilt_w = 8;
-			_tpara.bfilt_csigma = 23;
-			_tpara.canny_high_th = 200;
-			_tpara.canny_low_th = 100;
-			_tpara.sobel_w = 3;
 			tpara.push_back(_tpara);
 		}
 		else
@@ -449,7 +467,6 @@ int StitchView::set_tune_para(int _layer, const TuningPara & _tpara)
 	if (_layer >= tpara.size() || _layer < 0)
 		return -1;
 	tpara[_layer] = _tpara;
-	tpara[_layer].recompute_lut();
 	return 0;
 }
 
@@ -480,12 +497,7 @@ int StitchView::compute_new_feature(int _layer)
 		QMessageBox::information(this, "Info", "Optimize offset is running, wait it finish and redo Prepare");
 		return -3;
 	}
-	next_scale = !feature_file[_layer].empty();
-	if (cpara[_layer].rescale == 1 && next_scale)
-		return -4;
 
-	if (next_scale)
-		cpara[_layer].rescale = cpara[_layer].rescale / 2;
 	feature.set_cfg_para(cpara[_layer]);
 	feature.set_tune_para(tpara[_layer]);
 	feature_layer = _layer;
@@ -518,9 +530,14 @@ int StitchView::optimize_offset(int _layer)
 		feature.read_diff_file(feature_file[_layer]);
 		feature_layer = _layer;
 	}
-
+	
+#if 0
 	bundle_adjust_future = QtConcurrent::run(thread_bundle_adjust, &ba, &feature, &adjust_offset);
 	bundle_adjust_timer = startTimer(2000);
+#else
+	thread_bundle_adjust(&ba, &feature, &adjust_offset);
+	cpara[feature_layer].offset = adjust_offset;
+#endif
 	return 0;
 }
 
@@ -570,11 +587,15 @@ void StitchView::write_file(string file_name)
 		fs << name << feature_file[i];
 	}
 	Point ct(center.x(), center.y());
-	Point ce(choose.x(), choose.y());
+	Point ce0(choose[0].x(), choose[0].y());
+	Point ce1(choose[1].x(), choose[1].y());
+	Point ce2(choose[2].x(), choose[2].y());
 	fs << "layer" << layer;
 	fs << "scale" << scale;
 	fs << "center" << ct;
-	fs << "choose" << ce;
+	fs << "choose" << ce0;
+	fs << "choose1" << ce1;
+	fs << "choose2" << ce2;
 	fs.release();
 }
 
@@ -597,13 +618,18 @@ int StitchView::read_file(string file_name)
 			sprintf(name, "diff_file%d", i);
 			fs[name] >> feature_file[i];
 		}
-		Point ce, ct;
+		Point ce0, ce1, ce2, ct;
 		fs["layer"] >> layer;
 		fs["scale"] >> scale;
 		fs["center"] >> ct;
-		fs["choose"] >> ce;
+		fs["choose"] >> ce0;
+		fs["choose1"] >> ce1;
+		fs["choose2"] >> ce2;
+		feature.read_diff_file(feature_file[layer]);
 		center = QPoint(ct.x, ct.y);
-		choose = QPoint(ce.x, ce.y);
+		choose[0] = QPoint(ce0.x, ce0.y);
+		choose[1] = QPoint(ce1.x, ce1.y);
+		choose[2] = QPoint(ce2.x, ce2.y);
 		fs.release();
 		feature_layer = -1;
 		return 0;

@@ -77,7 +77,7 @@ public:
 	}
 
 signals:
-	void MouseChange(QPoint point);
+	void MouseChange(QString info);
 	void notify_progress(float progress);
 
 public slots:
@@ -96,9 +96,10 @@ protected:
 	//Following is for drawing layer and rect
 	double scale; //current scale, should be bigger than cpara.rescale /2
     unsigned char layer; //current layer, use cpara[layer] for drawing
-	QPoint choose, may_choose;
+	QPoint choose[3], may_choose;
 	QRect view_rect; //view_rect unit is pixel in original file image
 	QPoint center;
+	int edge_cost;
 	//upper is for drawing layer and rect
 
 	//Following is for encoder and decode image cache

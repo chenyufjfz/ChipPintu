@@ -14,16 +14,16 @@ MainWindow::MainWindow(QWidget *parent) :
 	stitch_view->setFocus();
 
 	status_label = new QLabel();
-    status_label->setMaximumSize(180, 20);
+    status_label->setMaximumSize(500, 20);
 	ui->statusBar->addWidget(status_label);
 
 	pProgressBar = new QProgressBar();
 	pProgressBar->setRange(0, 100);
 	pProgressBar->setValue(0);
-	pProgressBar->setMaximumSize(300, 20);
+	pProgressBar->setMaximumSize(200, 20);
 	ui->statusBar->addPermanentWidget(pProgressBar);
 
-	connect(stitch_view, SIGNAL(MouseChange(QPoint)), this, SLOT(mouse_change(QPoint)));
+	connect(stitch_view, SIGNAL(MouseChange(QString)), this, SLOT(mouse_change(QString)));
 	connect(stitch_view, SIGNAL(notify_progress(float)), this, SLOT(notify_progress(float)));
 }
 
@@ -32,11 +32,9 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-void MainWindow::mouse_change(QPoint pos)
+void MainWindow::mouse_change(QString info)
 {
-	char s[100];
-	sprintf(s, "x:%d,y:%d", pos.x(), pos.y());
-	status_label->setText(s);
+	status_label->setText(info);
 }
 
 void MainWindow::notify_progress(float pos)
@@ -54,10 +52,10 @@ void MainWindow::on_actionConfig_Para_triggered()
 		cpara.clip_u = 0;
 		cpara.clip_d = 0;
 		cpara.rescale = 8;
-		cpara.max_lr_xshift = 80;
+		cpara.max_lr_xshift = 36;
 		cpara.max_lr_yshift = 16;
 		cpara.max_ud_xshift = 16;
-		cpara.max_ud_yshift = 80;
+		cpara.max_ud_yshift = 36;
 		cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
 		cpara.img_num_w = 3;
 		cpara.img_num_h = 3;
@@ -67,8 +65,8 @@ void MainWindow::on_actionConfig_Para_triggered()
 		cpara.offset(1, 0) = Vec2i(1558, 0);
 		cpara.offset(0, 1) = Vec2i(1558, 1817);
 	}
-	bool new_layer = (stitch_view->get_layer_num() == 0);
-	CparaDialog para_dlg(cpara, new_layer, this);
+	
+	CparaDialog para_dlg(cpara, true, this);
 	if (para_dlg.exec() == QDialog::Accepted) {
 		cpara = para_dlg.cpara;
 		int init_offset_x = cpara.offset(0, 1)[1] - cpara.offset(0, 0)[1];
@@ -94,7 +92,7 @@ void MainWindow::on_actionTune_Para_triggered()
     TuningPara tpara;
     int ret = stitch_view->get_tune_para(-1, tpara);
 
-	TParaDialog para_dlg(tpara, this);
+	TParaDialog para_dlg("tune.xml", this);
 	if (para_dlg.exec() == QDialog::Accepted) {
 		stitch_view->set_tune_para(-1, para_dlg.tpara);
 	}
@@ -102,6 +100,38 @@ void MainWindow::on_actionTune_Para_triggered()
 
 void MainWindow::on_actionPrepare_Next_Iter_triggered()
 {
+	ConfigPara cpara;
+	int ret = stitch_view->get_config_para(-1, cpara);
+	if (ret < 0) {
+		cpara.clip_l = 0;
+		cpara.clip_r = 0;
+		cpara.clip_u = 0;
+		cpara.clip_d = 0;
+		cpara.rescale = 8;
+		cpara.max_lr_xshift = 36;
+		cpara.max_lr_yshift = 16;
+		cpara.max_ud_xshift = 16;
+		cpara.max_ud_yshift = 36;
+		cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
+		cpara.img_num_w = 3;
+		cpara.img_num_h = 3;
+		cpara.offset.create(2, 2);
+		cpara.offset(0, 0) = Vec2i(0, 0);
+		cpara.offset(0, 1) = Vec2i(0, 1817);
+		cpara.offset(1, 0) = Vec2i(1558, 0);
+		cpara.offset(0, 1) = Vec2i(1558, 1817);
+	}
+
+	CparaDialog para_dlg(cpara, false, this);
+	if (para_dlg.exec() == QDialog::Accepted) {
+		cpara = para_dlg.cpara;
+		if (para_dlg.new_layer) {
+			stitch_view->set_config_para(stitch_view->get_layer_num(), cpara);
+			stitch_view->set_current_layer(stitch_view->get_layer_num() - 1);
+		}
+		else
+			stitch_view->set_config_para(-1, cpara);
+	}
 	stitch_view->compute_new_feature(-1);
 }
 

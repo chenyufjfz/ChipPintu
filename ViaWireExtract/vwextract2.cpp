@@ -8758,6 +8758,8 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		QPoint sr_tl_pixel = sr.topLeft() / scale;
 		qInfo("extract Rect, lt=(%d,%d), rb=(%d,%d), multithread=%d", sr_tl_pixel.x(), sr_tl_pixel.y(), sr.right() / scale, sr.bottom() / scale, parallel_search);
 		for (int xay = sb.left() + sb.top(); xay <= sb.right() + sb.bottom(); xay++) {
+			/*Scan from top left to bottom right. Once process one xie line /, 
+			  For xie line /, process each tile concurrenty.Each tile contain all layer.*/
 			for (int i = 0; i < diag_line[cl].size(); i++) //release current diag_line memory
 			for (int j = 0; j < diag_line[cl][i].l.size(); j++)
 				diag_line[cl][i].l[j].release_temp_data();

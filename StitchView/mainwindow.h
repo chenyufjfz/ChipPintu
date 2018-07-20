@@ -19,7 +19,7 @@ public:
     ~MainWindow();
 
 protected slots:
-	void mouse_change(QPoint pos);
+	void mouse_change(QString info);
 	void notify_progress(float progress);
 
 private slots:

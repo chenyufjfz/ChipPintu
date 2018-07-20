@@ -29,67 +29,28 @@
     <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
    </property>
   </widget>
-  <widget class="QWidget" name="gridLayoutWidget">
+  <widget class="QListWidget" name="action_list">
    <property name="geometry">
     <rect>
-     <x>100</x>
-     <y>30</y>
-     <width>160</width>
-     <height>152</height>
+     <x>70</x>
+     <y>50</y>
+     <width>211</width>
+     <height>151</height>
     </rect>
    </property>
-   <layout class="QGridLayout" name="gridLayout">
-    <item row="3" column="1">
-     <widget class="QLineEdit" name="canny_low_th"/>
-    </item>
-    <item row="1" column="0">
-     <widget class="QLabel" name="label_2">
-      <property name="text">
-       <string>BSigma</string>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="0">
-     <widget class="QLabel" name="label_3">
-      <property name="text">
-       <string>CHigh</string>
-      </property>
-     </widget>
-    </item>
-    <item row="3" column="0">
-     <widget class="QLabel" name="label_4">
-      <property name="text">
-       <string>CLow</string>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="1">
-     <widget class="QLineEdit" name="canny_high_th"/>
-    </item>
-    <item row="4" column="1">
-     <widget class="QLineEdit" name="sobel_w"/>
-    </item>
-    <item row="0" column="1">
-     <widget class="QLineEdit" name="bfilt_w"/>
-    </item>
-    <item row="0" column="0">
-     <widget class="QLabel" name="label">
-      <property name="text">
-       <string>BWin</string>
-      </property>
-     </widget>
-    </item>
-    <item row="1" column="1">
-     <widget class="QLineEdit" name="bfilt_csigma"/>
-    </item>
-    <item row="4" column="0">
-     <widget class="QLabel" name="label_5">
-      <property name="text">
-       <string>SWin</string>
-      </property>
-     </widget>
-    </item>
-   </layout>
+  </widget>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>20</y>
+     <width>55</width>
+     <height>16</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>Action</string>
+   </property>
   </widget>
  </widget>
  <resources/>

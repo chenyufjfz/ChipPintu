@@ -62,9 +62,13 @@ struct ImgMeta {
 };
 
 struct Edge {
-	EdgeDiff * diff;
+	const EdgeDiff * diff;
+	unsigned base_score;
 	short state; //MERGED, SHARED, FREE
-	short score;	
+    short diff_or_dir;	
+	Edge() {
+		base_score = 0;
+	}
 };
 
 /*
@@ -76,8 +80,8 @@ class BundleAdjust
 protected:
 	vector<Edge> eds[2]; //Originally eds.diff point to FeatExt, during merge, it point to new_eds
 	vector<ImgMeta> imgs; //row * col raw image
-	list<EdgeDiff *> new_eds; //new diff during merge
-	list<Edge *> edge_mqueue; //merge edge priority queue
+	list<EdgeDiff *> new_eds; //new EdgeDiff during merge, it need to free when finish
+	list<Edge *> edge_mqueue; //merge edge priority queue, Edge * point to eds item.
 	int img_num_h, img_num_w, scale;
 	float progress;
 
@@ -87,12 +91,13 @@ protected:
 	ImgMeta * get_img_meta(int idx);
 	void push_mqueue(Edge * e);
 	void release_new_eds();
-	void init(FeatExt & fet, int _img_num_h, int _img_num_w);
-	void merge(EdgeDiff * edge, FeatExt & fet);
+	void init(const FeatExt & fet, int _img_num_h, int _img_num_w);
+	void merge(const EdgeDiff * edge, const FeatExt & fet);
 
 public:
     BundleAdjust();
-	Mat_<Vec2i> arrange(FeatExt & fet, int _img_num_h = 0, int _img_num_w = 0);
+	~BundleAdjust();
+	Mat_<Vec2i> arrange(const FeatExt & fet, int _img_num_h = 0, int _img_num_w = 0);
 	float get_progress() {
 		return progress;
 	}

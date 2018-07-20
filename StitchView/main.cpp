@@ -89,13 +89,51 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
         exit(-1);
     }
 }
+#ifdef Q_OS_WIN
+#ifdef QT_DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+
+#include <Windows.h>
+#include <DbgHelp.h>
+void CreateMiniDump(PEXCEPTION_POINTERS pep, LPCTSTR strFileName)
+{
+	HANDLE hFile = CreateFile(strFileName, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if ((hFile != NULL) && (hFile != INVALID_HANDLE_VALUE)) {
+		MINIDUMP_EXCEPTION_INFORMATION mdei;
+		mdei.ThreadId = GetCurrentThreadId();
+		mdei.ExceptionPointers = pep;
+		mdei.ClientPointers = FALSE;
+		MINIDUMP_TYPE mdt = (MINIDUMP_TYPE)(MiniDumpWithFullMemory | MiniDumpWithFullMemoryInfo | MiniDumpWithHandleData | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
+		BOOL rv = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile, mdt, (pep != 0) ? &mdei : 0, 0, 0);
+		CloseHandle(hFile);
+	}
+}
+
+LONG __stdcall MyUnhandledExceptionFilter(PEXCEPTION_POINTERS pExceptionInfo)
+{
+	CreateMiniDump(pExceptionInfo, L"core.dmp");
+	qWarning("crash happen");
+	return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
 	QDir work_dir(qApp->applicationDirPath() + "/WorkData");
-
+#ifdef Q_OS_WIN
+#ifdef QT_DEBUG
+	//_CrtSetBreakAlloc(36207);
+	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+#endif
+	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
+#endif
     qInstallMessageHandler(myMessageOutput);
 
 	if (!work_dir.exists()) {

@@ -4,62 +4,58 @@
 #include <string>
 #include <math.h>
 #include "opencv2/imgproc/imgproc.hpp"
+#include "extractparam.h"
 
 using namespace cv;
 using namespace std;
 
 class TuningPara {
 public:
-	int bfilt_w;
-	int bfilt_csigma;
-	int canny_high_th;
-	int canny_low_th;
-	int sobel_w;
-	int sobel_th;
-	int edge_dialte;
-	float alpha;
-	char lut[256];
+	vector<ParamItem> params;
+
 public:
 	TuningPara() {
-		bfilt_w = 8;
-		bfilt_csigma = 20;
-		canny_high_th = 30;
-		canny_low_th = 15;
-		sobel_w = 3;
-		sobel_th = 0;
-		alpha = 1;	
-		edge_dialte = 1;
+	}
+
+	void read(ExtractParam & ep, const string action_name) {
+		ep.get_param(action_name, params);
+	}
+
+	TuningPara(ExtractParam & ep, const string action_name) {
+		read(ep, action_name);
 	}
 
 	void read_file(const FileNode& node) {
-		bfilt_w = (int)node["bfilt_w"];
-		bfilt_csigma = (int)node["bfilt_csigma"];
-		canny_high_th = (int)node["canny_high_th"];
-		canny_low_th = (int)node["canny_low_th"];
-		sobel_w = (int)node["sobel_w"];
-		sobel_th = (int)node["sobel_th"];
-		alpha = (float)node["alpha"];
-		edge_dialte = (int)node["edge_dialte"];
+		for (FileNodeIterator it = node.begin(); it != node.end(); it++) {
+			ParamItem param;
+			param.pi[0] = (int)(*it)["pi0"];
+			param.pi[1] = (int)(*it)["pi1"];
+			param.pi[2] = (int)(*it)["pi2"];
+			param.pi[3] = (int)(*it)["pi3"];
+			param.pi[4] = (int)(*it)["pi4"];
+			param.pi[5] = (int)(*it)["pi5"];
+			param.pi[6] = (int)(*it)["pi6"];
+			param.pi[7] = (int)(*it)["pi7"];
+			param.pi[8] = (int)(*it)["pi8"];
+			param.pf = (float)(*it)["pf"];
+			params.push_back(param);
+		}
 	}
 
 	void write_file(FileStorage& fs) const {
-		fs << "{" << "bfilt_w" << bfilt_w;
-		fs << "bfilt_csigma" << bfilt_csigma;
-		fs << "canny_high_th" << canny_high_th;
-		fs << "canny_low_th" << canny_low_th;
-		fs << "sobel_w" << sobel_w;
-		fs << "sobel_th" << sobel_th;
-		fs << "alpha" << alpha;
-		fs << "edge_dialte" << edge_dialte << "}";
-	}
-
-	void recompute_lut() {
-		for (int i = 0; i < sizeof(lut) / sizeof(lut[0]); i++) {
-			if (i <= sobel_th)
-				lut[i] = 0;
-			else
-				lut[i] = pow(i - sobel_th, alpha) + 0.5;
-		}	
+		fs << "[";
+		for (int i = 0; i < (int)params.size(); i++) {
+			fs << "{" << "pi0" << params[i].pi[0];
+			fs << "pi1" << params[i].pi[1];
+			fs << "pi2" << params[i].pi[2];
+			fs << "pi3" << params[i].pi[3];
+			fs << "pi4" << params[i].pi[4];
+			fs << "pi5" << params[i].pi[5];
+			fs << "pi6" << params[i].pi[6];
+			fs << "pi7" << params[i].pi[7];
+			fs << "pi8" << params[i].pi[8] << "}";
+		}
+		fs << "]";
 	}
 };
 
@@ -74,6 +70,14 @@ public:
 	Mat_<Vec2i> offset;
 
 public:	 
+	ConfigPara() {
+		clip_l = 0;
+		clip_r = 0;
+		clip_u = 0;
+		clip_d = 0;
+		img_num_w = 0;
+		img_num_h = 0;
+	}
 
 	void read_file(const FileNode& node) {
 		clip_l = (int) node["clip_left"];
@@ -131,14 +135,19 @@ public:
 	unsigned edge_idx;
 	Mat_<unsigned char> diff;
 	unsigned char maxd;
-	unsigned short score;	
+	unsigned score;	
 
 public:
+	void compute_score() {
+		score = maxd;
+	}
+
 	void read_file(const FileNode& node) {
 		offset.y = (int) node["oy"];
 		offset.x = (int) node["ox"];
 		maxd = (int)node["m"];
 		read(node["diff"], diff);
+		compute_score();
 	}
 
 	void write_file(FileStorage& fs) const {
@@ -148,7 +157,7 @@ public:
 		fs << "diff" << diff << "}";
 	}
 
-	EdgeDiff * clone() {
+	EdgeDiff * clone() const {
 		EdgeDiff * new_diff = new EdgeDiff();
 		new_diff->offset = offset;
 		new_diff->edge_idx = edge_idx;
@@ -158,29 +167,7 @@ public:
 		return new_diff;
 	}
 
-	void compute_score() {
-		unsigned min = 1000, submin = 1000, thirdmin = 1000;
-		for (int y = 0; y < diff.rows; y++) {
-			unsigned char * pdiff = diff.ptr(y);
-			for (int x = 0; x < diff.cols; x++) {
-				if (pdiff[x] < min) {
-					thirdmin = submin;
-					submin = min;
-					min = pdiff[x];
-				} else
-					if (pdiff[x] < submin) {
-						thirdmin = submin;
-						submin = pdiff[x];
-					}
-					else
-						if (pdiff[x] < thirdmin)
-							thirdmin = pdiff[x];
-			}
-		}
-		score = (submin - min) + (thirdmin - submin) / 3;
-	}
-
-	void get_img_idx(unsigned & img_idx0, unsigned & img_idx1)
+	void get_img_idx(unsigned & img_idx0, unsigned & img_idx1) const
 	{
 		int x = EDGE_X(edge_idx);
 		int y = EDGE_Y(edge_idx);
@@ -194,7 +181,7 @@ public:
 		}
 	}
 
-	unsigned char get_diff(Point o, int s)
+	unsigned char get_diff(Point o, int s) const
 	{
 		Point t = o - offset;
 		t.y = t.y / s;
@@ -238,7 +225,7 @@ public:
 		for (int y = 0; y < diff.rows; y++) {
 			unsigned char * pd = diff.ptr<unsigned char>(y);
 			int y1 = t.y - y;
-			const unsigned char * pd1 = e2.diff.ptr<unsigned char>(y1);
+			const unsigned char * pd1 = (y1 < 0 || y1 >= e2.diff.rows) ? NULL : e2.diff.ptr<unsigned char>(y1);
 			for (int x = 0; x < diff.cols; x++) {
 				int x1 = t.x - x;
 				if (y1 >= 0 && y1 < e2.diff.rows && x1 >= 0 && x1 < e2.diff.cols)
@@ -272,6 +259,9 @@ public:
     FeatExt();
 	void set_tune_para(const TuningPara & _tpara);
 	void set_cfg_para(const ConfigPara & _cpara);
+	bool is_valid() {
+		return (cpara.img_num_h != 0 && cpara.img_num_w != 0 && !cpara.offset.empty());
+	}
 	/*
 	Compute EdgeDiff based on cpara and tpara 
 	*/
@@ -282,9 +272,10 @@ public:
 		return progress;
 	}
 	//i==0 means heng edge, i==1 means shu edge
-	EdgeDiff * get_edge(int i, int y, int x);
-	EdgeDiff * get_edge(int idx);
-	ConfigPara get_config_para() {
+	const EdgeDiff * get_edge(int i, int y, int x) const;
+	const EdgeDiff * get_edge(int idx) const;
+	const EdgeDiff * get_edge(int y0, int x0, int y1, int x1) const;
+	ConfigPara get_config_para() const {
 		return cpara;
 	}
 };

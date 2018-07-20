@@ -2,11 +2,22 @@
 #include <stdio.h>
 #include <QtGlobal>
 
+#ifdef QT_DEBUG
+#ifdef Q_OS_WIN
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+#endif
+
+
 //state for img
 #define NOT_VISIT	0
 #define VISIT		1
 
-//state for edge, Free means it can move with bundle freely, merged means it is bundle internal edge
+//state for edge, FREE means it can move with bundle freely, MERGED means it is bundle internal edge
+//SHARED means it is absorbed into other edge
 #define FREE	0
 #define MERGED	1
 #define SHARED	2
@@ -17,17 +28,40 @@ struct EdgeDiffCmp {
 		return e1->diff->score > e2->diff->score;
 	}
 };
-struct EdgeCmp {
-	bool operator()(const Edge * e1, const Edge * e2) {
-		return e1->score > e2->score;
+
+/*
+Input diff
+Output minval, min_loc
+*/
+void found_min(const Mat &diff, vector<int> & minval, vector<Point> & min_loc)
+{
+	minval.resize(3);
+	min_loc.resize(minval.size());
+	for (int i = 0; i < minval.size(); i++)
+		minval[i] = 1000;
+	for (int y = 0; y < diff.rows; y++) {
+		const unsigned char * pdiff = diff.ptr(y);
+		for (int x = 0; x < diff.cols; x++) {
+			for (int i = 0; i < minval.size(); i++)
+			if (pdiff[x] < minval[i]) {
+				minval.insert(minval.begin() + i, pdiff[x]);
+				min_loc.insert(min_loc.begin() + i, Point(x, y));
+				minval.pop_back();
+				min_loc.pop_back();
+			}
+		}
 	}
-};
+}
 
 BundleAdjust::BundleAdjust()
 {
 
 }
 
+BundleAdjust::~BundleAdjust()
+{
+	release_new_eds();
+}
 Edge * BundleAdjust::get_edge(int i, int y, int x)
 {
 	if (i == 0 && (y >= img_num_h - 1 || x >= img_num_w))
@@ -63,7 +97,7 @@ ImgMeta * BundleAdjust::get_img_meta(int idx)
 void BundleAdjust::push_mqueue(Edge * e)
 {
 	for (list<Edge *>::iterator iter = edge_mqueue.begin(); iter != edge_mqueue.end(); iter++)
-		if (e->diff->score >= (*iter)->diff->score) {
+		if (e->diff->score + e->base_score >= (*iter)->diff->score + (*iter)->base_score) {
 			edge_mqueue.insert(iter, e);
 			return;
 		}
@@ -84,12 +118,13 @@ input fet,
 input _img_num_h, if < 0, img_num_h = fet.cpara.img_num_h
 input _img_num_w, if < 0, img_num_w = fet.cpara.img_num_w
 */
-void BundleAdjust::init(FeatExt & fet, int _img_num_h, int _img_num_w)
+void BundleAdjust::init(const FeatExt & fet, int _img_num_h, int _img_num_w)
 {
 	ConfigPara cpara = fet.get_config_para();
 	img_num_h = _img_num_h >= 0 ? _img_num_h : cpara.img_num_h;
 	img_num_w = _img_num_w >= 0 ? _img_num_w : cpara.img_num_w;
 	scale = cpara.rescale;
+	//init imgs as seperate free move state
 	imgs.clear();
 	imgs.resize(img_num_h * img_num_w);
 	for (int y = 0; y < img_num_h; y++)
@@ -108,8 +143,8 @@ void BundleAdjust::init(FeatExt & fet, int _img_num_h, int _img_num_w)
 		for (int x = 0; x < img_num_w; x++) {
 		eds[0][y * img_num_w + x].diff = fet.get_edge(0, y, x);
 		eds[0][y * img_num_w + x].state = FREE;
-		eds[0][y * img_num_w + x].score = 0;
-		edge_mqueue.push_back(&eds[0][y * img_num_w + x]);
+		eds[0][y * img_num_w + x].diff_or_dir = 0;
+		push_mqueue(&eds[0][y * img_num_w + x]);
 		}
 
 	eds[1].clear();
@@ -118,10 +153,9 @@ void BundleAdjust::init(FeatExt & fet, int _img_num_h, int _img_num_w)
 		for (int x = 0; x < img_num_w - 1; x++) {
 		eds[1][y * (img_num_w - 1) + x].diff = fet.get_edge(1, y, x);
 		eds[1][y * (img_num_w - 1) + x].state = FREE;
-		eds[1][y * (img_num_w - 1) + x].score = 0;
-		edge_mqueue.push_back(&eds[1][y * (img_num_w - 1) + x]);
+		eds[1][y * (img_num_w - 1) + x].diff_or_dir = 0;
+		push_mqueue(&eds[1][y * (img_num_w - 1) + x]);
 		}
-	edge_mqueue.sort();
 }
 
 /*
@@ -129,22 +163,23 @@ Input fet
 Input ed
 Add new edge diff to edge_mqueue
 */
-void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
+void BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 {
 	map<unsigned, Edge *> share_edges;
 	list<ImgMeta *> visit_img;
 	list<ImgMeta *> merge_img;
 	unsigned killer_bdx, dead_bdx;	
 	
-	double minval, maxval;
-	Point minloc, maxloc;
-	minMaxLoc(ed->diff, &minval, &maxval, &minloc, &maxloc);
-	
+	vector<Point> minloc;
+	vector<int> minval;	
+
+	found_min(ed->diff, minval, minloc);
+
 	unsigned img_idx0, img_idx1;	
 	ed->get_img_idx(img_idx0, img_idx1);
 	ImgMeta * img0 = get_img_meta(img_idx0);
 	ImgMeta * img1 = get_img_meta(img_idx1);
-	Point oo = ed->offset + minloc * scale; //img1 offset to img0
+	Point oo = ed->offset + minloc[0] * scale; //img1 offset to img0
 	oo += img0->offset - img1->offset; //img1's origin offset to img0's origin
 	if (img0->bundle_idx > img1->bundle_idx) {	//little bundle_idx kill large bundle_idx
 		oo = -oo;								//if img1 kill img0, reverse oo
@@ -161,8 +196,8 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 
 	killer_bdx = min(img0->bundle_idx, img1->bundle_idx);
 	dead_bdx = max(img0->bundle_idx, img1->bundle_idx);
-	qDebug("merge (y=%d,x=%d) to (y=%d,x=%d), (oy=%d,ox=%d), cost=%f", IMG_Y(dead_bdx), IMG_X(dead_bdx), 
-		IMG_Y(killer_bdx), IMG_X(killer_bdx), oo.y, oo.x, minval);
+	qDebug("merge (y=%d,x=%d) to (y=%d,x=%d), (oy=%d,ox=%d), cost=%d", IMG_Y(dead_bdx), IMG_X(dead_bdx), 
+		IMG_Y(killer_bdx), IMG_X(killer_bdx), oo.y, oo.x, minval[0]);
 	short max_merge_ed = 0;
 	while (!visit_img.empty()) { //first go through dead img chain
 		ImgMeta * img = visit_img.front();
@@ -187,23 +222,24 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 					CV_Assert(img_d->state == NOT_VISIT);
 					e2->state = MERGED; 
 					//following compute merge cost
-					EdgeDiff * oed = fet.get_edge(ei2);
+					const EdgeDiff * oed = fet.get_edge(ei2);
 					Point edge_o = img_d->offset - img->offset;
 					if (dir == DIR_UP || dir == DIR_LEFT)
 						edge_o = -edge_o;
 					CV_Assert(edge_o.y + edge_o.x > 0);
-					e2->score = oed->get_diff(edge_o, scale); //e2 score is e2 merge cost, big is bad
-					max_merge_ed = max(e2->score, max_merge_ed); //compute max_merge_ed for confirm edge merge
+                    e2->diff_or_dir = oed->get_diff(edge_o, scale); //e2 score is e2 merge cost, big is bad
+					e2->base_score += e2->diff_or_dir;
+                    max_merge_ed = max(e2->diff_or_dir, max_merge_ed); //compute max_merge_ed for confirm edge merge
 				}
 				else {
 					if (e2->state == FREE) {
-						e2->score = dir;
+                        e2->diff_or_dir = dir;
 						share_edges[img_d->bundle_idx] = e2;
 					}
 				}
 		}
 	}
-	CV_Assert(max_merge_ed == (short) minval);
+	CV_Assert(max_merge_ed == (short) minval[0]);
 
 	if (img0->bundle_idx > img1->bundle_idx) { //little bundle_idx kill large bundle_idx
 		img1->state = VISIT;
@@ -239,15 +275,16 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 					if (e1->state == FREE) {
 						map<unsigned, Edge *>::iterator iter = share_edges.find(img_d->bundle_idx);
 						if (iter != share_edges.end()) { //e1 has share edge in dead image, recompute edge diff
-							Edge * e2 = iter->second;							
-							if (e1->diff == fet.get_edge(e1->diff->edge_idx)) {
-								e1->diff = e1->diff->clone();
-								new_eds.push_back(e1->diff);
-							}
+							Edge * e2 = iter->second;	
+
+							EdgeDiff * new_ed = e1->diff->clone();
+							e1->diff = new_ed;
+							new_eds.push_back(new_ed);
+							
 							bool forward_merge;
 							Point p1, p2, m1, m2;
 							if (dir == DIR_UP || dir == DIR_LEFT) {								
-								forward_merge = (e2->score == DIR_UP || e2->score == DIR_LEFT);
+                                forward_merge = (e2->diff_or_dir == DIR_UP || e2->diff_or_dir == DIR_LEFT);
 								m1 = img->offset;
 								p1 = img_d->offset;
 								unsigned i2, i2d;
@@ -266,7 +303,7 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 								}
 							} 
 							else {
-								forward_merge = (e2->score == DIR_DOWN || e2->score == DIR_RIGHT);
+                                forward_merge = (e2->diff_or_dir == DIR_DOWN || e2->diff_or_dir == DIR_RIGHT);
 								m1 = img_d->offset;
 								p1 = img->offset;
 								unsigned i2, i2d;
@@ -285,11 +322,11 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 								}
 							}
 							e2->state = SHARED;
-							e2->score = 0;
+                            e2->diff_or_dir = 0;
 							if (forward_merge)
-								e1->diff->fw_merge(*(e2->diff), p2 - p1, m2 - m1, scale);
+								new_ed->fw_merge(*(e2->diff), p2 - p1, m2 - m1, scale);
 							else
-								e1->diff->bw_merge(*(e2->diff), p2 - p1, m2 - m1, scale);
+								new_ed->bw_merge(*(e2->diff), p2 - p1, m2 - m1, scale);
 							push_mqueue(e1);
 						}
 					}
@@ -304,7 +341,7 @@ void BundleAdjust::merge(EdgeDiff * ed, FeatExt & fet)
 	}
 }
 
-Mat_<Vec2i> BundleAdjust::arrange(FeatExt & fet, int _img_num_h, int _img_num_w)
+Mat_<Vec2i> BundleAdjust::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w)
 {
 	int merge_num = 0;
 

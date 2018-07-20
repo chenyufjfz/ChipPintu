@@ -121,10 +121,10 @@ int main(int argc, char** argv)
     cpara.clip_u = 0;
     cpara.clip_d = 0;
     cpara.rescale = 4;
-    cpara.max_lr_xshift = 80;
+    cpara.max_lr_xshift = 36;
     cpara.max_lr_yshift = 16;
     cpara.max_ud_xshift = 16;
-    cpara.max_ud_yshift = 80;
+    cpara.max_ud_yshift = 36;
     cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
     cpara.img_num_w = 3;
 	cpara.img_num_h = 3;
@@ -135,15 +135,9 @@ int main(int argc, char** argv)
 			cpara.offset(y, x)[0] = 1558 * y;
         }
     }
-	TuningPara _tpara;
-	_tpara.bfilt_w = 16;
-	_tpara.bfilt_csigma = 23;
-	_tpara.canny_high_th = 80;
-	_tpara.canny_low_th = 40;
-	_tpara.sobel_w = 3;
-	_tpara.sobel_th = 1;
-	_tpara.alpha = 0.6;
-	_tpara.edge_dialte = 0;
+	ExtractParam ep;
+	ep.read_file("./tune.xml");
+	TuningPara _tpara(ep, "layer_1");
 #if 1
 	feature.set_cfg_para(cpara);
 	feature.set_tune_para(_tpara);
@@ -154,7 +148,7 @@ int main(int argc, char** argv)
 #endif
     double minval, maxval;
     Point minloc, maxloc;
-	int y0 = 3, x0 = 1, y1 = 3, x1 = 2;
+	int y0 = 2, x0 = 1, y1 = 2, x1 = 2;
 	char img1_name[50], img2_name[50];
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
@@ -173,7 +167,7 @@ int main(int argc, char** argv)
     imshow("x0", left);
     imshow("x1", right);
 
-	y0 = 1, x0 = 2, y1 = 2, x1 = 2;
+	y0 = 2, x0 = 1, y1 = 3, x1 = 1;
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
 	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->diff, &minval, &maxval, &minloc, &maxloc);
@@ -190,6 +184,7 @@ int main(int argc, char** argv)
     resize(down, down, Size(down.cols / cpara.rescale, down.rows / cpara.rescale));
     imshow("y0", up);
     imshow("y1", down);
+	qWarning("finished");
     waitKey();
 
     return 0;
