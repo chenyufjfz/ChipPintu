@@ -1,6 +1,8 @@
-#include "extractparam.h"
-#include "opencv2/imgproc/imgproc.hpp"
 #include <QtGlobal>
+#include "opencv2/imgproc/imgproc.hpp"
+#include "extractparam.h"
+
+
 using namespace cv;
 
 enum {

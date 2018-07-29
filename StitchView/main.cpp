@@ -89,6 +89,42 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
         exit(-1);
     }
 }
+
+#ifdef Q_OS_WIN
+#include <Windows.h>
+#include <Dbghelp.h>
+void print_stack(void)
+{
+	unsigned int   i;
+	void         * stack[100];
+	unsigned short frames;
+	SYMBOL_INFO  * symbol;
+	HANDLE         process;
+
+	process = GetCurrentProcess();
+
+	SymInitialize(process, NULL, TRUE);
+
+	frames = CaptureStackBackTrace(0, 100, stack, NULL);
+	symbol = (SYMBOL_INFO *)calloc(sizeof(SYMBOL_INFO)+256 * sizeof(char), 1);
+	symbol->MaxNameLen = 255;
+	symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+
+	for (i = 0; i < frames; i++)
+	{
+		SymFromAddr(process, (DWORD64)(stack[i]), 0, symbol);
+
+		qInfo("%i: %s ", frames - i - 1, symbol->Name);
+	}
+
+	free(symbol);
+}
+#else
+void print_stack(void) {
+
+}
+#endif
+
 #ifdef Q_OS_WIN
 #ifdef QT_DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -108,7 +144,7 @@ void CreateMiniDump(PEXCEPTION_POINTERS pep, LPCTSTR strFileName)
 		mdei.ExceptionPointers = pep;
 		mdei.ClientPointers = FALSE;
 		MINIDUMP_TYPE mdt = (MINIDUMP_TYPE)(MiniDumpWithFullMemory | MiniDumpWithFullMemoryInfo | MiniDumpWithHandleData | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
-		BOOL rv = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile, mdt, (pep != 0) ? &mdei : 0, 0, 0);
+		MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile, mdt, (pep != 0) ? &mdei : 0, 0, 0);
 		CloseHandle(hFile);
 	}
 }

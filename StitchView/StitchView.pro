@@ -20,7 +20,8 @@ SOURCES += main.cpp\
     featext.cpp \
     cparadialog.cpp \
     tparadialog.cpp \
-    extractparam.cpp
+    extractparam.cpp \
+    renderimage.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -28,7 +29,8 @@ HEADERS  += mainwindow.h \
     featext.h \
     cparadialog.h \
     tparadialog.h \
-    extractparam.h
+    extractparam.h \
+    renderimage.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \

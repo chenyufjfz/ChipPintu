@@ -9,32 +9,6 @@
 const int step_para = 3;
 const int max_scale = 8;
 
-struct EncodeImg {
-	ConfigPara * cpara;
-	vector<uchar> * buff;
-	MapID id;
-};
-
-struct DecodeImg {
-	QImage img;
-	MapID id;
-};
-
-//It is running in global thread-pool
-DecodeImg thread_decode_image(QSharedPointer<EncodeImg> pb)
-{
-	DecodeImg ret;
-	QImage image;
-	vector<uchar> &buff = *(pb->buff);
-	image.loadFromData(&(buff[0]), (int) buff.size());
-	QRect valid_rect(pb->cpara->clip_l, pb->cpara->clip_u,
-		image.width() - pb->cpara->clip_l - pb->cpara->clip_r,
-		image.height() - pb->cpara->clip_u - pb->cpara->clip_d);
-	ret.img = image.copy(valid_rect).scaled(valid_rect.size() / pb->cpara->rescale);
-	ret.id = pb->id;
-	return ret;
-}
-
 string thread_generate_diff(FeatExt * feature, int layer)
 {
 	feature->generate_feature_diff();
@@ -58,14 +32,14 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 {
     scale = 8;
 	center = QPoint(0, 0);
-    cache_size = 150;
-	preimg_size = 18;
     layer = -1;
 	edge_cost = 0;
 	feature_layer = -1;
+	draw_corner = true;
 	for (int i=0; i<3; i++)
 		choose[i] = QPoint(-1, -1);
     resize(1800, 1000);
+	ri.set_dst_wide(1024);
 	setMouseTracking(true);
 	setAutoFillBackground(false);
 	setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -98,159 +72,76 @@ void StitchView::paintEvent(QPaintEvent *)
     QImage image(size(), QImage::Format_RGB32);
 	image.fill(QColor(0, 0, 0));
     QPainter painter(&image);
-	vector<QFuture<DecodeImg> > subimgs;
 	painter.setPen(QPen(Qt::red, 1));
 	painter.setBrush(QBrush(Qt::red));
 	QRect screen_rect(0, 0, width(), height());	
 
-	//first loop, decode image
-	for (int draw_order = 0; draw_order < 4; draw_order++) {
-		int max_x, max_y, start_x, start_y, end_x, end_y;
-		if (draw_order >= 1) {
-			if (choose[draw_order - 1] == QPoint(-1, -1))
-				continue;		
-			else {
-				start_y = choose[draw_order - 1].y();
-				end_y = start_y + 1;
-				start_x = choose[draw_order - 1].x();
-				end_x = start_x + 1;
-			}
-		}
-		else {
-			max_x = (cpara[layer].offset(0, 1)[1] - cpara[layer].offset(0, 0)[1]) * 4 / 3;
-			start_x = view_rect.left() / max_x;
-			end_x = min(cpara[layer].img_num_w - (cpara[layer].right_bound() - view_rect.right()) / max_x + 2, cpara[layer].img_num_w);
-			max_y = (cpara[layer].offset(1, 0)[0] - cpara[layer].offset(0, 0)[0]) * 4 / 3;
-			start_y = view_rect.top() / max_y;
-			end_y = min(cpara[layer].img_num_h - (cpara[layer].bottom_bound() - view_rect.bottom()) / max_y + 2, cpara[layer].img_num_h);
-		}
+	//first loop, prepare for renderimage
+	int dst_w = ri.get_dst_wide();
+	int start_y = view_rect.top() / dst_w;
+	int end_y = view_rect.bottom() / dst_w + 1;
+	int start_x = view_rect.left() / dst_w;
+	int end_x = view_rect.right() / dst_w + 1;
+	vector<MapID> map_id;
+	for (int y = start_y; y < end_y; y++)
+		for (int x = start_x; x < end_x; x++)		
+			map_id.push_back(MAPID(layer, x, y));
+	vector<MapID> draw_order;
+	for (int i = 0; i < 3; i++)
+		draw_order.push_back(MAPID(layer, choose[i].x(), choose[i].y()));
+	vector<QImage> imgs;
+	ri.render_img(map_id, imgs, draw_order, load_img_opt[layer]);
 
-		for (int y = start_y; y < end_y; y++)
-			for (int x = start_x; x < end_x; x++) {
-			if ((cpara[layer].offset(y, x)[0] < view_rect.bottom() &&
-				(y + 1 == cpara[layer].img_num_h || cpara[layer].offset(y + 1, x)[0] > view_rect.top())) &&
-				(cpara[layer].offset(y, x)[1] < view_rect.right() &&
-				(x + 1 == cpara[layer].img_num_w || cpara[layer].offset(y, x + 1)[1] > view_rect.left()))) {
-				QPoint offset(cpara[layer].offset(y, x)[1], cpara[layer].offset(y, x)[0]);
-				MapID2 map_id2 = slxy2mapid(cpara[layer].rescale, layer, x, y);
-				map<MapID2, BkDecimg>::iterator preimg_it = preimg_map.find(map_id2);
-
-				if (preimg_it == preimg_map.end()) {
-					MapID map_id = lxy2mapid(layer, x, y);
-					map<MapID, BkEncimg>::iterator map_it;
-					EncodeImg * pb = new EncodeImg;
-
-					if ((map_it = cache_map.find(map_id)) == cache_map.end()) { //not exist, read from file
-						cache_map[map_id] = BkEncimg();
-						map_it = cache_map.find(map_id);
-						Q_ASSERT(map_it != cache_map.end());
-						cache_list.push_back(map_id);	//push it to cache_list tail
-						map_it->second.plist = cache_list.end();
-						map_it->second.plist--;
-						Q_ASSERT(*(map_it->second.plist) == map_id);
-						char file_name[200];
-						sprintf(file_name, "%s%d_%d.jpg", cpara[layer].img_path.c_str(), y + 1, x + 1);
-						qDebug("loadImage, %s", file_name);
-						ifstream fs;
-						int length;
-						fs.open(file_name, ios::binary);	// open input file  
-						if (!fs.good()) {
-							QMessageBox::information(this, "Info", "File not exist");
-							exit(-1);
-						}
-						fs.seekg(0, ios::end);				// go to the end  
-						length = fs.tellg();				// report location (this is the length)  
-						fs.seekg(0, ios::beg);				// go to the begin
-						map_it->second.data.resize(length);		// allocate memory for a buffer of appropriate dimension  
-						fs.read((char*)&(map_it->second.data[0]), length);	// read the whole file into the buffer  
-						fs.close();	
-					}
-					else {
-						Q_ASSERT(*(map_it->second.plist) == map_id);
-						cache_list.erase(map_it->second.plist);
-						cache_list.push_back(map_id);	//exist in encode map, repush it to cache_list tail
-						map_it->second.plist = cache_list.end();
-						map_it->second.plist--;
-						Q_ASSERT(*(map_it->second.plist) == map_id);
-					}
-					pb->id = map_id;
-					pb->cpara = &cpara[layer];
-					pb->buff = &map_it->second.data;
-					qDebug("decode image (%d,%d)",  y, x);
-					subimgs.push_back(QtConcurrent::run(thread_decode_image, QSharedPointer<EncodeImg>(pb)));
-				}
-			}
-		}
+#if 0
+	for (int i = 0; i < imgs.size(); i++) {
+		char filename[100];
+		sprintf(filename, "%d_%d.jpg", MAPID_Y(map_id[i]), MAPID_X(map_id[i]));
+		imgs[i].save(filename);
 	}
-	int dec_idx = 0;
+#endif
 	//second loop, draw image
-	for (int draw_order = 0; draw_order < 4; draw_order++) {
-		int max_x, max_y, start_x, start_y, end_x, end_y;
-		if (draw_order >= 1) {
-			if (choose[draw_order - 1] == QPoint(-1, -1))
-				continue;
-			else {
-				start_y = choose[draw_order - 1].y();
-				end_y = start_y + 1;
-				start_x = choose[draw_order - 1].x();
-				end_x = start_x + 1;
-			}
+	int img_idx = 0;
+	for (int y = start_y; y < end_y; y++)
+		for (int x = start_x; x < end_x; x++)  {
+			QImage subimg = imgs[img_idx].scaled(imgs[img_idx].size() / scale);
+			QPoint offset(x * dst_w, y * dst_w);
+			QRect img_rect((offset - view_rect.topLeft()) / scale, subimg.size());
+			QRect target_rect = img_rect & screen_rect;
+			QRect src_rect(target_rect.topLeft() - img_rect.topLeft(),
+				target_rect.bottomRight() - img_rect.topLeft());
+			painter.drawImage(target_rect, subimg, src_rect);
+			qDebug("drawImage, (y=%d,x=%d) (l=%d,t=%d,w=%d, h=%d) -> (l=%d,t=%d,w=%d,h=%d)", y, x,
+				src_rect.left(), src_rect.top(), src_rect.width(), src_rect.height(),
+				target_rect.left(), target_rect.top(), target_rect.width(), target_rect.height());
+			img_idx++;
 		}
-		else {
-			max_x = (cpara[layer].offset(0, 1)[1] - cpara[layer].offset(0, 0)[1]) * 4 / 3;
-			start_x = view_rect.left() / max_x;
-			end_x = min(cpara[layer].img_num_w - (cpara[layer].right_bound() - view_rect.right()) / max_x + 2, cpara[layer].img_num_w);
-			max_y = (cpara[layer].offset(1, 0)[0] - cpara[layer].offset(0, 0)[0]) * 4 / 3;
-			start_y = view_rect.top() / max_y;
-			end_y = min(cpara[layer].img_num_h - (cpara[layer].bottom_bound() - view_rect.bottom()) / max_y + 2, cpara[layer].img_num_h);
+	
+	if (draw_corner) {
+		MapXY mxy = ri.get_mapxy(layer);
+		Point src_lt = mxy.dst2src(TOPOINT(view_rect.topLeft())); //dst_lt map to src_lt, src_lt is not src left top.
+		Point src_rb = mxy.dst2src(TOPOINT(view_rect.bottomRight()));
+		Point src_lb = mxy.dst2src(TOPOINT(view_rect.bottomLeft()));
+		Point src_rt = mxy.dst2src(TOPOINT(view_rect.topRight()));
+
+		double minx = min(min(src_lt.x, src_rb.x), min(src_lb.x, src_rt.x));
+		double miny = min(min(src_lt.y, src_rb.y), min(src_lb.y, src_rt.y));
+		double maxx = max(max(src_lt.x, src_rb.x), max(src_lb.x, src_rt.x));
+		double maxy = max(max(src_lt.y, src_rb.y), max(src_lb.y, src_rt.y));
+		//now Point(minx,miny) is src left top, Point (max, maxy) is src right bottom
+
+		Point lt = find_src_map(cpara[layer], Point(minx, miny), ri.get_src_img_size(layer), 1);
+		Point rb = find_src_map(cpara[layer], Point(maxx + 1, maxy + 1), ri.get_src_img_size(layer), 0);
+
+		for (int y = lt.y; y <= rb.y; y++)
+		for (int x = lt.x; x <= rb.x; x++) {
+			Point src_corner(cpara[layer].offset(y, x)[1], cpara[layer].offset(y, x)[0]);
+			QPoint dst_corner = TOQPOINT(mxy.src2dst(src_corner));
+			if (view_rect.contains(dst_corner)) 
+				painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 2, 2);
 		}
-
-		for (int y = start_y; y < end_y; y++)
-			for (int x = start_x; x < end_x; x++) 
-			if ((cpara[layer].offset(y, x)[0] < view_rect.bottom() &&
-				(y + 1 == cpara[layer].img_num_h || cpara[layer].offset(y + 1, x)[0] > view_rect.top())) &&
-				(cpara[layer].offset(y, x)[1] < view_rect.right() &&
-				(x + 1 == cpara[layer].img_num_w || cpara[layer].offset(y, x + 1)[1] > view_rect.left()))) {
-				QPoint offset(cpara[layer].offset(y, x)[1], cpara[layer].offset(y, x)[0]);
-				MapID2 map_id2 = slxy2mapid(cpara[layer].rescale, layer, x, y);
-				map<MapID2, BkDecimg>::iterator preimg_it = preimg_map.find(map_id2);
-
-				QImage subimg;
-				if (preimg_it != preimg_map.end()) {
-					subimg = preimg_it->second.data.scaled(preimg_it->second.data.size() * cpara[layer].rescale / scale);
-					Q_ASSERT(*(preimg_it->second.plist) == map_id2);
-					preimg_list.erase(preimg_it->second.plist);
-					preimg_list.push_back(map_id2);	//exist in decode map, repush it to preimg_list tail
-					preimg_it->second.plist = preimg_list.end();
-					preimg_it->second.plist--;
-					Q_ASSERT(*(preimg_it->second.plist) == map_id2);
-				}
-				else {
-					MapID map_id = lxy2mapid(layer, x, y);
-					DecodeImg decimg = subimgs[dec_idx++].result();
-					Q_ASSERT(decimg.id == map_id);
-					list <MapID2>::iterator plist;
-					preimg_list.push_back(map_id2); //not exist in decode map, push it to preimg_list tail
-					plist = preimg_list.end();
-					plist--;
-					preimg_map[map_id2] = BkDecimg(plist, decimg.img);
-					subimg = decimg.img.scaled(decimg.img.size() * cpara[layer].rescale / scale);					
-				}		
-				QRect img_rect((offset - view_rect.topLeft()) / scale, subimg.size());
-				QRect target_rect = img_rect & screen_rect;
-				QRect src_rect(target_rect.topLeft() - img_rect.topLeft(),
-					target_rect.bottomRight() - img_rect.topLeft());
-				painter.drawImage(target_rect, subimg, src_rect);
-				if (view_rect.contains(offset))
-					painter.drawEllipse(target_rect.topLeft(), 2, 2);
-				qDebug("drawImage, (y=%d,x=%d) (l=%d,t=%d,w=%d, h=%d) -> (l=%d,t=%d,w=%d,h=%d)", y, x,
-					src_rect.left(), src_rect.top(), src_rect.width(), src_rect.height(),
-					target_rect.left(), target_rect.top(), target_rect.width(), target_rect.height());
-			}
 	}
 	QPainter paint(this);
 	paint.drawImage(QPoint(0, 0), image);
-	remove_cache_front();
 }
 
 void StitchView::keyPressEvent(QKeyEvent *e)
@@ -336,21 +227,11 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 	Point offset;
 	mouse_point = mouse_point * scale + view_rect.topLeft();
 
-	QPoint prev_may_choose = may_choose;
-	for (int y = 0; y<cpara[layer].img_num_h; y++)
-		for (int x = 0; x<cpara[layer].img_num_w; x++)
-			if (cpara[layer].offset(y, x)[0] < mouse_point.y() && 
-				(y + 1 == cpara[layer].img_num_h || cpara[layer].offset(y + 1, x)[0] > mouse_point.y()) &&
-				cpara[layer].offset(y, x)[1] < mouse_point.x() && 
-				(x + 1 == cpara[layer].img_num_w || cpara[layer].offset(y, x + 1)[1] > mouse_point.x())) {
-				may_choose.setX(x);
-				may_choose.setY(y);
-				offset.x = mouse_point.x() - cpara[layer].offset(y, x)[1];
-				offset.y = mouse_point.y() - cpara[layer].offset(y, x)[0];
-				y = cpara[layer].img_num_h;
-				break;
-			}
-	
+	QPoint prev_may_choose = may_choose;	
+	MapXY mxy = ri.get_mapxy(layer);
+	Point src_point = mxy.dst2src(TOPOINT(mouse_point));
+	may_choose = TOQPOINT(find_src_map(cpara[layer], src_point, ri.get_src_img_size(layer), 0));
+
 	if (may_choose != prev_may_choose && feature.is_valid()) {
 		const EdgeDiff * ed = feature.get_edge(may_choose.y(), may_choose.x(), prev_may_choose.y(), prev_may_choose.x());
 		if (ed) {
@@ -359,11 +240,12 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 			Point o1(cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[1],
 				cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[0]);
 			Point oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
-			edge_cost = ed->get_diff(oo, 1);
+			edge_cost = ed->get_diff(oo, cpara[layer].rescale);
 		}
 	}
 	char info[200];
-	sprintf(info, "x=%d,y=%d,ox=%d,oy=%d, cost=%d", may_choose.x(), may_choose.y(),offset.x, offset.y, edge_cost);
+	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d", mouse_point.x(),
+		mouse_point.y(), src_point.x, src_point.y, may_choose.x(), may_choose.y());
 	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
 }
@@ -379,23 +261,6 @@ void StitchView::mouseReleaseEvent(QMouseEvent *event)
 	}
 	update();
 	QWidget::mouseReleaseEvent(event);
-}
-
-void StitchView::remove_cache_front()
-{
-	Q_ASSERT(cache_list.size() == cache_map.size() && preimg_list.size() == preimg_map.size());
-	int erase_size = (int)cache_list.size() - cache_size;
-	for (int i = 0; i < erase_size; i++) {
-		MapID id = *cache_list.begin();
-		cache_list.erase(cache_list.begin());
-		cache_map.erase(id);
-	}
-	erase_size = (int)preimg_list.size() - preimg_size;
-	for (int i = 0; i < erase_size; i++) {
-		MapID2 id = *preimg_list.begin();
-		preimg_list.erase(preimg_list.begin());
-		preimg_map.erase(id);
-	}
 }
 
 void StitchView::timerEvent(QTimerEvent *e)
@@ -433,7 +298,8 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 		return -1;
 	if (_layer == cpara.size()) {
 		cpara.push_back(_cpara);
-		feature_file.push_back(string());		
+		feature_file.push_back(string());
+		load_img_opt.push_back(CV_LOAD_IMAGE_UNCHANGED);
 		if (tpara.empty()) {
 			TuningPara _tpara;
 			tpara.push_back(_tpara);
@@ -443,6 +309,7 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 	}
 	else
 		cpara[_layer] = _cpara;
+	ri.set_cfg_para(_layer, _cpara);
 	qInfo("set config, l=%d, s=%d, nx=%d, ny=%d", _layer, _cpara.rescale, _cpara.img_num_w, _cpara.img_num_h);
 	return 0;
 }
@@ -483,7 +350,6 @@ int StitchView::get_tune_para(int _layer, TuningPara & _tpara)
 
 int StitchView::compute_new_feature(int _layer)
 {
-	bool next_scale;
 	Q_ASSERT(cpara.size() == tpara.size() && cpara.size() == feature_file.size());
 	if (_layer == -1)
 		_layer = layer;
@@ -508,7 +374,6 @@ int StitchView::compute_new_feature(int _layer)
 
 int StitchView::optimize_offset(int _layer)
 {
-	bool next_scale;
 	Q_ASSERT(cpara.size() == tpara.size() && cpara.size() == feature_file.size());
 	if (_layer == -1)
 		_layer = layer;
@@ -537,6 +402,9 @@ int StitchView::optimize_offset(int _layer)
 #else
 	thread_bundle_adjust(&ba, &feature, &adjust_offset);
 	cpara[feature_layer].offset = adjust_offset;
+	ri.set_cfg_para(feature_layer, cpara[feature_layer]);
+	if (feature_layer == layer)
+		update();
 #endif
 	return 0;
 }
@@ -585,7 +453,12 @@ void StitchView::write_file(string file_name)
 		fs << name << tpara[i];
 		sprintf(name, "diff_file%d", i);
 		fs << name << feature_file[i];
+		sprintf(name, "load_img_opt%d", i);
+		fs << name << load_img_opt[i];
+		sprintf(name, "mapxy%d", i);
+		fs << name << ri.get_mapxy(i);
 	}
+	fs << "dst_w" << ri.get_dst_wide();
 	Point ct(center.x(), center.y());
 	Point ce0(choose[0].x(), choose[0].y());
 	Point ce1(choose[1].x(), choose[1].y());
@@ -613,11 +486,21 @@ int StitchView::read_file(string file_name)
 			char name[30];
 			sprintf(name, "cpara%d", i);
 			fs[name] >> cpara[i];
+			ri.set_cfg_para(i, cpara[i]);
 			sprintf(name, "tpara%d", i);
 			fs[name] >> tpara[i];
 			sprintf(name, "diff_file%d", i);
 			fs[name] >> feature_file[i];
+			sprintf(name, "load_img_opt%d", i);
+			fs[name] >> load_img_opt[i];
+			MapXY mxy;
+			sprintf(name, "mapxy%d", i);
+			fs[name] >> mxy;
+			ri.set_mapxy(i, mxy);
 		}
+		int dst_w;
+		fs["dst_w"] >> dst_w;
+		ri.set_dst_wide(dst_w);
 		Point ce0, ce1, ce2, ct;
 		fs["layer"] >> layer;
 		fs["scale"] >> scale;

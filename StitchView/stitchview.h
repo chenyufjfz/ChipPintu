@@ -11,6 +11,8 @@
 #include <QtConcurrent>
 #include "featext.h"
 #include "bundleadjust.h"
+#include "renderimage.h"
+
 using namespace std;
 using namespace cv;
 
@@ -39,42 +41,6 @@ class StitchView : public QWidget
     Q_OBJECT
 public:
     explicit StitchView(QWidget *parent = 0);
-    static MapID lxy2mapid(unsigned char layer, unsigned short x, unsigned short y) {
-        MapID ret;
-        ret = layer;
-        ret = ret <<16;
-        ret |= x;
-        ret = ret <<16;
-        ret |= y;
-        return ret;
-    }
-
-    static void mapid2lxy(MapID m, unsigned char &layer, unsigned short & x, unsigned short &y)
-    {
-        layer = (m >>32) & 0xff;
-        x = (m>>16) & 0xffff;
-        y = m & 0xffff;
-    }
-
-	static MapID2 slxy2mapid(unsigned scale, unsigned char layer, unsigned short x, unsigned short y) {
-		MapID ret;
-		ret = scale;
-		ret = ret << 8;
-		ret |= layer;
-		ret = ret << 16;
-		ret |= x;
-		ret = ret << 16;
-		ret |= y;
-		return ret;
-	}
-
-	static void mapid2slxy(MapID2 m, unsigned & scale, unsigned char &layer, unsigned short & x, unsigned short &y)
-	{
-		scale = (m >> 40) & 0xff;
-		layer = (m >> 32) & 0xff;
-		x = (m >> 16) & 0xffff;
-		y = m & 0xffff;
-	}
 
 signals:
 	void MouseChange(QString info);
@@ -97,19 +63,14 @@ protected:
 	double scale; //current scale, should be bigger than cpara.rescale /2
     unsigned char layer; //current layer, use cpara[layer] for drawing
 	QPoint choose[3], may_choose;
-	QRect view_rect; //view_rect unit is pixel in original file image
+	QRect view_rect; //view_rect unit is pixel for dst file image
 	QPoint center;
 	int edge_cost;
+	vector<int> load_img_opt;
+	RenderImage ri;
+	bool draw_corner;
 	//upper is for drawing layer and rect
-
-	//Following is for encoder and decode image cache
-	map <MapID2, BkDecimg> preimg_map; //store decode image, its number is small, because each BkDecimg is big
-	list<MapID2> preimg_list;
-	map<MapID, BkEncimg> cache_map; //store encode image,  its number is big, because each BkEncimg is small
-    list<MapID> cache_list;		
-	int cache_size, preimg_size;
-	//Upper is for  encoder and decode image cache
-
+	
 	//Following is for feature compute and store
 	FeatExt feature;
 	vector<TuningPara> tpara;

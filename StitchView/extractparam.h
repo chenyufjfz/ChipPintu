@@ -7,6 +7,11 @@
 #include <string.h>
 using namespace std;
 
+#ifndef QT_DEBUG
+void print_stack(void);
+#undef CV_Assert
+#define CV_Assert(x) do {if (!(x)) {print_stack(); qFatal("Wrong at %s, %d", __FILE__, __LINE__);}} while(0)
+#endif
 
 #define PP_SET_PARAM			0
 #define PP_RGB2GRAY				1
