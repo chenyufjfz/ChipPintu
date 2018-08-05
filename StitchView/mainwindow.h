@@ -35,6 +35,8 @@ private slots:
 
     void on_actionOptimize_Offset_triggered();
 
+    void on_actionTransForm_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

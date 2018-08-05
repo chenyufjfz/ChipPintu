@@ -239,7 +239,8 @@ void BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 				}
 		}
 	}
-	CV_Assert(max_merge_ed == (short) minval[0]);
+	if ((max_merge_ed != (short)minval[0])) 
+		qFatal("max_merge_ed(%d) != minval(%d) (x=%d,y=%d)", max_merge_ed, minval[0], minloc[0].x, minloc[0].y);	
 
 	if (img0->bundle_idx > img1->bundle_idx) { //little bundle_idx kill large bundle_idx
 		img1->state = VISIT;

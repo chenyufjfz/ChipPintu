@@ -208,7 +208,7 @@ public:
 				if (pd1 && x1 >= 0 && x1 < e2.diff.cols)
 					pd[x] = max(pd[x], pd1[x1]);
 				else
-					pd[x] = maxd;
+					pd[x] = max(pd[x], e2.maxd);
 			}
 		}
 		compute_score();
@@ -231,7 +231,7 @@ public:
 				if (y1 >= 0 && y1 < e2.diff.rows && x1 >= 0 && x1 < e2.diff.cols)
 					pd[x] = max(pd[x], pd1[x1]);
 				else
-					pd[x] = maxd;
+					pd[x] = max(pd[x], e2.maxd);
 			}
 		}
 		compute_score();

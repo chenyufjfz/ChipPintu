@@ -2,7 +2,7 @@
 #include "ui_mainwindow.h"
 #include "cparadialog.h"
 #include "tparadialog.h"
-
+#include "mapxydialog.h"
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -131,8 +131,8 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 		}
 		else
 			stitch_view->set_config_para(-1, cpara);
-	}
-	stitch_view->compute_new_feature(-1);
+		stitch_view->compute_new_feature(-1);
+	}	
 }
 
 void MainWindow::on_actionQuick_Save_triggered()
@@ -150,4 +150,19 @@ void MainWindow::on_actionQuick_Load_triggered()
 void MainWindow::on_actionOptimize_Offset_triggered()
 {
     stitch_view->optimize_offset(-1);
+}
+
+void MainWindow::on_actionTransForm_triggered()
+{
+	MapXY mxy = stitch_view->get_mapxy(-1);
+	int dst_w = stitch_view->get_dst_wide();
+	MapxyDialog mxy_dlg(mxy.get_beta(), mxy.get_default_zoomx(), mxy.get_default_zoomy(), mxy.get_merge_method(), dst_w, this);
+	if (mxy_dlg.exec() == QDialog::Accepted) {
+		mxy.set_beta(mxy_dlg.beta);
+		mxy.set_default_zoomx(mxy_dlg.zx);
+		mxy.set_default_zoomy(mxy_dlg.zy);
+		mxy.set_merge_method(mxy_dlg.merge);
+		dst_w = mxy_dlg.dst_w;
+		stitch_view->set_mapxy_dstw(-1, mxy, dst_w);
+	}
 }

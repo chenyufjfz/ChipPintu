@@ -35,7 +35,7 @@
      <x>20</x>
      <y>30</y>
      <width>160</width>
-     <height>178</height>
+     <height>198</height>
     </rect>
    </property>
    <layout class="QGridLayout" name="gridLayout">
@@ -117,7 +117,7 @@
      <x>209</x>
      <y>30</y>
      <width>171</width>
-     <height>152</height>
+     <height>169</height>
     </rect>
    </property>
    <layout class="QGridLayout" name="gridLayout_2">
@@ -186,10 +186,10 @@
   <widget class="QWidget" name="layoutWidget">
    <property name="geometry">
     <rect>
-     <x>30</x>
-     <y>220</y>
+     <x>20</x>
+     <y>230</y>
      <width>351</width>
-     <height>22</height>
+     <height>24</height>
     </rect>
    </property>
    <layout class="QHBoxLayout" name="horizontalLayout">
@@ -208,8 +208,8 @@
   <widget class="QCheckBox" name="new_layer">
    <property name="geometry">
     <rect>
-     <x>30</x>
-     <y>250</y>
+     <x>20</x>
+     <y>260</y>
      <width>81</width>
      <height>17</height>
     </rect>

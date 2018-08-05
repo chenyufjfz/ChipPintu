@@ -29,21 +29,18 @@ struct TurnPoint {
 
 class MapXY {
 protected:
-	double beta;
+	double beta; //rotate angle
 	double cos_beta, sin_beta;
-	int merge_method;
-	vector<TurnPoint> tx, ty;
+	int merge_method; //for picture merge, it should not be here, but there is no good place to put it
+	int merge_pt_distance, max_pt_error, max_slope;
+	vector<TurnPoint> tx, ty; //fold line
     double z0x, z0y;
+	int recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z);
+	void recompute_tp(vector<TurnPoint> & tp, double default_zoom);
+
 public:
 	MapXY() {
-		beta = 0; //set default rotation angle
-		cos_beta = 1;
-		sin_beta = 0;
-        z0x = 1;
-        z0y = 1;
-		tx.push_back(TurnPoint(0, 0)); //push default zoom x 1
-		ty.push_back(TurnPoint(0, 0)); //push default zoom y 1
-		merge_method = MERGE_BY_DRAW_ORDER;
+		set_original();
 	}
 	
 	void read_file(const FileNode& node) {
@@ -51,6 +48,9 @@ public:
 		z0x = (double)node["z0x"];
 		z0y = (double)node["z0y"];
 		merge_method = (int)node["merge_method"];
+		merge_pt_distance = (int)node["merge_pt_distance"];
+		max_pt_error = (int)node["max_pt_error"];
+		max_slope = (double)node["max_slope"];
 		cos_beta = cos(beta);
 		sin_beta = sin(beta);
 	}
@@ -59,19 +59,33 @@ public:
 		fs << "{" << "beta" << beta;
 		fs << "z0x" << z0x;
 		fs << "z0y" << z0y;
-		fs << "merge_method" << merge_method << "}";		
+		fs << "merge_method" << merge_method;
+		fs << "merge_pt_distance" << merge_pt_distance;
+		fs << "max_pt_error" << max_pt_error;
+		fs << "max_slope" << max_slope << "}";
 	}
 
-	bool is_original() const {
-		return (beta == 0 && z0x == 1 && z0y == 1 && tx.size()==1 && ty.size()==1
-			&& tx[0].sp==tx[0].dp && ty[0].sp==ty[0].dp);
+	void set_original();
+
+	bool is_original() const;
+
+	int get_max_pt_error() const {
+		return max_pt_error;
+	}
+
+	void set_max_pt_error(int _max_pt_error) {
+		max_pt_error = _max_pt_error;
+	}
+
+	int get_merge_pt_distance() const {
+		return merge_pt_distance;
 	}
 
 	int get_merge_method() const {
 		return merge_method;
 	}
 
-	int set_merge_method(int _merge_method) {
+	void set_merge_method(int _merge_method) {
 		merge_method = _merge_method;
 	}
 
@@ -103,111 +117,9 @@ public:
 		return beta;
 	}
 
-	void recompute_tp(vector<TurnPoint> & tp, double default_zoom) {
-		for (int i = 0; i < (int)tp.size() - 1; i++) {
-			CV_Assert(tp[i + 1].sp != tp[i].sp && tp[i + 1].dp != tp[i].dp);
-			tp[i].sz = (tp[i + 1].dp - tp[i].dp) / (tp[i + 1].sp - tp[i].sp);
-			tp[i].dz = 1 / tp[i].sz;
-		}
-		tp.back().sz = default_zoom;
-		tp.back().dz = 1 / default_zoom;
-	}
+	Point2d mid2dst(Point2d mid) const;
 
-	void add_turn_pointx(double sx, double dx) {
-		for (int i = 0; i < (int)tx.size(); i++) {
-			if (tx[i].sp >= sx) {
-				if (tx[i].dp <= dx || tx[i].sp == sx)
-					qFatal("add_turn_pointx error, dp=%f, dx=%f, sp=%f, sx=%f", tx[i].dp, dx, tx[i].sp, sx);
-
-				if (i != 0) {
-					if (tx[i - 1].dp >= dx)
-						qFatal("add_turn_pointx err, dp=%f, dx=%f, sp=%f, sx=%f", tx[i - 1].dp, dx, tx[i].sp, sx);
-				}
-				tx.insert(tx.begin() + i, TurnPoint(sx, dx));
-				recompute_tp(tx, z0x);
-				return;
-			}
-		}
-		tx.insert(tx.end(), TurnPoint(sx, dx));
-		recompute_tp(tx, z0x);
-	}
-
-	void add_turn_pointy(double sy, double dy) {
-		for (int i = 0; i < (int)ty.size(); i++) {
-			if (ty[i].sp >= sy) {
-				if (ty[i].dp <= dy || ty[i].sp == sy)
-					qFatal("add_turn_pointx error, dp=%f, dx=%f, sp=%f, sx=%f", ty[i].dp, dy, ty[i].sp, sy);
-
-				if (i != 0) {
-					if (ty[i - 1].dp >= dy)
-						qFatal("add_turn_pointx err, dp=%f, dx=%f, sp=%f, sx=%f", ty[i - 1].dp, dy, ty[i].sp, sy);
-				}
-				ty.insert(ty.begin() + i, TurnPoint(sy, dy));
-				recompute_tp(ty, z0y);
-				return;
-			}
-		}
-		ty.insert(ty.end(), TurnPoint(sy, dy));
-		recompute_tp(ty, z0y);
-	}
-
-    Point2d mid2dst(Point2d mid) const {
-		Point2d dst;
-		int i;
-		for (i = 0; i < (int)tx.size(); i++) {
-            if (mid.x < tx[i].sp) {
-				if (i == 0)
-                    dst.x = tx[0].dp + z0x * (mid.x - tx[0].sp);
-				else
-                    dst.x = tx[i - 1].dp + tx[i - 1].sz * (mid.x - tx[i - 1].sp);
-				break;
-			}
-		}
-		if (i == (int)tx.size())
-            dst.x = tx[i - 1].dp + z0x * (mid.x - tx[i - 1].sp);
-		
-		for (i = 0; i < (int)ty.size(); i++) {
-            if (mid.y < ty[i].sp) {
-				if (i == 0)
-                    dst.y = ty[0].dp + z0y * (mid.y - ty[0].sp);
-				else
-                    dst.y = ty[i - 1].dp + ty[i - 1].sz * (mid.y - ty[i - 1].sp);
-				break;
-			}
-		}
-		if (i == (int)ty.size())
-            dst.y = ty[i - 1].dp + z0y * (mid.y - ty[i - 1].sp);
-		return dst;
-	}
-
-    Point2d dst2mid(Point2d dst) const {
-        Point2d mid;
-		int i;
-		for (i = 0; i < (int)tx.size(); i++) {
-            if (dst.x < tx[i].dp) {
-				if (i == 0)
-                    mid.x = tx[0].sp + (dst.x - tx[0].dp) / z0x;
-				else
-                    mid.x = tx[i - 1].sp + tx[i - 1].dz * (dst.x - tx[i - 1].dp);
-				break;
-			}
-		}
-		if (i == (int)tx.size())
-            mid.x = tx[i - 1].sp + (dst.x - tx[i - 1].dp) / z0x;
-
-		for (i = 0; i < (int)ty.size(); i++) {
-            if (dst.y < ty[i].dp) {
-				if (i == 0)
-                    mid.y = ty[0].sp + (dst.y - ty[0].dp) / z0y;
-				else
-                    mid.y = ty[i - 1].sp + ty[i - 1].dz * (dst.y - ty[i - 1].dp);
-				break;
-			}
-		}
-		if (i == (int)ty.size())
-			mid.y = ty[i - 1].sp + (dst.y - ty[i - 1].dp) / z0y;
-        return mid;
-	}
+	Point2d dst2mid(Point2d dst) const;
 
     Point2d src2mid(Point src) const {
         return Point2d(cos_beta * src.x + sin_beta * src.y, - sin_beta * src.x + cos_beta * src.y);
@@ -224,6 +136,9 @@ public:
 	Point2d dst2src(Point dst) const {
 		return mid2src(dst2mid(dst));
 	}
+
+	/*return 0 means success*/
+	int recompute(const vector<pair<Point, Point> > & nail);
 };
 
 void write(FileStorage& fs, const std::string&, const MapXY & x);

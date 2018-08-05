@@ -20,7 +20,7 @@
      <x>0</x>
      <y>0</y>
      <width>400</width>
-     <height>21</height>
+     <height>26</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -41,8 +41,15 @@
     <addaction name="actionPrepare_Next_Iter"/>
     <addaction name="actionOptimize_Offset"/>
    </widget>
+   <widget class="QMenu" name="menuPostProcess">
+    <property name="title">
+     <string>PostProcess</string>
+    </property>
+    <addaction name="actionTransForm"/>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuConfig"/>
+   <addaction name="menuPostProcess"/>
   </widget>
   <widget class="QToolBar" name="mainToolBar">
    <attribute name="toolBarArea">
@@ -91,6 +98,11 @@
   <action name="actionOptimize_Offset">
    <property name="text">
     <string>Optimize Offset</string>
+   </property>
+  </action>
+  <action name="actionTransForm">
+   <property name="text">
+    <string>TransForm</string>
    </property>
   </action>
  </widget>

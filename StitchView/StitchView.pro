@@ -21,7 +21,8 @@ SOURCES += main.cpp\
     cparadialog.cpp \
     tparadialog.cpp \
     extractparam.cpp \
-    renderimage.cpp
+    renderimage.cpp \
+    mapxydialog.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -30,11 +31,13 @@ HEADERS  += mainwindow.h \
     cparadialog.h \
     tparadialog.h \
     extractparam.h \
-    renderimage.h
+    renderimage.h \
+    mapxydialog.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \
-    tparadialog.ui
+    tparadialog.ui \
+    mapxydialog.ui
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/

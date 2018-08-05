@@ -80,6 +80,11 @@ protected:
 	int compute_feature_timer;
 	//upper is for feature compute and store
 
+	//following is for grid drawing
+	int xoffset, yoffset, xgrid_size, ygrid_size;
+	bool draw_grid;
+	//upper is for grid drawing
+
 	//Following is for bundleadjust
 	int bundle_adjust_timer;
 	BundleAdjust ba;
@@ -95,6 +100,13 @@ public:
 	int set_tune_para(int _layer, const TuningPara & _tpara);
 	//if _layer==-1, means get tune of current layer
 	int get_tune_para(int _layer, TuningPara & _tpara);
+	//if _layer==-1, means get tune of current layer
+	void set_mapxy_dstw(int _layer, const MapXY & _mapxy, int _dst_w);
+	//if _layer==-1, means get tune of current layer
+	MapXY get_mapxy(int _layer);
+	int get_dst_wide();
+	void set_grid(int _xoffset, int _yoffset, int _xgrid_size, int _ygrid_size);
+	void get_grid(int & _xoffset, int & _yoffset, int & _xgrid_size, int & _ygrid_size);
 	//From cpara, tpara, generate new FeatExt. if _layer==-1, means get tune of current layer
 	int compute_new_feature(int _layer);
 	//From FeatExt, compute new cpara.offset

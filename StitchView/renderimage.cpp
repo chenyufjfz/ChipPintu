@@ -128,6 +128,229 @@ QImage mat2qimage(const Mat & mat)
 	}
 }
 
+//xy.first is x, xy.second is y, return (a,b), y= ax + b
+pair<double, double> least_square(const vector<pair<int, int> >& xy) {
+	double t1 = 0, t2 = 0, t3 = 0, t4 = 0;
+	for (int i = 0; i<xy.size(); ++i) {
+		t1 += xy[i].first * xy[i].first;
+		t2 += xy[i].first;
+		t3 += xy[i].first * xy[i].second;
+		t4 += xy[i].second;
+	}
+	double a = (t3*xy.size() - t2*t4) / (t1*xy.size() - t2*t2);
+	double b = (t1*t4 - t2*t3) / (t1*xy.size() - t2*t2);
+	return make_pair(a, b);
+}
+
+void MapXY::recompute_tp(vector<TurnPoint> & tp, double default_zoom)
+{
+	for (int i = 0; i < (int)tp.size() - 1; i++) {
+		CV_Assert(tp[i + 1].sp != tp[i].sp && tp[i + 1].dp != tp[i].dp);
+		tp[i].sz = (tp[i + 1].dp - tp[i].dp) / (tp[i + 1].sp - tp[i].sp);
+		tp[i].dz = 1 / tp[i].sz;
+	}
+	tp.back().sz = default_zoom;
+	tp.back().dz = 1 / default_zoom;
+}
+
+//add (s,d) to tp
+static void add_turn_point(vector<TurnPoint> & tp, double s, double d)
+{
+    for (int i = 0; i < (int)tp.size(); i++) {
+        if (tp[i].sp >= s) {
+            if (tp[i].dp <= d || tp[i].sp == s)
+                qCritical("add_turn_pointx error, dp=%f, dx=%f, sp=%f, sx=%f", tp[i].dp, d, tp[i].sp, s);
+
+			if (i != 0) {
+                if (tp[i - 1].dp >= d)
+                    qFatal("add_turn_pointx err, dp=%f, dx=%f, sp=%f, sx=%f", tp[i - 1].dp, d, tp[i].sp, s);
+			}
+            tp.insert(tp.begin() + i, TurnPoint(s, d));
+			return;
+		}
+	}
+    tp.push_back(TurnPoint(s, d));
+	//recompute_tp(tx, z0x);
+}
+
+/*
+output tp, turn point result
+inout nxy, nail's x or y nxy.first is src, nxy.second is dst
+output z, default slope rate
+return 0 if good, else bad
+*/
+int MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z)
+{
+    //1 sort and merge
+    sort(nxy.begin(), nxy.end());
+    for (int i = 0, weight = 1; i + 1 < (int)nxy.size();) {
+        if (abs(nxy[i].first - nxy[i + 1].first) < merge_pt_distance ||
+            abs(nxy[i].second - nxy[i + 1].second) < merge_pt_distance) {
+            nxy[i].first = (weight * nxy[i].first + nxy[i + 1].first) / (weight + 1);
+            nxy[i].second = (weight * nxy[i].second + nxy[i + 1].second) / (weight + 1);
+            weight++;
+            nxy.erase(nxy.begin() + i + 1);
+        }
+        else {
+            i++;
+            weight = 1;
+        }
+    }
+	if (nxy.size() == 1) {
+		add_turn_point(tp, nxy[0].first, nxy[0].second);
+		return 0;
+	}
+    else {
+        //2 compute nihe line
+        pair<double, double> line = least_square(nxy);
+        z = line.first;
+        vector<double> nx_shift, errs;
+        for (int i = 0; i < (int)nxy.size(); i++) {
+            double err = nxy[i].second - nxy[i].first *line.first - line.second;
+            //following do shift to move close to nihe line
+            if (abs(err) < max_pt_error)
+                err = 0;
+            else
+                err = (err > 0) ? err - max_pt_error : err + max_pt_error;
+            nx_shift.push_back(nxy[i].first *line.first + line.second + err);
+			errs.push_back(err);
+        }
+
+        //3 use cubic spline to compute turn point
+        add_turn_point(tp, nxy[0].first, nx_shift[0]);
+        int x1 = nxy[0].first, nx_idx=0;
+        while (1) {
+            x1 += 512;
+            while (nx_idx + 1 < nxy.size() && x1 > nxy[nx_idx + 1].first)
+                nx_idx++;
+            if (nx_idx + 1 == nxy.size()) {
+                add_turn_point(tp, nxy[nx_idx].first, nx_shift[nx_idx]);
+                break;
+            }
+            double u = ((double) x1 - nxy[nx_idx].first) / (nxy[nx_idx + 1].first - nxy[nx_idx].first);
+			CV_Assert(u >= 0 && u <= 1);
+            int y1 = nx_shift[nx_idx] * (2 * u*u*u - 3 * u*u + 1) + nx_shift[nx_idx + 1] * (-2 * u*u*u + 3 * u*u) +
+                line.first * (u*u*u - 2 * u*u + u) + line.first * (u*u*u - u*u);
+            add_turn_point(tp, x1, y1);
+        }
+
+		//4 check if result is good
+		for (int i = 0; i + 1 < (int)nxy.size(); i++) {
+			double err_slope = (errs[i + 1] - errs[i]) / (nxy[nx_idx + 1].first - nxy[nx_idx].first);
+			if (abs(err_slope) > max_slope)
+				return 1;
+		}		
+    }
+	return 0;
+}
+
+void MapXY::set_original()
+{
+	beta = 0; //set default rotation angle
+	cos_beta = 1;
+	sin_beta = 0;
+	z0x = 1;
+	z0y = 1;
+	tx.clear();
+	ty.clear();
+	tx.push_back(TurnPoint(0, 0)); //push default zoom x 1
+	ty.push_back(TurnPoint(0, 0)); //push default zoom y 1
+	merge_method = MERGE_BY_DRAW_ORDER;
+	merge_pt_distance = 512;
+	max_pt_error = 1;
+}
+
+bool MapXY::is_original() const
+{
+	return (beta == 0 && z0x == 1 && z0y == 1 && tx.size() == 1 && ty.size() == 1
+		&& tx[0].sp - tx[0].dp == (int)(tx[0].sp - tx[0].dp)
+		&& ty[0].sp - ty[0].dp == (int)(ty[0].sp - ty[0].dp));
+}
+
+Point2d MapXY::mid2dst(Point2d mid) const
+{
+	Point2d dst;
+	int i;
+	for (i = 0; i < (int)tx.size(); i++) {
+		if (mid.x < tx[i].sp) {
+			if (i == 0)
+				dst.x = tx[0].dp + z0x * (mid.x - tx[0].sp);
+			else
+				dst.x = tx[i - 1].dp + tx[i - 1].sz * (mid.x - tx[i - 1].sp);
+			break;
+		}
+	}
+	if (i == (int)tx.size())
+		dst.x = tx[i - 1].dp + z0x * (mid.x - tx[i - 1].sp);
+
+	for (i = 0; i < (int)ty.size(); i++) {
+		if (mid.y < ty[i].sp) {
+			if (i == 0)
+				dst.y = ty[0].dp + z0y * (mid.y - ty[0].sp);
+			else
+				dst.y = ty[i - 1].dp + ty[i - 1].sz * (mid.y - ty[i - 1].sp);
+			break;
+		}
+	}
+	if (i == (int)ty.size())
+		dst.y = ty[i - 1].dp + z0y * (mid.y - ty[i - 1].sp);
+	return dst;
+}
+
+Point2d MapXY::dst2mid(Point2d dst) const
+{
+	Point2d mid;
+	int i;
+	for (i = 0; i < (int)tx.size(); i++) {
+		if (dst.x < tx[i].dp) {
+			if (i == 0)
+				mid.x = tx[0].sp + (dst.x - tx[0].dp) / z0x;
+			else
+				mid.x = tx[i - 1].sp + tx[i - 1].dz * (dst.x - tx[i - 1].dp);
+			break;
+		}
+	}
+	if (i == (int)tx.size())
+		mid.x = tx[i - 1].sp + (dst.x - tx[i - 1].dp) / z0x;
+
+	for (i = 0; i < (int)ty.size(); i++) {
+		if (dst.y < ty[i].dp) {
+			if (i == 0)
+				mid.y = ty[0].sp + (dst.y - ty[0].dp) / z0y;
+			else
+				mid.y = ty[i - 1].sp + ty[i - 1].dz * (dst.y - ty[i - 1].dp);
+			break;
+		}
+	}
+	if (i == (int)ty.size())
+		mid.y = ty[i - 1].sp + (dst.y - ty[i - 1].dp) / z0y;
+	return mid;
+}
+
+/*
+	Return 0: success, 1 means x wrong, 2 means y wrong
+*/
+int MapXY::recompute(const vector<pair<Point, Point> > & nail)
+{
+	int ret = 0;
+	if (nail.size() == 0) {
+		set_original();
+		return ret;
+	}
+	vector<pair<int, int> > nx, ny;
+	for (int i = 0; i < nail.size(); i++) {
+		nx.push_back(make_pair(nail[i].first.x, nail[i].second.x));
+		ny.push_back(make_pair(nail[i].first.y, nail[i].second.y));
+	}
+
+	ret |= recompute_turn_point(tx, nx, z0x);
+	recompute_tp(tx, z0x);
+	ret |= recompute_turn_point(ty, ny, z0y) << 1;
+	recompute_tp(ty, z0y);
+
+	return ret;
+}
+
 class PremapTailorImg {
 public:
 	int draw_order;
@@ -220,18 +443,10 @@ void thread_map_image(MapRequest & pr)
 	Point dst_rt(dst_rb.x, dst_lt.y);
 	bool load_unmap_image = pxy->is_original();
 
-	if (load_unmap_image) {
-		src_lt = dst_lt; //src is same as dst for LOAD_RAW_IMAGE
-		src_rb = dst_rb;
-		src_lb = dst_lb;
-		src_rt = dst_rt;
-	} 
-	else {
-		src_lt = pxy->dst2src(dst_lt); //dst_lt map to src_lt, src_lt is not src left top.
-		src_rb = pxy->dst2src(dst_rb);
-		src_lb = pxy->dst2src(dst_lb);
-		src_rt = pxy->dst2src(dst_rt);
-	}
+	src_lt = pxy->dst2src(dst_lt); //dst_lt map to src_lt, src_lt is not src left top.
+	src_rb = pxy->dst2src(dst_rb);
+	src_lb = pxy->dst2src(dst_lb);
+	src_rt = pxy->dst2src(dst_rt);
 
 	double minx = min(min(src_lt.x, src_rb.x), min(src_lb.x, src_rt.x));
 	double miny = min(min(src_lt.y, src_rb.y), min(src_lb.y, src_rt.y));
@@ -295,6 +510,7 @@ void thread_map_image(MapRequest & pr)
 	if (src_map.empty()) {
 		img.fill(QColor(0, 0, 0));
 		pr.img = img;
+		return;
 	}
 
 	//2 do remap for each dst point
@@ -367,8 +583,7 @@ void thread_map_image(MapRequest & pr)
 			}
 			switch (dst_num) {
 			case 0:
-				qCritical("dst_num=0 at (x=%d,y=%d)", dx, dy);
-				pd[dx] = 255;
+				pd[dx] = 0;
 				break;
 			case 1:
 				pd[dx] = dst_gray;

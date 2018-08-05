@@ -44,6 +44,11 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	setAutoFillBackground(false);
 	setAttribute(Qt::WA_OpaquePaintEvent, true);
 	setAttribute(Qt::WA_NoSystemBackground, true);
+	xgrid_size = 20;
+	ygrid_size = 20;
+	xoffset = 0;
+	yoffset = 0;
+	draw_grid = false;
 }
 
 void StitchView::paintEvent(QPaintEvent *)
@@ -72,7 +77,7 @@ void StitchView::paintEvent(QPaintEvent *)
     QImage image(size(), QImage::Format_RGB32);
 	image.fill(QColor(0, 0, 0));
     QPainter painter(&image);
-	painter.setPen(QPen(Qt::red, 1));
+	painter.setPen(QPen(Qt::red, Qt::DotLine));
 	painter.setBrush(QBrush(Qt::red));
 	QRect screen_rect(0, 0, width(), height());	
 
@@ -138,6 +143,19 @@ void StitchView::paintEvent(QPaintEvent *)
 			QPoint dst_corner = TOQPOINT(mxy.src2dst(src_corner));
 			if (view_rect.contains(dst_corner)) 
 				painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 2, 2);
+		}
+	}
+
+	if (draw_grid) {
+		int width = size().width();
+		int height = size().height();
+		for (int i = view_rect.top() / yoffset + 1; i < view_rect.bottom() / yoffset; i++) {
+			int y = i * yoffset;
+			painter.drawLine(0, y, width, y);
+		}
+		for (int i = view_rect.left() / xoffset + 1; i < view_rect.right() / xoffset; i++) {
+			int x = i * yoffset;
+			painter.drawLine(x, 0, x, height);
 		}
 	}
 	QPainter paint(this);
@@ -209,6 +227,12 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	case Qt::Key_7:
 		if (cpara.size() > 7)
 			layer = 7;
+		break;
+	case Qt::Key_G:
+		draw_grid = !draw_grid;
+		break;
+	case Qt::Key_C:
+		draw_corner = !draw_corner;
 		break;
 	default:
 		QWidget::keyPressEvent(e);
@@ -348,6 +372,45 @@ int StitchView::get_tune_para(int _layer, TuningPara & _tpara)
 	return 0;
 }
 
+//if _layer==-1, means get tune of current layer
+void StitchView::set_mapxy_dstw(int _layer, const MapXY & _mapxy, int _dst_w)
+{
+	if (_layer == -1)
+		_layer = layer;
+	ri.set_mapxy(_layer, _mapxy);
+	ri.set_dst_wide(_dst_w);
+	update();
+}
+//if _layer==-1, means get tune of current layer
+MapXY StitchView::get_mapxy(int _layer)
+{
+	if (_layer == -1)
+		_layer = layer;
+	return ri.get_mapxy(_layer);
+}
+
+int StitchView::get_dst_wide()
+{
+	return ri.get_dst_wide();
+}
+
+void StitchView::set_grid(int _xoffset, int _yoffset, int _xgrid_size, int _ygrid_size)
+{
+	xoffset = _xoffset;
+	yoffset = _yoffset;
+	xgrid_size = _xgrid_size;
+	ygrid_size = _ygrid_size;
+	draw_grid = true;
+}
+
+void StitchView::get_grid(int & _xoffset, int & _yoffset, int & _xgrid_size, int & _ygrid_size)
+{
+	_xoffset = xoffset;
+	_yoffset = yoffset;
+	_xgrid_size = xgrid_size;
+	_ygrid_size = ygrid_size;
+}
+
 int StitchView::compute_new_feature(int _layer)
 {
 	Q_ASSERT(cpara.size() == tpara.size() && cpara.size() == feature_file.size());
@@ -469,6 +532,11 @@ void StitchView::write_file(string file_name)
 	fs << "choose" << ce0;
 	fs << "choose1" << ce1;
 	fs << "choose2" << ce2;
+	fs << "draw_corner" << draw_corner;
+	fs << "xoffset" << xoffset;
+	fs << "yoffset" << yoffset;
+	fs << "xgrid_size" << xgrid_size;
+	fs << "ygrid_size" << ygrid_size;
 	fs.release();
 }
 
@@ -482,6 +550,7 @@ int StitchView::read_file(string file_name)
 		cpara.resize(layer_num);
 		tpara.resize(layer_num);
 		feature_file.resize(layer_num);
+		load_img_opt.resize(layer_num);
 		for (int i = 0; i < (int)cpara.size(); i++) {
 			char name[30];
 			sprintf(name, "cpara%d", i);
@@ -508,7 +577,13 @@ int StitchView::read_file(string file_name)
 		fs["choose"] >> ce0;
 		fs["choose1"] >> ce1;
 		fs["choose2"] >> ce2;
-		feature.read_diff_file(feature_file[layer]);
+		fs["draw_corner"] >> draw_corner;
+		if (!feature_file[layer].empty())
+			feature.read_diff_file(feature_file[layer]);
+		fs["xoffset"] >> xoffset;
+		fs["yoffset"] >> yoffset;
+		fs["xgrid_size"] >> xgrid_size;
+		fs["ygrid_size"] >> ygrid_size;
 		center = QPoint(ct.x, ct.y);
 		choose[0] = QPoint(ce0.x, ce0.y);
 		choose[1] = QPoint(ce1.x, ce1.y);
