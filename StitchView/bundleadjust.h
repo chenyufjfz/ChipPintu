@@ -65,7 +65,7 @@ struct Edge {
 	const EdgeDiff * diff;
 	unsigned base_score;
 	short state; //MERGED, SHARED, FREE
-    short diff_or_dir;	
+    short cost_or_dir;
 	Edge() {
 		base_score = 0;
 	}
@@ -83,7 +83,6 @@ protected:
 	list<EdgeDiff *> new_eds; //new EdgeDiff during merge, it need to free when finish
 	list<Edge *> edge_mqueue; //merge edge priority queue, Edge * point to eds item.
 	int img_num_h, img_num_w, scale;
-	float progress;
 
 protected:
 	Edge * get_edge(int i, int y, int x);
@@ -92,15 +91,19 @@ protected:
 	void push_mqueue(Edge * e);
 	void release_new_eds();
 	void init(const FeatExt & fet, int _img_num_h, int _img_num_w);
-	void merge(const EdgeDiff * edge, const FeatExt & fet);
+	void reinit(const FeatExt & fet, const Mat_<Vec2i> & offset, bool replace_offset);
+	int merge(const EdgeDiff * edge, const FeatExt & fet);
+	void split(int m, int n, const FeatExt & fet);
+	Mat_<Vec2i> best_offset;
+	Edge * pick_mq_edge();
 
 public:
     BundleAdjust();
 	~BundleAdjust();
-	Mat_<Vec2i> arrange(const FeatExt & fet, int _img_num_h = 0, int _img_num_w = 0);
-	float get_progress() {
-		return progress;
+	Mat_<Vec2i> get_best_offset() {
+		return best_offset.clone();
 	}
+	int arrange(const FeatExt & fet, int _img_num_h = 0, int _img_num_w = 0);
 };
 
 #endif // BUNDLEADJUST_H

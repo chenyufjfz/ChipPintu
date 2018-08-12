@@ -5,6 +5,7 @@
 #include <map>
 #include <math.h>
 #include <string.h>
+#include <qglobal.h>
 using namespace std;
 
 #ifndef QT_DEBUG

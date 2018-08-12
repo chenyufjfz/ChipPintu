@@ -15,7 +15,7 @@
 #endif
 
 #define PARALLEL 1
-#define TOTAL_PROP 1000
+#define TOTAL_PROP 500
 
 struct ImageData {
 	string filename;
@@ -132,7 +132,7 @@ opt0:							layer
 opt1: debug_opt method  opidx_diff3 opidx_diff2 opidx_diff1 opidx_diff0
 opt2: mix_diff2 mix_diff2 mix_diff1 mix_diff0
 */
-int compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rect & r0, const Rect &r1, int xshift, int yshift, Mat &diff, int step = 1)
+void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rect & r0, const Rect &r1, int xshift, int yshift, EdgeDiff * e, int step = 1)
 {
 #if 0
 	static int idx = 0;
@@ -197,6 +197,30 @@ int compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rect
 				}
 			}
 		}
+
+		if (m0.type() == CV_8UC3)
+		for (int y = 0; y < m0.rows; y += step) { //y,x is grad_x0, grad_y0
+			const unsigned char * pm0 = m0.ptr<unsigned char>(y);
+			for (int x = 0; x < m0.cols; x += step) {
+				int y_org = y - yshift;
+				int x_org = x - xshift;
+				//Following scan [-yshift, yshift] * [-xshift, xshift], it is good for cache hit
+				for (int yy = max(0, y_org); yy < min(m1.rows, y + yshift + 1); yy++) {
+					int * pout = &out[(yy - y_org) * (2 * xshift + 1)];
+					int * pnum = &num[(yy - y_org) * (2 * xshift + 1)];
+					const unsigned char * pm1 = m1.ptr<unsigned char>(yy);
+					for (int xx = max(0, x_org); xx < min(m1.cols, x + xshift + 1); xx++) {
+						const unsigned char * ppm0 = &pm0[3 * x];
+						const unsigned char * ppm1 = &pm1[3 * xx];
+						int a0 = ppm0[0], b0 = ppm1[0];
+						int a1 = ppm0[1], b1 = ppm1[1];
+						int a2 = ppm0[2], b2 = ppm1[2];
+						pout[xx - x_org] += (abs(a0 - b0) + abs(a1 - b1) + abs(a2 - b2)) * mix[i];
+						pnum[xx - x_org]++;
+					}
+				}
+			}
+		}
 	}
 
     double avg=0, dev=0;
@@ -213,23 +237,20 @@ int compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rect
             normal_out[i] = (avg - normal_out[i]) * (avg - normal_out[i]);
         dev += normal_out[i];
     }
-	double max=0;
     for (int i = 0; i < out.size(); i++) {
-        normal_out[i] = normal_out[i] * TOTAL_PROP / dev;
+        normal_out[i] = (dev==0) ? 0 : normal_out[i] * TOTAL_PROP / dev;
         if (normal_out[i]>255)
             normal_out[i] = 255;
-		if (normal_out[i]>max)
-			max = normal_out[i];
     }
 
-    diff.create(2 * yshift + 1, 2 * xshift + 1, CV_8U);
+    e->diff.create(2 * yshift + 1, 2 * xshift + 1);
     for (int y = 0; y < 2 * yshift + 1; y++) {
-		unsigned char * pdiff = diff.ptr<unsigned char>(2 * yshift - y);
+		unsigned char * pdiff = e->diff.ptr<unsigned char>(2 * yshift - y);
         double * pout = &normal_out[y*(2 * xshift + 1)];
         for (int x = 0; x < 2 * xshift + 1; x++)
-			pdiff[2 * xshift - x] = (unsigned char)(max - pout[x]);
+			pdiff[2 * xshift - x] = (unsigned char) pout[x];
     }
-	return max;
+	e->compute_score();
 }
 
 void write_mat_binary(FILE * fp, unsigned short para0, unsigned short para1, const Mat &m)
@@ -298,24 +319,22 @@ void extract_diff(ImageDiff & gd)
 			if (gd.dir) { //do left-right compare
 				int start_x = cols - gd.overlap / gd.cvar->rescale;
 				int shift = gd.shift / gd.cvar->rescale;
-				gd.e->maxd = compute_diff(
+				compute_diff(
 					gd, param, Rect(start_x, max(shift, 0), gd.overlap / gd.cvar->rescale, rows - abs(shift)),
 					Rect(0, max(-shift, 0), gd.overlap / gd.cvar->rescale, rows - abs(shift)),
-					gd.cvar->max_lr_xshift / gd.cvar->rescale, gd.cvar->max_lr_yshift / gd.cvar->rescale, gd.e->diff);
+					gd.cvar->max_lr_xshift / gd.cvar->rescale, gd.cvar->max_lr_yshift / gd.cvar->rescale, gd.e);
 				gd.e->offset.x = (start_x - gd.cvar->max_lr_xshift / gd.cvar->rescale) * gd.cvar->rescale;
 				gd.e->offset.y = (shift - gd.cvar->max_lr_yshift / gd.cvar->rescale) * gd.cvar->rescale;
-				gd.e->compute_score();
 			}
 			else { //do up-down compare
 				int start_y = rows - gd.overlap / gd.cvar->rescale;
 				int shift = gd.shift / gd.cvar->rescale;
-				gd.e->maxd = compute_diff(
+				compute_diff(
 					gd, param, Rect(max(shift, 0), start_y, cols - abs(shift), gd.overlap / gd.cvar->rescale),
 					Rect(max(-shift, 0), 0, cols - abs(shift), gd.overlap / gd.cvar->rescale),
-					gd.cvar->max_ud_xshift / gd.cvar->rescale, gd.cvar->max_ud_yshift / gd.cvar->rescale, gd.e->diff);
+					gd.cvar->max_ud_xshift / gd.cvar->rescale, gd.cvar->max_ud_yshift / gd.cvar->rescale, gd.e);
 				gd.e->offset.x = (shift - gd.cvar->max_ud_xshift / gd.cvar->rescale) * gd.cvar->rescale;
 				gd.e->offset.y = (start_y - gd.cvar->max_ud_yshift / gd.cvar->rescale) * gd.cvar->rescale;
-				gd.e->compute_score();
 			}
 		}
 	}
@@ -339,7 +358,7 @@ void FeatExt::set_cfg_para(const ConfigPara & _cpara)
 	cpara.offset = cpara.offset.clone();
 }
 
-void FeatExt::generate_feature_diff()
+void FeatExt::generate_feature_diff(int start_x, int start_y, int debug_en)
 {
 	progress = 0;
     int img_load_num = 15;
@@ -365,8 +384,8 @@ void FeatExt::generate_feature_diff()
 		for (int x = 0; x < cpara.img_num_w - 1; x++)
 			edge[1][y*(cpara.img_num_w - 1) + x].edge_idx = MAKE_EDGE_IDX(x, y, 1);
 
-	for (int row = 0; row < cpara.img_num_h - 1; row += img_load_num) { //once load img_load_num
-		for (int x = 0; x < cpara.img_num_w; x++) {
+	for (int row = start_y; row < cpara.img_num_h - 1; row += img_load_num) { //once load img_load_num
+		for (int x = start_x; x < cpara.img_num_w; x++) {
 			image[x & 1].resize(min(img_load_num + 1, cpara.img_num_h - row));
 			for (int y = row; y < min(row + img_load_num + 1, cpara.img_num_h); y++) {
 				char filename[50];
@@ -379,16 +398,17 @@ void FeatExt::generate_feature_diff()
 			for (int i = 0; i < image[x & 1].size(); i++)
 				prepare_extract(image[x & 1][i]);
 #endif
-#if 1
-			char filename[100];
-			sprintf(filename, "g0_M%d.jpg", 2 * x);
-			imwrite(filename, abs(image[x & 1][0].v[1].d) * 8);
-			sprintf(filename, "g0_M%d.jpg", 2 * x + 1);
-			imwrite(filename, abs(image[x & 1][0].v[2].d) * 8);
-#endif
+			if (debug_en == 1) {
+				char filename[100];
+				sprintf(filename, "g0_M%d.jpg", 2 * (x - start_x));
+				imwrite(filename, abs(image[x & 1][0].v[0].d));
+				//sprintf(filename, "g0_M%d.jpg", 2 * (x - start_x) + 1);
+				//imwrite(filename, abs(image[x & 1][0].v[2].d) * 8);
+			}
+
 			total_load += (int) image[x & 1].size() - 1;
 			progress = (float)total_load / (cpara.img_num_h * cpara.img_num_w);
-			if (x != 0) {
+			if (x != start_x) {
 				if (row + img_load_num + 1 >= cpara.img_num_h)
 					gdiff.resize(image[x & 1].size() * 2 - 1);
 				else

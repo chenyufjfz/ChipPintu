@@ -121,13 +121,13 @@ int main(int argc, char** argv)
     cpara.clip_u = 0;
     cpara.clip_d = 0;
     cpara.rescale = 4;
-    cpara.max_lr_xshift = 36;
+    cpara.max_lr_xshift = 40;
     cpara.max_lr_yshift = 16;
     cpara.max_ud_xshift = 16;
-    cpara.max_ud_yshift = 36;
+    cpara.max_ud_yshift = 40;
     cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
-    cpara.img_num_w = 3;
-	cpara.img_num_h = 3;
+    cpara.img_num_w = 6;
+	cpara.img_num_h = 10;
     cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
     for (int y = 0; y < cpara.img_num_h; y++) {
         for (int x = 0; x < cpara.img_num_w; x++) {
@@ -137,49 +137,63 @@ int main(int argc, char** argv)
     }
 	ExtractParam ep;
 	ep.read_file("./tune.xml");
-	TuningPara _tpara(ep, "layer_1");
+	TuningPara _tpara(ep, "Grad");
 #if 1
 	feature.set_cfg_para(cpara);
 	feature.set_tune_para(_tpara);
-    feature.generate_feature_diff();
+	feature.generate_feature_diff(4, 8, 1);
     feature.write_diff_file("diff.xml");
 #else
 	feature.read_diff_file("diff.xml");
 #endif
     double minval, maxval;
     Point minloc, maxloc;
-	int y0 = 2, x0 = 1, y1 = 2, x1 = 2;
+	int y0 = 9, x0 = 6, y1 = 10, x1 = 6;
 	char img1_name[50], img2_name[50];
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
 	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->diff, &minval, &maxval, &minloc, &maxloc);
-	minloc *= cpara.rescale;
+	maxloc *= cpara.rescale;
 	Mat img1 = imread(cpara.img_path + img1_name, 0);
 	Mat img2 = imread(cpara.img_path + img2_name, 0);
     img1 = img1(Rect(cpara.clip_l, cpara.clip_u, img1.cols - cpara.clip_l - cpara.clip_r, img1.rows - cpara.clip_u - cpara.clip_d));
     img2 = img2(Rect(cpara.clip_l, cpara.clip_u, img2.cols - cpara.clip_l - cpara.clip_r, img2.rows - cpara.clip_u - cpara.clip_d));
-	Point offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + minloc;
-	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", minloc.y, minloc.x, offset.y, offset.x, minval);
-	Mat left = img1(Rect(offset.x, max(offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
-	Mat right = img2(Rect(0, max(-offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
+	Point offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + maxloc;
+	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", maxloc.y, maxloc.x, offset.y, offset.x, maxval);
+	Mat left, right;
+	if (y0 == y1) {
+		left = img1(Rect(offset.x, max(offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
+		right = img2(Rect(0, max(-offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
+	}
+	else {
+		left = img1(Rect(max(offset.x, 0), offset.y, img1.cols - abs(offset.x), img1.rows - offset.y));
+		right = img2(Rect(max(-offset.x, 0), 0, img1.cols - abs(offset.x), img1.rows - offset.y));
+	}
     resize(left, left, Size(left.cols / cpara.rescale, left.rows / cpara.rescale));
     resize(right, right, Size(right.cols / cpara.rescale, right.rows / cpara.rescale));
     imshow("x0", left);
     imshow("x1", right);
-
-	y0 = 2, x0 = 1, y1 = 3, x1 = 1;
+	
+	y0 = 9, x0 = 5, y1 = 10, x1 = 5;
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
 	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->diff, &minval, &maxval, &minloc, &maxloc);
-	minloc *= cpara.rescale;
+	maxloc *= cpara.rescale;
 	img1 = imread(cpara.img_path + img1_name, 0);
     img2 = imread(cpara.img_path + img2_name, 0);
     img1 = img1(Rect(cpara.clip_l, cpara.clip_u, img1.cols - cpara.clip_l - cpara.clip_r, img1.rows - cpara.clip_u - cpara.clip_d));
     img2 = img2(Rect(cpara.clip_l, cpara.clip_u, img2.cols - cpara.clip_l - cpara.clip_r, img2.rows - cpara.clip_u - cpara.clip_d));
-	offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + minloc;
-	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", minloc.y, minloc.x, offset.y, offset.x, minval);
-    Mat up = img1(Rect(max(offset.x, 0), offset.y, img1.cols - abs(offset.x), img1.rows - offset.y));
-    Mat down = img2(Rect(max(-offset.x, 0), 0, img1.cols - abs(offset.x), img1.rows - offset.y));
+	offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + maxloc;
+	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", maxloc.y, maxloc.x, offset.y, offset.x, maxval);
+	Mat up, down;
+	if (y0 == y1) {
+		up = img1(Rect(offset.x, max(offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
+		down = img2(Rect(0, max(-offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
+	}
+	else {
+		up = img1(Rect(max(offset.x, 0), offset.y, img1.cols - abs(offset.x), img1.rows - offset.y));
+		down = img2(Rect(max(-offset.x, 0), 0, img1.cols - abs(offset.x), img1.rows - offset.y));
+	}
     resize(up, up, Size(up.cols / cpara.rescale, up.rows / cpara.rescale));
     resize(down, down, Size(down.cols / cpara.rescale, down.rows / cpara.rescale));
     imshow("y0", up);

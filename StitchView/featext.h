@@ -134,18 +134,38 @@ public:
 	Point offset; //it is nearby image top-left point - base image top-left point
 	unsigned edge_idx;
 	Mat_<unsigned char> diff;
-	unsigned char maxd;
-	unsigned score;	
+	unsigned char maxd, submaxd;
+	Point_<uchar> maxloc;
+	int img_num;
+	int score;
 
 public:
+	EdgeDiff() {
+		img_num = 1;
+	}
 	void compute_score() {
-		score = maxd;
+		maxd = 0, submaxd = 0;
+		for (int y = 0; y < diff.rows; y++) {
+			unsigned char * pd = diff.ptr<unsigned char>(y);
+			for (int x = 0; x < diff.cols; x++) {
+				if (pd[x] > maxd) {
+					submaxd = maxd;
+					maxd = pd[x];
+					maxloc.x = x;
+					maxloc.y = y;
+				} 
+				else
+				if (pd[x] > submaxd)
+					submaxd = pd[x];
+			}
+		}
+		score = (maxd - submaxd) * img_num;
 	}
 
 	void read_file(const FileNode& node) {
 		offset.y = (int) node["oy"];
 		offset.x = (int) node["ox"];
-		maxd = (int)node["m"];
+		img_num = (int)node["img_num"];
 		read(node["diff"], diff);
 		compute_score();
 	}
@@ -154,6 +174,10 @@ public:
 		fs << "{" << "oy" << offset.y;
 		fs << "ox" << offset.x;
 		fs << "m" << maxd;
+		fs << "sm" << submaxd;
+		fs << "mx" << maxloc.x;
+		fs << "my" << maxloc.y;
+		fs << "img_num" << img_num;
 		fs << "diff" << diff << "}";
 	}
 
@@ -163,7 +187,9 @@ public:
 		new_diff->edge_idx = edge_idx;
 		new_diff->diff = diff.clone();
 		new_diff->maxd = maxd;
-		new_diff->score = score;
+		new_diff->submaxd = submaxd;
+		new_diff->maxloc = maxloc;
+		new_diff->img_num = img_num;
 		return new_diff;
 	}
 
@@ -187,7 +213,7 @@ public:
 		t.y = t.y / s;
 		t.x = t.x / s;
 		if (t.y < 0 || t.x < 0 || t.y >= diff.rows || t.x >= diff.cols)
-			return maxd;
+			return 0;
 		return diff.at<unsigned char>(t);
 	}
 	
@@ -198,7 +224,7 @@ public:
 		Point t = m1m2 - p1p2 + offset - e2.offset;
 		t.y = t.y / s;
 		t.x = t.x / s;
-		maxd = max(maxd, e2.maxd);
+		maxd = 0, submaxd = 0;
 		for (int y = 0; y < diff.rows; y++) {
 			unsigned char * pd = diff.ptr<unsigned char>(y);
 			int y1 = y + t.y;
@@ -206,12 +232,22 @@ public:
 			for (int x = 0; x < diff.cols; x++) {
 				int x1 = x + t.x;
 				if (pd1 && x1 >= 0 && x1 < e2.diff.cols)
-					pd[x] = max(pd[x], pd1[x1]);
+					pd[x] = (pd[x] * img_num + pd1[x1] * e2.img_num) / (img_num + e2.img_num);
 				else
-					pd[x] = max(pd[x], e2.maxd);
+					pd[x] = pd[x] * img_num / (img_num + e2.img_num);
+				if (pd[x] > maxd) {
+					submaxd = maxd;
+					maxd = pd[x];
+					maxloc.x = x;
+					maxloc.y = y;
+				}
+				else
+				if (pd[x] > submaxd)
+					submaxd = pd[x];
 			}
 		}
-		compute_score();
+		img_num = img_num + e2.img_num;
+		score = (maxd==submaxd) ? img_num : (maxd - submaxd) * img_num;
 	}
 
 	/*p1m1 is for this edge, m2p2 is for edge e2
@@ -221,7 +257,7 @@ public:
 		Point t = p1p2 - m1m2 - offset - e2.offset;
 		t.y = t.y / s;
 		t.x = t.x / s;
-		maxd = max(maxd, e2.maxd);
+		maxd = 0, submaxd = 0;
 		for (int y = 0; y < diff.rows; y++) {
 			unsigned char * pd = diff.ptr<unsigned char>(y);
 			int y1 = t.y - y;
@@ -229,12 +265,22 @@ public:
 			for (int x = 0; x < diff.cols; x++) {
 				int x1 = t.x - x;
 				if (y1 >= 0 && y1 < e2.diff.rows && x1 >= 0 && x1 < e2.diff.cols)
-					pd[x] = max(pd[x], pd1[x1]);
+					pd[x] = (pd[x] * img_num + pd1[x1] * e2.img_num) / (img_num + e2.img_num);
 				else
-					pd[x] = max(pd[x], e2.maxd);
+					pd[x] = pd[x] * img_num / (img_num + e2.img_num);
+				if (pd[x] > maxd) {
+					submaxd = maxd;
+					maxd = pd[x];
+					maxloc.x = x;
+					maxloc.y = y;
+				}
+				else
+				if (pd[x] > submaxd)
+					submaxd = pd[x];
 			}
 		}
-		compute_score();
+		img_num = img_num + e2.img_num;
+		score = (maxd - submaxd) * img_num;
 	}
 };
 
@@ -265,7 +311,7 @@ public:
 	/*
 	Compute EdgeDiff based on cpara and tpara 
 	*/
-	void generate_feature_diff();
+	void generate_feature_diff(int start_x = 0, int start_y=0, int debug_en=0);
 	void write_diff_file(string filename);	
 	int read_diff_file(string filename);
 	float get_progress() {

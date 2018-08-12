@@ -25,7 +25,8 @@ string thread_generate_diff(FeatExt * feature, int layer)
 
 void thread_bundle_adjust(BundleAdjust * ba, FeatExt * feature, Mat_<Vec2i> *offset)
 {
-	*offset = ba->arrange(*feature, -1, -1);
+	ba->arrange(*feature, -1, -1);
+	*offset = ba->get_best_offset();
 }
 
 StitchView::StitchView(QWidget *parent) : QWidget(parent)
@@ -264,12 +265,12 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 			Point o1(cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[1],
 				cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[0]);
 			Point oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
-			edge_cost = ed->get_diff(oo, cpara[layer].rescale);
+			edge_cost = ed->maxd - ed->get_diff(oo, cpara[layer].rescale);
 		}
 	}
 	char info[200];
-	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d", mouse_point.x(),
-		mouse_point.y(), src_point.x, src_point.y, may_choose.x(), may_choose.y());
+	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d, c=%d", mouse_point.x(),
+		mouse_point.y(), src_point.x, src_point.y, may_choose.x(), may_choose.y(), edge_cost);
 	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
 }
@@ -308,7 +309,7 @@ void StitchView::timerEvent(QTimerEvent *e)
 			QMessageBox::information(this, "Info", "Optimize offset finish");
 			update();
 		} else
-			emit notify_progress(ba.get_progress());
+			emit notify_progress(0);
 	}
 }
 
@@ -325,7 +326,13 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 		feature_file.push_back(string());
 		load_img_opt.push_back(CV_LOAD_IMAGE_UNCHANGED);
 		if (tpara.empty()) {
+			ExtractParam ep;
 			TuningPara _tpara;
+			if (!ep.read_file("tune.xml"))
+				QMessageBox::information(this, "Info", "not found tune.xml");
+			else
+				_tpara.read(ep, "Default");
+			
 			tpara.push_back(_tpara);
 		}
 		else
