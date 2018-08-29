@@ -9,6 +9,12 @@
 using namespace cv;
 using namespace std;
 
+
+#define DIR_UP				0
+#define DIR_RIGHT			1
+#define DIR_DOWN			2
+#define DIR_LEFT			3
+
 class TuningPara {
 public:
 	vector<ParamItem> params;
@@ -64,10 +70,10 @@ public:
 	string img_path;
 	int clip_l, clip_r, clip_u, clip_d;
 	int img_num_w, img_num_h;
-	int rescale;
+	int rescale, load_flag;
 	int max_lr_xshift, max_lr_yshift; //LR Diff size = (max_lr_xshift / rescale, max_lr_yshift / rescale)
 	int max_ud_xshift, max_ud_yshift; //UD Diff size = (max_lr_xshift / rescale, max_lr_yshift / rescale)
-	Mat_<Vec2i> offset;
+	Mat_<Vec2i> offset; //vec[0] is y, vec[1] is x
 
 public:	 
 	ConfigPara() {
@@ -77,6 +83,7 @@ public:
 		clip_d = 0;
 		img_num_w = 0;
 		img_num_h = 0;
+		load_flag = -1; // CV_LOAD_IMAGE_UNCHANGED;
 	}
 
 	void read_file(const FileNode& node) {
@@ -92,6 +99,7 @@ public:
 		max_lr_yshift = (int)node["max_lr_yshift"];
 		max_ud_xshift = (int)node["max_ud_xshift"];
 		max_ud_yshift = (int)node["max_ud_yshift"];
+		load_flag = (int)node["load_flag"];
 		read(node["offset"], offset);
 	}
 
@@ -108,6 +116,7 @@ public:
 		fs << "max_lr_yshift" << max_lr_yshift;
 		fs << "max_ud_xshift" << max_ud_xshift;
 		fs << "max_ud_yshift" << max_ud_yshift;
+		fs << "load_flag" << load_flag;
 		fs << "offset" << offset << "}";
 	}
 
@@ -133,10 +142,10 @@ class EdgeDiff {
 public:
 	Point offset; //it is nearby image top-left point - base image top-left point
 	unsigned edge_idx;
-	Mat_<unsigned char> diff;
-	unsigned char maxd, submaxd;
-	Point_<uchar> maxloc;
-	int img_num;
+	Mat_<int> dif;
+	int mind, submind;
+	Point minloc, subminloc;
+	int img_num; //img_num=0 means edge not exist, it because adj image is invalid
 	int score;
 
 public:
@@ -144,51 +153,55 @@ public:
 		img_num = 1;
 	}
 	void compute_score() {
-		maxd = 0, submaxd = 0;
-		for (int y = 0; y < diff.rows; y++) {
-			unsigned char * pd = diff.ptr<unsigned char>(y);
-			for (int x = 0; x < diff.cols; x++) {
-				if (pd[x] > maxd) {
-					submaxd = maxd;
-					maxd = pd[x];
-					maxloc.x = x;
-					maxloc.y = y;
+		mind = 0x7fffffff, submind = 0x7fffffff;
+		for (int y = 0; y < dif.rows; y++) {
+			int * pd = dif.ptr<int>(y);
+			for (int x = 0; x < dif.cols; x++) {
+				if (pd[x] < mind) {
+					submind = mind;
+					subminloc = minloc;
+					mind = pd[x];
+					minloc.x = x;
+					minloc.y = y;
 				} 
 				else
-				if (pd[x] > submaxd)
-					submaxd = pd[x];
+				if (pd[x] < submind) {
+					submind = pd[x];
+					subminloc.x = x;
+					subminloc.y = y;
+				}
 			}
 		}
-		score = (maxd - submaxd) * img_num;
+		score = (submind - mind) * img_num;
 	}
 
 	void read_file(const FileNode& node) {
 		offset.y = (int) node["oy"];
 		offset.x = (int) node["ox"];
 		img_num = (int)node["img_num"];
-		read(node["diff"], diff);
+		read(node["dif"], dif);
 		compute_score();
 	}
 
 	void write_file(FileStorage& fs) const {
 		fs << "{" << "oy" << offset.y;
 		fs << "ox" << offset.x;
-		fs << "m" << maxd;
-		fs << "sm" << submaxd;
-		fs << "mx" << maxloc.x;
-		fs << "my" << maxloc.y;
+		fs << "m" << (int) mind;
+		fs << "sm" << (int) submind;
+		fs << "mx" << minloc.x;
+		fs << "my" << minloc.y;
 		fs << "img_num" << img_num;
-		fs << "diff" << diff << "}";
+		fs << "dif" << dif << "}";
 	}
 
 	EdgeDiff * clone() const {
 		EdgeDiff * new_diff = new EdgeDiff();
 		new_diff->offset = offset;
 		new_diff->edge_idx = edge_idx;
-		new_diff->diff = diff.clone();
-		new_diff->maxd = maxd;
-		new_diff->submaxd = submaxd;
-		new_diff->maxloc = maxloc;
+		new_diff->dif = dif.clone();
+		new_diff->mind = mind;
+		new_diff->submind = submind;
+		new_diff->minloc = minloc;
 		new_diff->img_num = img_num;
 		return new_diff;
 	}
@@ -207,14 +220,14 @@ public:
 		}
 	}
 
-	unsigned char get_diff(Point o, int s) const
+	int get_dif(Point o, int s) const
 	{
 		Point t = o - offset;
 		t.y = t.y / s;
 		t.x = t.x / s;
-		if (t.y < 0 || t.x < 0 || t.y >= diff.rows || t.x >= diff.cols)
-			return 0;
-		return diff.at<unsigned char>(t);
+		if (t.y < 0 || t.x < 0 || t.y >= dif.rows || t.x >= dif.cols)
+			return 0x7fff;
+		return dif.at<int>(t);
 	}
 	
 	/*p1m1 is for this edge, p2m2 is for edge e2
@@ -224,30 +237,34 @@ public:
 		Point t = m1m2 - p1p2 + offset - e2.offset;
 		t.y = t.y / s;
 		t.x = t.x / s;
-		maxd = 0, submaxd = 0;
-		for (int y = 0; y < diff.rows; y++) {
-			unsigned char * pd = diff.ptr<unsigned char>(y);
+		mind = 0x7fffffff, submind = 0x7fffffff;
+		for (int y = 0; y < dif.rows; y++) {
+			int * pd = dif.ptr<int>(y);
 			int y1 = y + t.y;
-			const unsigned char * pd1 = (y1 >= 0 && y1 < e2.diff.rows) ? e2.diff.ptr<unsigned char>(y1) : NULL;
-			for (int x = 0; x < diff.cols; x++) {
+			const int * pd1 = (y1 >= 0 && y1 < e2.dif.rows) ? e2.dif.ptr<int>(y1) : NULL;
+			for (int x = 0; x < dif.cols; x++) {
 				int x1 = x + t.x;
-				if (pd1 && x1 >= 0 && x1 < e2.diff.cols)
+				if (pd1 && x1 >= 0 && x1 < e2.dif.cols)
 					pd[x] = (pd[x] * img_num + pd1[x1] * e2.img_num) / (img_num + e2.img_num);
 				else
-					pd[x] = pd[x] * img_num / (img_num + e2.img_num);
-				if (pd[x] > maxd) {
-					submaxd = maxd;
-					maxd = pd[x];
-					maxloc.x = x;
-					maxloc.y = y;
+					pd[x] = (pd[x] * img_num + 0x7fff * e2.img_num) / (img_num + e2.img_num);
+				if (pd[x] < mind) {
+					submind = mind;
+					subminloc = minloc;
+					mind = pd[x];
+					minloc.x = x;
+					minloc.y = y;
 				}
 				else
-				if (pd[x] > submaxd)
-					submaxd = pd[x];
+				if (pd[x] < submind) {
+					submind = pd[x];
+					subminloc.x = x;
+					subminloc.y = y;
+				}
 			}
 		}
 		img_num = img_num + e2.img_num;
-		score = (maxd==submaxd) ? img_num : (maxd - submaxd) * img_num;
+		score = (submind - mind) * img_num;
 	}
 
 	/*p1m1 is for this edge, m2p2 is for edge e2
@@ -257,30 +274,34 @@ public:
 		Point t = p1p2 - m1m2 - offset - e2.offset;
 		t.y = t.y / s;
 		t.x = t.x / s;
-		maxd = 0, submaxd = 0;
-		for (int y = 0; y < diff.rows; y++) {
-			unsigned char * pd = diff.ptr<unsigned char>(y);
+		mind = 0x7fffffff, submind = 0x7fffffff;
+		for (int y = 0; y < dif.rows; y++) {
+			int * pd = dif.ptr<int>(y);
 			int y1 = t.y - y;
-			const unsigned char * pd1 = (y1 < 0 || y1 >= e2.diff.rows) ? NULL : e2.diff.ptr<unsigned char>(y1);
-			for (int x = 0; x < diff.cols; x++) {
+			const int * pd1 = (y1 < 0 || y1 >= e2.dif.rows) ? NULL : e2.dif.ptr<int>(y1);
+			for (int x = 0; x < dif.cols; x++) {
 				int x1 = t.x - x;
-				if (y1 >= 0 && y1 < e2.diff.rows && x1 >= 0 && x1 < e2.diff.cols)
+				if (y1 >= 0 && y1 < e2.dif.rows && x1 >= 0 && x1 < e2.dif.cols)
 					pd[x] = (pd[x] * img_num + pd1[x1] * e2.img_num) / (img_num + e2.img_num);
 				else
-					pd[x] = pd[x] * img_num / (img_num + e2.img_num);
-				if (pd[x] > maxd) {
-					submaxd = maxd;
-					maxd = pd[x];
-					maxloc.x = x;
-					maxloc.y = y;
+					pd[x] = (pd[x] * img_num + 0x7fff * e2.img_num) / (img_num + e2.img_num);
+				if (pd[x] < mind) {
+					submind = mind;
+					subminloc = minloc;
+					mind = pd[x];
+					minloc.x = x;
+					minloc.y = y;
 				}
 				else
-				if (pd[x] > submaxd)
-					submaxd = pd[x];
+				if (pd[x] < submind) {
+					submind = pd[x];
+					subminloc.x = x;
+					subminloc.y = y;
+				}
 			}
 		}
 		img_num = img_num + e2.img_num;
-		score = (maxd - submaxd) * img_num;
+		score = (submind - mind) * img_num;
 	}
 };
 

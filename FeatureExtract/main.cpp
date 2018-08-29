@@ -127,7 +127,7 @@ int main(int argc, char** argv)
     cpara.max_ud_yshift = 40;
     cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
     cpara.img_num_w = 6;
-	cpara.img_num_h = 10;
+	cpara.img_num_h = 11;
     cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
     for (int y = 0; y < cpara.img_num_h; y++) {
         for (int x = 0; x < cpara.img_num_w; x++) {
@@ -141,25 +141,25 @@ int main(int argc, char** argv)
 #if 1
 	feature.set_cfg_para(cpara);
 	feature.set_tune_para(_tpara);
-	feature.generate_feature_diff(4, 8, 1);
+	feature.generate_feature_diff(4, 9, 1);
     feature.write_diff_file("diff.xml");
 #else
 	feature.read_diff_file("diff.xml");
 #endif
     double minval, maxval;
     Point minloc, maxloc;
-	int y0 = 9, x0 = 6, y1 = 10, x1 = 6;
+	int y0 = 10, x0 = 6, y1 = 11, x1 = 6;
 	char img1_name[50], img2_name[50];
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
-	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->diff, &minval, &maxval, &minloc, &maxloc);
-	maxloc *= cpara.rescale;
+	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->dif, &minval, &maxval, &minloc, &maxloc);
+	minloc *= cpara.rescale;
 	Mat img1 = imread(cpara.img_path + img1_name, 0);
 	Mat img2 = imread(cpara.img_path + img2_name, 0);
     img1 = img1(Rect(cpara.clip_l, cpara.clip_u, img1.cols - cpara.clip_l - cpara.clip_r, img1.rows - cpara.clip_u - cpara.clip_d));
     img2 = img2(Rect(cpara.clip_l, cpara.clip_u, img2.cols - cpara.clip_l - cpara.clip_r, img2.rows - cpara.clip_u - cpara.clip_d));
-	Point offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + maxloc;
-	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", maxloc.y, maxloc.x, offset.y, offset.x, maxval);
+	Point offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + minloc;
+	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", minloc.y, minloc.x, offset.y, offset.x, minval);
 	Mat left, right;
 	if (y0 == y1) {
 		left = img1(Rect(offset.x, max(offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
@@ -171,20 +171,20 @@ int main(int argc, char** argv)
 	}
     resize(left, left, Size(left.cols / cpara.rescale, left.rows / cpara.rescale));
     resize(right, right, Size(right.cols / cpara.rescale, right.rows / cpara.rescale));
-    imshow("x0", left);
-    imshow("x1", right);
+	imshow(img1_name, left);
+	imshow(img2_name, right);
 	
-	y0 = 9, x0 = 5, y1 = 10, x1 = 5;
+	y0 = 10, x0 = 5, y1 = 11, x1 = 5;
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
-	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->diff, &minval, &maxval, &minloc, &maxloc);
-	maxloc *= cpara.rescale;
+	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->dif, &minval, &maxval, &minloc, &maxloc);
+	minloc *= cpara.rescale;
 	img1 = imread(cpara.img_path + img1_name, 0);
     img2 = imread(cpara.img_path + img2_name, 0);
     img1 = img1(Rect(cpara.clip_l, cpara.clip_u, img1.cols - cpara.clip_l - cpara.clip_r, img1.rows - cpara.clip_u - cpara.clip_d));
     img2 = img2(Rect(cpara.clip_l, cpara.clip_u, img2.cols - cpara.clip_l - cpara.clip_r, img2.rows - cpara.clip_u - cpara.clip_d));
-	offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + maxloc;
-	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", maxloc.y, maxloc.x, offset.y, offset.x, maxval);
+	offset = feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->offset + minloc;
+	qDebug("minloc(y=%d,x=%d), offset(y=%d,x=%d),minval=%d", minloc.y, minloc.x, offset.y, offset.x, minval);
 	Mat up, down;
 	if (y0 == y1) {
 		up = img1(Rect(offset.x, max(offset.y, 0), img1.cols - offset.x, img1.rows - abs(offset.y)));
@@ -196,8 +196,9 @@ int main(int argc, char** argv)
 	}
     resize(up, up, Size(up.cols / cpara.rescale, up.rows / cpara.rescale));
     resize(down, down, Size(down.cols / cpara.rescale, down.rows / cpara.rescale));
-    imshow("y0", up);
-    imshow("y1", down);
+
+	imshow(img1_name, up);
+	imshow(img2_name, down);
 	qWarning("finished");
     waitKey();
 

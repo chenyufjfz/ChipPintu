@@ -23,10 +23,11 @@ string thread_generate_diff(FeatExt * feature, int layer)
 	return filename;
 }
 
-void thread_bundle_adjust(BundleAdjust * ba, FeatExt * feature, Mat_<Vec2i> *offset)
+void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<int> * c_info, vector<FixEdge> * fe)
 {
-	ba->arrange(*feature, -1, -1);
+	ba->arrange(*feature, -1, -1, fe);
 	*offset = ba->get_best_offset();
+	*c_info = ba->get_corner();
 }
 
 StitchView::StitchView(QWidget *parent) : QWidget(parent)
@@ -35,6 +36,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	center = QPoint(0, 0);
     layer = -1;
 	edge_cost = 0;
+	minloc_shift = Point(0, 0);
 	feature_layer = -1;
 	draw_corner = true;
 	for (int i=0; i<3; i++)
@@ -50,6 +52,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	xoffset = 0;
 	yoffset = 0;
 	draw_grid = false;
+	ba = BundleAdjustInf::create_instance(2);
 }
 
 void StitchView::paintEvent(QPaintEvent *)
@@ -78,8 +81,8 @@ void StitchView::paintEvent(QPaintEvent *)
     QImage image(size(), QImage::Format_RGB32);
 	image.fill(QColor(0, 0, 0));
     QPainter painter(&image);
-	painter.setPen(QPen(Qt::red, Qt::DotLine));
-	painter.setBrush(QBrush(Qt::red));
+	painter.setPen(QPen(Qt::green));
+	painter.setBrush(QBrush(Qt::green));
 	QRect screen_rect(0, 0, width(), height());	
 
 	//first loop, prepare for renderimage
@@ -96,7 +99,7 @@ void StitchView::paintEvent(QPaintEvent *)
 	for (int i = 0; i < 3; i++)
 		draw_order.push_back(MAPID(layer, choose[i].x(), choose[i].y()));
 	vector<QImage> imgs;
-	ri.render_img(map_id, imgs, draw_order, load_img_opt[layer]);
+	ri.render_img(map_id, imgs, draw_order);
 
 #if 0
 	for (int i = 0; i < imgs.size(); i++) {
@@ -142,8 +145,97 @@ void StitchView::paintEvent(QPaintEvent *)
 		for (int x = lt.x; x <= rb.x; x++) {
 			Point src_corner(cpara[layer].offset(y, x)[1], cpara[layer].offset(y, x)[0]);
 			QPoint dst_corner = TOQPOINT(mxy.src2dst(src_corner));
-			if (view_rect.contains(dst_corner)) 
-				painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 2, 2);
+			if (view_rect.contains(dst_corner)) {
+				if (corner_info.empty()) {
+					painter.setPen(QPen(Qt::green));
+					painter.setBrush(QBrush(Qt::green));
+					painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 3, 3);
+				}
+				else {
+					int info = corner_info(y, x);
+					switch (info & 3) {
+					case 0:
+						painter.setBrush(QBrush(Qt::green));
+						break;
+					case 1:
+						painter.setBrush(QBrush(Qt::magenta));
+						break;
+					case 2:
+						painter.setBrush(QBrush(Qt::red));
+						break;
+					}
+					switch (info & 0xc) {
+					case 0:
+						painter.setPen(QPen(Qt::green, 2));
+						break;
+					case 4:
+						painter.setPen(QPen(Qt::magenta, 2));
+						break;
+					case 2:
+						painter.setPen(QPen(Qt::red, 2));
+						break;
+					}
+					QPoint center = (dst_corner - view_rect.topLeft()) / scale;
+						painter.drawEllipse(center, 3, 3);
+					switch (info >> 8 & 0x3) {
+					case 0:
+						painter.setPen(QPen(Qt::green, 2));
+						break;
+					case 1:
+						painter.setPen(QPen(Qt::magenta, 2));
+						break;
+					case 2:
+					case 3:
+						painter.setPen(QPen(Qt::red, 2));
+						break;
+
+					}
+					painter.drawLine(center.x(), center.y() - 9, center.x(), center.y() - 5);
+					switch (info >> 14 & 0x3) {
+					case 0:
+						painter.setPen(QPen(Qt::green, 2));
+						break;
+					case 1:
+						painter.setPen(QPen(Qt::magenta, 2));
+						break;
+					case 2:
+					case 3:
+						painter.setPen(QPen(Qt::red, 2));
+						break;
+
+					}
+					painter.drawLine(center.x() + 5, center.y(), center.x() + 9, center.y());
+					switch (info >> 18 & 0x3) {
+					case 0:
+						painter.setPen(QPen(Qt::green, 2));
+						break;
+					case 1:
+						painter.setPen(QPen(Qt::magenta, 2));
+						break;
+					case 2:
+					case 3:
+						painter.setPen(QPen(Qt::red, 2));
+						break;
+
+					}
+					painter.drawLine(center.x(), center.y() + 5, center.x(), center.y() + 9);
+					switch (info >> 20 & 0x3) {
+					case 0:
+						painter.setPen(QPen(Qt::green, 2));
+						break;
+					case 1:
+						painter.setPen(QPen(Qt::magenta, 2));
+						break;
+					case 2:
+					case 3:
+						painter.setPen(QPen(Qt::red, 2));
+						break;
+
+					}
+					painter.drawLine(center.x() - 9, center.y(), center.x() - 5, center.y());
+				}
+				
+			}
 		}
 	}
 
@@ -265,12 +357,14 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 			Point o1(cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[1],
 				cpara[layer].offset(prev_may_choose.y(), prev_may_choose.x())[0]);
 			Point oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
-			edge_cost = ed->maxd - ed->get_diff(oo, cpara[layer].rescale);
+			minloc_shift = oo - ed->offset - ed->minloc * cpara[layer].rescale;
+			edge_cost = ed->get_dif(oo, cpara[layer].rescale) - ed->mind;
 		}
 	}
 	char info[200];
-	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d, c=%d", mouse_point.x(),
-		mouse_point.y(), src_point.x, src_point.y, may_choose.x(), may_choose.y(), edge_cost);
+	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d", mouse_point.x(),
+		mouse_point.y(), src_point.x, src_point.y, may_choose.x() + 1, may_choose.y() + 1, 
+		minloc_shift.x, minloc_shift.y, edge_cost);
 	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
 }
@@ -324,7 +418,6 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 	if (_layer == cpara.size()) {
 		cpara.push_back(_cpara);
 		feature_file.push_back(string());
-		load_img_opt.push_back(CV_LOAD_IMAGE_UNCHANGED);
 		if (tpara.empty()) {
 			ExtractParam ep;
 			TuningPara _tpara;
@@ -470,7 +563,7 @@ int StitchView::optimize_offset(int _layer)
 	bundle_adjust_future = QtConcurrent::run(thread_bundle_adjust, &ba, &feature, &adjust_offset);
 	bundle_adjust_timer = startTimer(2000);
 #else
-	thread_bundle_adjust(&ba, &feature, &adjust_offset);
+	thread_bundle_adjust(ba, &feature, &adjust_offset, &corner_info, NULL);
 	cpara[feature_layer].offset = adjust_offset;
 	ri.set_cfg_para(feature_layer, cpara[feature_layer]);
 	if (feature_layer == layer)
@@ -523,8 +616,6 @@ void StitchView::write_file(string file_name)
 		fs << name << tpara[i];
 		sprintf(name, "diff_file%d", i);
 		fs << name << feature_file[i];
-		sprintf(name, "load_img_opt%d", i);
-		fs << name << load_img_opt[i];
 		sprintf(name, "mapxy%d", i);
 		fs << name << ri.get_mapxy(i);
 	}
@@ -557,7 +648,6 @@ int StitchView::read_file(string file_name)
 		cpara.resize(layer_num);
 		tpara.resize(layer_num);
 		feature_file.resize(layer_num);
-		load_img_opt.resize(layer_num);
 		for (int i = 0; i < (int)cpara.size(); i++) {
 			char name[30];
 			sprintf(name, "cpara%d", i);
@@ -567,8 +657,6 @@ int StitchView::read_file(string file_name)
 			fs[name] >> tpara[i];
 			sprintf(name, "diff_file%d", i);
 			fs[name] >> feature_file[i];
-			sprintf(name, "load_img_opt%d", i);
-			fs[name] >> load_img_opt[i];
 			MapXY mxy;
 			sprintf(name, "mapxy%d", i);
 			fs[name] >> mxy;

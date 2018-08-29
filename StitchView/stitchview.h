@@ -66,9 +66,10 @@ protected:
 	QRect view_rect; //view_rect unit is pixel for dst file image
 	QPoint center;
 	int edge_cost;
-	vector<int> load_img_opt;
+	Point minloc_shift;
 	RenderImage ri;
 	bool draw_corner;
+	Mat_<int> corner_info;
 	//upper is for drawing layer and rect
 	
 	//Following is for feature compute and store
@@ -87,7 +88,7 @@ protected:
 
 	//Following is for bundleadjust
 	int bundle_adjust_timer;
-	BundleAdjust ba;
+	BundleAdjustInf * ba;
 	QFuture<void> bundle_adjust_future;
 	Mat_<Vec2i> adjust_offset;
 	//upper is for bundleadjust

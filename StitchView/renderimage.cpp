@@ -356,7 +356,7 @@ public:
 	int draw_order;
 	Rect_<double>  rect; //it is in pixel
 	Point2d lt, rb;
-	Mat m;
+	Mat m; //it is only a reference to PremapImg.m, it doesn't allocate memory
 	PremapTailorImg() {}
 	PremapTailorImg(const Mat _m, Rect_<double> & _r, unsigned _draw_order = 0) {
 		lt = Point2d(_r.x + 0.5, _r.y + 0.5);
@@ -422,7 +422,6 @@ struct MapRequest {
 	const ConfigPara * cpara; //this is share with other thread_map_image
 	PreMapCache * premap_cache; //this is share with other thread_map_image
 	const vector<MapID> * draw_order;
-	int load_flag;
 	QImage img;
 };
 
@@ -431,6 +430,7 @@ void thread_map_image(MapRequest & pr)
 {
 	int dst_w = pr.dst_w;
 	int l = MAPID_L(pr.id);
+	int biggest_channel = 0;
 	const MapXY * pxy = pr.pmapxy;
 
 	//0 Following compute 4 dst vertex and src point
@@ -470,12 +470,15 @@ void thread_map_image(MapRequest & pr)
 			char file_name[200];
 			sprintf(file_name, "%s%d_%d.jpg", pr.cpara->img_path.c_str(), y + 1, x + 1);
 			qDebug("loadImage, %s", file_name);
-			Mat raw_img = imread(file_name, pr.load_flag);
+			Mat raw_img = imread(file_name, pr.cpara->load_flag);
 			//pmc->insert(id, raw_img, Point(pr.cpara->offset(y, x)[1], pr.cpara->offset(y, x)[0]), pr.src);
+			if (raw_img.empty())
+				raw_img.create(1, 1, CV_8UC1);
 			pmc->insert(id, raw_img);
 		}
 		if (ret == ALREADY_EXIST)
 			pmc->repush(id);
+		
 		//if ret==ALREADY_FETCH, other thread load it
 	}
 	//wait all premap loaded
@@ -487,9 +490,11 @@ void thread_map_image(MapRequest & pr)
 			int ret = pmc->find_reserve(id, &pmap);
 			if (ret == ALREADY_EXIST) {
 				int order = y * 16 + x;
+				biggest_channel = max(biggest_channel, pmap->m.type());
 				for (int i = 0; i < (int)pr.draw_order->size(); i++)
 				if ((*pr.draw_order)[i] == id)
-					order += (i + 1) * 0x10000;				
+					order += (i + 1) * 0x10000;		
+				if (pmap->m.cols >= pr.cpara->clip_l + pr.src.width && pmap->m.rows >= pr.cpara->clip_u + pr.src.height)
 				src_map.push_back(PremapTailorImg(pmap->m(Rect(pr.cpara->clip_l, pr.cpara->clip_u, pr.src.width, pr.src.height)), 
 					Rect_<double>(pr.cpara->offset(y, x)[1] - 0.5, pr.cpara->offset(y, x)[0] - 0.5, pr.src.width, pr.src.height), order));				
 				break;
@@ -501,17 +506,28 @@ void thread_map_image(MapRequest & pr)
 	//now all premap is loaded
 	sort(src_map.begin(), src_map.end(), compare_premap_img);
 
-	QImage img(dst_w, dst_w, QImage::Format_Indexed8);
-	// Set the color table (used to translate colour indexes to qRgb values)
-	img.setColorCount(256);
-	for (int i = 0; i < 256; i++)
-		img.setColor(i, qRgb(i, i, i));
-	
-	if (src_map.empty()) {
-		img.fill(QColor(0, 0, 0));
-		pr.img = img;
-		return;
+	QImage img;
+	switch (biggest_channel) {
+	case CV_8UC1: 
+		{
+			img = QImage(dst_w, dst_w, QImage::Format_Indexed8);
+			// Set the color table (used to translate colour indexes to qRgb values)
+			img.setColorCount(256);
+			for (int i = 0; i < 256; i++)
+				img.setColor(i, qRgb(i, i, i));
+
+			if (src_map.empty()) {
+				img.fill(QColor(0, 0, 0));
+				pr.img = img;
+				return;
+			}
+			break;
+		}
+	case CV_8UC3:
+		img = QImage(dst_w, dst_w, QImage::Format_RGB888);
+		break;
 	}
+	
 
 	//2 do remap for each dst point
 	if (load_unmap_image) {
@@ -519,30 +535,60 @@ void thread_map_image(MapRequest & pr)
 			uchar *pd = img.scanLine(dy);
 			Point2d move = src_lt + Point2d(0, dy);
 			for (int dx = 0; dx < dst_w; dx++, move += Point2d(1,0)) {
-				int dst_gray = 0, dst_num = 0;
+				int dst_gray = 0, dst_num = 0, dst_gray1 = 0, dst_gray2 = 0;
 				//move is map point for dst[dy, dx]
 				for (int i = 0; i < (int)src_map.size(); i++)
 				if (src_map[i].rect.contains(move)) {
 					Point2f offset = move - src_map[i].lt;
 					uchar * plt = src_map[i].m.ptr<uchar>((int)offset.y, (int)offset.x);
 					dst_gray += plt[0];
+					if (src_map[i].m.type() == CV_8UC3) {
+						dst_gray1 += plt[1];
+						dst_gray2 += plt[2];
+					}
 					dst_num++;
 					if (pxy->get_merge_method() == MERGE_BY_DRAW_ORDER)
 						break;
 				}
-				switch (dst_num) {
-				case 0:
-					pd[dx] = 0;
-					break;
-				case 1:
-					pd[dx] = dst_gray;
-					break;
-				case 2:
-					pd[dx] = dst_gray >> 1;
-					break;
-				default:
-					pd[dx] = dst_gray / dst_num;
-					break;
+				if (biggest_channel == CV_8UC1) {
+					switch (dst_num) {
+					case 0:
+						pd[dx] = 0;
+						break;
+					case 1:
+						pd[dx] = dst_gray;
+						break;
+					case 2:
+						pd[dx] = dst_gray >> 1;
+						break;
+					default:
+						pd[dx] = dst_gray / dst_num;
+						break;
+					}
+				}
+				if (biggest_channel == CV_8UC3) {
+					switch (dst_num) {
+					case 0:
+						pd[dx * 3] = 0;
+						pd[dx * 3 + 1] = 0;
+						pd[dx * 3 + 2] = 0;
+						break;
+					case 1:
+						pd[dx* 3] = dst_gray2;
+						pd[dx* 3 + 1] = dst_gray1;
+						pd[dx* 3 + 2] = dst_gray;
+						break;
+					case 2:
+						pd[dx * 3] = dst_gray2 >> 1;
+						pd[dx * 3 + 1] = dst_gray1 >> 1;
+						pd[dx * 3 + 2] = dst_gray >> 1;
+						break;
+					default:
+						pd[dx * 3] = dst_gray2 / dst_num;
+						pd[dx * 3 + 1] = dst_gray1 / dst_num;
+						pd[dx * 3 + 2] = dst_gray / dst_num;
+						break;
+					}
 				}
 			}
 		}
@@ -560,40 +606,80 @@ void thread_map_image(MapRequest & pr)
 		Point2d step = (end - start) * dst_w_1;
 		Point2d move = start;
 		for (int dx = 0; dx < dst_w; dx++, move += step) {
-			int dst_gray = 0, dst_num = 0;
+			int dst_gray[3] = { 0, 0, 0 }, dst_num = 0;
 			//move is map point for dst[dy, dx]
 			for (int i = 0; i < (int) src_map.size(); i++) 
 			if (src_map[i].rect.contains(move)) {
 				Point2f offset = move - src_map[i].lt;
 				uchar * plt = src_map[i].m.ptr<uchar>((int)offset.y, (int)offset.x);
-				int glt = plt[0];
 				bool x_in_range = (offset.x > 0 && move.x < src_map[i].rb.x);
 				bool y_in_range = (offset.y > 0 && move.y < src_map[i].rb.y);
-				int grt = x_in_range ? plt[1] : glt;
-				int glb = y_in_range ? plt[src_row_step] : glt;
-				int grb = (x_in_range && y_in_range) ? plt[src_row_step + 1] :
-					((!x_in_range && y_in_range) ? glb :
-					((x_in_range && !y_in_range) ? grt : glt));
 				float deltax = offset.x - (int)offset.x;
 				float deltay = offset.y - (int)offset.y;
-				dst_gray += (deltax * glt + (1 - deltax) * grt) * deltay + (deltax * glb + (1 - deltax) * grb) * (1 - deltay);
+				int map_type = src_map[i].m.type();
+				if (map_type == CV_8UC1) {
+					int glt = plt[0];					
+					int grt = x_in_range ? plt[1] : glt;
+					int glb = y_in_range ? plt[src_row_step] : glt;
+					int grb = (x_in_range && y_in_range) ? plt[src_row_step + 1] :
+						((!x_in_range && y_in_range) ? glb :
+						((x_in_range && !y_in_range) ? grt : glt));
+					dst_gray[0] += (deltax * glt + (1 - deltax) * grt) * deltay + (deltax * glb + (1 - deltax) * grb) * (1 - deltay);
+				}
+				if (map_type == CV_8UC3) {
+					for (int j = 0; j < 3; j++) {
+						int glt = plt[j];
+						int grt = x_in_range ? plt[j+3] : glt;
+						int glb = y_in_range ? plt[src_row_step] : glt;
+						int grb = (x_in_range && y_in_range) ? plt[src_row_step + 3] :
+							((!x_in_range && y_in_range) ? glb :
+							((x_in_range && !y_in_range) ? grt : glt));
+						dst_gray[j] += (deltax * glt + (1 - deltax) * grt) * deltay + (deltax * glb + (1 - deltax) * grb) * (1 - deltay);
+					}
+				}
 				dst_num++;
 				if (pxy->get_merge_method() == MERGE_BY_DRAW_ORDER)
 					break;
 			}
-			switch (dst_num) {
-			case 0:
-				pd[dx] = 0;
-				break;
-			case 1:
-				pd[dx] = dst_gray;
-				break;
-			case 2:
-				pd[dx] = dst_gray >> 1;
-				break;
-			default:
-				pd[dx] = dst_gray / dst_num;
-				break;
+			if (biggest_channel == CV_8UC1) {
+				switch (dst_num) {
+				case 0:
+					pd[dx] = 0;
+					break;
+				case 1:
+					pd[dx] = dst_gray[0];
+					break;
+				case 2:
+					pd[dx] = dst_gray[0] >> 1;
+					break;
+				default:
+					pd[dx] = dst_gray[0] / dst_num;
+					break;
+				}
+			}
+			if (biggest_channel == CV_8UC3) {
+				switch (dst_num) {
+				case 0:
+					pd[dx * 3] = 0;
+					pd[dx * 3 + 1] = 0;
+					pd[dx * 3 + 2] = 0;
+					break;
+				case 1:
+					pd[dx * 3] = dst_gray[2];
+					pd[dx * 3 + 1] = dst_gray[1];
+					pd[dx * 3 + 2] = dst_gray[0];
+					break;
+				case 2:
+					pd[dx * 3] = dst_gray[2] >> 1;
+					pd[dx * 3 + 1] = dst_gray[1] >> 1;
+					pd[dx * 3 + 2] = dst_gray[0] >> 1;
+					break;
+				default:
+					pd[dx * 3] = dst_gray[2] / dst_num;
+					pd[dx * 3 + 1] = dst_gray[1] / dst_num;
+					pd[dx * 3 + 2] = dst_gray[0] / dst_num;
+					break;
+				}
 			}
 		}
 	}
@@ -613,7 +699,7 @@ void RenderImage::set_cfg_para(int layer, const ConfigPara & _cpara)
 		}
 	}
 	else {
-		if (cpara[layer].img_path != _cpara.img_path)
+		if (cpara[layer].img_path != _cpara.img_path || cpara[layer].load_flag != _cpara.load_flag)
 			premap_cache.clear(layer);
 		cpara[layer] = _cpara;
 		postmap_cache.clear(layer);
@@ -622,7 +708,12 @@ void RenderImage::set_cfg_para(int layer, const ConfigPara & _cpara)
 	sprintf(file_name, "%s%d_%d.jpg", _cpara.img_path.c_str(), 1, 1);
 	qDebug("loadImage, %s", file_name);
 	Mat raw_img = imread(file_name);
-	src_img_size[layer] = Size(raw_img.cols - _cpara.clip_l - _cpara.clip_r, raw_img.rows - _cpara.clip_d - _cpara.clip_u);
+	if (raw_img.empty()) {
+		qCritical("please make sure (1,1) has valid image");
+		src_img_size[layer] = Size(1, 1);
+	} 
+	else
+		src_img_size[layer] = Size(raw_img.cols - _cpara.clip_l - _cpara.clip_r, raw_img.rows - _cpara.clip_d - _cpara.clip_u);
 	qInfo("set config, l=%d, nx=%d, ny=%d, img_w=%d, img_h=%d", layer,
 		_cpara.img_num_w, _cpara.img_num_h, raw_img.cols, raw_img.rows);
 }
@@ -680,15 +771,10 @@ int RenderImage::get_dst_wide()
 	return dst_w;
 }
 
-void RenderImage::render_img(const vector<MapID> & map_id, vector<QImage> & imgs, const vector<MapID> & draw_order, int load_flag)
+void RenderImage::render_img(const vector<MapID> & map_id, vector<QImage> & imgs, const vector<MapID> & draw_order)
 {
 	vector<MapRequest> mrs;
 	
-	if (load_flag != prev_load_flag) {
-		prev_load_flag = load_flag;
-		premap_cache.clear(-1);
-		postmap_cache.clear(-1);
-	}
 	if (prev_draw_order.size() == draw_order.size()) {
 		for (int i = 0; i < (int) draw_order.size(); i++)
 		if (prev_draw_order[i] != draw_order[i]) {
@@ -712,7 +798,6 @@ void RenderImage::render_img(const vector<MapID> & map_id, vector<QImage> & imgs
 				mr.id = map_id[i];
 				mr.cpara = &cpara[layer];
 				mr.dst_w = dst_w;
-				mr.load_flag = load_flag;
 				mr.pmapxy = &mapxy[layer];
 				mr.premap_cache = &premap_cache;
 				mr.src = src_img_size[layer];

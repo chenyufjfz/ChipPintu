@@ -4,13 +4,9 @@
 #include <list>
 #include <map>
 #include "featext.h"
+#include "bundleadjustinf.h"
 using namespace std;
 
-
-#define DIR_UP				0
-#define DIR_RIGHT			1
-#define DIR_DOWN			2
-#define DIR_LEFT			3
 
 struct ImgMeta {
 	unsigned img_idx;				//it is fixed after init
@@ -65,7 +61,7 @@ struct Edge {
 	const EdgeDiff * diff;
 	unsigned base_score;
 	short state; //MERGED, SHARED, FREE
-    short cost_or_dir;
+    unsigned cost_or_dir;
 	Edge() {
 		base_score = 0;
 	}
@@ -75,7 +71,7 @@ struct Edge {
 Algorithm
 1 init edge
 */
-class BundleAdjust
+class BundleAdjust : public BundleAdjustInf
 {
 protected:
 	vector<Edge> eds[2]; //Originally eds.diff point to FeatExt, during merge, it point to new_eds
@@ -93,7 +89,7 @@ protected:
 	void init(const FeatExt & fet, int _img_num_h, int _img_num_w);
 	void reinit(const FeatExt & fet, const Mat_<Vec2i> & offset, bool replace_offset);
 	int merge(const EdgeDiff * edge, const FeatExt & fet);
-	void split(int m, int n, const FeatExt & fet);
+	unsigned long long split(int m, int n, const FeatExt & fet);
 	Mat_<Vec2i> best_offset;
 	Edge * pick_mq_edge();
 
@@ -103,7 +99,12 @@ public:
 	Mat_<Vec2i> get_best_offset() {
 		return best_offset.clone();
 	}
-	int arrange(const FeatExt & fet, int _img_num_h = 0, int _img_num_w = 0);
+	Mat_<int> get_corner() {
+		Mat_<int> corner(best_offset.size());
+		corner = 0;
+		return corner;
+	}
+	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe);
 };
 
 #endif // BUNDLEADJUST_H

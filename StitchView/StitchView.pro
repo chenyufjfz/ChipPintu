@@ -22,7 +22,9 @@ SOURCES += main.cpp\
     tparadialog.cpp \
     extractparam.cpp \
     renderimage.cpp \
-    mapxydialog.cpp
+    mapxydialog.cpp \
+    bundleadjust2.cpp \
+    bundleadjustinf.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -32,7 +34,9 @@ HEADERS  += mainwindow.h \
     tparadialog.h \
     extractparam.h \
     renderimage.h \
-    mapxydialog.h
+    mapxydialog.h \
+    bundleadjust2.h \
+    bundleadjustinf.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \

@@ -66,6 +66,8 @@ BundleAdjust::~BundleAdjust()
 }
 Edge * BundleAdjust::get_edge(int i, int y, int x)
 {
+	if (y < 0 || x < 0)
+		return NULL;
 	if (i == 0 && (y >= img_num_h - 1 || x >= img_num_w))
 		return NULL;
 	if (i == 1 && (y >= img_num_h || x >= img_num_w - 1))
@@ -96,7 +98,7 @@ ImgMeta * BundleAdjust::get_img_meta(int idx)
 	return pimg;
 }
 
-//edge_mqueue is sorted from big to small
+//edge_mqueue is sorted from small to big
 void BundleAdjust::push_mqueue(Edge * e)
 {
 	for (list<Edge *>::iterator iter = edge_mqueue.begin(); iter != edge_mqueue.end(); iter++)
@@ -200,7 +202,7 @@ void BundleAdjust::reinit(const FeatExt & fet, const Mat_<Vec2i> & offset, bool 
 		if (!replace_offset)
 			continue;
 		Point edge_o = Point(offset(y + 1, x)[1], offset(y + 1, x)[0]) - Point(offset(y, x)[1], offset(y, x)[0]);		
-		eds[0][y * img_num_w + x].cost_or_dir = (short)ed->maxd - ed->get_diff(edge_o, scale);
+		eds[0][y * img_num_w + x].cost_or_dir = ed->get_dif(edge_o, scale) - ed->mind;
 	}
 
 	for (int y = 0; y < img_num_h; y++)
@@ -211,7 +213,7 @@ void BundleAdjust::reinit(const FeatExt & fet, const Mat_<Vec2i> & offset, bool 
 		if (!replace_offset)
 			continue;
 		Point edge_o = Point(offset(y, x + 1)[1], offset(y, x + 1)[0]) - Point(offset(y, x)[1], offset(y, x)[0]);		
-		eds[1][y * (img_num_w - 1) + x].cost_or_dir = (short)ed->maxd - ed->get_diff(edge_o, scale);
+		eds[1][y * (img_num_w - 1) + x].cost_or_dir = ed->get_dif(edge_o, scale) - ed->mind;
 	}
 }
 /*
@@ -236,7 +238,7 @@ int BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 	ed->get_img_idx(img_idx0, img_idx1);
 	ImgMeta * img0 = get_img_meta(img_idx0);
 	ImgMeta * img1 = get_img_meta(img_idx1);
-	Point oo = ed->offset + Point(ed->maxloc.x, ed->maxloc.y) * scale; //img1 offset to img0
+	Point oo = ed->offset + Point(ed->minloc.x, ed->minloc.y) * scale; //img1 offset to img0
 	oo += img0->offset - img1->offset; //img1's origin offset to img0's origin
 	CV_Assert(img0->bundle_idx != img1->bundle_idx);
 	if (img0->bundle_idx > img1->bundle_idx) {	//little bundle_idx kill large bundle_idx
@@ -253,7 +255,8 @@ int BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 
 	killer_bdx = min(img0->bundle_idx, img1->bundle_idx);
 	dead_bdx = max(img0->bundle_idx, img1->bundle_idx);
-	short max_merge_ed = 0;
+	unsigned max_merge_ed = 0, cost_total = 0;
+	Edge * most_big_edge = NULL;
 	while (!visit_img.empty()) { //first go through dead img chain
 		ImgMeta * img = visit_img.front();
 		visit_img.pop_front();
@@ -263,7 +266,7 @@ int BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 			if (img_d == NULL)
 				continue;
 			unsigned ei2 = img->get_edge_idx(dir);
-			Edge * e2 = get_edge(ei2); //e2 is between img and img_d
+			Edge * e2 = get_edge(ei2); //e2 is between img and img_d			
 			CV_Assert(e2 != NULL);
 			if (img_d->bundle_idx == dead_bdx) {
 				if (img_d->state == NOT_VISIT) { //At first all image state is NOT_VISIT, 
@@ -282,8 +285,12 @@ int BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 					if (dir == DIR_UP || dir == DIR_LEFT)
 						edge_o = -edge_o;
 					CV_Assert(edge_o.y + edge_o.x > 0);
-					e2->cost_or_dir = (short) oed->maxd - oed->get_diff(edge_o, scale); //e2 score is e2 merge cost, big is bad
-                    max_merge_ed = max(e2->cost_or_dir, max_merge_ed); //compute max_merge_ed for confirm edge merge
+					e2->cost_or_dir = oed->get_dif(edge_o, scale) - oed->mind; //e2 score is e2 merge cost, big is bad
+					if (e2->cost_or_dir >= max_merge_ed) {//compute max_merge_ed for confirm edge merge
+						max_merge_ed = e2->cost_or_dir;
+						most_big_edge = e2;
+					}
+					cost_total += e2->cost_or_dir;
 				}
 				else {
 					if (e2->state == FREE) {
@@ -293,9 +300,13 @@ int BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 				}
 		}
 	}
-
-	qDebug("merge (y=%d,x=%d) to (y=%d,x=%d), (oy=%d,ox=%d), score=%d, cost=%d", IMG_Y(dead_bdx), IMG_X(dead_bdx),
-		IMG_Y(killer_bdx), IMG_X(killer_bdx), oo.y, oo.x, ed->score, max_merge_ed);
+	CV_Assert(most_big_edge!=NULL);
+	unsigned img3_idx, img4_idx;
+	most_big_edge->diff->get_img_idx(img3_idx, img4_idx);
+	qDebug("merge (y=%d,x=%d) to (y=%d,x=%d) (%d,%d) to (%d,%d), (oy=%d,ox=%d), score=%d, min=%d, smin=%d, num=%d, cost=%d", 
+		IMG_Y(img3_idx), IMG_X(img3_idx), IMG_Y(img4_idx), IMG_X(img4_idx),
+		IMG_Y(dead_bdx), IMG_X(dead_bdx), IMG_Y(killer_bdx), IMG_X(killer_bdx), 
+		oo.y, oo.x, ed->score, ed->mind, ed->submind, ed->img_num, max_merge_ed);
 
 	if (img0->bundle_idx > img1->bundle_idx) { //little bundle_idx kill large bundle_idx
 		img1->state = VISIT;
@@ -396,18 +407,19 @@ int BundleAdjust::merge(const EdgeDiff * ed, const FeatExt & fet)
 		img->state = NOT_VISIT;
 	}
 
-	return max_merge_ed;
+	return cost_total;
 }
 
 /*
 input m, must broken edge
 input n, keep edge
 */
-void BundleAdjust::split(int m, int n, const FeatExt & fet)
+unsigned long long BundleAdjust::split(int m, int n, const FeatExt & fet)
 {
 	vector<Edge*> es; //point to eds
 	vector<pair<unsigned, unsigned> > forbid_edge;
 	list<ImgMeta *> visit_img;
+	unsigned long long cost_total = 0;
 	CV_Assert(n <= eds[0].size() && n <= eds[1].size());
 
 	for (int i = 0; i < (int)imgs.size(); i++) {
@@ -517,7 +529,8 @@ void BundleAdjust::split(int m, int n, const FeatExt & fet)
 					if (dir == DIR_UP || dir == DIR_LEFT)
 						edge_o = -edge_o;
 					CV_Assert(edge_o.y + edge_o.x > 0);
-					CV_Assert(e2->cost_or_dir == (short)oed->maxd - oed->get_diff(edge_o, scale));
+					CV_Assert(e2->cost_or_dir == oed->get_dif(edge_o, scale) - oed->mind);
+					cost_total += e2->cost_or_dir;
 					img_d->state = VISIT;
 					CV_Assert(e2->state == MERGED); //originally all edge state is merged
 					visit_img.push_back(img_d);
@@ -603,7 +616,7 @@ void BundleAdjust::split(int m, int n, const FeatExt & fet)
 	}
 	for (int i = 0; i < (int)imgs.size(); i++)
 		imgs[i].state = NOT_VISIT;
-	
+	return cost_total;
 }
 
 Edge * BundleAdjust::pick_mq_edge()
@@ -642,10 +655,10 @@ Edge * BundleAdjust::pick_mq_edge()
 	CV_Assert(me != NULL);
 	return me;
 }
-int BundleAdjust::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w)
+int BundleAdjust::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> *)
 {
 	int merge_num = 0;
-    int cost = -10000, min_cost;
+    unsigned long long cost = 0, min_cost;
 	srand(1);
 	init(fet, _img_num_h, _img_num_w);
 	while (!edge_mqueue.empty()) {
@@ -653,9 +666,9 @@ int BundleAdjust::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w)
 		if (me == NULL)
 			break;
 		merge_num++;
-        cost = max(cost, merge(me->diff, fet));
+        cost += merge(me->diff, fet);
 	}
-	qDebug("cost=%d", cost);
+	qDebug("cost=%lld", cost);
 	CV_Assert(merge_num == img_num_h * img_num_w - 1);
 	best_offset.create(img_num_h, img_num_w);
 	for (int y = 0; y < img_num_h; y++) {
@@ -676,17 +689,16 @@ int BundleAdjust::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w)
 	for (int i = 0; i < 10; i++) {
 		for (int j = 0; j < 3; j++) {
 			reinit(fet, best_offset, false);
-			split(m, n, fet);
+			cost = split(m, n, fet);
 			merge_num = n;
-			cost = -10000;
 			while (!edge_mqueue.empty()) {
 				Edge * me = pick_mq_edge();
 				if (me == NULL)
 					break;
 				merge_num++;
-				cost = max(cost, merge(me->diff, fet));
+				cost += merge(me->diff, fet);
 			}
-			qDebug("cost=%d, min_cost=%d", cost, min_cost);
+			qDebug("cost=%lld, min_cost=%lld", cost, min_cost);
 			CV_Assert(merge_num == img_num_h * img_num_w - 1);
 
 			if (cost < min_cost) {

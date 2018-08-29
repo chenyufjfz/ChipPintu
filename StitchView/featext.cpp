@@ -223,32 +223,15 @@ void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rec
 		}
 	}
 
-    double avg=0, dev=0;
-    for (int i = 0; i < out.size(); i++) {
+    for (int i = 0; i < out.size(); i++) 
         normal_out[i] = (double)out[i] / num[i];
-        avg += normal_out[i];
-    }
-
-    avg = avg / out.size() *1.03;
-    for (int i = 0; i < out.size(); i++) {
-        if (normal_out[i] > avg)
-            normal_out[i] = 0;
-        else
-            normal_out[i] = (avg - normal_out[i]) * (avg - normal_out[i]);
-        dev += normal_out[i];
-    }
-    for (int i = 0; i < out.size(); i++) {
-        normal_out[i] = (dev==0) ? 0 : normal_out[i] * TOTAL_PROP / dev;
-        if (normal_out[i]>255)
-            normal_out[i] = 255;
-    }
-
-    e->diff.create(2 * yshift + 1, 2 * xshift + 1);
+        
+    e->dif.create(2 * yshift + 1, 2 * xshift + 1);
     for (int y = 0; y < 2 * yshift + 1; y++) {
-		unsigned char * pdiff = e->diff.ptr<unsigned char>(2 * yshift - y);
+		int * pdiff = e->dif.ptr<int>(2 * yshift - y);
         double * pout = &normal_out[y*(2 * xshift + 1)];
         for (int x = 0; x < 2 * xshift + 1; x++)
-			pdiff[2 * xshift - x] = (unsigned char) pout[x];
+			pdiff[2 * xshift - x] = pout[x] * 100;
     }
 	e->compute_score();
 }
@@ -287,7 +270,8 @@ int read_mat_binary(FILE * fp, unsigned short &para0, unsigned short &para1, Mat
 void prepare_extract(ImageData & img_dat)
 {
 	Mat img_in = imread(img_dat.filename, 0);
-	CV_Assert(!img_in.empty());
+	if (img_in.empty())
+		return;
 	const ConfigPara * cvar = img_dat.cvar;
 	Mat tailor_mat = img_in(Rect(cvar->clip_l, cvar->clip_u, img_in.cols - cvar->clip_l - cvar->clip_r, img_in.rows - cvar->clip_u - cvar->clip_d));
 	if (cvar->rescale != 1)
@@ -312,6 +296,10 @@ void extract_diff(ImageDiff & gd)
 	int cols = gd.img_d0->v[0].d.cols;
 	int rows = gd.img_d0->v[0].d.rows;
 	
+	if (gd.img_d0->v[0].d.empty() || gd.img_d1->v[0].d.empty()) {
+		gd.e->img_num = 0;
+		return;
+	}
 	for (int i = 0; i < gd.tvar->params.size(); i++) {
 		ParamItem param = gd.tvar->params[i];
 		int method = param.pi[1] >> 16 & 0xff;

@@ -366,7 +366,7 @@ protected:
 	//Following is for map dst to src
 	vector<ConfigPara> cpara; //each layer's cpara, index is layer
 	vector<MapXY> mapxy;
-	vector<Size> src_img_size; //each layer's image size
+	vector<Size> src_img_size; //each layer's src raw image size
 	int dst_w;
 	//upper is for map dst to src
 
@@ -389,7 +389,7 @@ public:
 
 	//Input: mapid is for dst mapid
 	//Output: imgs is dst QImage
-	void render_img(const vector<MapID> & map_id, vector<QImage> & imgs, const vector<MapID> & draw_order, int load_flag);
+	void render_img(const vector<MapID> & map_id, vector<QImage> & imgs, const vector<MapID> & draw_order);
     RenderImage();
 };
 
