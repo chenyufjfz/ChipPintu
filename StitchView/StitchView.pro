@@ -24,7 +24,8 @@ SOURCES += main.cpp\
     renderimage.cpp \
     mapxydialog.cpp \
     bundleadjust2.cpp \
-    bundleadjustinf.cpp
+    bundleadjustinf.cpp \
+    $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -36,7 +37,8 @@ HEADERS  += mainwindow.h \
     renderimage.h \
     mapxydialog.h \
     bundleadjust2.h \
-    bundleadjustinf.h
+    bundleadjustinf.h \
+    $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \

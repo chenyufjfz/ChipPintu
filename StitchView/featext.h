@@ -143,7 +143,7 @@ public:
 	Point offset; //it is nearby image top-left point - base image top-left point
 	unsigned edge_idx;
 	Mat_<int> dif;
-	int mind, submind;
+	int mind, submind, avg;
 	Point minloc, subminloc;
 	int img_num; //img_num=0 means edge not exist, it because adj image is invalid
 	int score;
@@ -153,10 +153,12 @@ public:
 		img_num = 1;
 	}
 	void compute_score() {
+		long long sum = 0;
 		mind = 0x7fffffff, submind = 0x7fffffff;
 		for (int y = 0; y < dif.rows; y++) {
-			int * pd = dif.ptr<int>(y);
+			int * pd = dif.ptr<int>(y);			
 			for (int x = 0; x < dif.cols; x++) {
+				sum += pd[x];
 				if (pd[x] < mind) {
 					submind = mind;
 					subminloc = minloc;
@@ -172,6 +174,7 @@ public:
 				}
 			}
 		}
+		avg = sum / (dif.rows * dif.cols);
 		score = (submind - mind) * img_num;
 	}
 
@@ -235,6 +238,7 @@ public:
 	void fw_merge(const EdgeDiff & e2, Point p1p2, Point m1m2, int s)
 	{
 		Point t = m1m2 - p1p2 + offset - e2.offset;
+		long long sum = 0;
 		t.y = t.y / s;
 		t.x = t.x / s;
 		mind = 0x7fffffff, submind = 0x7fffffff;
@@ -243,6 +247,7 @@ public:
 			int y1 = y + t.y;
 			const int * pd1 = (y1 >= 0 && y1 < e2.dif.rows) ? e2.dif.ptr<int>(y1) : NULL;
 			for (int x = 0; x < dif.cols; x++) {
+				sum += pd[x];
 				int x1 = x + t.x;
 				if (pd1 && x1 >= 0 && x1 < e2.dif.cols)
 					pd[x] = (pd[x] * img_num + pd1[x1] * e2.img_num) / (img_num + e2.img_num);
@@ -263,6 +268,7 @@ public:
 				}
 			}
 		}
+		avg = sum / (dif.rows * dif.cols);
 		img_num = img_num + e2.img_num;
 		score = (submind - mind) * img_num;
 	}
@@ -272,6 +278,7 @@ public:
 	void bw_merge(const EdgeDiff & e2, Point p1p2, Point m1m2, int s)
 	{
 		Point t = p1p2 - m1m2 - offset - e2.offset;
+		long long sum = 0;
 		t.y = t.y / s;
 		t.x = t.x / s;
 		mind = 0x7fffffff, submind = 0x7fffffff;
@@ -280,6 +287,7 @@ public:
 			int y1 = t.y - y;
 			const int * pd1 = (y1 < 0 || y1 >= e2.dif.rows) ? NULL : e2.dif.ptr<int>(y1);
 			for (int x = 0; x < dif.cols; x++) {
+				sum += pd[x];
 				int x1 = t.x - x;
 				if (y1 >= 0 && y1 < e2.dif.rows && x1 >= 0 && x1 < e2.dif.cols)
 					pd[x] = (pd[x] * img_num + pd1[x1] * e2.img_num) / (img_num + e2.img_num);
@@ -300,6 +308,7 @@ public:
 				}
 			}
 		}
+		avg = sum / (dif.rows * dif.cols);
 		img_num = img_num + e2.img_num;
 		score = (submind - mind) * img_num;
 	}

@@ -19,27 +19,198 @@ const int dxy[4][2] = {
 };
 
 #define SGN(x) ((x)>0 ? 1 : ((x<0) ? -1 : 0))
-const float cost_beta[] = { 0, 1, 2.5, 6, 12};
+#define COST_BIGER_THAN_AVG 1000000
+#define COST_BIND 10000000
+
+struct BundleShape {
+	int len;
+	int d[4][2];
+	int c[4];
+	int left;
+} bundle_shape[] = {
+	//len,  y1,x1,    y2,x2,    y3,x3
+	{ 2, { { 0, 1 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }, { 0, 0, 0, 0 }, 1 },
+	{ 2, { { 1, 0 }, { 0, 0 }, { 0, 0 }, { 0, 0 } }, { 0, 0, 0, 0 }, 1 },
+	{ 3, { { 0, 1 }, { 0, 2 }, { 0, 0 }, { 0, 0 } }, { 0, 1, 0, 0 }, 1 },
+	{ 3, { { 1, 0 }, { 1, 1 }, { 0, 0 }, { 0, 0 } }, { 0, 1, 0, 0 }, 1 },
+	{ 3, { { 0, 1 }, { 1, 1 }, { 0, 0 }, { 0, 0 } }, { 0, 1, 0, 0 }, 1 },
+	{ 3, { { 1, 0 }, { 2, 0 }, { 0, 0 }, { 0, 0 } }, { 0, 1, 0, 0 }, 1 },
+	{ 3, { { 1, 0 }, { 1, -1 }, { 0, 0 }, { 0, 0 } }, { 0, 1, 0, 0 }, 1 },
+	{ 3, { { 0, -1 }, { 1, -1 }, { 0, 0 }, { 0, 0 } }, { 0, 1, 0, 0 }, 1 },
+	{ 4, { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 0, 1 }, { 0, 2 }, { 1, 2 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 0, 1 }, { 1, 1 }, { 1, 2 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 0, 1 }, { 1, 1 }, { 2, 1 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 1, 1 }, { 1, 2 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 1, 1 }, { 2, 1 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 2, 0 }, { 2, 1 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 2, 0 }, { 2, -1 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 1, -1 }, { 1, -2 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 1, -1 }, { 2, -1 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 0, -1 }, { 1, -1 }, { 2, -1 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 0, -1 }, { 1, -1 }, { 1, -2 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 0, -1 }, { 0, -2 }, { 1, -2 }, { 0, 0 } }, { 0, 0, 1, 0 }, 2 },
+	{ 4, { { 1, 0 }, { 2, 0 }, { 1, 1 }, { 0, 0 } }, { 0, 1, 1, 0 }, 1 },
+	{ 4, { { 0, 1 }, { 1, 1 }, { 0, 2 }, { 0, 0 } }, { 0, 1, 1, 0 }, 1 },
+	{ 4, { { 1, 0 }, { 2, 0 }, { 1, -1 }, { 0, 0 } }, { 0, 1, 1, 0 }, 1 },
+	{ 4, { { 1, 0 }, { 1, -1 }, { 1, 1 }, { 0, 0 } }, { 0, 1, 1, 0 }, 1 },
+	{ 4, { { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 },
+	{ 4, { { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 },
+	{ 4, { { 0, -1 }, { 1, -1 }, { 1, 0 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 },
+	{ 4, { { -1, 0 }, { -1, 1 }, { 0, 1 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 },
+	{ 5, { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 0, 4 } }, { 0, 0, 0, 1 }, 3 }, // |
+	{ 5, { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 } }, { 0, 0, 0, 1 }, 3 }, 
+	{ 5, { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 1, 3 } }, { 0, 0, 0, 1 }, 3 }, // J
+	{ 5, { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 3, -1 } }, { 0, 0, 0, 1 }, 3 }, 
+	{ 5, { { 0, -1 }, { 0, -2 }, { 0, -3 }, { -1, -3 } }, { 0, 0, 0, 1 }, 3 }, 
+	{ 5, { { 0, -1 }, { 1, -1 }, { 2, -1 }, { 3, -1 } }, { 0, 0, 0, 1 }, 3 }, 
+	{ 5, { { 0, 1 }, { 0, 2 }, { 0, 3 }, { -1, 3 } }, { 0, 0, 0, 1 }, 3 }, // L
+	{ 5, { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 3, 1 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 0, -1 }, { 0, -2 }, { 0, -3 }, { 1, -3 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 0, 1 }, { 1, 1 }, { 2, 1 }, { 3, 1 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 0, 1 }, { 0, 2 }, { 1, 2 }, { 1, 3 } }, { 0, 0, 0, 1 }, 3 }, //
+	{ 5, { { 1, 0 }, { 2, 0 }, { 2, -1 }, { 3, -1 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 0, 1 }, { 1, 1 }, { 1, 2 }, { 1, 3 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 1, 0 }, { 1, -1 }, { 2, -1 }, { 3, -1 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 0, 1 }, { 0, 2 }, { -1, 2 }, { -1, 3 } }, { 0, 0, 0, 1 }, 3 }, //
+	{ 5, { { 1, 0 }, { 2, 0 }, { 2, 1 }, { 3, 1 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 0, 1 }, { -1, 1 }, { -1, 2 }, { -1, 3 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 1, 0 }, { 1, 1 }, { 2, 1 }, { 3, 1 } }, { 0, 0, 0, 1 }, 3 },
+	{ 5, { { 0, 1 }, { 0, 2 }, { 1, 2 }, { 0, 3 } }, { 0, 0, 1, 1 }, 2 }, //
+	{ 5, { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 2, -1 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { 0, -1 }, { 0, -2 }, { -1, -2 }, { 0, -3 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { -1, 0 }, { -2, 0 }, { -3, 0 }, { -2, 1 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { 0, 1 }, { 0, 2 }, { -1, 2 }, { 0, 3 } }, { 0, 0, 1, 1 }, 2 }, //
+	{ 5, { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 2, 1 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { 0, -1 }, { 0, -2 }, { 1, -2 }, { 0, -3 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { -1, 0 }, { -2, 0 }, { -3, 0 }, { -2, -1 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { 0, 1 }, { 0, 2 }, { -1, 2 }, { 1, 2 } }, { 0, 0, 1, 1 }, 2 }, // T
+	{ 5, { { 1, 0 }, { 2, 0 }, { 2, -1 }, { 2, 1 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { 0, -1 }, { 0, -2 }, { -1, -2 }, { 1, -2 } }, { 0, 0, 1, 1 }, 2 },
+	{ 5, { { 0, 1 }, { 1, 1 }, { 2, 1 }, { 0, 2 } }, { 0, 0, 1, 1 }, 2 }
+};
+
+
+#define MAKE_BUNDLE(c, changeid, idx, shape, queue, xok, yok) make_pair( (((unsigned long long) ((c) * 100) << 32) + (changeid)), \
+	((unsigned long long) (idx) << 32) + ((shape) << 8) + ((xok) << 16) + ((yok) << 18) + (queue))
+#define BUNDLE_CHANGE_ID(b) ((unsigned)(b.first & 0xffffffff))
+#define BUNDLE_CORNER_IDX(b) ((unsigned)(b.second >> 32))
+#define BUNDLE_SHAPE(b) ((unsigned)(b.second >> 8 & 0xff))
+#define BUNDLE_QUEUE(b) ((unsigned)(b.second & 0xff))
+#define BUNDLE_XOK(b) ((unsigned)(b.second >> 16 & 3))
+#define BUNDLE_YOK(b) ((unsigned)(b.second >> 18 & 3))
+
+#define BUNDLE_X_Y_0	0
+#define BUNDLE_X_P_Y_1	1
+#define BUNDLE_X_0		2
+#define BUNDLE_Y_0		3
+#define BUNDLE_X_1		4
+#define BUNDLE_Y_1		5
+
+unsigned queue_number(int shape_len, int dx, int dy)
+{
+	if (dx == 0 && dy == 0)
+		return (shape_len >=5) ? 2 : shape_len - 2;
+	if (abs(dx) + abs(dy) == 1)
+		return (shape_len >= 5) ? 5 : shape_len + 1;
+	if (dx == 0 || dy == 0)
+		return (shape_len >= 5) ? 8 : shape_len + 4;
+	if (abs(dx) == 1 || abs(dy) == 1)
+		return (shape_len >= 5) ? 11 : shape_len + 7;
+	return 1000;
+}
 
 bool less_bd_4corner(const FourCorner * c1, const FourCorner * c2) {
 	return c1->bd < c2->bd;
 }
 
-struct cmp_cost {
-	bool operator()(const FourCorner * c1, const FourCorner * c2) {
-		return c1->cost > c2->cost;
-	}
-};
 
-float COST_BETA(int s) {
-	s = abs(s);
-	return (s >= sizeof(cost_beta) / sizeof(cost_beta[0]) ? s* (s - 1) : cost_beta[s]);
-}
-int get_4corner_threshold(int scale) {
-	if (scale == 1)
-		return 4;
-	else
-		return 3;
+void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg)
+{
+	float mind = pe->diff->mind;
+	float min2 = (pe->diff->mind + pe->diff->submind) / 2;
+	float avg = pe->diff->avg * 0.6 + pe->diff->submind * 0.4;
+	float alpha = (avg - mind < 9) ? 0 : 10 * sqrt(pe->diff->avg / global_avg);
+
+	if (avg - mind < 9)
+		qWarning("edge(%x) cost is all 0 because avg(%f) - mind(%f) is small", pe->diff->edge_idx, avg, mind);
+	pe->cost.create(pe->diff->dif.size());
+	if (pe->flag == 0) {
+		for (int y = 0; y < pe->cost.rows; y++) {
+			const int * pdif = pe->diff->dif.ptr<int>(y);
+			float * pcost = pe->cost.ptr<float>(y);
+			for (int x = 0; x < pe->cost.cols; x++) {
+				float z = pdif[x];
+				if (z > avg - 1)
+					pcost[x] = COST_BIGER_THAN_AVG;
+				else {
+					pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - z) * (avg - z));
+					pcost[x] = min(pcost[x], (float) COST_BIGER_THAN_AVG);
+				}
+			}
+		}
+		pe->hard_score = alpha * (pe->diff->submind - mind) * (pe->diff->submind - min2) / ((avg - pe->diff->submind) * (avg - pe->diff->submind));
+		return;
+	}
+	Point idea_pos = pe->idea_pos - pe->diff->offset;
+	idea_pos.x = idea_pos.x / scale;
+	idea_pos.y = idea_pos.y / scale;
+	CV_Assert(idea_pos.y >= 0 && idea_pos.y < pe->cost.rows && idea_pos.x >= 0 && idea_pos.x < pe->cost.cols);
+	if (pe->flag == (BIND_X_MASK | BIND_Y_MASK)) {
+		pe->cost = COST_BIND;
+		pe->cost(idea_pos) = 0;
+		pe->hard_score = COST_BIND;
+		return;
+	}
+	if (pe->flag == BIND_X_MASK) {
+		pe->hard_score = COST_BIND;
+		for (int y = 0; y < pe->cost.rows; y++) {
+			const int * pdif = pe->diff->dif.ptr<int>(y);
+			float * pcost = pe->cost.ptr<float>(y);
+			for (int x = 0; x < pe->cost.cols; x++) {
+				float z = pdif[x];
+				if (x != idea_pos.x)
+					pe->cost = COST_BIND;
+				else
+					if (z > avg - 1)
+						pcost[x] = COST_BIGER_THAN_AVG;
+					else {
+						pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - z) * (avg - z));
+						pcost[x] = min(pcost[x], (float)COST_BIGER_THAN_AVG);
+						if (pcost[x] > 0.001) //z!=mind
+							pe->hard_score = min(pe->hard_score, pcost[x]);
+					}
+			}
+		}
+		if (pe->hard_score >= COST_BIND - 2)
+			pe->hard_score = 0;
+		return;
+	}
+	if (pe->flag == BIND_Y_MASK) {
+		pe->hard_score = COST_BIND;
+		for (int y = 0; y < pe->cost.rows; y++) {
+			const int * pdif = pe->diff->dif.ptr<int>(y);
+			float * pcost = pe->cost.ptr<float>(y);
+			for (int x = 0; x < pe->cost.cols; x++) {
+				float z = pdif[x];
+				if (y != idea_pos.y)
+					pe->cost = COST_BIND;
+				else
+					if (z > avg - 1)
+						pcost[x] = COST_BIGER_THAN_AVG;
+					else {
+						pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - z) * (avg - z));
+						pcost[x] = min(pcost[x], (float)COST_BIGER_THAN_AVG);
+						if (pcost[x] > 0.001) //z!=mind
+							pe->hard_score = min(pe->hard_score, pcost[x]);
+					}
+			}
+		}
+		if (pe->hard_score >= COST_BIND - 2)
+			pe->hard_score = 0;
+		return;
+	}
 }
 
 Edge2 * BundleAdjust2::get_edge(int i, int y, int x)
@@ -56,6 +227,22 @@ Edge2 * BundleAdjust2::get_edge(int i, int y, int x)
 		return &eds[1][y* (img_num_w - 1) + x];
 }
 
+Edge2 * BundleAdjust2::get_edge(FourCorner * pc0, FourCorner * pc1)
+{
+	if (CORNER_X(pc0->idx) == CORNER_X(pc1->idx)) {
+		if (CORNER_Y(pc0->idx) > CORNER_Y(pc1->idx))
+			return get_edge(pc0->get_edge_idx(DIR_UP));
+		else
+			return get_edge(pc0->get_edge_idx(DIR_DOWN));
+	}
+
+	if (CORNER_X(pc0->idx) > CORNER_X(pc1->idx))
+		return get_edge(pc0->get_edge_idx(DIR_LEFT));
+	else
+		return get_edge(pc0->get_edge_idx(DIR_RIGHT));
+
+}
+
 //if idx is invalid, return NULL
 Edge2 * BundleAdjust2::get_edge(int idx)
 {
@@ -64,57 +251,71 @@ Edge2 * BundleAdjust2::get_edge(int idx)
 	return ed;
 }
 
-FourCorner * BundleAdjust2::get_4corner(int idx)
+FourCorner * BundleAdjust2::get_4corner(int y, int x)
 {
-	int y = IMG_Y(idx);
-	int x = IMG_X(idx);
 	if (y > img_num_h || x > img_num_w || x < 0 || y < 0)
 		return NULL;
-	FourCorner * pcorner = &fc[y * (img_num_w + 1) + x];
+	FourCorner * pcorner = &fc[y * (img_num_w + 1) + x];	
+	return pcorner;
+}
+
+FourCorner * BundleAdjust2::get_4corner(int idx)
+{
+	int y = CORNER_Y(idx);
+	int x = CORNER_X(idx);
+	FourCorner * pcorner = get_4corner(y, x);
 	CV_Assert(pcorner->idx == idx);
 	return pcorner;
 }
 
-void BundleAdjust2::compute_edge_cost_ratio(Edge2 * pe, int dim)
+//print corner res_sft stat
+void BundleAdjust2::print_4corner_stat()
 {
-	unsigned cidx0, cidx1;
-	const EdgeDiff * pdiff = pe->diff;
-	int r = abs(pdiff->minloc.y - pdiff->subminloc.y) + abs(pdiff->minloc.x - pdiff->subminloc.x);
-	pe->get_4corner_idx(cidx0, cidx1);
-	FourCorner * pc0 = get_4corner(cidx0);
-	FourCorner * pc1 = get_4corner(cidx1);
-	
-	if (pc0->type[dim] > pc1->type[dim])
-		swap(pc0, pc1);
-	switch (pc0->type[dim]) {
-	case NOT_VALID_4CORNER:
-	case GOOD_4CORNER:
-		if (pc1->type[dim] == GOOD_4CORNER) {
-			pe->ca[dim] = 1;
-		}
+	vector<double> statx(10, 0), staty(10, 0);
+	int total = 0;
+	for (int y = 0; y <= img_num_h; y++)
+	for (int x = 0; x <= img_num_w; x++) {
+		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
+		if (pc->bd <= 1)
+			continue;
+		if (abs(pc->res_sft[1]) < 9)
+			statx[abs(pc->res_sft[1])] += 1;
 		else
-		if (pc1->type[dim] == BAD_4CORNER_HAS_MATE)
-			pe->ca[dim] = (r <= 1) ? 0.8 : 0.75;
+			statx[9] += 1;
+		if (abs(pc->res_sft[0]) < 9)
+			staty[abs(pc->res_sft[0])] += 1;
 		else
-			pe->ca[dim] = (r <= 1) ? 0.3 : 0.25;
-		break;
-	case BAD_4CORNER_HAS_MATE:
-	case BAD_4CORNER_NO_MATE:
-		pe->ca[dim] = 0;
-		break;
-	default:
-		CV_Assert(0);
+			staty[9] += 1;
+		total++;
 	}
-	
+	qDebug("staty: %5f,%5f,%5f,%5f,%5f,%5f,%5f,%5f,%5f,%5f,",
+		staty[0], staty[1], staty[2], staty[3], staty[4],
+		staty[5], staty[6], staty[7], staty[8], staty[9]);
+	qDebug("statx: %5f,%5f,%5f,%5f,%5f,%5f,%5f,%5f,%5f,%5f,",
+		statx[0], statx[1], statx[2], statx[3], statx[4],
+		statx[5], statx[6], statx[7], statx[8], statx[9]);
+
+	for (int i = 0; i < 10; i++) {
+		staty[i] = staty[i] * 100 / total;
+		statx[i] = statx[i] * 100 / total;
+	}
+
+	qDebug("staty: %4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%",
+		staty[0], staty[1], staty[2], staty[3], staty[4],
+		staty[5], staty[6], staty[7], staty[8], staty[9]);
+	qDebug("statx: %4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%",
+		statx[0], statx[1], statx[2], statx[3], statx[4],
+		statx[5], statx[6], statx[7], statx[8], statx[9]);
 }
+
 void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe)
 {
 	ConfigPara cpara = fet.get_config_para();
 	img_num_h = _img_num_h >= 0 ? _img_num_h : cpara.img_num_h;
 	img_num_w = _img_num_w >= 0 ? _img_num_w : cpara.img_num_w;
 	scale = cpara.rescale;
-	int th = get_4corner_threshold(scale);
-	//1 Init edge diff, mls, idea_pos
+	//1 Init edge diff, mls, idea_pos, flag
+	double avg[2] = { 0, 0 };
 	eds[0].clear();
 	eds[0].resize((img_num_h - 1) * img_num_w);
 	for (int y = 0; y < img_num_h - 1; y++)
@@ -123,10 +324,11 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		pe->diff = fet.get_edge(0, y, x);
 		pe->mls[0] = 0;
 		pe->mls[1] = 0;
+		pe->flag = 0;
 		pe->idea_pos = pe->diff->minloc * scale + pe->diff->offset;
-		pe->ca[0] = 0;
-		pe->ca[1] = 0;
+		avg[0] += pe->diff->avg;
 	}
+	avg[0] = avg[0] / ((img_num_h - 1) * img_num_w);
 
 	eds[1].clear();
 	eds[1].resize(img_num_h * (img_num_w - 1));
@@ -136,24 +338,28 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		pe->diff = fet.get_edge(1, y, x);
 		pe->mls[0] = 0;
 		pe->mls[1] = 0;
+		pe->flag = 0;
 		pe->idea_pos = pe->diff->minloc * scale + pe->diff->offset;
-		pe->ca[0] = 0;
-		pe->ca[1] = 0;
+		avg[1] += pe->diff->avg;
 	}
+	avg[1] = avg[1] / (img_num_h * (img_num_w - 1));
+
 	if (fe != NULL) {
 		const vector<FixEdge> & vfe = *fe;
-
 		for (int i = 0; i < vfe.size(); i++) {
 			Edge2 * pe = get_edge(vfe[i].idx);
-			pe->idea_pos = vfe[i].shift;
-			if (vfe[i].bind_flag & BIND_Y_MASK)
-				pe->ca[0] = 1000;
-			if (vfe[i].bind_flag & BIND_X_MASK)
-				pe->ca[1] = 1000;
+			pe->flag = vfe[i].bind_flag;
+			Point idea_pos = vfe[i].shift - pe->diff->offset;
+			idea_pos.x = idea_pos.x / scale;
+			idea_pos.y = idea_pos.y / scale;
+			pe->idea_pos = idea_pos * scale + pe->diff->offset;
 		}
 	}
+	//1.2 init edge cost
+	for (int i = 0; i < 2; i++)
+	for (int j = 0; j < (int)eds[i].size(); j++)
+		compute_edge_cost(&eds[i][j], avg[i]);
 	//2 Init fourcorner
-	vector<double> statx(10, 0), staty(10, 0);
 	fc.resize((img_num_h + 1) * (img_num_w + 1));
 	queue<FourCorner *> bd_update;
 	//2.1 init res_sft and bd
@@ -183,26 +389,8 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		res_sft.y = res_sft.y / scale;
 		pc->res_sft[0] = res_sft.y;
 		pc->res_sft[1] = res_sft.x;
-		if (abs(res_sft.x) < 9)
-			statx[abs(res_sft.x)] += 1;
-		else
-			statx[9] += 1;
-		if (abs(res_sft.y) < 9)
-			staty[abs(res_sft.y)] += 1;
-		else
-			staty[9] += 1;
+		pc->change_id = 0;
 	}
-
-	for (int i = 0; i < 10; i++) {
-		staty[i] = staty[i] * 100 / ((img_num_h + 1) * (img_num_w + 1));
-		statx[i] = statx[i] * 100 / ((img_num_h + 1) * (img_num_w + 1));
-	}
-	qDebug("staty: %4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%",
-		staty[0], staty[1], staty[2], staty[3], staty[4],
-		staty[5], staty[6], staty[7], staty[8], staty[9]);
-	qDebug("statx: %4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%,%4.1f%%",
-		statx[0], statx[1], statx[2], statx[3], statx[4],
-		statx[5], statx[6], statx[7], statx[8], statx[9]);
 	//2.2 second loop init bd
 	while (!bd_update.empty()) {
 		FourCorner * pc = bd_update.front();
@@ -217,54 +405,6 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		}
 	}
 	//2.3 init type and adjust queue
-	adjust_queue[0].clear();
-	adjust_queue[1].clear();
-	for (int y = 0; y <= img_num_h; y++)
-	for (int x = 0; x <= img_num_w; x++) {
-		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
-		for (int i = 0; i < 2; i++) {
-			if (pc->bd == 0)
-				pc->type[i] = NOT_VALID_4CORNER;
-			else 
-				if (abs(pc->res_sft[i]) <= th)
-					pc->type[i] = GOOD_4CORNER;
-				else {
-					pc->type[i] = (pc->bd == 1) ? BAD_4CORNER_HAS_MATE : BAD_4CORNER_NO_MATE;
-					if (pc->bd > 1)
-					for (int dir = 0; dir < 4; dir++) {
-						FourCorner * pc1 = get_4corner(pc->get_4corner_idx(dir));
-						if (abs(pc1->res_sft[i]) > th && pc1->res_sft[i] * pc->res_sft[i] < 0)
-							pc->type[i] = BAD_4CORNER_HAS_MATE;
-					}
-				}				
-		}
-		for (int i = 0; i < 2; i++)
-		if (pc->res_sft[i] != 0) {
-			CV_Assert(pc->bd > 0);
-			adjust_queue[i].push_back(pc);
-		}
-	}
-	sort(adjust_queue[0].begin(), adjust_queue[0].end(), less_bd_4corner);
-	sort(adjust_queue[1].begin(), adjust_queue[1].end(), less_bd_4corner);
-
-	//3 continue init edge ca
-	for (int y = 0; y < img_num_h - 1; y++)
-	for (int x = 0; x < img_num_w; x++) {
-		Edge2 * pe = &eds[0][y * img_num_w + x];
-		if (pe->ca[0] < 0.001) //==0
-			compute_edge_cost_ratio(pe, 0);
-		if (pe->ca[1] < 0.001) //==0
-			compute_edge_cost_ratio(pe, 1);
-	}
-
-	for (int y = 0; y < img_num_h; y++)
-	for (int x = 0; x < img_num_w - 1; x++) {
-		Edge2 * pe = &eds[1][y * (img_num_w - 1) + x];
-		if (pe->ca[0] < 0.001) //==0
-			compute_edge_cost_ratio(pe, 0);
-		if (pe->ca[1] < 0.001) //==0
-			compute_edge_cost_ratio(pe, 1);
-	}
 
 	//4 init best offset
 	best_offset.create(img_num_h, img_num_w);
@@ -272,7 +412,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 	for (int x = 0; x < img_num_w; x++)
 		best_offset(y, x) = cpara.offset(y, x);
 
-	//5 init corner info
+	/*5 init corner info
 	corner_info.create(img_num_h, img_num_w);
 	for (int y = 0; y < img_num_h; y++)
 	for (int x = 0; x < img_num_w; x++) {
@@ -321,6 +461,319 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 			}
 		}
 		corner_info(y, x) = info;
+	}*/
+}
+
+Bundle BundleAdjust2::search_bundle(FourCorner * pc)
+{
+	CV_Assert(pc->res_sft[0] != 0 || pc->res_sft[1] != 0);
+	int y0 = CORNER_Y(pc->idx);
+	int x0 = CORNER_X(pc->idx);
+
+	Bundle best = MAKE_BUNDLE(COST_BIND, 0, 0, 0, 30, 0, 0);
+	float best_cost = COST_BIND;
+	//Top loop check each shape
+	for (int i = 0; i < sizeof(bundle_shape) / sizeof(bundle_shape[0]); i++) {
+		if (BUNDLE_QUEUE(best) == 0 && bundle_shape[i].len > 2)
+			break;
+		if (BUNDLE_QUEUE(best) == 1 && bundle_shape[i].len > 3)
+			break;
+		int dx = pc->res_sft[1]; //dx = Sum(res_sft[1]) in one bundle
+		int dy = pc->res_sft[0]; //dy = Sum(res_sft[0]) in one bundle
+		int sum_res_x = abs(pc->res_sft[1]); //Sum(|res_sft[1]|) in one bundle
+		int sum_res_y = abs(pc->res_sft[0]); //Sum(|res_sft[0]|) in one bundle
+		int xok = 1, yok = 1;
+		FourCorner * pc0 = pc;
+		//First loop is to check if dx and dy are ok
+		for (int j = 0; j < bundle_shape[i].len - 1; j++) {
+			int y = y0 + bundle_shape[i].d[j][0];
+			int x = x0 + bundle_shape[i].d[j][1];
+			FourCorner * pc1 = get_4corner(y, x);
+			if (pc1->bd == 0) { //corner in boundary, directly pass
+				xok = 0;
+				yok = 0;
+				break;
+			}
+			Edge2 * pe = get_edge(pc1, pc0);
+			CV_Assert(pe != NULL);
+			if (pe->flag & BIND_X_MASK)
+				xok = 0;
+			if (pe->flag & BIND_Y_MASK)
+				yok = 0;
+			dx += pc1->res_sft[1];
+			dy += pc1->res_sft[0];
+			sum_res_x += abs(pc1->res_sft[1]);
+			sum_res_y += abs(pc1->res_sft[0]);
+			pc0 = pc1;
+		}
+
+		if (!xok) //if meet bounder
+			dx = 100;
+		if (!yok) //if meet bounder
+			dy = 100;
+		if (abs(dx) > 1)
+			xok = 0;
+		else
+			xok = (dx == 0) ? 2 : 1;
+		if (abs(dy) > 1)
+			yok = 0;
+		else
+			yok = (dy == 0) ? 2 : 1;
+		if (!xok && !yok)
+			continue;
+		if (xok && !yok && (abs(dx) == sum_res_x)) //not reduce, pass
+			continue;
+		
+		if (!xok && yok && (abs(dy) == sum_res_y)) //not reduce, pass
+			continue;
+		
+		if (xok && yok && (abs(dx) == sum_res_x) && (abs(dy) == sum_res_y))
+			continue;
+
+		unsigned queue = queue_number(bundle_shape[i].len, dx, dy); //queue is valid when dx<=1 || dy<=1
+		if (queue > BUNDLE_QUEUE(best)) //Already has better answer, direct pass
+			continue;
+		//second loop compute cost
+		pc0 = pc;
+		float cost = 0;
+		unsigned change_id = pc0->change_id;
+		dx = pc->res_sft[1];
+		dy = pc->res_sft[0];
+		for (int j = 0; j < bundle_shape[i].len - 1; j++) {
+			int y = y0 + bundle_shape[i].d[j][0];
+			int x = x0 + bundle_shape[i].d[j][1];
+			FourCorner * pc1 = get_4corner(y, x);
+			change_id = max(change_id, pc1->change_id);
+			Edge2 * pe = get_edge(pc1, pc0);
+			CV_Assert(pe != NULL);
+			
+			int sign = 1;
+			Point newpos;
+			if (bundle_shape[i].c[j] == 0) {
+				if (CORNER_X(pc0->idx) == CORNER_X(pc1->idx)) {
+					if (CORNER_Y(pc0->idx) > CORNER_Y(pc1->idx))
+						sign = -1;
+				}
+				else
+				if (CORNER_X(pc0->idx) < CORNER_X(pc1->idx))
+					sign = -1;
+				newpos = (pe->idea_pos - pe->diff->offset); //newpos is cost matrix zuobiao
+				newpos.x = newpos.x / scale + pe->mls[1] + sign * dx;  
+				newpos.y = newpos.y / scale + pe->mls[0] + sign * dy;
+			}
+			else {
+				if (CORNER_X(pc0->idx) == CORNER_X(pc1->idx)) {
+					if (CORNER_Y(pc1->idx) > CORNER_Y(pc0->idx))
+						sign = -1;
+				}
+				else
+				if (CORNER_X(pc1->idx) < CORNER_X(pc0->idx))
+					sign = -1;
+				newpos = (pe->idea_pos - pe->diff->offset);
+				newpos.x = newpos.x / scale + pe->mls[1] + sign * pc1->res_sft[1];
+				newpos.y = newpos.y / scale + pe->mls[0] + sign * pc1->res_sft[0];
+			}
+			if (xok && (newpos.x < 0 || newpos.x >= pe->cost.cols)) { //out of cost matrix, fail
+				cost += COST_BIND / 4;
+				break;
+			}
+				
+			if (yok && (newpos.y < 0 || newpos.y >= pe->cost.rows)) { //out of cost matrix, fail
+				cost += COST_BIND / 4;
+				break;
+			}
+				
+			if ((xok && sum_res_y <= 1 || yok && sum_res_x <= 1) &&
+				(newpos.x >= 0 && newpos.x < pe->cost.cols) &&
+				(newpos.y >= 0 && newpos.y < pe->cost.rows) &&
+				(pe->cost(newpos) >= COST_BIGER_THAN_AVG - 1)) { //Low than average, fail
+				cost += COST_BIGER_THAN_AVG;
+				break;
+			}
+							
+			cost += (queue < 6) ? pe->cost(newpos) : pe->hard_score;
+
+			dx += pc1->res_sft[1];
+			dy += pc1->res_sft[0];
+			pc0 = pc1;
+		}
+		CV_Assert(cost < COST_BIND / 2);
+		if (cost >= COST_BIGER_THAN_AVG)
+			continue;
+		if (queue < BUNDLE_QUEUE(best) || cost < best_cost) {
+			best_cost = cost;
+			best = MAKE_BUNDLE(cost, change_id, pc->idx, i, queue, xok, yok);
+		}
+	}
+	return best;
+}
+
+bool BundleAdjust2::merge_one_bundle(Bundle b, int change_id)
+{
+	FourCorner * pc = get_4corner(BUNDLE_CORNER_IDX(b));
+	int y0 = CORNER_Y(pc->idx);
+	int x0 = CORNER_X(pc->idx);
+	int xok = BUNDLE_XOK(b);
+	int yok = BUNDLE_YOK(b);
+	int shape = BUNDLE_SHAPE(b);
+	int dx = pc->res_sft[1];
+	int dy = pc->res_sft[0];
+	FourCorner * pc0 = pc;
+	if (pc0->change_id > BUNDLE_CHANGE_ID(b))
+		return false;
+
+	//first loop is for Assert and check change id
+	for (int j = 0; j < bundle_shape[shape].len - 1; j++) {
+		int y = y0 + bundle_shape[shape].d[j][0];
+		int x = x0 + bundle_shape[shape].d[j][1];
+		FourCorner * pc1 = get_4corner(y, x);
+		CV_Assert(pc1->bd != 0);
+		Edge2 * pe = get_edge(pc1, pc0);
+		CV_Assert(pe != NULL);
+		if (xok)
+			CV_Assert(!(pe->flag & BIND_X_MASK));
+		if (yok)
+			CV_Assert(!(pe->flag & BIND_Y_MASK));
+		dx += pc1->res_sft[1];
+		dy += pc1->res_sft[0];
+		pc0 = pc1;
+		if (pc0->change_id > BUNDLE_CHANGE_ID(b))
+			return false;
+	}
+	CV_Assert(dx == 0 && xok == 2 || xok == 1 && (abs(dx) == 1) || xok == 0);
+	CV_Assert(dy == 0 && yok == 2 || yok == 1 && (abs(dy) == 1) || yok == 0);
+	//second loop update mls
+	pc0 = pc;
+	dx = pc->res_sft[1];
+	dy = pc->res_sft[0];
+	pc0->change_id = change_id;
+	for (int j = 0; j < bundle_shape[shape].len - 1; j++) {
+		int y = y0 + bundle_shape[shape].d[j][0];
+		int x = x0 + bundle_shape[shape].d[j][1];
+		FourCorner * pc1 = get_4corner(y, x);
+		Edge2 * pe = get_edge(pc1, pc0);
+		int sign = 1;
+		if (bundle_shape[shape].c[j] == 0) {
+			if (CORNER_X(pc0->idx) == CORNER_X(pc1->idx)) {
+				if (CORNER_Y(pc0->idx) > CORNER_Y(pc1->idx))
+					sign = -1;
+			}
+			else
+			if (CORNER_X(pc0->idx) < CORNER_X(pc1->idx))
+				sign = -1;
+			if (xok)
+				pe->mls[1] += sign * dx;
+			if (yok)
+				pe->mls[0] += sign * dy;
+		}
+		else {
+			if (CORNER_X(pc0->idx) == CORNER_X(pc1->idx)) {
+				if (CORNER_Y(pc1->idx) > CORNER_Y(pc0->idx)) {
+					sign = -1;
+					pc0 = get_4corner(pc1->get_4corner_idx(DIR_UP));
+				}
+				else
+					pc0 = get_4corner(pc1->get_4corner_idx(DIR_DOWN));					
+			}
+			else
+				if (CORNER_X(pc1->idx) < CORNER_X(pc0->idx)) {
+					sign = -1;
+					pc0 = get_4corner(pc1->get_4corner_idx(DIR_RIGHT));
+				} else
+					pc0 = get_4corner(pc1->get_4corner_idx(DIR_LEFT));
+			if (xok)
+				pe->mls[1] += sign * pc1->res_sft[1];			
+			if (yok) 
+				pe->mls[0] += sign * pc1->res_sft[0];
+		}
+		dx += pc1->res_sft[1];
+		dy += pc1->res_sft[0];
+		if (bundle_shape[shape].c[j] == 0) {
+			if (xok) {
+				pc1->res_sft[1] = dx;
+				pc0->res_sft[1] = 0;
+			}
+			if (yok) {
+				pc1->res_sft[0] = dy;
+				pc0->res_sft[0] = 0;
+			}
+		}
+		else {
+			if (xok) {
+				pc0->res_sft[1] = dx;
+				pc1->res_sft[1] = 0;
+			}
+			if (yok) {
+				pc0->res_sft[0] = dy;
+				pc1->res_sft[0] = 0;
+			}
+		}
+		pc0 = pc1;
+		pc0->change_id = change_id;
+	}
+	int y = y0 + bundle_shape[shape].d[bundle_shape[shape].left - 1][0];
+	int x = x0 + bundle_shape[shape].d[bundle_shape[shape].left - 1][1];
+	FourCorner * pc1 = get_4corner(y, x);
+	if (xok)
+		CV_Assert(pc1->res_sft[1] == dx);
+	if (yok)
+		CV_Assert(pc1->res_sft[0] == dy);
+	return true;
+}
+
+void BundleAdjust2::merge_bundles()
+{
+	int change_id = 1;
+	for (int i = 0; i < 50; i++) {
+		qDebug("Merge_bundles %d round", i);
+		print_4corner_stat();
+		priority_queue<Bundle, vector<Bundle>, greater<Bundle> > bundle_queue[12];
+		int change_queue[12] = { 0 };
+		int prev_change_id = change_id;
+		unsigned exp_queue;
+		switch (i) {
+		case 0:
+			exp_queue = 2;
+			break;
+		case 1:
+			exp_queue = 5;
+			break;
+		case 2:
+			exp_queue = 8;
+			break;
+		default:
+			exp_queue = 11;
+			break;
+		}
+		for (int y = 0; y <= img_num_h; y++)
+		for (int x = 0; x <= img_num_w; x++) {
+			FourCorner * pc = &fc[y * (img_num_w + 1) + x];
+			if (pc->res_sft[0] != 0 || pc->res_sft[1] != 0) {
+				Bundle b = search_bundle(pc);
+				if (BUNDLE_QUEUE(b) <= exp_queue)
+					bundle_queue[BUNDLE_QUEUE(b)].push(b);
+			}
+		}
+		qDebug("Ready 0..5: %3d, %3d, %3d, %3d, %3d, %3d", bundle_queue[0].size(), bundle_queue[1].size(),
+			bundle_queue[2].size(), bundle_queue[3].size(), bundle_queue[4].size(), bundle_queue[5].size());
+		qDebug("Ready 6.11: %3d, %3d, %3d, %3d, %3d, %3d", bundle_queue[6].size(), bundle_queue[7].size(),
+			bundle_queue[8].size(), bundle_queue[9].size(), bundle_queue[10].size(), bundle_queue[11].size());
+
+		for (int j = 0; j < sizeof(bundle_queue) /sizeof(bundle_queue[0]); j++)
+		while (!bundle_queue[j].empty()) {
+			Bundle b = bundle_queue[j].top();
+			bundle_queue[j].pop();
+			if (merge_one_bundle(b, change_id)) {
+				change_id++;
+				change_queue[j]++;
+			}
+		}
+		qDebug("Merge 0..5: %3d, %3d, %3d, %3d, %3d, %3d", change_queue[0], change_queue[1],
+			change_queue[2], change_queue[3], change_queue[4], change_queue[5]);
+		qDebug("Merge 6.11: %3d, %3d, %3d, %3d, %3d, %3d", change_queue[6], change_queue[7],
+			change_queue[8], change_queue[9], change_queue[10], change_queue[11]);
+		if (change_id == prev_change_id && i > 3)
+			break;
 	}
 }
 
@@ -342,7 +795,7 @@ void BundleAdjust2::adjust_edge_mls(FourCorner * pc, int dim, int modify)
 void BundleAdjust2::adjust_one_4corner(int dim, FourCorner * root)
 {
 #define MAKE_EXPAND(pc) (((unsigned long long) (pc->cost * 1000 + 1000000000) << 32) + pc->idx)
-
+	/*
 	int sign = SGN(root->res_sft[dim]);
 	while (root->res_sft[dim] != 0) {
 		vector<FourCorner *> reach_queue;
@@ -466,11 +919,26 @@ void BundleAdjust2::adjust_one_4corner(int dim, FourCorner * root)
 			pc->fa = 0;
 			pc->depth = 1000000;
 		}
-	}
+	}*/
 }
 
 void BundleAdjust2::adjust()
 {
+	//init adjust_queue
+	adjust_queue[0].clear();
+	adjust_queue[1].clear();
+	for (int y = 0; y <= img_num_h; y++)
+	for (int x = 0; x <= img_num_w; x++) {
+		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
+		for (int i = 0; i < 2; i++)
+		if (pc->res_sft[i] != 0) {
+			CV_Assert(pc->bd > 0);
+			adjust_queue[i].push_back(pc);
+		}
+	}
+	sort(adjust_queue[0].begin(), adjust_queue[0].end(), less_bd_4corner);
+	sort(adjust_queue[1].begin(), adjust_queue[1].end(), less_bd_4corner);
+
 	for (int i = 0; i < fc.size(); i++) {
 		fc[i].cost = 1000000;
 		fc[i].fa = 0;
@@ -564,6 +1032,6 @@ void BundleAdjust2::adjust()
 int BundleAdjust2::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe)
 {
 	init(fet, _img_num_h, _img_num_w, fe);
-	adjust();
+	merge_bundles();
 	return 0;
 }

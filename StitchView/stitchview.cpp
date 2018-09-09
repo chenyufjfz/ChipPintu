@@ -158,7 +158,7 @@ void StitchView::paintEvent(QPaintEvent *)
 						painter.setBrush(QBrush(Qt::green));
 						break;
 					case 1:
-						painter.setBrush(QBrush(Qt::magenta));
+						painter.setBrush(QBrush(Qt::yellow));
 						break;
 					case 2:
 						painter.setBrush(QBrush(Qt::red));
@@ -169,7 +169,7 @@ void StitchView::paintEvent(QPaintEvent *)
 						painter.setPen(QPen(Qt::green, 2));
 						break;
 					case 4:
-						painter.setPen(QPen(Qt::magenta, 2));
+						painter.setPen(QPen(Qt::yellow, 2));
 						break;
 					case 2:
 						painter.setPen(QPen(Qt::red, 2));
@@ -182,7 +182,7 @@ void StitchView::paintEvent(QPaintEvent *)
 						painter.setPen(QPen(Qt::green, 2));
 						break;
 					case 1:
-						painter.setPen(QPen(Qt::magenta, 2));
+						painter.setPen(QPen(Qt::yellow, 2));
 						break;
 					case 2:
 					case 3:
@@ -196,7 +196,7 @@ void StitchView::paintEvent(QPaintEvent *)
 						painter.setPen(QPen(Qt::green, 2));
 						break;
 					case 1:
-						painter.setPen(QPen(Qt::magenta, 2));
+						painter.setPen(QPen(Qt::yellow, 2));
 						break;
 					case 2:
 					case 3:
@@ -210,7 +210,7 @@ void StitchView::paintEvent(QPaintEvent *)
 						painter.setPen(QPen(Qt::green, 2));
 						break;
 					case 1:
-						painter.setPen(QPen(Qt::magenta, 2));
+						painter.setPen(QPen(Qt::yellow, 2));
 						break;
 					case 2:
 					case 3:
@@ -224,7 +224,7 @@ void StitchView::paintEvent(QPaintEvent *)
 						painter.setPen(QPen(Qt::green, 2));
 						break;
 					case 1:
-						painter.setPen(QPen(Qt::magenta, 2));
+						painter.setPen(QPen(Qt::yellow, 2));
 						break;
 					case 2:
 					case 3:

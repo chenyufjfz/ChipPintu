@@ -9,8 +9,10 @@
 
 struct Edge2 {
 	const EdgeDiff * diff;
+	Mat_<float> cost;
+	float hard_score; //higher means not easy to move
 	int mls[2]; //min location shift, mls0 for y, mls1 for x
-	float ca[2]; //cost alpha
+	int flag;
 	Point idea_pos;
 	void get_4corner_idx(unsigned & idx1, unsigned & idx2) {
 		unsigned edge_idx = diff->edge_idx;
@@ -32,7 +34,7 @@ struct FourCorner {
 	float cost;
 	unsigned fa;
 	int depth;
-	int type[2];
+	unsigned change_id;
 	/*up is 0, right is 1, down is 2, left is 3, return edge index which can be used by get_edge*/
 	unsigned get_edge_idx(int dir) {
 		switch (dir) {
@@ -97,6 +99,7 @@ struct FourCorner {
 		return 0xffffffff;
 	}
 };
+typedef pair<unsigned long long, unsigned long long> Bundle;
 
 class BundleAdjust2 : public BundleAdjustInf
 {
@@ -110,10 +113,16 @@ protected:
 
 protected:
 	Edge2 * get_edge(int i, int y, int x);
+	Edge2 * get_edge(FourCorner * pc0, FourCorner * pc1);
 	Edge2 * get_edge(int idx);
+	FourCorner * get_4corner(int y, int x);
 	FourCorner * get_4corner(int idx);
-	void compute_edge_cost_ratio(Edge2 * pe, int dim);
+	void compute_edge_cost(Edge2 * pe, float alpha);
+	void print_4corner_stat();
 	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe);
+	Bundle search_bundle(FourCorner * pc);
+	bool merge_one_bundle(Bundle b, int change_id);
+	void merge_bundles();
 	void adjust_edge_mls(FourCorner * pc, int dim, int modify);
 	void adjust_one_4corner(int dim, FourCorner * pc);
 	void adjust();

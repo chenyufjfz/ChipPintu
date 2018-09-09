@@ -2,8 +2,8 @@
 #define BUNDLEADJUSTINF_H
 #include "featext.h"
 
-#define BIND_X_MASK		1
-#define BIND_Y_MASK		2
+#define BIND_X_MASK		2
+#define BIND_Y_MASK		1
 
 struct FixEdge {
 	int idx;
