@@ -1007,6 +1007,9 @@ void ICLayerWr::create(const string file, bool _read, int _cache_size, int type)
 		layer = new ICLayer(file, _read);
 		break;
 	}	
+    int bx, by;
+    layer->getBlockNum(bx, by);
+    qInfo("img_num_x=%d, img_num_y=%d", bx, by);
 }
 
 

@@ -120,7 +120,7 @@ protected:
 	void compute_edge_cost(Edge2 * pe, float alpha);
 	void print_4corner_stat();
 	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe);
-	Bundle search_bundle(FourCorner * pc);
+	Bundle search_bundle(FourCorner * pc, int len_limit);
 	bool merge_one_bundle(Bundle b, int change_id);
 	void merge_bundles();
 	void adjust_edge_mls(FourCorner * pc, int dim, int modify);

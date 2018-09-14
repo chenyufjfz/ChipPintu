@@ -7,4 +7,5 @@ SUBDIRS += \
     Try \
     VWExtractLib \
     ICLayerLib \
-    Compare
+    Compare \
+    DBextract

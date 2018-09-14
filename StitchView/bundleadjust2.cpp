@@ -92,14 +92,17 @@ struct BundleShape {
 };
 
 
-#define MAKE_BUNDLE(c, changeid, idx, shape, queue, xok, yok) make_pair( (((unsigned long long) ((c) * 100) << 32) + (changeid)), \
-	((unsigned long long) (idx) << 32) + ((shape) << 8) + ((xok) << 16) + ((yok) << 18) + (queue))
+#define MAKE_BUNDLE(c, changeid, idx, shape, queue, xok, yok, sx0, sx1, sy) make_pair( (((unsigned long long) ((c) * 100) << 32) + (changeid)), \
+	((unsigned long long) (idx) << 32) + ((shape) << 8) + ((xok) << 16) + ((yok) << 18) + ((sx0) << 20) + ((sx1) << 24) + ((sy) << 28) +(queue))
 #define BUNDLE_CHANGE_ID(b) ((unsigned)(b.first & 0xffffffff))
 #define BUNDLE_CORNER_IDX(b) ((unsigned)(b.second >> 32))
 #define BUNDLE_SHAPE(b) ((unsigned)(b.second >> 8 & 0xff))
 #define BUNDLE_QUEUE(b) ((unsigned)(b.second & 0xff))
 #define BUNDLE_XOK(b) ((unsigned)(b.second >> 16 & 3))
 #define BUNDLE_YOK(b) ((unsigned)(b.second >> 18 & 3))
+#define BUNDLE_SX0(b) ((unsigned)(b.second >> 20 & 0xf))
+#define BUNDLE_SX1(b) ((unsigned)(b.second >> 24 & 0xf))
+#define BUNDLE_SY(b) ((unsigned)(b.second >> 28 & 0xf))
 
 #define BUNDLE_X_Y_0	0
 #define BUNDLE_X_P_Y_1	1
@@ -110,14 +113,56 @@ struct BundleShape {
 
 unsigned queue_number(int shape_len, int dx, int dy)
 {
-	if (dx == 0 && dy == 0)
-		return (shape_len >=5) ? 2 : shape_len - 2;
-	if (abs(dx) + abs(dy) == 1)
-		return (shape_len >= 5) ? 5 : shape_len + 1;
-	if (dx == 0 || dy == 0)
-		return (shape_len >= 5) ? 8 : shape_len + 4;
-	if (abs(dx) == 1 || abs(dy) == 1)
-		return (shape_len >= 5) ? 11 : shape_len + 7;
+	if (dx == 0 && dy == 0) {
+		if (shape_len < 5)
+			return shape_len - 2;
+		else
+		if (shape_len < 10)
+			return 2;
+		else
+		if (shape_len < 17)
+			return 3;
+		else
+			return 4;		
+	}
+	if (abs(dx) + abs(dy) == 1) {
+		if (shape_len < 5)
+			return shape_len + 1;
+		else
+		if (shape_len < 10)
+			return 5;
+		else
+		if (shape_len < 17)
+			return 6;
+		else
+			return 7;
+	}
+
+	if (dx == 0 || dy == 0) {
+		if (shape_len < 5)
+			return shape_len + 4;
+		else
+		if (shape_len < 10)
+			return 8;
+		else
+		if (shape_len < 17)
+			return 9;
+		else
+			return 10;
+	}
+	if (abs(dx) == 1 || abs(dy) == 1) {
+		if (shape_len < 5)
+			return shape_len + 7;
+		else
+		if (shape_len < 10)
+			return 11;
+		else
+		if (shape_len < 17)
+			return 12;
+		else
+			return 13;
+	}
+
 	return 1000;
 }
 
@@ -464,19 +509,21 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 	}*/
 }
 
-Bundle BundleAdjust2::search_bundle(FourCorner * pc)
+Bundle BundleAdjust2::search_bundle(FourCorner * pc, int len_limit)
 {
 	CV_Assert(pc->res_sft[0] != 0 || pc->res_sft[1] != 0);
 	int y0 = CORNER_Y(pc->idx);
 	int x0 = CORNER_X(pc->idx);
 
-	Bundle best = MAKE_BUNDLE(COST_BIND, 0, 0, 0, 30, 0, 0);
+	Bundle best = MAKE_BUNDLE(COST_BIND, 0, 0, 0, 255, 0, 0, 0, 0, 0);
 	float best_cost = COST_BIND;
 	//Top loop check each shape
 	for (int i = 0; i < sizeof(bundle_shape) / sizeof(bundle_shape[0]); i++) {
 		if (BUNDLE_QUEUE(best) == 0 && bundle_shape[i].len > 2)
 			break;
 		if (BUNDLE_QUEUE(best) == 1 && bundle_shape[i].len > 3)
+			break;
+		if (bundle_shape[i].len > len_limit)
 			break;
 		int dx = pc->res_sft[1]; //dx = Sum(res_sft[1]) in one bundle
 		int dy = pc->res_sft[0]; //dy = Sum(res_sft[0]) in one bundle
@@ -602,8 +649,12 @@ Bundle BundleAdjust2::search_bundle(FourCorner * pc)
 			continue;
 		if (queue < BUNDLE_QUEUE(best) || cost < best_cost) {
 			best_cost = cost;
-			best = MAKE_BUNDLE(cost, change_id, pc->idx, i, queue, xok, yok);
+			best = MAKE_BUNDLE(cost, change_id, pc->idx, i, queue, xok, yok, 0, 0, 0);
 		}
+	}
+
+	if (len_limit > 5) {
+
 	}
 	return best;
 }
@@ -727,37 +778,66 @@ void BundleAdjust2::merge_bundles()
 	for (int i = 0; i < 50; i++) {
 		qDebug("Merge_bundles %d round", i);
 		print_4corner_stat();
-		priority_queue<Bundle, vector<Bundle>, greater<Bundle> > bundle_queue[12];
+		priority_queue<Bundle, vector<Bundle>, greater<Bundle> > bundle_queue[14];
 		int change_queue[12] = { 0 };
 		int prev_change_id = change_id;
-		unsigned exp_queue;
+		unsigned exp_queue, len_limit;
 		switch (i) {
 		case 0:
-			exp_queue = 2;
+			exp_queue = 1;
+			len_limit = 3;
 			break;
 		case 1:
-			exp_queue = 5;
+			exp_queue = 2;
+			len_limit = 4;
 			break;
 		case 2:
+			exp_queue = 4;
+			len_limit = 4;
+			break;
+		case 3:
+			exp_queue = 5;
+			len_limit = 4;
+			break;
+		case 4:
+			exp_queue = 7;
+			len_limit = 4;
+			break;
+		case 5:
 			exp_queue = 8;
+			len_limit = 5;
+			break;
+		case 6:
+			exp_queue = 11;
+			len_limit = 5;
+			break;
+		case 7:
+			exp_queue = 11;
+			len_limit = 9;
+			break;
+		case 8:
+			exp_queue = 12;
+			len_limit = 16;
 			break;
 		default:
-			exp_queue = 11;
+			exp_queue = 13;
+			len_limit = 255;
 			break;
 		}
 		for (int y = 0; y <= img_num_h; y++)
 		for (int x = 0; x <= img_num_w; x++) {
 			FourCorner * pc = &fc[y * (img_num_w + 1) + x];
 			if (pc->res_sft[0] != 0 || pc->res_sft[1] != 0) {
-				Bundle b = search_bundle(pc);
+				Bundle b = search_bundle(pc, len_limit);
 				if (BUNDLE_QUEUE(b) <= exp_queue)
 					bundle_queue[BUNDLE_QUEUE(b)].push(b);
 			}
 		}
 		qDebug("Ready 0..5: %3d, %3d, %3d, %3d, %3d, %3d", bundle_queue[0].size(), bundle_queue[1].size(),
 			bundle_queue[2].size(), bundle_queue[3].size(), bundle_queue[4].size(), bundle_queue[5].size());
-		qDebug("Ready 6.11: %3d, %3d, %3d, %3d, %3d, %3d", bundle_queue[6].size(), bundle_queue[7].size(),
-			bundle_queue[8].size(), bundle_queue[9].size(), bundle_queue[10].size(), bundle_queue[11].size());
+		qDebug("Ready 6.11: %3d, %3d, %3d, %3d, %3d, %3d, %3d, %3d", bundle_queue[6].size(), bundle_queue[7].size(),
+			bundle_queue[8].size(), bundle_queue[9].size(), bundle_queue[10].size(),
+			bundle_queue[11].size(), bundle_queue[12].size(), bundle_queue[13].size());
 
 		for (int j = 0; j < sizeof(bundle_queue) /sizeof(bundle_queue[0]); j++)
 		while (!bundle_queue[j].empty()) {
@@ -772,7 +852,7 @@ void BundleAdjust2::merge_bundles()
 			change_queue[2], change_queue[3], change_queue[4], change_queue[5]);
 		qDebug("Merge 6.11: %3d, %3d, %3d, %3d, %3d, %3d", change_queue[6], change_queue[7],
 			change_queue[8], change_queue[9], change_queue[10], change_queue[11]);
-		if (change_id == prev_change_id && i > 3)
+		if (change_id == prev_change_id && i > 8)
 			break;
 	}
 }

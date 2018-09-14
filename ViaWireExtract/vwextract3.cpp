@@ -7,6 +7,7 @@
 #define MAKE_S(score, type, shape) ((unsigned)(score) << 16 | (unsigned)(type) << 8 | (shape))
 #define DETECT_GRAY_RADIUS 64
 #define DETECT_WIRE_RADIUS 64
+#define DETECT_GRAY2_WIDTH 7
 /*
 input: img
 input: rect
@@ -524,6 +525,45 @@ void detect_gray(Mat & img,  DetectWirePara & dw)
 	dw.gray_w = th[1];
 }
 
+
+/*
+Input: img
+Inout: dw,
+input dw.w_max, dw.org output dw.gray_i, dw.gray_w
+*/
+void detect_gray2(Mat & img, DetectWirePara & dw)
+{
+	Mat ig, iig, temp1, temp2;
+	integral(img, ig);
+	int max_gray = 0;
+	int act_len = (DETECT_GRAY2_WIDTH % 2 == 0) ? DETECT_GRAY2_WIDTH : DETECT_GRAY2_WIDTH - 1;
+	for (int dir = 0; dir < 4; dir++) {
+		int d2 = dir_2[dir];
+		Point p0(dw.abs_org0.x - dxy[d2][1] * (DETECT_GRAY2_WIDTH / 2), dw.abs_org0.y - dxy[d2][0] * (DETECT_GRAY2_WIDTH / 2));
+		Point p1(dw.abs_org0.x + dxy[d2][1] * (DETECT_GRAY2_WIDTH / 2), dw.abs_org0.y + dxy[d2][0] * (DETECT_GRAY2_WIDTH / 2));
+		Point p2 = p0 + Point(dxy[dir][1], dxy[dir][0]);
+		Point p3 = p1 + Point(dxy[dir][1], dxy[dir][0]);
+		int s0 = abs(ig.at<int>(p0) +ig.at<int>(p3) -ig.at<int>(p1) -ig.at<int>(p2));
+		for (int d = 1; d < dw.w_max; d++) {
+			p0 = p2;
+			p1 = p3;
+			p2 = p0 + Point(dxy[dir][1], dxy[dir][0]);
+			p3 = p1 + Point(dxy[dir][1], dxy[dir][0]);
+			if (p2.x < 0 || p2.y< 0 || p2.x >= ig.cols || p2.y >= ig.rows)
+				continue;
+			if (p3.x < 0 || p3.y< 0 || p3.x >= ig.cols || p3.y >= ig.rows)
+				continue;
+			int s1 = abs(ig.at<int>(p0) +ig.at<int>(p3) -ig.at<int>(p1) -ig.at<int>(p2));
+			if (max_gray < s0 - s1) {
+				max_gray = s0 - s1;
+				dw.gray_i = s1 / act_len;
+				dw.gray_w = s0 / act_len;
+			}
+			s0 = s1;
+		}
+	}
+}
+
 class Ant {
 public:
 	int ant_idx;
@@ -673,6 +713,36 @@ VWExtractAnt::VWExtractAnt()
 	layer0 = -1;
 }
 
+Mat VWExtractAnt::color2gray(Mat & color_img)
+{
+	CV_Assert(color_img.channels() == 3);
+	Mat img;
+	Mat mv[4];
+	split(color_img, mv);
+    if (dw0.channel < 3) {
+        img = mv[dw0.channel];
+        return img;
+    }
+	img.create(color_img.rows, color_img.cols, CV_8UC1);
+    int sum = dw0.cb + dw0.cg + dw0.cr;
+	for (int y = 0; y < img.rows; y++) {
+		unsigned char * praw = img.ptr<unsigned char>(y);
+		unsigned char * pb = mv[0].ptr<unsigned char>(y);
+		unsigned char * pg = mv[1].ptr<unsigned char>(y);
+		unsigned char * pr = mv[2].ptr<unsigned char>(y);
+		for (int x = 0; x < img.cols; x++) {
+            int temp;
+            if (pb[x] + pg[x] + pr[x] <= sum)
+                temp = (pb[x] * dw0.cb + pg[x] * dw0.cg + pr[x] * dw0.cr) >> 8;
+            else {
+                float ratio = (float) sum / ((pb[x] + pg[x] + pr[x]) * 256);
+                temp = ratio * (pb[x] * dw0.cb + pg[x] * dw0.cg + pr[x] * dw0.cr);
+            }
+            praw[x] = min(255, temp);
+		}
+	}
+	return img;
+}
 /*
 input ic_layer
 input scale, 0,1,2,3...
@@ -716,21 +786,25 @@ Mat VWExtractAnt::prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect re
 			}
 			Mat dec_img = imdecode(Mat(encode_img), -1);
 			if (dec_img.channels() > 1) {
-				if (dec_img.channels() > 4 || dec_img.channels() <= dw0.channel) {
+				if (dec_img.channels() != 3) {
 					qCritical("load image error, channel =%d, dw0.channel =%d", dec_img.channels(), dw0.channel);
 					return Mat();
 				}
-				Mat mv[4];
-				split(dec_img, mv);
-				raw_img = mv[dw0.channel];
+                dw0.is_color = (dw0.channel >= 3) ? 3 : 0;
+                if (dw0.cr < -299 && dw0.cg < -299 && dw0.channel >= 3) { //auto extract color
+					if (img.type() != CV_8UC3)
+						img.create(img.rows, img.cols, CV_8UC3);
+					raw_img = dec_img;
+				}
+				else
+					raw_img = color2gray(dec_img);
 			}
 			else
 				raw_img = dec_img;
-			if (replace_buf)
+            if (replace_buf && !dw0.is_color)
 				img_bufs.push_back(ImageBuf(Point(x, y), raw_img));
 		}
 		//now raw_img is loaded, copy it to img;
-		CV_Assert(raw_img.type() == CV_8UC1);
 		QRect raw_img_rect(x *ic_layer->getBlockWidth(), y *ic_layer->getBlockWidth(), ic_layer->getBlockWidth() << scale, ic_layer->getBlockWidth() << scale);
 		QRect overlap_rect = raw_img_rect & rect; //overlap rect is the copy rect, unit is pixel
 		QRect src = overlap_rect.translated(- raw_img_rect.topLeft());
@@ -754,6 +828,27 @@ Mat VWExtractAnt::prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect re
 		img = img(Rect(0, 0, img.cols - 1, img.rows));
 	if (right_hit && !bottom_hit)
 		img = img(Rect(0, 0, img.cols, img.rows - 1));
+    if (dw0.cr < -299 && dw0.cg < -299 && dw0.is_color) { //auto extract color
+		unsigned char * pcolor = img.ptr<unsigned char>(img.rows / 2, img.cols / 2);
+		dw0.cb = pcolor[0] + pcolor[-3] + pcolor[3];
+		dw0.cg = pcolor[1] + pcolor[-2] + pcolor[4];
+		dw0.cr = pcolor[2] + pcolor[-1] + pcolor[5];
+		int sum = dw0.cb + dw0.cg + dw0.cr;
+        if (sum==0) {
+            dw0.cb = 100;
+            dw0.cg = 100;
+            dw0.cr = 100;
+        } else {
+            dw0.cb = dw0.cb * 300 / sum;
+            dw0.cg = dw0.cg * 300 / sum;
+            dw0.cr = dw0.cr * 300 / sum;
+        }
+
+		qInfo("change cr=%d, cg=%d, cb=%d", dw0.cr, dw0.cg, dw0.cb);
+		img = color2gray(img);
+		imwrite("grayimg.jpg", img);
+    }
+	CV_Assert(img.type() == CV_8UC1);
 	if (replace_buf) {
 		for (int i = 0; i < img_bufs.size(); i++) {
 			while (img_bufs[i].replace && !img_bufs[i].must_reserve) {
@@ -775,7 +870,7 @@ Mat VWExtractAnt::prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect re
 	31..24 23..16 15..8 7..0
 pi1       w_max     w_min
 pi2 channel gray_th search_opt i_high
-pi3						scale
+pi3			cg		cr	scale
 */
 int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, int , int, int, int, float)
 {
@@ -793,12 +888,28 @@ int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, i
 	dw0.i_high = max(2, dw0.i_high);
 	dw0.channel = min(3, dw0.channel);
 	dw0.scale = pi3 & 0xff;
+    dw0.cr = pi3 >> 8 & 0xff;
+    dw0.cg = pi3 >> 16 & 0xff;
+    if (dw0.cr >= 128)
+        dw0.cr = -dw0.cr;
+    if (dw0.cg >= 128)
+        dw0.cg = -dw0.cg;
+    float cr = dw0.cr / 100.0;
+    cr = max(-1.0f, min(1.0f, cr));
+    float cg = dw0.cg / 100.0;
+    cg = max(-1.0f, min(1.0f, cg));
+    float cb = 1 - cr - cg;
+    cb = max(-1.0f, min(1.0f, cb));
+    dw0.cr = cr * 300;
+    dw0.cg = cg * 300;
+    dw0.cb = cr * 300;
+
 	if (layer0 != layer) {
 		img_bufs.clear();
 		layer0 = layer;
 	}
-	qInfo("VWExtractAnt set param: w_min=%d, w_max=%d, channel=%d, dir_mask=0x%x, gray_th=%d, i_high=%d, scale=%d", dw0.w_min,  
-		dw0.w_max, dw0.channel, dw0.dir_mask, dw0.gray_th, dw0.i_high, dw0.scale);
+    qInfo("VWExtractAnt set param: w_min=%d, w_max=%d, channel=%d, dir_mask=0x%x, gray_th=%d, i_high=%d, scale=%d, cr=%d,cg=%d,cb=%d",
+          dw0.w_min, dw0.w_max, dw0.channel, dw0.dir_mask, dw0.gray_th, dw0.i_high, dw0.scale, dw0.cr, dw0.cg, dw0.cb);
 	return 0;
 }
 
@@ -1140,6 +1251,7 @@ int VWExtractAnt::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<
 	dw0.w_max = min(DETECT_WIRE_RADIUS, dw0.w_max);
 	dw0.w_min = min(dw0.w_min, dw0.w_max);
 	dw0.abs_org0 = Point(DETECT_WIRE_RADIUS, DETECT_WIRE_RADIUS);
+	dw0.is_color = 0;
 	for (int i = 0; i < img_bufs.size(); i++)
 		img_bufs[i].must_reserve = false;
 	Mat img = prepare_img(ic_layer[0], dw0.scale, QRect(org.x - (DETECT_WIRE_RADIUS << dw0.scale), org.y - (DETECT_WIRE_RADIUS << dw0.scale), 
@@ -1153,7 +1265,10 @@ int VWExtractAnt::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<
 	Mat detect_img, ig, iig;
 	Point org_best;
 	int w_best;
-	detect_gray(img, dw0);
+	if (dw0.is_color)
+		detect_gray2(img, dw0);
+	else
+		detect_gray(img, dw0);
 	qDebug("detect_gray, gray_i=%d, gray_w=%d", dw0.gray_i, dw0.gray_w);
 	dw1.gray_w = dw0.gray_w;
 	dw1.gray_i = dw0.gray_i;

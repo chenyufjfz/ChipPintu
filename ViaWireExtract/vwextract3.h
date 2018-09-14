@@ -10,7 +10,9 @@ struct DetectWirePara {
 	int gray_th; //0~100
 	int channel; //0~3
 	int scale;
-	Point abs_org0; //scale image pixel
+    int cr, cg, cb;
+	int is_color;
+	Point abs_org0; //scale image pixel for origin point
 };
 
 struct ImageBuf {
@@ -37,6 +39,7 @@ protected:
 	int search_opt;
 	int prev_scale;
 	vector<ImageBuf> img_bufs;
+	Mat color2gray(Mat & color_img);
 	Mat prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect rect, bool replace_buf);
 
 public:
