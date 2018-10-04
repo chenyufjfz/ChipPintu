@@ -23,7 +23,7 @@ string thread_generate_diff(FeatExt * feature, int layer)
 	return filename;
 }
 
-void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<int> * c_info, vector<FixEdge> * fe)
+void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<unsigned long long> * c_info, vector<FixEdge> * fe)
 {
 	ba->arrange(*feature, -1, -1, fe);
 	*offset = ba->get_best_offset();
@@ -152,89 +152,29 @@ void StitchView::paintEvent(QPaintEvent *)
 					painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 3, 3);
 				}
 				else {
-					int info = corner_info(y, x);
-					switch (info & 3) {
-					case 0:
-						painter.setBrush(QBrush(Qt::green));
-						break;
-					case 1:
-						painter.setBrush(QBrush(Qt::yellow));
-						break;
-					case 2:
-						painter.setBrush(QBrush(Qt::red));
-						break;
+					unsigned long long info = corner_info(y, x);
+					if (draw_corner == 1) {
+						painter.setPen(QPen(Qt::green, 1));
+						info = info & 0xffff;
 					}
-					switch (info & 0xc) {
-					case 0:
-						painter.setPen(QPen(Qt::green, 2));
-						break;
-					case 4:
-						painter.setPen(QPen(Qt::yellow, 2));
-						break;
-					case 2:
-						painter.setPen(QPen(Qt::red, 2));
-						break;
+					else 
+					if (draw_corner == 2) {
+						painter.setPen(QPen(Qt::yellow, 1));
+						info = (info >> 16) & 0xffff;
+					}
+					else
+					if (draw_corner == 3) {
+						painter.setPen(QPen(Qt::cyan, 1));
+						info = (info >> 32) & 0xffff;
+					} 
+					else
+					if (draw_corner == 4) {
+						painter.setPen(QPen(Qt::red, 1));
+						info = (info >> 48) & 0xffff;
 					}
 					QPoint center = (dst_corner - view_rect.topLeft()) / scale;
-						painter.drawEllipse(center, 3, 3);
-					switch (info >> 8 & 0x3) {
-					case 0:
-						painter.setPen(QPen(Qt::green, 2));
-						break;
-					case 1:
-						painter.setPen(QPen(Qt::yellow, 2));
-						break;
-					case 2:
-					case 3:
-						painter.setPen(QPen(Qt::red, 2));
-						break;
-
-					}
-					painter.drawLine(center.x(), center.y() - 9, center.x(), center.y() - 5);
-					switch (info >> 14 & 0x3) {
-					case 0:
-						painter.setPen(QPen(Qt::green, 2));
-						break;
-					case 1:
-						painter.setPen(QPen(Qt::yellow, 2));
-						break;
-					case 2:
-					case 3:
-						painter.setPen(QPen(Qt::red, 2));
-						break;
-
-					}
-					painter.drawLine(center.x() + 5, center.y(), center.x() + 9, center.y());
-					switch (info >> 18 & 0x3) {
-					case 0:
-						painter.setPen(QPen(Qt::green, 2));
-						break;
-					case 1:
-						painter.setPen(QPen(Qt::yellow, 2));
-						break;
-					case 2:
-					case 3:
-						painter.setPen(QPen(Qt::red, 2));
-						break;
-
-					}
-					painter.drawLine(center.x(), center.y() + 5, center.x(), center.y() + 9);
-					switch (info >> 20 & 0x3) {
-					case 0:
-						painter.setPen(QPen(Qt::green, 2));
-						break;
-					case 1:
-						painter.setPen(QPen(Qt::yellow, 2));
-						break;
-					case 2:
-					case 3:
-						painter.setPen(QPen(Qt::red, 2));
-						break;
-
-					}
-					painter.drawLine(center.x() - 9, center.y(), center.x() - 5, center.y());
-				}
-				
+					painter.drawText(center - QPoint(10, 5), QString::number(info));
+				}				
 			}
 		}
 	}
@@ -325,7 +265,9 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		draw_grid = !draw_grid;
 		break;
 	case Qt::Key_C:
-		draw_corner = !draw_corner;
+		draw_corner++;
+		if (draw_corner == 5)
+			draw_corner = 0;
 		break;
 	default:
 		QWidget::keyPressEvent(e);

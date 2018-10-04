@@ -99,9 +99,8 @@ public:
 	Mat_<Vec2i> get_best_offset() {
 		return best_offset.clone();
 	}
-	Mat_<int> get_corner() {
-		Mat_<int> corner(best_offset.size());
-		corner = 0;
+	Mat_<unsigned long long> get_corner() {
+		Mat_<unsigned long long> corner(best_offset.size());
 		return corner;
 	}
 	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe);

@@ -18,7 +18,7 @@ public:
 	/*31..24 23..16 15..8 7..0
 					edge  corner
 	*/
-	virtual Mat_<int> get_corner() = 0;
+	virtual Mat_<unsigned long long> get_corner() = 0;
     /*input fet, fet.diff
     input _img_num_h, if < 0, img_num_h = fet.cpara.img_num_h
     input _img_num_w, if < 0, img_num_w = fet.cpara.img_num_w*/

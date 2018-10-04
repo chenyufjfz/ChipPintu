@@ -68,8 +68,8 @@ protected:
 	int edge_cost;
 	Point minloc_shift;
 	RenderImage ri;
-	bool draw_corner;
-	Mat_<int> corner_info;
+	int draw_corner;
+	Mat_<unsigned long long> corner_info;
 	//upper is for drawing layer and rect
 	
 	//Following is for feature compute and store
