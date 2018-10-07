@@ -528,7 +528,9 @@ int FeatExt::read_diff_file(string filename)
 			char name[30];
 			sprintf(name, "d0ud_%d_%d", y, x);
 			fs[name] >> edge[0][y* cpara.img_num_w + x];
-			edge[0][y* cpara.img_num_w + x].edge_idx = MAKE_EDGE_IDX(x, y, 0);
+			EdgeDiff * pdiff = &edge[0][y* cpara.img_num_w + x];
+			pdiff->edge_idx = MAKE_EDGE_IDX(x, y, 0);			 
+			CV_Assert(pdiff->offset.x % cpara.rescale == 0 && pdiff->offset.y % cpara.rescale == 0);
 		}
 
 	for (int y = 0; y < cpara.img_num_h; y++)
@@ -536,7 +538,9 @@ int FeatExt::read_diff_file(string filename)
 			char name[30];
 			sprintf(name, "d1lr_%d_%d", y, x);
 			fs[name] >> edge[1][y* (cpara.img_num_w - 1) + x];
-			edge[1][y* (cpara.img_num_w - 1) + x].edge_idx = MAKE_EDGE_IDX(x, y, 1);
+			EdgeDiff * pdiff = &edge[1][y* (cpara.img_num_w - 1) + x];
+			pdiff->edge_idx = MAKE_EDGE_IDX(x, y, 1);
+			CV_Assert(pdiff->offset.x % cpara.rescale == 0 && pdiff->offset.y % cpara.rescale == 0);
 		}
 	return 0;
 }

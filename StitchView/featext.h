@@ -101,6 +101,9 @@ public:
 		max_ud_yshift = (int)node["max_ud_yshift"];
 		load_flag = (int)node["load_flag"];
 		read(node["offset"], offset);
+		for (int y = 0; y < offset.rows; y++)
+		for (int x = 0; x < offset.cols; x++)
+			CV_Assert(offset(y, x)[1] % rescale == 0 && offset(y, x)[0] % rescale == 0);
 	}
 
 	void write_file(FileStorage& fs) const {
@@ -121,11 +124,11 @@ public:
 	}
 
 	int right_bound() const {
-		return offset(0, img_num_w - 1)[1] + offset(0, 1)[1] * 3/2 - offset(0,0)[1];
+		return offset(0, img_num_w - 1)[1] + offset(0, 1)[1] * 3 - offset(0,0)[1];
 	}
 	
 	int bottom_bound() const {
-		return offset(img_num_h - 1, 0)[0] + offset(1, 0)[0] * 3/2 - offset(0,0)[0];
+		return offset(img_num_h - 1, 0)[0] + offset(1, 0)[0] * 3 - offset(0,0)[0];
 	}
 };
 

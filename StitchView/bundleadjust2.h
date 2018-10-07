@@ -179,7 +179,7 @@ public:
 class BundleAdjust2 : public BundleAdjustInf
 {
 protected:	
-	vector<Edge2> eds[2];
+	vector<Edge2> eds[2]; //0 for up-down edge
 	vector<FourCorner> fc; //(rows+1) * (cols+1)
 	vector<SourceInfo> source;
 	int img_num_h, img_num_w, scale;
@@ -205,7 +205,6 @@ protected:
 	bool merge_one_bundle(Bundle b);
 	void merge_bundles();
 	void merge_all();
-	bool optimize_edge(unsigned edge_idx, int max_shift_x, int max_shift_y, float cost_th, bool force);
 	void optimize_corner(unsigned corner_idx, int max_shift_x, int max_shift_y);
 	void output();
 	

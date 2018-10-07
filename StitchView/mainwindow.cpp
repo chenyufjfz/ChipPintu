@@ -3,6 +3,8 @@
 #include "cparadialog.h"
 #include "tparadialog.h"
 #include "mapxydialog.h"
+#include <QMessageBox>
+#include <QFileDialog>
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -68,9 +70,15 @@ void MainWindow::on_actionConfig_Para_triggered()
 	
 	CparaDialog para_dlg(cpara, true, this);
 	if (para_dlg.exec() == QDialog::Accepted) {
+		if (cpara.rescale != 1 && cpara.rescale != 2 && cpara.rescale != 4 && cpara.rescale != 8) {
+			QMessageBox::information(this, "Info", "rescale must be 1, 2, 4 or 8");
+			return;
+		}
 		cpara = para_dlg.cpara;
 		int init_offset_x = cpara.offset(0, 1)[1] - cpara.offset(0, 0)[1];
 		int init_offset_y = cpara.offset(1, 0)[0] - cpara.offset(0, 0)[0];
+		init_offset_x = (init_offset_x + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
+		init_offset_y = (init_offset_y + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
 		cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
 		for (int y = 0; y < cpara.img_num_h; y++) {
 			for (int x = 0; x < cpara.img_num_w; x++) {
@@ -124,6 +132,14 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 
 	CparaDialog para_dlg(cpara, false, this);
 	if (para_dlg.exec() == QDialog::Accepted) {
+		if (para_dlg.cpara.rescale != 1 && para_dlg.cpara.rescale != 2 && para_dlg.cpara.rescale != 4 && para_dlg.cpara.rescale != 8) {
+			QMessageBox::information(this, "Info", "rescale must be 1, 2, 4 or 8");
+			return;
+		}
+		if (para_dlg.cpara.rescale > cpara.rescale) {
+			QMessageBox::information(this, "Info", "Reduce rescale");
+			return;
+		}
 		cpara = para_dlg.cpara;
 		if (para_dlg.new_layer) {
 			stitch_view->set_config_para(stitch_view->get_layer_num(), cpara);
@@ -165,4 +181,22 @@ void MainWindow::on_actionTransForm_triggered()
 		dst_w = mxy_dlg.dst_w;
 		stitch_view->set_mapxy_dstw(-1, mxy, dst_w);
 	}
+}
+
+void MainWindow::on_actionLoad_triggered()
+{
+	QString dirname = qApp->applicationDirPath() + "/WorkData/";
+	QString filename = QFileDialog::getOpenFileName(this, tr("Open File"),
+		dirname,
+		tr("Project (*.xml)"));
+	stitch_view->read_file(filename.toStdString());
+}
+
+void MainWindow::on_actionSave_as_triggered()
+{
+	QString dirname = qApp->applicationDirPath() + "/WorkData/autosave.xml";
+	QString filename = QFileDialog::getSaveFileName(this, tr("Open File"),
+		dirname,
+		tr("Project (*.xml)"));
+	stitch_view->write_file(filename.toStdString());
 }

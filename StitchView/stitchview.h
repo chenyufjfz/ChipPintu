@@ -10,7 +10,7 @@
 #include <QKeyEvent>
 #include <QtConcurrent>
 #include "featext.h"
-#include "bundleadjust.h"
+#include "bundleadjustinf.h"
 #include "renderimage.h"
 
 using namespace std;
@@ -36,6 +36,90 @@ struct BkDecimg {
 	}
 };
 
+struct LayerFeature {
+	ConfigPara cpara;
+	TuningPara tpara;
+	FeatExt feature;
+	string feature_file; //feature file name in disk
+	Mat_<unsigned long long> corner_info;
+	Mat_<int> fix_edge[2];
+	vector<unsigned> get_fix_img(unsigned img_idx, int bind_flag) {
+		vector<unsigned> ret;
+		vector<unsigned> queue;
+		
+		queue.push_back(img_idx);
+		while (!queue.empty()) {
+			unsigned idx = queue.back();
+			ret.push_back(idx);
+			queue.pop_back();
+			int y = IMG_Y(idx);
+			int x = IMG_X(idx);
+			if (y > 0 && fix_edge[0](y - 1, x) & bind_flag) { 
+				unsigned idx1 = MAKE_IMG_IDX(x, y - 1);
+				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+					queue.push_back(idx1);
+			}
+			if (y + 1 < cpara.img_num_h && fix_edge[0](y, x) & bind_flag) {
+				unsigned idx1 = MAKE_IMG_IDX(x, y + 1);
+				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+					queue.push_back(idx1);
+			}
+			if (x > 0 && fix_edge[1](y, x - 1) & bind_flag) {
+				unsigned idx1 = MAKE_IMG_IDX(x - 1, y);
+				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+					queue.push_back(idx1);
+			}
+			if (x + 1 < cpara.img_num_w && fix_edge[1](y, x) & bind_flag) {
+				unsigned idx1 = MAKE_IMG_IDX(x + 1, y);
+				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+					queue.push_back(idx1);
+			}
+		}
+		return ret;
+	}
+	int check_edge(unsigned edge_idx) {
+		int ret = 0;
+		if (!feature.is_valid())
+			return 0;
+		int x = EDGE_X(edge_idx);
+		int y = EDGE_Y(edge_idx);
+		int e = EDGE_E(edge_idx);
+		Point o0(cpara.offset(y, x)[1], cpara.offset(y, x)[0]);
+		Point o1(cpara.offset(y + 1, x)[1], cpara.offset(y + 1, x)[0]);
+		Point o2(cpara.offset(y, x + 1)[1], cpara.offset(y, x + 1)[0]);
+		Point oo = (e == 0) ? o1 - o0 : o2 - o0;
+		const EdgeDiff * ed = (e == 0) ? feature.get_edge(y, x, y + 1, x) : feature.get_edge(y, x, y, x + 1);
+		Point shift = oo - ed->offset;
+		CV_Assert(shift.x % cpara.rescale == 0 && shift.y % cpara.rescale == 0);
+		shift.x = shift.x / cpara.rescale;
+		shift.y = shift.y / cpara.rescale;
+		if (fix_edge[e](y, x) & BIND_X_MASK) {
+			if (shift.x < 0)
+				ret |= 1;
+			if (shift.x >= ed->dif.cols)
+				ret |= 2;
+		}
+		if (fix_edge[e](y, x) & BIND_Y_MASK) {
+			if (shift.y < 0)
+				ret |= 4;
+			if (shift.y >= ed->dif.rows)
+				ret |= 8;
+		}
+		return ret;
+	}
+	int check_img_offset(unsigned img_idx) {
+		if (check_edge(img_idx) || check_edge(img_idx | 0x80000000))
+			return 1;
+		int x = IMG_X(img_idx);
+		int y = IMG_Y(img_idx);
+		if (y > 0 && check_edge(MAKE_EDGE_IDX(x, y - 1, 0)))
+			return 1;
+		if (x > 0 && check_edge(MAKE_EDGE_IDX(x - 1, y, 1)))
+			return 1;
+		return 0;
+	}
+};
+
 class StitchView : public QWidget
 {
     Q_OBJECT
@@ -52,13 +136,12 @@ protected:
     void paintEvent(QPaintEvent *e);
     void keyPressEvent(QKeyEvent *e);
 	void mouseMoveEvent(QMouseEvent *event);
+	void mousePressEvent(QMouseEvent *event);
 	void mouseReleaseEvent(QMouseEvent *event);
 	void remove_cache_front();
 	void timerEvent(QTimerEvent *e);
 
 protected:
-	vector<ConfigPara> cpara;
-
 	//Following is for drawing layer and rect
 	double scale; //current scale, should be bigger than cpara.rescale /2
     unsigned char layer; //current layer, use cpara[layer] for drawing
@@ -69,14 +152,12 @@ protected:
 	Point minloc_shift;
 	RenderImage ri;
 	int draw_corner;
-	Mat_<unsigned long long> corner_info;
 	//upper is for drawing layer and rect
 	
 	//Following is for feature compute and store
-	FeatExt feature;
-	vector<TuningPara> tpara;
-	vector<string> feature_file; //feature file name in disk
-	int feature_layer; //feature storts which layer
+	FeatExt computing_feature;
+	vector<LayerFeature> lf;
+	int feature_layer; //computing_feature is for which layer
 	QFuture<string> compute_feature;
 	int compute_feature_timer;
 	//upper is for feature compute and store
@@ -112,7 +193,7 @@ public:
 	int compute_new_feature(int _layer);
 	//From FeatExt, compute new cpara.offset
 	int optimize_offset(int _layer);
-	int get_layer_num() { return (int)cpara.size(); }
+	int get_layer_num() { return (int)lf.size(); }
 	int get_current_layer() { return layer; }
 	int set_current_layer(int _layer);
 	//if _layer==-1, means erase current layer
