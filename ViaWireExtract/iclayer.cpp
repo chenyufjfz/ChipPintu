@@ -5,7 +5,7 @@
 #include <QPainter>
 #include <stdio.h>
 #include <QMutexLocker>
-
+#include <QtConcurrent>
 #ifdef USE_MDB
 #include "lmdb.h"
 #endif
@@ -15,6 +15,7 @@ using namespace std;
 using namespace cv;
 
 #define ENCRYPT_CHECK
+#define GENERATE_DB_CONCURRENT 1
 
 void encrypt(char * a, int len, int magic)
 {
@@ -36,6 +37,88 @@ void decrypt(char * a, int len, int magic)
 	}
 }
 
+struct ProcessScaleData {
+	int x, y, s;
+	vector<uchar> buf;
+	ICLayerInterface * ic;
+	ProcessScaleData(int _x, int _y, int _s, ICLayerInterface * _ic) {
+		x = _x;
+		y = _y;
+		s = _s;
+		ic = _ic;
+	}
+	ProcessScaleData() {
+		ic = NULL;
+	}
+};
+static ProcessScaleData scale_image_2x2(const ProcessScaleData & _d)
+{
+	ProcessScaleData t = _d;
+	vector<uchar> buff;
+	int x0 = t.x, y0 = t.y, s = t.s, v = 0;
+	int x1 = x0 + (1 << (s - 1));
+	int y1 = y0 + (1 << (s - 1));
+	QImage image0, image1, image2, image3;
+	if (t.ic->getRawImgByIdx(buff, x0, y0, s - 1, 0) == 0) {
+		if (!image0.loadFromData((uchar *)&buff[0], (int)buff.size()))
+			qFatal("image format error, (x=%d,y=%d,s=%d)", x0, y0, s - 1);
+		v++;
+	}
+	else
+		qFatal("image miss (x=%d,y=%d,s=%d)", x0, y0, s - 1);
+	if (t.ic->getRawImgByIdx(buff, x1, y0, s - 1, 0) == 0) {
+		if (!image1.loadFromData((uchar *)&buff[0], (int)buff.size()))
+			qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y0, s - 1);
+		if (image0.format() != image1.format() || image0.width() != image1.width() || image0.height() != image1.height())
+			qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y0, s - 1,
+			image1.format(), image1.width(), image1.height());
+		v++;
+	}
+	if (t.ic->getRawImgByIdx(buff, x0, y1, s - 1, 0) == 0) {
+		if (!image2.loadFromData((uchar *)&buff[0], (int)buff.size()))
+			qFatal("image format error, (x=%d,y=%d,s=%d)", x0, y1, s - 1);
+		if (image0.format() != image2.format() || image0.width() != image2.width() || image0.height() != image2.height())
+			qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x0, y1, s - 1,
+			image2.format(), image2.width(), image2.height());
+		v++;
+	}
+	if (t.ic->getRawImgByIdx(buff, x1, y1, s - 1, 0) == 0) {
+		if (!image3.loadFromData((uchar *)&buff[0], (int)buff.size()))
+			qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y1, s - 1);
+		if (image0.format() != image3.format() || image0.width() != image3.width() || image0.height() != image3.height())
+			qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y1, s - 1,
+			image3.format(), image3.width(), image3.height());
+		v++;
+	}
+	if (v == 3)
+		qFatal("image miss (x=%d, y=%d, s=%d)", x1, y1, s - 1);
+	QImage image(image0.width() * 2, image0.height() * 2, image0.format());
+	image.fill(QColor(0, 0, 0));
+	QPainter painter(&image);
+	painter.drawImage(0, 0, image0);
+	if (!image1.isNull())
+		painter.drawImage(image0.width(), 0, image1);
+	if (!image2.isNull())
+		painter.drawImage(0, image0.height(), image2);
+	if (!image3.isNull())
+		painter.drawImage(image0.width(), image0.height(), image3);
+	QImage image_s;
+	QByteArray ba;
+	QBuffer buffer(&ba);
+	image_s = image.scaled(image.width() / 2, image.height() / 2, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+	buffer.open(QIODevice::WriteOnly);
+	image_s.save(&buffer, "JPG", 85);
+	t.buf.resize(ba.size());
+	memcpy(t.buf.data(), ba.data(), ba.size());	
+	return t;
+}
+
+static void scale_image_add(vector<int> & ret, const ProcessScaleData & d)
+{
+	d.ic->addRawImg(d.buf, d.x, d.y, d.s);
+	ret.push_back(1);
+}
+
 class ICLayer : public ICLayerInterface
 {
 protected:
@@ -51,7 +134,7 @@ public:
     ICLayer(const string& file, bool read);
 	~ICLayer();	
     int readLayerFile(const string& file);
-	int addRawImg(vector<uchar> & buff, int , int , int);
+	int addRawImg(const vector<uchar> & buff, int , int , int);
     int getCorners(vector<QPoint> & corners);
     int getBlockWidth();
 	void getBlockNum(int & bx, int &by);
@@ -117,7 +200,7 @@ int ICLayer::readLayerFile(const string& file)
     return 0;
 }
 
-int ICLayer::addRawImg(vector<uchar> & buff, int , int , int)
+int ICLayer::addRawImg(const vector<uchar> & buff, int , int , int)
 {	
 	int len[8] = { 0 };
 	int block_len;
@@ -546,6 +629,7 @@ protected:
 		int total_num; //total image number
 	} head;
 	int version;
+	QMutex mutex;
 
 protected:
 	int compute_bias_num(vector<int> & bias_num);
@@ -556,7 +640,7 @@ public:
 	int getBlockWidth();
 	void getBlockNum(int & bx, int & by);
 	void putBlockNumWidth(int bx, int by, int width);
-	int addRawImg(vector<uchar> & buff, int x, int y, int);
+	int addRawImg(const vector<uchar> & buff, int x, int y, int);
 	int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved);
 	int getMaxScale();
 	void close();
@@ -680,16 +764,13 @@ void ICLayerM::putBlockNumWidth(int bx, int by, int width)
 	idx0 = 0;
 }
 
-int ICLayerM::addRawImg(vector<uchar> & buff, int x, int y, int)
+int ICLayerM::addRawImg(const vector<uchar> & buff, int x, int y, int)
 {
 	if (!fout.is_open()) {
 		qCritical("File is not open for write");
 		return -2;
 	}
-	if (x != x0 || y != y0) {
-		qCritical("Image must be add in order, expect (%d,%d), receive(%d,%d)", y0, x0, y, x);
-		return -1;
-	}	
+		
 	qDebug("add image (%d, %d, %d)", x0, y0, s0);
 	if (version >= 1) {
 		if (buff.size() < 128)
@@ -712,6 +793,11 @@ int ICLayerM::addRawImg(vector<uchar> & buff, int x, int y, int)
 			qFatal("encrypt error x=%d, y=%d", x, y);
 		
 #endif
+	}
+	QMutexLocker locker(&mutex);
+	if (x != x0 || y != y0) {
+		qCritical("Image must be add in order, expect (%d,%d), receive(%d,%d)", y0, x0, y, x);
+		return -1;
 	}
 	fout.write((char*)&buff[0], buff.size());
 	bias_storage[idx0 + 1] = bias_storage[idx0] + buff.size();
@@ -741,6 +827,7 @@ int ICLayerM::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsign
 	}
 	if (ovr >= bias.size() || x < 0 || x >= head.num_block_x || y < 0 || y >= head.num_block_y)
 		return -1;
+	
 	x = x >> ovr;
 	y = y >> ovr;
 	int bx = ((head.num_block_x - 1) >> ovr) + 1;
@@ -750,6 +837,7 @@ int ICLayerM::getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsign
 	qDebug("getRawImgByIdx x=%d, y=%d, bias=%lld, len=%d", x, y, bias[ovr][idx], len);
 
 	buff.resize(len + reserved);
+	QMutexLocker locker(&mutex);
 	if (fin.is_open()) {
 		fin.seekg(bias[ovr][idx], ios::beg);
 		fin.read((char*)&buff[reserved], len);
@@ -796,6 +884,7 @@ void ICLayerM::close()
 		if (idx0 == 0)
 			return;
 		for (int s = 1; head.num_block_x > 1 << (s - 1) || head.num_block_y > 1 << (s - 1); s++)
+#if !GENERATE_DB_CONCURRENT
 			for (int y = 0; y < head.num_block_y; y += 1 << s)
 				for (int x = 0; x < head.num_block_x; x += 1 << s) {
 					vector<uchar> buff;
@@ -856,6 +945,19 @@ void ICLayerM::close()
 					memcpy(buff.data(), ba.data(), ba.size());
 					addRawImg(buff, x0, y0, s);
 				}
+#else
+		{
+			vector<ProcessScaleData> scale_sets;
+			for (int y = 0; y < head.num_block_y; y += 1 << s)
+			for (int x = 0; x < head.num_block_x; x += 1 << s)
+				scale_sets.push_back(ProcessScaleData(x, y, s, this));
+			
+			vector<int> temp_vec = QtConcurrent::blockingMappedReduced<vector<int>, vector<ProcessScaleData> >(scale_sets, scale_image_2x2, scale_image_add,
+				QtConcurrent::OrderedReduce | QtConcurrent::SequentialReduce);
+			if (temp_vec.size() != scale_sets.size())
+				qFatal("scale internal error");
+		}
+#endif
 		if (idx0 != head.total_num)
 			qFatal("internal error, fix me");
 		//wirte image len
@@ -917,6 +1019,7 @@ public:
 	void release_cache(int cache_limit, QTime tm);
 	void set_cache_size(int _max_cache_size);
 	void close();
+	ICLayerInterface * get_iclayer_inf();
 	friend class ICLayerZoomWr;
 protected:
 	struct BkImgMeta{
@@ -1212,6 +1315,11 @@ void ICLayerWr::close()
 	cache_size = 0;	
 }
 
+ICLayerInterface * ICLayerWr::get_iclayer_inf()
+{
+	return layer;
+}
+
 void ICLayerWr::set_cache_size(int _max_cache_size)
 {
 	QMutexLocker locker(&mutex);
@@ -1349,6 +1457,11 @@ public:
 	void close()
 	{
 		layer->close();
+	}
+
+	ICLayerInterface * get_iclayer_inf()
+	{
+		return layer->layer;
 	}
 };
 

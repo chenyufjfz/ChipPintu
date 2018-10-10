@@ -41,6 +41,7 @@ struct LayerFeature {
 	TuningPara tpara;
 	FeatExt feature;
 	string feature_file; //feature file name in disk
+    string layer_name;
 	Mat_<unsigned long long> corner_info;
 	Mat_<int> fix_edge[2];
 	vector<unsigned> get_fix_img(unsigned img_idx, int bind_flag) {
@@ -84,6 +85,8 @@ struct LayerFeature {
 		int x = EDGE_X(edge_idx);
 		int y = EDGE_Y(edge_idx);
 		int e = EDGE_E(edge_idx);
+		if (fix_edge[e](y, x) == 0)
+			return 0;
 		Point o0(cpara.offset(y, x)[1], cpara.offset(y, x)[0]);
 		Point o1(cpara.offset(y + 1, x)[1], cpara.offset(y + 1, x)[0]);
 		Point o2(cpara.offset(y, x + 1)[1], cpara.offset(y, x + 1)[0]);
@@ -93,18 +96,16 @@ struct LayerFeature {
 		CV_Assert(shift.x % cpara.rescale == 0 && shift.y % cpara.rescale == 0);
 		shift.x = shift.x / cpara.rescale;
 		shift.y = shift.y / cpara.rescale;
-		if (fix_edge[e](y, x) & BIND_X_MASK) {
-			if (shift.x < 0)
-				ret |= 1;
-			if (shift.x >= ed->dif.cols)
-				ret |= 2;
-		}
-		if (fix_edge[e](y, x) & BIND_Y_MASK) {
-			if (shift.y < 0)
-				ret |= 4;
-			if (shift.y >= ed->dif.rows)
-				ret |= 8;
-		}
+
+		if (shift.x < 0)
+			ret |= 1;
+		if (shift.x >= ed->dif.cols)
+			ret |= 2;
+		if (shift.y < 0)
+			ret |= 4;
+		if (shift.y >= ed->dif.rows)
+			ret |= 8;
+
 		return ret;
 	}
 	int check_img_offset(unsigned img_idx) {
@@ -172,6 +173,7 @@ protected:
 	BundleAdjustInf * ba;
 	QFuture<void> bundle_adjust_future;
 	Mat_<Vec2i> adjust_offset;
+	int auto_save;
 	//upper is for bundleadjust
 public:
 	//if _layer==-1, means current layer, if _layer==get_layer_num(), add new layer
@@ -196,6 +198,23 @@ public:
 	int get_layer_num() { return (int)lf.size(); }
 	int get_current_layer() { return layer; }
 	int set_current_layer(int _layer);
+	string get_layer_name(int _layer) {
+		if (_layer == -1)
+			_layer = layer;
+		if (_layer >= lf.size() || _layer < 0)
+			return string();
+		else
+			return lf[_layer].layer_name;
+	}
+	void set_layer_name(int _layer, string name) {
+		if (_layer == -1)
+			_layer = layer;
+		if (_layer >= lf.size() || _layer < 0)
+			return;
+		else
+			lf[_layer].layer_name = name;
+	}
+	int output_layer(int _layer, string pathname);
 	//if _layer==-1, means erase current layer
 	int delete_layer(int _layer);
 	void write_file(string file_name);

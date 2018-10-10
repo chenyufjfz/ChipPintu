@@ -89,6 +89,11 @@ void MainWindow::on_actionConfig_Para_triggered()
 		if (para_dlg.new_layer) {
 			stitch_view->set_config_para(stitch_view->get_layer_num(), cpara);
 			stitch_view->set_current_layer(stitch_view->get_layer_num() - 1);
+			string filename = cpara.img_path;
+			int loc = filename.find_last_of("\\/");
+			int loc2 = filename.find_last_of("\\/", loc - 1);
+			string layer_name = filename.substr(loc2 + 1, loc - loc2 - 1);
+			stitch_view->set_layer_name(-1, layer_name);
 		}
 		else
 			stitch_view->set_config_para(-1, cpara);
@@ -141,12 +146,7 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 			return;
 		}
 		cpara = para_dlg.cpara;
-		if (para_dlg.new_layer) {
-			stitch_view->set_config_para(stitch_view->get_layer_num(), cpara);
-			stitch_view->set_current_layer(stitch_view->get_layer_num() - 1);
-		}
-		else
-			stitch_view->set_config_para(-1, cpara);
+		stitch_view->set_config_para(-1, cpara);
 		stitch_view->compute_new_feature(-1);
 	}	
 }
@@ -199,4 +199,16 @@ void MainWindow::on_actionSave_as_triggered()
 		dirname,
 		tr("Project (*.xml)"));
 	stitch_view->write_file(filename.toStdString());
+}
+
+void MainWindow::on_actionOutput_layer_triggered()
+{
+	QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"));
+	if (!pathname.isEmpty())
+		stitch_view->output_layer(-1, pathname.toStdString());
+}
+
+void MainWindow::on_actionOutput_all_triggered()
+{
+
 }

@@ -41,6 +41,10 @@ private slots:
 
     void on_actionSave_as_triggered();
 
+    void on_actionOutput_layer_triggered();
+
+    void on_actionOutput_all_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

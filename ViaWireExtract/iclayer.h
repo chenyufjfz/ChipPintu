@@ -20,7 +20,7 @@ public:
 	virtual int getMaxScale() = 0;
     virtual int getRawImgByIdx(vector<uchar> & buff, int x, int y, int ovr, unsigned reserved) =0;
 	virtual void putBlockNumWidth(int bx, int by, int width) = 0;	
-	virtual int addRawImg(vector<uchar> & buff, int x, int y, int reserved) = 0;
+	virtual int addRawImg(const vector<uchar> & buff, int x, int y, int reserved) = 0;
 	virtual void close() = 0;
 	virtual bool is_active() = 0;
     virtual ~ICLayerInterface() {}
@@ -144,6 +144,7 @@ public:
 	close is manged by BkImgInterface, better not called from user directly
 	*/
 	virtual void close() = 0;
+	virtual ICLayerInterface * get_iclayer_inf() = 0;
 	virtual ~ICLayerWrInterface() {}
 };
 

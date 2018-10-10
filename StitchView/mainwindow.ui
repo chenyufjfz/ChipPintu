@@ -31,6 +31,8 @@
     <addaction name="actionQuick_Load"/>
     <addaction name="actionSave_as"/>
     <addaction name="actionLoad"/>
+    <addaction name="actionOutput_layer"/>
+    <addaction name="actionOutput_all"/>
    </widget>
    <widget class="QMenu" name="menuConfig">
     <property name="title">
@@ -103,6 +105,16 @@
   <action name="actionTransForm">
    <property name="text">
     <string>TransForm</string>
+   </property>
+  </action>
+  <action name="actionOutput_layer">
+   <property name="text">
+    <string>Output layer</string>
+   </property>
+  </action>
+  <action name="actionOutput_all">
+   <property name="text">
+    <string>Output all</string>
    </property>
   </action>
  </widget>

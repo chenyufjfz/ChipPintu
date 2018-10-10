@@ -1,4 +1,5 @@
 #include "stitchview.h"
+#include "iclayer.h"
 #include <QPainter>
 #include <algorithm>
 #include <QtCore/QSharedPointer>
@@ -52,6 +53,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	ygrid_size = 20;
 	xoffset = 0;
 	yoffset = 0;
+	auto_save = 0;
 	draw_grid = false;
 	ba = BundleAdjustInf::create_instance(2);
 }
@@ -149,13 +151,13 @@ void StitchView::paintEvent(QPaintEvent *)
 	for (int x = lt.x; x <= rb.x; x++) {
 		Point src_corner(lf[layer].cpara.offset(y, x)[1], lf[layer].cpara.offset(y, x)[0]);
 		Point src_corner1, src_corner2;
-		if (y < lf[layer].cpara.offset.rows)
+		if (y + 1 < lf[layer].cpara.offset.rows)
 			src_corner1 = Point(lf[layer].cpara.offset(y + 1, x)[1], lf[layer].cpara.offset(y + 1, x)[0]);
 		else {
 			src_corner1 = Point(lf[layer].cpara.offset(y - 1, x)[1], lf[layer].cpara.offset(y - 1, x)[0]);
 			src_corner1 = 2 * src_corner - src_corner1;
 		}
-		if (x < lf[layer].cpara.offset.cols)
+		if (x + 1 < lf[layer].cpara.offset.cols)
 			src_corner2 = Point(lf[layer].cpara.offset(y, x + 1)[1], lf[layer].cpara.offset(y, x + 1)[0]);
 		else {
 			src_corner2 = Point(lf[layer].cpara.offset(y, x - 1)[1], lf[layer].cpara.offset(y, x - 1)[0]);
@@ -420,9 +422,9 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 		}
 	}
 	char info[200];
-	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d", mouse_point.x(),
-		mouse_point.y(), src_point.x, src_point.y, may_choose.x() + 1, may_choose.y() + 1,
-		minloc_shift.x, minloc_shift.y, edge_cost);
+    sprintf(info, "%s,x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d", lf[layer].layer_name.c_str(),
+            mouse_point.x(), mouse_point.y(), src_point.x, src_point.y,
+            may_choose.x() + 1, may_choose.y() + 1, minloc_shift.x, minloc_shift.y, edge_cost);
 	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
 }
@@ -717,8 +719,11 @@ int StitchView::optimize_offset(int _layer)
 		QMessageBox::information(this, "Info", "Optimize offset is running, wait it finish");
 		return -3;
 	}
+	char name[100];
+	sprintf(name, "/WorkData/autosave%d.xml", auto_save);
+	auto_save = (auto_save + 1) % 5;
 
-	string filename = qApp->applicationDirPath().toStdString() + "/WorkData/autosave.xml";
+	string filename = qApp->applicationDirPath().toStdString() + name;
 	write_file(filename);
 #if 0
 	bundle_adjust_future = QtConcurrent::run(thread_bundle_adjust, &ba, &feature, &adjust_offset);
@@ -760,6 +765,51 @@ int StitchView::set_current_layer(int _layer) {
 		return -1;
 	update();
 	return 0;
+}
+
+int StitchView::output_layer(int _layer, string pathname) {
+	if (_layer == -1)
+		_layer = layer;
+	if (_layer >= lf.size() || _layer < 0)
+		return -1;
+	string filename = pathname + "/" + lf[layer].layer_name + ".db";
+	ICLayerWrInterface *ic = ICLayerWrInterface::create(filename, false, 1, 1, 0, 0, 0, 0, 0);
+	ICLayerInterface *icl = ic->get_iclayer_inf();
+
+	int dst_w = ri.get_dst_wide();
+	int end_x = lf[layer].cpara.right_bound() / dst_w + 1;
+	int end_y = lf[layer].cpara.bottom_bound() / dst_w + 1;
+	icl->putBlockNumWidth(end_x, end_y, dst_w);
+	vector<MapID> map_id;
+	vector<MapID> draw_order;
+	for (int i = 0; i < 3; i++)
+		draw_order.push_back(MAPID(layer, choose[i].x(), choose[i].y()));
+	float cnt = 0;
+	for (int y = 0; y < end_y; y++)
+	for (int x = 0; x < end_x; x++) {
+		map_id.push_back(MAPID(layer, x, y));
+		if (map_id.size() == 16 || (x + 1==end_x && y + 1==end_y)) {
+			vector<QImage> imgs;
+			ri.render_img(map_id, imgs, draw_order);
+			CV_Assert(imgs.size() == map_id.size());			
+			for (int i = 0; i < imgs.size(); i++) {
+				QByteArray ba;
+				QBuffer buffer(&ba);
+				buffer.open(QIODevice::WriteOnly);
+				imgs[i].save(&buffer, "JPG", 85);
+				vector<uchar> buff;
+				buff.resize(ba.size());
+				memcpy(buff.data(), ba.data(), ba.size());
+				icl->addRawImg(buff, MAPID_X(map_id[i]), MAPID_Y(map_id[i]), 0);
+			}
+			map_id.clear();
+			cnt += 16;
+			emit notify_progress(cnt * 0.8 / (end_y * end_x));
+		}
+	}
+	CV_Assert(map_id.empty());
+	delete ic;
+	emit notify_progress(0);
 }
 
 int StitchView::delete_layer(int _layer)

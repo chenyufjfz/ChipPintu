@@ -48,6 +48,7 @@ FORMS    += mainwindow.ui \
 DESTDIR = $$_PRO_FILE_PWD_/../app
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/
 Debug:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/debug/
+INCLUDEPATH += $$_PRO_FILE_PWD_/../ViaWireExtract
 
 win32 {
 Release:LIBS += -L$$_PRO_FILE_PWD_/../lib/release

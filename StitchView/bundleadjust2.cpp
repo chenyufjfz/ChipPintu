@@ -182,7 +182,7 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg)
 {
 	float mind = pe->diff->mind;
 	float min2 = (pe->diff->mind + pe->diff->submind) / 2;
-	float area = pe->cost.rows * pe->cost.cols;
+	float area = pe->diff->dif.rows * pe->diff->dif.cols;
 	float beta = (area < 30) ? 1 : ((area >= 130) ? 0.7 : 1 - (area - 30) * 0.003);
 	float avg = pe->diff->avg * beta + pe->diff->submind * (1 - beta);
 	float alpha = (avg - mind < 9) ? 0 : 10 * sqrt(pe->diff->avg / global_avg);
@@ -211,11 +211,10 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg)
 	idea_pos.x = idea_pos.x / scale;
 	idea_pos.y = idea_pos.y / scale;
 	if (idea_pos.y < 0 || idea_pos.y >= pe->cost.rows || idea_pos.x < 0 || idea_pos.x >= pe->cost.cols) {
-		qCritical("edge (x=%d,y=%d,e=%d), idea_pos (x=%d, y=%d), error", EDGE_X(pe->diff->edge_idx), 
-			EDGE_Y(pe->diff->edge_idx),	EDGE_E(pe->diff->edge_idx), idea_pos.x, idea_pos.y);
+		qCritical("edge (x=%d,y=%d,e=%d), idea_pos (x=%d, y=%d), x or y error", EDGE_X(pe->diff->edge_idx),
+			EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), idea_pos.x, idea_pos.y);
 		CV_Assert(0);
 	}
-	
 	if (pe->flag == (BIND_X_MASK | BIND_Y_MASK)) {
 		pe->cost = COST_BIND;
 		pe->cost(idea_pos) = 0;
@@ -1771,6 +1770,9 @@ void BundleAdjust2::output()
 						best_offset(y, x) = Vec2i(offset.y, offset.x);
 						Point cur_edge_point = pe->get_current_point(scale);
 						float cur_edge_cost = pe->get_point_cost(cur_edge_point);
+						if (cur_edge_cost > COST_BIND / 2)
+							qFatal("internal error, edge (x=%d,y=%d,e=%d) point (x=%d,y=%d)", EDGE_X(pe->diff->edge_idx),
+							EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), cur_edge_point.x, cur_edge_point.y);
 						corner_info(y, x) += cur_edge_cost * 20;
 					}
 				}
