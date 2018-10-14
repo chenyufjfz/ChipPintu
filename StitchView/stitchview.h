@@ -164,7 +164,7 @@ protected:
 	//upper is for feature compute and store
 
 	//following is for grid drawing
-	int xoffset, yoffset, xgrid_size, ygrid_size;
+	double xoffset, yoffset, xgrid_size, ygrid_size;
 	bool draw_grid;
 	//upper is for grid drawing
 
@@ -189,8 +189,8 @@ public:
 	//if _layer==-1, means get tune of current layer
 	MapXY get_mapxy(int _layer);
 	int get_dst_wide();
-	void set_grid(int _xoffset, int _yoffset, int _xgrid_size, int _ygrid_size);
-	void get_grid(int & _xoffset, int & _yoffset, int & _xgrid_size, int & _ygrid_size);
+	void set_grid(double _xoffset, double _yoffset, double _xgrid_size, double _ygrid_size);
+	void get_grid(double & _xoffset, double & _yoffset, double & _xgrid_size, double & _ygrid_size);
 	//From cpara, tpara, generate new FeatExt. if _layer==-1, means get tune of current layer
 	int compute_new_feature(int _layer);
 	//From FeatExt, compute new cpara.offset

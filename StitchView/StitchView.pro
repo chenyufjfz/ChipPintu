@@ -25,7 +25,8 @@ SOURCES += main.cpp\
     mapxydialog.cpp \
     bundleadjust2.cpp \
     bundleadjustinf.cpp \
-    $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.cpp
+    $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.cpp \
+    griddialog.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -38,12 +39,14 @@ HEADERS  += mainwindow.h \
     mapxydialog.h \
     bundleadjust2.h \
     bundleadjustinf.h \
-    $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.h
+    $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.h \
+    griddialog.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \
     tparadialog.ui \
-    mapxydialog.ui
+    mapxydialog.ui \
+    griddialog.ui
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/

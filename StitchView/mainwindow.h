@@ -45,6 +45,8 @@ private slots:
 
     void on_actionOutput_all_triggered();
 
+    void on_actionDrawGrid_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

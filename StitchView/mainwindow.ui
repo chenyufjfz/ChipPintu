@@ -48,6 +48,7 @@
      <string>PostProcess</string>
     </property>
     <addaction name="actionTransForm"/>
+    <addaction name="actionDrawGrid"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuConfig"/>
@@ -115,6 +116,11 @@
   <action name="actionOutput_all">
    <property name="text">
     <string>Output all</string>
+   </property>
+  </action>
+  <action name="actionDrawGrid">
+   <property name="text">
+    <string>DrawGrid</string>
    </property>
   </action>
  </widget>

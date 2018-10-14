@@ -223,14 +223,17 @@ void StitchView::paintEvent(QPaintEvent *)
 	}
 
 	if (draw_grid) {
+		painter.setPen(QPen(Qt::red, 1, Qt::DashLine));
 		int width = size().width();
 		int height = size().height();
-		for (int i = view_rect.top() / yoffset + 1; i < view_rect.bottom() / yoffset; i++) {
-			int y = i * yoffset;
+		if (ygrid_size >= 2)
+		for (int i = (view_rect.top() - yoffset) / ygrid_size + 1; i <= (view_rect.bottom() - yoffset) / ygrid_size; i++) {
+			int y = (i * ygrid_size + yoffset - view_rect.top()) / scale;
 			painter.drawLine(0, y, width, y);
 		}
-		for (int i = view_rect.left() / xoffset + 1; i < view_rect.right() / xoffset; i++) {
-			int x = i * yoffset;
+		if (xgrid_size >= 2)
+		for (int i = (view_rect.left() - xoffset) / xgrid_size + 1; i <= (view_rect.right() - xoffset) / xgrid_size; i++) {
+			int x = (i * xgrid_size + xoffset - view_rect.left()) / scale;
 			painter.drawLine(x, 0, x, height);
 		}
 	}
@@ -250,7 +253,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			if (lf[layer].check_img_offset(MAKE_IMG_IDX(may_choose.x(), may_choose.y())))
 				lf[layer].cpara.offset(may_choose.y(), may_choose.x())[1] += lf[layer].cpara.rescale;
 			else
-				ri.set_cfg_para(layer, lf[layer].cpara);
+				ri.invalidate_cache(layer);
 		}
 		else 
 		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
@@ -258,7 +261,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			imgs = lf[layer].get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
 			for (int i = 0; i < (int) imgs.size(); i++)
 				lf[layer].cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[1] -= lf[layer].cpara.rescale;
-			ri.set_cfg_para(layer, lf[layer].cpara);
+			ri.invalidate_cache(layer);
 		}
 		else {
 			step = view_rect.width() * step_para / 10;
@@ -272,7 +275,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			if (lf[layer].check_img_offset(MAKE_IMG_IDX(may_choose.x(), may_choose.y())))
 				lf[layer].cpara.offset(may_choose.y(), may_choose.x())[0] += lf[layer].cpara.rescale;
 			else
-				ri.set_cfg_para(layer, lf[layer].cpara);
+				ri.invalidate_cache(layer);
 		}
 		else
 		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
@@ -280,7 +283,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			imgs = lf[layer].get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
 				lf[layer].cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[0] -= lf[layer].cpara.rescale;
-			ri.set_cfg_para(layer, lf[layer].cpara);
+			ri.invalidate_cache(layer);
 		}
 		else {
 			step = view_rect.height() * step_para / 10;
@@ -294,7 +297,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			if (lf[layer].check_img_offset(MAKE_IMG_IDX(may_choose.x(), may_choose.y())))
 				lf[layer].cpara.offset(may_choose.y(), may_choose.x())[1] -= lf[layer].cpara.rescale;
 			else
-				ri.set_cfg_para(layer, lf[layer].cpara);
+				ri.invalidate_cache(layer);
 		}
 		else
 		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
@@ -302,7 +305,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			imgs = lf[layer].get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
 				lf[layer].cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[1] += lf[layer].cpara.rescale;
-			ri.set_cfg_para(layer, lf[layer].cpara);
+			ri.invalidate_cache(layer);
 		}
 		else {
 			step = view_rect.width() * step_para / 10;
@@ -316,7 +319,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			if (lf[layer].check_img_offset(MAKE_IMG_IDX(may_choose.x(), may_choose.y())))
 				lf[layer].cpara.offset(may_choose.y(), may_choose.x())[0] -= lf[layer].cpara.rescale;
 			else
-				ri.set_cfg_para(layer, lf[layer].cpara);
+				ri.invalidate_cache(layer);
 		}
 		else
 		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
@@ -324,7 +327,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			imgs = lf[layer].get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
 				lf[layer].cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[0] += lf[layer].cpara.rescale;
-			ri.set_cfg_para(layer, lf[layer].cpara);
+			ri.invalidate_cache(layer);
 		}
 		else {
 			step = view_rect.height() * step_para / 10;
@@ -337,7 +340,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			scale = scale * 2;
 		break;
 	case Qt::Key_PageDown:
-		if (scale * 2 > lf[layer].cpara.rescale)
+		if (scale * 2 > lf[layer].cpara.rescale || (lf[layer].cpara.rescale==1 && scale > 0.4999))
 			scale = scale / 2;
 		break;
 	case Qt::Key_0:
@@ -422,8 +425,8 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 		}
 	}
 	char info[200];
-    sprintf(info, "%s,x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d", lf[layer].layer_name.c_str(),
-            mouse_point.x(), mouse_point.y(), src_point.x, src_point.y,
+    sprintf(info, "%d:%s,x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d", layer, 
+		lf[layer].layer_name.c_str(), mouse_point.x(), mouse_point.y(), src_point.x, src_point.y,
             may_choose.x() + 1, may_choose.y() + 1, minloc_shift.x, minloc_shift.y, edge_cost);
 	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
@@ -506,7 +509,8 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 		imgs_y = lf[layer].get_fix_img(MAKE_IMG_IDX(EDGE_X(edge_idx), EDGE_Y(edge_idx)), BIND_Y_MASK);
 		lf[layer].fix_edge[EDGE_E(edge_idx)](EDGE_Y(edge_idx), EDGE_X(edge_idx)) = new_fix;
 		int ret = lf[layer].check_edge(edge_idx);
-		int reload = ret;
+		if (ret)
+			ri.invalidate_cache(layer);
 		while (ret) {
 			if (ret & 1) {
 				for (int i = 0; i < (int)imgs_x.size(); i++)
@@ -526,8 +530,6 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 			}
 			ret = lf[layer].check_edge(edge_idx);
 		}
-		if (reload)
-			ri.set_cfg_para(layer, lf[layer].cpara);
 	}
 	else {
 		if (choose[2] != may_choose) {
@@ -605,7 +607,8 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 		lf[_layer].fix_edge[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
 		lf[_layer].fix_edge[1] = 0;
 	}
-	ri.set_cfg_para(_layer, _cpara);
+	for (int i = 0; i < lf.size(); i++)
+		ri.set_cfg_para(_layer, &lf[i].cpara);
 	qInfo("set config, l=%d, s=%d, nx=%d, ny=%d", _layer, _cpara.rescale, _cpara.img_num_w, _cpara.img_num_h);
 	return 0;
 }
@@ -665,16 +668,17 @@ int StitchView::get_dst_wide()
 	return ri.get_dst_wide();
 }
 
-void StitchView::set_grid(int _xoffset, int _yoffset, int _xgrid_size, int _ygrid_size)
+void StitchView::set_grid(double _xoffset, double _yoffset, double _xgrid_size, double _ygrid_size)
 {
 	xoffset = _xoffset;
 	yoffset = _yoffset;
 	xgrid_size = _xgrid_size;
 	ygrid_size = _ygrid_size;
 	draw_grid = true;
+	update();
 }
 
-void StitchView::get_grid(int & _xoffset, int & _yoffset, int & _xgrid_size, int & _ygrid_size)
+void StitchView::get_grid(double & _xoffset, double & _yoffset, double & _xgrid_size, double & _ygrid_size)
 {
 	_xoffset = xoffset;
 	_yoffset = yoffset;
@@ -752,7 +756,7 @@ int StitchView::optimize_offset(int _layer)
 	}
 	thread_bundle_adjust(ba, &lf[layer].feature, &adjust_offset, &lf[layer].corner_info, &fe);
 	lf[layer].cpara.offset = adjust_offset;
-	ri.set_cfg_para(layer, lf[layer].cpara);
+	ri.invalidate_cache(layer);
 	update();
 #endif
 	return 0;
@@ -880,7 +884,7 @@ int StitchView::read_file(string file_name)
 			char name[30];
 			sprintf(name, "cpara%d", i);
 			fs[name] >> lf[i].cpara;
-			ri.set_cfg_para(i, lf[i].cpara);
+			ri.set_cfg_para(i, &lf[i].cpara);
 			sprintf(name, "tpara%d", i);
 			fs[name] >> lf[i].tpara;
 			sprintf(name, "diff_file%d", i);

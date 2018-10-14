@@ -364,7 +364,7 @@ class RenderImage
 {
 protected:
 	//Following is for map dst to src
-	vector<ConfigPara> cpara; //each layer's cpara, index is layer
+	vector<const ConfigPara *> cpara; //each layer's cpara, index is layer
 	vector<MapXY> mapxy;
 	vector<Size> src_img_size; //each layer's src raw image size
 	int dst_w;
@@ -378,15 +378,17 @@ protected:
 	int prev_load_flag;
 	vector<MapID> prev_draw_order;
 public:
-	void set_cfg_para(int layer, const ConfigPara & _cpara);
-	ConfigPara get_cfg_para(int layer);
+	void set_cfg_para(int layer, const ConfigPara * _cpara);
+	const ConfigPara * get_cfg_para(int layer);
 	Size get_src_img_size(int layer);
 	void set_mapxy(int layer, const MapXY & _mapxy);
 	MapXY get_mapxy(int layer);
 	bool is_mapxy_origin(int layer);
 	void set_dst_wide(int wide);
 	int get_dst_wide();
-
+	void invalidate_cache(int layer) {
+		postmap_cache.clear(layer);
+	}
 	//Input: mapid is for dst mapid
 	//Output: imgs is dst QImage
 	void render_img(const vector<MapID> & map_id, vector<QImage> & imgs, const vector<MapID> & draw_order);

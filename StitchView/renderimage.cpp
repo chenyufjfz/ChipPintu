@@ -263,8 +263,8 @@ void MapXY::set_original()
 bool MapXY::is_original() const
 {
 	return (beta == 0 && z0x == 1 && z0y == 1 && tx.size() == 1 && ty.size() == 1
-		&& tx[0].sp - tx[0].dp == (int)(tx[0].sp - tx[0].dp)
-		&& ty[0].sp - ty[0].dp == (int)(ty[0].sp - ty[0].dp));
+		&& (abs(tx[0].sp - tx[0].dp - (int)(tx[0].sp - tx[0].dp)) < 0.00001)
+		&& (abs(ty[0].sp - ty[0].dp - (int)(ty[0].sp - ty[0].dp)) < 0.00001));
 }
 
 Point2d MapXY::mid2dst(Point2d mid) const
@@ -614,8 +614,8 @@ void thread_map_image(MapRequest & pr)
 				uchar * plt = src_map[i].m.ptr<uchar>((int)offset.y, (int)offset.x);
 				bool x_in_range = (offset.x > 0 && move.x < src_map[i].rb.x);
 				bool y_in_range = (offset.y > 0 && move.y < src_map[i].rb.y);
-				float deltax = offset.x - (int)offset.x;
-				float deltay = offset.y - (int)offset.y;
+				float deltax = 1 - (offset.x - (int)offset.x);
+				float deltay = 1 - (offset.y - (int)offset.y);
 				int map_type = src_map[i].m.type();
 				if (map_type == CV_8UC1) {
 					int glt = plt[0];					
@@ -630,8 +630,8 @@ void thread_map_image(MapRequest & pr)
 					for (int j = 0; j < 3; j++) {
 						int glt = plt[j];
 						int grt = x_in_range ? plt[j+3] : glt;
-						int glb = y_in_range ? plt[src_row_step] : glt;
-						int grb = (x_in_range && y_in_range) ? plt[src_row_step + 3] :
+						int glb = y_in_range ? plt[j+src_row_step] : glt;
+						int grb = (x_in_range && y_in_range) ? plt[j+src_row_step + 3] :
 							((!x_in_range && y_in_range) ? glb :
 							((x_in_range && !y_in_range) ? grt : glt));
 						dst_gray[j] += (deltax * glt + (1 - deltax) * grt) * deltay + (deltax * glb + (1 - deltax) * grb) * (1 - deltay);
@@ -687,7 +687,7 @@ void thread_map_image(MapRequest & pr)
 	pr.img = img;
 }
 
-void RenderImage::set_cfg_para(int layer, const ConfigPara & _cpara)
+void RenderImage::set_cfg_para(int layer, const ConfigPara * _cpara)
 {
 	if (layer > cpara.size() || layer < 0)
 		return;
@@ -699,13 +699,13 @@ void RenderImage::set_cfg_para(int layer, const ConfigPara & _cpara)
 		}
 	}
 	else {
-		if (cpara[layer].img_path != _cpara.img_path || cpara[layer].load_flag != _cpara.load_flag)
+		if (cpara[layer]->img_path != _cpara->img_path || cpara[layer]->load_flag != _cpara->load_flag)
 			premap_cache.clear(layer);
 		cpara[layer] = _cpara;
 		postmap_cache.clear(layer);
 	}
 	char file_name[200];
-	sprintf(file_name, "%s%d_%d.jpg", _cpara.img_path.c_str(), 1, 1);
+	sprintf(file_name, "%s%d_%d.jpg", _cpara->img_path.c_str(), 1, 1);
 	qDebug("loadImage, %s", file_name);
 	Mat raw_img = imread(file_name);
 	if (raw_img.empty()) {
@@ -713,15 +713,15 @@ void RenderImage::set_cfg_para(int layer, const ConfigPara & _cpara)
 		src_img_size[layer] = Size(1, 1);
 	} 
 	else
-		src_img_size[layer] = Size(raw_img.cols - _cpara.clip_l - _cpara.clip_r, raw_img.rows - _cpara.clip_d - _cpara.clip_u);
+		src_img_size[layer] = Size(raw_img.cols - _cpara->clip_l - _cpara->clip_r, raw_img.rows - _cpara->clip_d - _cpara->clip_u);
 	qInfo("set config, l=%d, nx=%d, ny=%d, img_w=%d, img_h=%d", layer,
-		_cpara.img_num_w, _cpara.img_num_h, raw_img.cols, raw_img.rows);
+		_cpara->img_num_w, _cpara->img_num_h, raw_img.cols, raw_img.rows);
 }
 
-ConfigPara RenderImage::get_cfg_para(int layer)
+const ConfigPara * RenderImage::get_cfg_para(int layer)
 {
 	if (layer >= cpara.size() || layer < 0)
-		return ConfigPara();
+		return NULL;
 	return cpara[layer];
 }
 
@@ -796,7 +796,7 @@ void RenderImage::render_img(const vector<MapID> & map_id, vector<QImage> & imgs
 			if (layer < cpara.size()) {
 				MapRequest mr;
 				mr.id = map_id[i];
-				mr.cpara = &cpara[layer];
+				mr.cpara = cpara[layer];
 				mr.dst_w = dst_w;
 				mr.pmapxy = &mapxy[layer];
 				mr.premap_cache = &premap_cache;

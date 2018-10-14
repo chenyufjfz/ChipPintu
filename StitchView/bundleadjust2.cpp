@@ -426,27 +426,31 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 	fc.resize((img_num_h + 1) * (img_num_w + 1));
 	queue<FourCorner *> bd_update;
 	//2.1 init res_sft and bd
+	corner_info.create(img_num_h, img_num_w);
 	for (int y = 0; y <= img_num_h; y++)
 	for (int x = 0; x <= img_num_w; x++) {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
 		pc->idx = MAKE_CORNER_IDX(x, y);
 		pc->bd = min(min(x, y), min(img_num_w - x, img_num_h - y));
 		Point res_sft(0, 0);
-		if (pc->bd)
-		for (int i = 0; i < 4; i++) {
-			Edge2 * pe = get_edge(pc->get_edge_idx(i));
-			CV_Assert(pe != NULL);
-			if (pe->diff->img_num == 0) {
-				pc->bd = 0;
-				res_sft = Point(0, 0);
-				bd_update.push(pc);
-				break;
+		if (pc->bd) {
+			for (int i = 0; i < 4; i++) {
+				Edge2 * pe = get_edge(pc->get_edge_idx(i));
+				CV_Assert(pe != NULL);
+				if (pe->diff->img_num == 0) {
+					pc->bd = 0;
+					res_sft = Point(0, 0);
+					bd_update.push(pc);
+					break;
+				}
+				if (i < 2)
+					res_sft += pe->idea_pos;
+				else
+					res_sft -= pe->idea_pos;
 			}
-			if (i < 2)
-				res_sft += pe->idea_pos;
-			else
-				res_sft -= pe->idea_pos;
+			corner_info(y, x) = abs(res_sft.x) + abs(res_sft.y);
 		}
+
 		CV_Assert(res_sft.x % scale == 0 && res_sft.y % scale == 0);
 		res_sft.x = res_sft.x / scale;
 		res_sft.y = res_sft.y / scale;
@@ -550,6 +554,8 @@ void BundleAdjust2::adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, 
 				break;
 		}
 		//following change edge mls
+		if (pb == NULL) 
+			qFatal("pa->idx=%x, sidx=%d, modify=%d", pa->idx, sidx, modify);
 		int dir = pa->get_dir(pb->idx);
 		Edge2 * pe = get_edge(pa->get_edge_idx(dir));
 		CV_Assert(pe != NULL);
@@ -700,7 +706,8 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 					new_cost_cache_valid[cache_idx] = 1;
 				}
 				float delta_cost = new_edge_cost - cur_edge_cost;
-				if (pc1->cs[i][j].cost > pc->cs[i][j].cost + delta_cost && new_edge_cost < COST_BIND / 2) { //update pc1
+				double dcost = pc1->cs[i][j].cost - pc->cs[i][j].cost - delta_cost;
+				if (dcost > 0.000001 && new_edge_cost < COST_BIND / 2) { //update pc1
 					pc1->cs[i][j].cost = pc->cs[i][j].cost + delta_cost;
 					pc1->cs[i][j].fa = pc->idx;
 					if (pc1->cs[i][j].update_state != 2) //if pc1 state is 2, should still hold as 2
@@ -1711,12 +1718,13 @@ void BundleAdjust2::output()
 	}
 	qInfo("BundleAdjust2 Ouput err=%d", abs_err);
 	//compute need_visit, 0 means no need, 1 means need, 2 means already visit
-	corner_info.create(img_num_h, img_num_w);
+	CV_Assert(corner_info.rows == img_num_h && corner_info.cols == img_num_w);
+	Mat_<unsigned> corner_cost(corner_info.size());
+	corner_cost = 0;
 	vector<int> need_visit(img_num_h * img_num_w, 0);
 	for (int y = 0; y < img_num_h; y++)
 	for (int x = 0; x < img_num_w; x++)  {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
-		corner_info(y, x) = 0;
 		if (pc->bd > 0 && pc->res_sft[0] == 0 && pc->res_sft[1] == 0) {
 			need_visit[(y - 1)*img_num_w + x - 1] = 1;
 			need_visit[(y - 1)*img_num_w + x] = 1;
@@ -1773,7 +1781,9 @@ void BundleAdjust2::output()
 						if (cur_edge_cost > COST_BIND / 2)
 							qFatal("internal error, edge (x=%d,y=%d,e=%d) point (x=%d,y=%d)", EDGE_X(pe->diff->edge_idx),
 							EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), cur_edge_point.x, cur_edge_point.y);
-						corner_info(y, x) += cur_edge_cost * 20;
+						corner_cost(y, x) += cur_edge_cost * 20;
+						if (corner_cost(y, x) > 65535)
+							corner_cost(y, x) = 65535;
 					}
 				}
 			}
@@ -1783,10 +1793,8 @@ void BundleAdjust2::output()
 	for (int y = 0; y < img_num_h; y++)
 	for (int x = 0; x < img_num_w; x++) {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
-		unsigned long long cost = corner_info(y, x);
-		if (cost > 65535)
-			cost = 65535;
-		corner_info(y, x) = cost << 48 | ((unsigned long long) sft(y, x) << 32) | (pc->change_y << 16) | pc->change_x;
+		unsigned cost = corner_cost(y, x);
+		corner_info(y, x) |= ((unsigned long long) cost << 48) | ((unsigned long long) sft(y, x) << 32) | (pc->change_id << 16);
 	}
 	for (int i = 0; i < 2; i++)
 	for (int j = 0; j < eds[i].size(); j++)

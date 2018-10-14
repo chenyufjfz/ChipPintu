@@ -3,6 +3,7 @@
 #include "cparadialog.h"
 #include "tparadialog.h"
 #include "mapxydialog.h"
+#include "griddialog.h"
 #include <QMessageBox>
 #include <QFileDialog>
 
@@ -210,5 +211,21 @@ void MainWindow::on_actionOutput_layer_triggered()
 
 void MainWindow::on_actionOutput_all_triggered()
 {
+    QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"));
+    if (!pathname.isEmpty()) {
+        int layer_num = stitch_view->get_layer_num();
+        for (int l=0; l<layer_num; l++)
+            stitch_view->output_layer(l, pathname.toStdString());
+    }
+}
+
+void MainWindow::on_actionDrawGrid_triggered()
+{
+    double gh, gw, oy, ox;
+    stitch_view->get_grid(ox, oy, gw, gh);
+    GridDialog grid_dlg(this, gh, gw, oy, ox);
+    if (grid_dlg.exec() == QDialog::Accepted) {
+		stitch_view->set_grid(grid_dlg.offset_x, grid_dlg.offset_y, grid_dlg.grid_width, grid_dlg.grid_high);
+    }
 
 }
