@@ -448,7 +448,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 				else
 					res_sft -= pe->idea_pos;
 			}
-			corner_info(y, x) = abs(res_sft.x) + abs(res_sft.y);
+			corner_info(y, x) = (res_sft.x & 0xffff) | res_sft.y << 16;
 		}
 
 		CV_Assert(res_sft.x % scale == 0 && res_sft.y % scale == 0);
@@ -1794,7 +1794,7 @@ void BundleAdjust2::output()
 	for (int x = 0; x < img_num_w; x++) {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
 		unsigned cost = corner_cost(y, x);
-		corner_info(y, x) |= ((unsigned long long) cost << 48) | ((unsigned long long) sft(y, x) << 32) | (pc->change_id << 16);
+		corner_info(y, x) |= ((unsigned long long) cost << 48) | ((unsigned long long) sft(y, x) << 32);
 	}
 	for (int i = 0; i < 2; i++)
 	for (int j = 0; j < eds[i].size(); j++)

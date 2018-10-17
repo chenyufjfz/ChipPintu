@@ -126,10 +126,11 @@ class StitchView : public QWidget
     Q_OBJECT
 public:
     explicit StitchView(QWidget *parent = 0);
-
+	~StitchView();
 signals:
 	void MouseChange(QString info);
 	void notify_progress(float progress);
+	void title_change(QString title);
 
 public slots:
 
@@ -157,7 +158,7 @@ protected:
 	
 	//Following is for feature compute and store
 	FeatExt computing_feature;
-	vector<LayerFeature> lf;
+	vector<LayerFeature *> lf;
 	int feature_layer; //computing_feature is for which layer
 	QFuture<string> compute_feature;
 	int compute_feature_timer;
@@ -204,7 +205,7 @@ public:
 		if (_layer >= lf.size() || _layer < 0)
 			return string();
 		else
-			return lf[_layer].layer_name;
+			return lf[_layer]->layer_name;
 	}
 	void set_layer_name(int _layer, string name) {
 		if (_layer == -1)
@@ -212,7 +213,7 @@ public:
 		if (_layer >= lf.size() || _layer < 0)
 			return;
 		else
-			lf[_layer].layer_name = name;
+			lf[_layer]->layer_name = name;
 	}
 	int output_layer(int _layer, string pathname);
 	//if _layer==-1, means erase current layer

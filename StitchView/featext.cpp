@@ -547,7 +547,12 @@ int FeatExt::read_diff_file(string filename)
 
 const EdgeDiff * FeatExt::get_edge(int i, int y, int x) const
 {
-	CV_Assert(i == 0 && y < cpara.img_num_h - 1 && x < cpara.img_num_w || i == 1 && y < cpara.img_num_h && x < cpara.img_num_w - 1);
+	if (i == 0 && (y >= cpara.img_num_h - 1 || x >= cpara.img_num_w))
+		return NULL;
+	if (i == 1 && (y >= cpara.img_num_h || x >= cpara.img_num_w - 1))
+		return NULL;
+	if (x < 0 || y < 0)
+		return NULL;
 	if (i == 0)
 		return &edge[0][y* cpara.img_num_w + x];
 	else

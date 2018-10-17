@@ -21,6 +21,7 @@ public:
 protected slots:
 	void mouse_change(QString info);
 	void notify_progress(float progress);
+	void title_change(QString title);
 
 private slots:
     void on_actionConfig_Para_triggered();

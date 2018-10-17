@@ -91,7 +91,8 @@ public:
 
 	void set_default_zoomx(double _sz) {
 		CV_Assert(_sz != 0);
-        z0x = _sz;
+		if (tx.size() <= 1)
+			z0x = _sz;
 	}
 
 	double get_default_zoomx() const {
@@ -100,7 +101,8 @@ public:
 
 	void set_default_zoomy(double _sz) {
 		CV_Assert(_sz != 0);
-        z0y = _sz;
+		if (ty.size() <= 1)
+			z0y = _sz;
 	}
 
 	double get_default_zoomy() const {

@@ -28,6 +28,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
 	connect(stitch_view, SIGNAL(MouseChange(QString)), this, SLOT(mouse_change(QString)));
 	connect(stitch_view, SIGNAL(notify_progress(float)), this, SLOT(notify_progress(float)));
+	connect(stitch_view, SIGNAL(title_change(QString)), this, SLOT(title_change(QString)));
 }
 
 MainWindow::~MainWindow()
@@ -43,6 +44,11 @@ void MainWindow::mouse_change(QString info)
 void MainWindow::notify_progress(float pos)
 {
 	pProgressBar->setValue(100 * pos);
+}
+
+void MainWindow::title_change(QString title)
+{
+	setWindowTitle(title);
 }
 
 void MainWindow::on_actionConfig_Para_triggered()
