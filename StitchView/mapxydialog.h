@@ -15,9 +15,10 @@ public:
 	double zy;
 	int merge;
 	int dst_w;
-
+	int max_pt_err;
+	double max_slope_err;
 public:
-	explicit MapxyDialog(double _beta, double _zx, double _zy, int _merge, int _dst_w, QWidget *parent = 0);
+	explicit MapxyDialog(double _beta, double _zx, double _zy, int _merge, int _dst_w, int _max_pt_err, double _max_slope_err, QWidget *parent = 0);
     ~MapxyDialog();
 
 private slots:

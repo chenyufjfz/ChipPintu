@@ -175,13 +175,14 @@ static void add_turn_point(vector<TurnPoint> & tp, double s, double d)
 
 /*
 output tp, turn point result
-inout nxy, nail's x or y nxy.first is src, nxy.second is dst
+inout nxy, nail's x or y nxy.first is mid, nxy.second is dst
 output z, default slope rate
 return 0 if good, else bad
 */
 int MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z)
 {
     //1 sort and merge
+	tp.clear();
     sort(nxy.begin(), nxy.end());
     for (int i = 0, weight = 1; i + 1 < (int)nxy.size();) {
         if (abs(nxy[i].first - nxy[i + 1].first) < merge_pt_distance ||
@@ -230,13 +231,13 @@ int MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > 
             double u = ((double) x1 - nxy[nx_idx].first) / (nxy[nx_idx + 1].first - nxy[nx_idx].first);
 			CV_Assert(u >= 0 && u <= 1);
             int y1 = nx_shift[nx_idx] * (2 * u*u*u - 3 * u*u + 1) + nx_shift[nx_idx + 1] * (-2 * u*u*u + 3 * u*u) +
-                line.first * (u*u*u - 2 * u*u + u) + line.first * (u*u*u - u*u);
+				line.first * (nxy[nx_idx + 1].first - nxy[nx_idx].first) * (2 * u*u*u - 3 * u*u + u);
             add_turn_point(tp, x1, y1);
         }
 
 		//4 check if result is good
 		for (int i = 0; i + 1 < (int)nxy.size(); i++) {
-			double err_slope = (errs[i + 1] - errs[i]) / (nxy[nx_idx + 1].first - nxy[nx_idx].first);
+			double err_slope = (errs[i + 1] - errs[i]) / (nxy[i + 1].first - nxy[i].first);
 			if (abs(err_slope) > max_slope)
 				return 1;
 		}		
@@ -258,6 +259,7 @@ void MapXY::set_original()
 	merge_method = MERGE_BY_DRAW_ORDER;
 	merge_pt_distance = 512;
 	max_pt_error = 1;
+	max_slope = 0.001;
 }
 
 bool MapXY::is_original() const
@@ -333,14 +335,14 @@ Point2d MapXY::dst2mid(Point2d dst) const
 int MapXY::recompute(const vector<pair<Point, Point> > & nail)
 {
 	int ret = 0;
-	if (nail.size() == 0) {
-		set_original();
+	if (nail.size() == 0)
 		return ret;
-	}
+	
 	vector<pair<int, int> > nx, ny;
 	for (int i = 0; i < nail.size(); i++) {
-		nx.push_back(make_pair(nail[i].first.x, nail[i].second.x));
-		ny.push_back(make_pair(nail[i].first.y, nail[i].second.y));
+		Point mid = src2mid(nail[i].first);
+		nx.push_back(make_pair(mid.x, nail[i].second.x));
+		ny.push_back(make_pair(mid.y, nail[i].second.y));
 	}
 
 	ret |= recompute_turn_point(tx, nx, z0x);
@@ -360,7 +362,7 @@ public:
 	PremapTailorImg() {}
 	PremapTailorImg(const Mat _m, Rect_<double> & _r, unsigned _draw_order = 0) {
 		lt = Point2d(_r.x + 0.5, _r.y + 0.5);
-		rb = Point2d(_r.x + _r.width - 0.5, _r.y + _r.height - 0.5);
+		rb = Point2d(_r.x + _r.width - 1.5, _r.y + _r.height - 1.5);
 		m = _m;
 		rect = _r;
 		draw_order = _draw_order;
@@ -436,7 +438,11 @@ void thread_map_image(MapRequest & pr)
 	//0 Following compute 4 dst vertex and src point
 	Point lt, rb;
 	Point2d src_lt, src_rb, src_lb, src_rt;
-
+#if 1
+	if (MAPID_X(pr.id) == 1 && MAPID_Y(pr.id) == 1) {
+		pr.id = pr.id * 2 - pr.id;
+	}
+#endif
 	Point dst_lt(dst_w * MAPID_X(pr.id), dst_w * MAPID_Y(pr.id));
 	Point dst_rb(dst_lt.x + dst_w - 1, dst_lt.y + dst_w - 1);
 	Point dst_lb(dst_lt.x, dst_rb.y);
@@ -741,7 +747,7 @@ void RenderImage::set_mapxy(int layer, const MapXY & _mapxy)
 		mapxy[layer] = _mapxy;
 		postmap_cache.clear(layer);
 	}
-	qInfo("set mapxy, beta=%f, z0x=%f, z0y=%f", layer, _mapxy.get_beta(), _mapxy.get_default_zoomx(), _mapxy.get_default_zoomy());
+	qInfo("set mapxy, l=%d, beta=%f, z0x=%f, z0y=%f", layer, _mapxy.get_beta(), _mapxy.get_default_zoomx(), _mapxy.get_default_zoomy());
 }
 
 MapXY RenderImage::get_mapxy(int layer)

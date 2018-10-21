@@ -69,25 +69,28 @@ static ProcessScaleData scale_image_2x2(const ProcessScaleData & _d)
 	if (t.ic->getRawImgByIdx(buff, x1, y0, s - 1, 0) == 0) {
 		if (!image1.loadFromData((uchar *)&buff[0], (int)buff.size()))
 			qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y0, s - 1);
-		if (image0.format() != image1.format() || image0.width() != image1.width() || image0.height() != image1.height())
-			qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y0, s - 1,
-			image1.format(), image1.width(), image1.height());
+		if (image0.width() != image1.width() || image0.height() != image1.height())
+			qFatal("image format or size not same, (x0=%d,y0=%d,f0=%d,w0=%d,h0=%d),(x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", 
+			x0, y0, image0.format(), image0.width(), image0.height(),
+			x1, y0, s - 1, image1.format(), image1.width(), image1.height());
 		v++;
 	}
 	if (t.ic->getRawImgByIdx(buff, x0, y1, s - 1, 0) == 0) {
 		if (!image2.loadFromData((uchar *)&buff[0], (int)buff.size()))
 			qFatal("image format error, (x=%d,y=%d,s=%d)", x0, y1, s - 1);
-		if (image0.format() != image2.format() || image0.width() != image2.width() || image0.height() != image2.height())
-			qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x0, y1, s - 1,
-			image2.format(), image2.width(), image2.height());
+		if (image0.width() != image2.width() || image0.height() != image2.height())
+			qFatal("image format or size not same, (x0=%d,y0=%d,f0=%d,w0=%d,h0=%d),(x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", 
+			x0, y0, image0.format(), image0.width(), image0.height(),
+			x0, y1, s - 1, image2.format(), image2.width(), image2.height());
 		v++;
 	}
 	if (t.ic->getRawImgByIdx(buff, x1, y1, s - 1, 0) == 0) {
 		if (!image3.loadFromData((uchar *)&buff[0], (int)buff.size()))
 			qFatal("image format error, (x=%d,y=%d,s=%d)", x1, y1, s - 1);
-		if (image0.format() != image3.format() || image0.width() != image3.width() || image0.height() != image3.height())
-			qFatal("image format or size not same, (x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", x1, y1, s - 1,
-			image3.format(), image3.width(), image3.height());
+		if (image0.width() != image3.width() || image0.height() != image3.height())
+			qFatal("image format or size not same, (x0=%d,y0=%d,f0=%d,w0=%d,h0=%d),(x=%d,y=%d,s=%d),f=%x, w=%d, h=%d", 
+			x0, y0, image0.format(), image0.width(), image0.height(),
+			x1, y1, s - 1, image3.format(), image3.width(), image3.height());
 		v++;
 	}
 	if (v == 3)

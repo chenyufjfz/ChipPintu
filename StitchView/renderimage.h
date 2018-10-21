@@ -32,7 +32,8 @@ protected:
 	double beta; //rotate angle
 	double cos_beta, sin_beta;
 	int merge_method; //for picture merge, it should not be here, but there is no good place to put it
-	int merge_pt_distance, max_pt_error, max_slope;
+	int merge_pt_distance, max_pt_error;
+	double max_slope;
 	vector<TurnPoint> tx, ty; //fold line
     double z0x, z0y;
 	int recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z);
@@ -103,6 +104,15 @@ public:
 		CV_Assert(_sz != 0);
 		if (ty.size() <= 1)
 			z0y = _sz;
+	}
+
+	double get_max_slope() const {
+		return max_slope;
+	}
+
+	void set_max_slope(double _max_slope) {
+		if (_max_slope > 0)
+			max_slope = _max_slope;
 	}
 
 	double get_default_zoomy() const {

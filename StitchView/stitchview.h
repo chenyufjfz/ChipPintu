@@ -78,6 +78,12 @@ struct LayerFeature {
 		}
 		return ret;
 	}
+
+	/*if fix edge is in bound return 0, else return direction
+	1: x<0
+	2: x>bound
+	4: y<0
+	8: y>bound*/
 	int check_edge(unsigned edge_idx) {
 		int ret = 0;
 		if (!feature.is_valid())
@@ -85,6 +91,10 @@ struct LayerFeature {
 		int x = EDGE_X(edge_idx);
 		int y = EDGE_Y(edge_idx);
 		int e = EDGE_E(edge_idx);
+		if (e == 0 && (y >= cpara.img_num_h - 1 || x >= cpara.img_num_w))
+			return 0;
+		if (e == 1 && (y >= cpara.img_num_h || x >= cpara.img_num_w - 1))
+			return 0;
 		if (fix_edge[e](y, x) == 0)
 			return 0;
 		Point o0(cpara.offset(y, x)[1], cpara.offset(y, x)[0]);
@@ -118,6 +128,50 @@ struct LayerFeature {
 		if (x > 0 && check_edge(MAKE_EDGE_IDX(x - 1, y, 1)))
 			return 1;
 		return 0;
+	}
+};
+
+class Nail {
+public:
+	LayerFeature * lf0;
+	LayerFeature * lf1;
+	Point p0, p1;
+	Nail() {
+		lf0 = NULL;
+		lf1 = NULL;
+	}
+	Nail(LayerFeature * _lf0, LayerFeature * _lf1, Point _p0, Point _p1) {
+		lf0 = _lf0;
+		lf1 = _lf1;
+		p0 = _p0;
+		p1 = _p1;
+	}
+	bool within_range(LayerFeature *lf, Point p, int range) {
+		if (lf0 == lf && abs(p0.x - p.x) < range && abs(p0.y - p.y) < range)
+			return true;
+		if (lf1 == lf && abs(p1.x - p.x) < range && abs(p1.y - p.y) < range)
+			return true;
+		return false;
+	}
+	bool within_range(Nail n, int range) {
+		if (lf0 == n.lf0 && lf1 == n.lf1 &&
+			abs(p0.x - n.p0.x) < range && abs(p0.y - n.p0.y) < range &&
+			abs(p1.x - n.p1.x) < range && abs(p1.y - n.p1.y) < range)
+			return true;
+		if (lf0 == n.lf1 && lf1 == n.lf0 &&
+			abs(p0.x - n.p1.x) < range && abs(p0.y - n.p1.y) < range &&
+			abs(p1.x - n.p0.x) < range && abs(p1.y - n.p0.y) < range)
+			return true;
+		return false;
+	}
+	void swap_order() {
+		swap(lf0, lf1);
+		swap(p0, p1);
+	}
+
+	bool operator==(const Nail & n) {
+		return (lf0 == n.lf0 && lf1 == n.lf1 && p0 == n.p0 && p1 == n.p1 ||
+			lf0 == n.lf1 && lf1 == n.lf0 && p0 == n.p1 && p1 == n.p0);
 	}
 };
 
@@ -170,12 +224,27 @@ protected:
 	//upper is for grid drawing
 
 	//Following is for bundleadjust
-	int bundle_adjust_timer;
 	BundleAdjustInf * ba;
-	QFuture<void> bundle_adjust_future;
 	Mat_<Vec2i> adjust_offset;
 	int auto_save;
 	//upper is for bundleadjust
+
+	//Following is for nail
+	vector<Nail> nails;
+	bool add_nail(Nail nail);
+	void del_nail(Nail nail);
+	void get_one_layer_nails(LayerFeature * lf, vector<Nail> &ns);
+	void del_one_layer_nails(LayerFeature * lf);
+	Nail search_nail(LayerFeature * lf, Point p, int range);
+	unsigned long long generate_mapxy();
+	int which_layer(LayerFeature * l);
+	Nail cur_nail;
+	//Upper is for nail
+
+	//follow is for draw mouse
+	int mouse_state;
+	QPoint cur_mouse_point;
+	//upper is for draw mouse
 public:
 	//if _layer==-1, means current layer, if _layer==get_layer_num(), add new layer
 	int set_config_para(int _layer, const ConfigPara & _cpara);
@@ -215,9 +284,13 @@ public:
 		else
 			lf[_layer]->layer_name = name;
 	}
+	void to_state_add_nail();
+	void to_state_change_nail();
 	int output_layer(int _layer, string pathname);
 	//if _layer==-1, means erase current layer
 	int delete_layer(int _layer);
+	int layer_up(int _layer);
+	int layer_down(int _layer);
 	void write_file(string file_name);
 	int read_file(string file_name);
 };

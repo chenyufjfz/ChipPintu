@@ -31,8 +31,6 @@
     <addaction name="actionQuick_Load"/>
     <addaction name="actionSave_as"/>
     <addaction name="actionLoad"/>
-    <addaction name="actionOutput_layer"/>
-    <addaction name="actionOutput_all"/>
    </widget>
    <widget class="QMenu" name="menuConfig">
     <property name="title">
@@ -49,10 +47,25 @@
     </property>
     <addaction name="actionTransForm"/>
     <addaction name="actionDrawGrid"/>
+    <addaction name="separator"/>
+    <addaction name="actionAddNail"/>
+    <addaction name="actionSelectNail"/>
+   </widget>
+   <widget class="QMenu" name="menuLayer">
+    <property name="title">
+     <string>Layer</string>
+    </property>
+    <addaction name="actionDelete_layer"/>
+    <addaction name="actionLayer_Up"/>
+    <addaction name="actionLayer_Down"/>
+    <addaction name="separator"/>
+    <addaction name="actionOutput_layer"/>
+    <addaction name="actionOutput_all"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuConfig"/>
    <addaction name="menuPostProcess"/>
+   <addaction name="menuLayer"/>
   </widget>
   <widget class="QToolBar" name="mainToolBar">
    <attribute name="toolBarArea">
@@ -121,6 +134,31 @@
   <action name="actionDrawGrid">
    <property name="text">
     <string>DrawGrid</string>
+   </property>
+  </action>
+  <action name="actionAddNail">
+   <property name="text">
+    <string>AddNail</string>
+   </property>
+  </action>
+  <action name="actionDelete_layer">
+   <property name="text">
+    <string>Delete layer</string>
+   </property>
+  </action>
+  <action name="actionSelectNail">
+   <property name="text">
+    <string>SelectNail</string>
+   </property>
+  </action>
+  <action name="actionLayer_Up">
+   <property name="text">
+    <string>Layer Up</string>
+   </property>
+  </action>
+  <action name="actionLayer_Down">
+   <property name="text">
+    <string>Layer Down</string>
    </property>
   </action>
  </widget>

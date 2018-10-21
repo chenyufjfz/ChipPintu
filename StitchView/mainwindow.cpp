@@ -179,12 +179,15 @@ void MainWindow::on_actionTransForm_triggered()
 {
 	MapXY mxy = stitch_view->get_mapxy(-1);
 	int dst_w = stitch_view->get_dst_wide();
-	MapxyDialog mxy_dlg(mxy.get_beta(), mxy.get_default_zoomx(), mxy.get_default_zoomy(), mxy.get_merge_method(), dst_w, this);
+	MapxyDialog mxy_dlg(mxy.get_beta(), mxy.get_default_zoomx(), mxy.get_default_zoomy(), 
+		mxy.get_merge_method(), dst_w, mxy.get_max_pt_error(), mxy.get_max_slope(), this);
 	if (mxy_dlg.exec() == QDialog::Accepted) {
 		mxy.set_beta(mxy_dlg.beta);
 		mxy.set_default_zoomx(mxy_dlg.zx);
 		mxy.set_default_zoomy(mxy_dlg.zy);
 		mxy.set_merge_method(mxy_dlg.merge);
+		mxy.set_max_pt_error(mxy_dlg.max_pt_err);
+		mxy.set_max_slope(mxy_dlg.max_slope_err);
 		dst_w = mxy_dlg.dst_w;
 		stitch_view->set_mapxy_dstw(-1, mxy, dst_w);
 	}
@@ -234,4 +237,32 @@ void MainWindow::on_actionDrawGrid_triggered()
 		stitch_view->set_grid(grid_dlg.offset_x, grid_dlg.offset_y, grid_dlg.grid_width, grid_dlg.grid_high);
     }
 
+}
+
+void MainWindow::on_actionAddNail_triggered()
+{
+    stitch_view->to_state_add_nail();
+}
+
+void MainWindow::on_actionDelete_layer_triggered()
+{
+	QMessageBox::StandardButton ret = QMessageBox::warning(NULL, "Delete Layer", "Are you sure delete this layer",
+		QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+	if (ret == QMessageBox::Ok)
+		stitch_view->delete_layer(-1);
+}
+
+void MainWindow::on_actionSelectNail_triggered()
+{
+    stitch_view->to_state_change_nail();
+}
+
+void MainWindow::on_actionLayer_Up_triggered()
+{
+	stitch_view->layer_up(-1);
+}
+
+void MainWindow::on_actionLayer_Down_triggered()
+{
+	stitch_view->layer_down(-1);
 }

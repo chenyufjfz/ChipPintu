@@ -48,6 +48,16 @@ private slots:
 
     void on_actionDrawGrid_triggered();
 
+    void on_actionAddNail_triggered();
+
+    void on_actionDelete_layer_triggered();
+
+    void on_actionSelectNail_triggered();
+
+    void on_actionLayer_Up_triggered();
+
+    void on_actionLayer_Down_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;
