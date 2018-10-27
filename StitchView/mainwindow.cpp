@@ -180,14 +180,14 @@ void MainWindow::on_actionTransForm_triggered()
 	MapXY mxy = stitch_view->get_mapxy(-1);
 	int dst_w = stitch_view->get_dst_wide();
 	MapxyDialog mxy_dlg(mxy.get_beta(), mxy.get_default_zoomx(), mxy.get_default_zoomy(), 
-		mxy.get_merge_method(), dst_w, mxy.get_max_pt_error(), mxy.get_max_slope(), this);
+		mxy.get_merge_method(), dst_w, mxy.get_max_pt_error(), mxy.get_merge_pt_distance(), this);
 	if (mxy_dlg.exec() == QDialog::Accepted) {
 		mxy.set_beta(mxy_dlg.beta);
 		mxy.set_default_zoomx(mxy_dlg.zx);
 		mxy.set_default_zoomy(mxy_dlg.zy);
 		mxy.set_merge_method(mxy_dlg.merge);
 		mxy.set_max_pt_error(mxy_dlg.max_pt_err);
-		mxy.set_max_slope(mxy_dlg.max_slope_err);
+		mxy.set_merge_pt_distance(mxy_dlg.merge_distance);
 		dst_w = mxy_dlg.dst_w;
 		stitch_view->set_mapxy_dstw(-1, mxy, dst_w);
 	}

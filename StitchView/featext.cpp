@@ -223,9 +223,13 @@ void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rec
 		}
 	}
 
-    for (int i = 0; i < out.size(); i++) 
-        normal_out[i] = (double)out[i] / num[i];
-        
+	for (int i = 0; i < out.size(); i++) 
+	if (num[i]==0)
+		normal_out[i] = DIFF_NOT_CONTACT / 100;
+	else {
+		CV_Assert(out[i] > 0);
+		normal_out[i] = (double)out[i] / num[i];
+	}
     e->dif.create(2 * yshift + 1, 2 * xshift + 1);
     for (int y = 0; y < 2 * yshift + 1; y++) {
 		int * pdiff = e->dif.ptr<int>(2 * yshift - y);

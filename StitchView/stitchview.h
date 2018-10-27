@@ -236,7 +236,7 @@ protected:
 	void get_one_layer_nails(LayerFeature * lf, vector<Nail> &ns);
 	void del_one_layer_nails(LayerFeature * lf);
 	Nail search_nail(LayerFeature * lf, Point p, int range);
-	unsigned long long generate_mapxy();
+	vector<double> generate_mapxy();
 	int which_layer(LayerFeature * l);
 	Nail cur_nail;
 	//Upper is for nail
@@ -266,6 +266,7 @@ public:
 	//From FeatExt, compute new cpara.offset
 	int optimize_offset(int _layer);
 	int get_layer_num() { return (int)lf.size(); }
+	void goto_xy(int x, int y);
 	int get_current_layer() { return layer; }
 	int set_current_layer(int _layer);
 	string get_layer_name(int _layer) {

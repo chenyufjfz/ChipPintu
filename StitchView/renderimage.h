@@ -36,7 +36,7 @@ protected:
 	double max_slope;
 	vector<TurnPoint> tx, ty; //fold line
     double z0x, z0y;
-	int recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z);
+	double recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z);
 	void recompute_tp(vector<TurnPoint> & tp, double default_zoom);
 
 public:
@@ -80,6 +80,10 @@ public:
 
 	int get_merge_pt_distance() const {
 		return merge_pt_distance;
+	}
+
+	void set_merge_pt_distance(int _merge_pt_distance) {
+		merge_pt_distance = _merge_pt_distance;
 	}
 
 	int get_merge_method() const {
@@ -150,7 +154,7 @@ public:
 	}
 
 	/*return 0 means success*/
-	int recompute(const vector<pair<Point, Point> > & nail);
+	double recompute(const vector<pair<Point, Point> > & nail);
 };
 
 void write(FileStorage& fs, const std::string&, const MapXY & x);

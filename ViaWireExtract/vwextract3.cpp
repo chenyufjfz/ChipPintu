@@ -587,7 +587,9 @@ public:
 		int yt = as.abs_org.y / img_width * img_width;
 		int xr = xl + img_width - (1 << scale);
 		int yb = yt + img_width - (1 << scale);
-		CV_Assert(as.abs_org.x <= xr && as.abs_org.y <= yb);
+		if (as.abs_org.x > xr || as.abs_org.y > yb)
+			qWarning("abs_org(%d,%d) > (%d,%d)", as.abs_org.x, as.abs_org.y, xr, yb);
+
 		switch (as.dir) {
 		case DIR_UP:
 			if (as.abs_org.y - yt < 50 << scale)
@@ -1242,6 +1244,8 @@ int VWExtractAnt::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<
 	Point org = Point(_area[0].rect.x(), _area[0].rect.y());
 	org.x = org.x / (32768 / ic_layer[0]->getBlockWidth());
 	org.y = org.y / (32768 / ic_layer[0]->getBlockWidth());
+	org.x = (org.x >> dw0.scale) << dw0.scale;
+	org.y = (org.y >> dw0.scale) << dw0.scale;
 	DetectWirePara dw1 = dw0; //backup dw0 for restore before return
 	//change non-scale pixel w_min, w_max to scale pixel unit
 	dw0.w_min = dw0.w_min >> dw0.scale;

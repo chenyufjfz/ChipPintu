@@ -179,8 +179,9 @@ inout nxy, nail's x or y nxy.first is mid, nxy.second is dst
 output z, default slope rate
 return 0 if good, else bad
 */
-int MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z)
+double MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z)
 {
+	double ret = 0;
     //1 sort and merge
 	tp.clear();
     sort(nxy.begin(), nxy.end());
@@ -238,11 +239,10 @@ int MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > 
 		//4 check if result is good
 		for (int i = 0; i + 1 < (int)nxy.size(); i++) {
 			double err_slope = (errs[i + 1] - errs[i]) / (nxy[i + 1].first - nxy[i].first);
-			if (abs(err_slope) > max_slope)
-				return 1;
+			ret = max(ret, abs(err_slope));
 		}		
     }
-	return 0;
+	return ret;
 }
 
 void MapXY::set_original()
@@ -332,9 +332,9 @@ Point2d MapXY::dst2mid(Point2d dst) const
 /*
 	Return 0: success, 1 means x wrong, 2 means y wrong
 */
-int MapXY::recompute(const vector<pair<Point, Point> > & nail)
+double MapXY::recompute(const vector<pair<Point, Point> > & nail)
 {
-	int ret = 0;
+	double ret = 0;
 	if (nail.size() == 0)
 		return ret;
 	
@@ -345,9 +345,9 @@ int MapXY::recompute(const vector<pair<Point, Point> > & nail)
 		ny.push_back(make_pair(mid.y, nail[i].second.y));
 	}
 
-	ret |= recompute_turn_point(tx, nx, z0x);
+	ret = recompute_turn_point(tx, nx, z0x);
 	recompute_tp(tx, z0x);
-	ret |= recompute_turn_point(ty, ny, z0y) << 1;
+	ret = max(ret, recompute_turn_point(ty, ny, z0y));
 	recompute_tp(ty, z0y);
 
 	return ret;

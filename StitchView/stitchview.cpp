@@ -411,7 +411,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			scale = scale * 2;
 		break;
 	case Qt::Key_PageDown:
-		if (scale * 2 > lf[layer]->cpara.rescale || (lf[layer]->cpara.rescale==1 && scale > 0.4999))
+		if (scale > 0.4999)
 			scale = scale / 2;
 		break;
 	case Qt::Key_0:
@@ -482,7 +482,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	char c = (draw_corner == 1) ? 'x' : (draw_corner == 2) ? 'y' : ((draw_corner == 0) ? ' ' : 'c');
 	sprintf(title, "%d:%s s=%d %c", layer, lf[layer]->layer_name.c_str(), lf[layer]->cpara.rescale, c);
 	emit title_change(QString::fromLocal8Bit(title));
-	qDebug("Key press, l=%d, s=%d, center=(%d,%d)", layer, scale, center.x(), center.y());
+	qDebug("Key=%d press, l=%d, s=%d, center=(%d,%d)", e->key(), layer, scale, center.x(), center.y());
 	update();
 }
 
@@ -698,9 +698,11 @@ bool StitchView::add_nail(Nail nail)
 		}
 	}
 	nails.push_back(nail);
-	unsigned long long ret =generate_mapxy();
-	if (ret)
-		QMessageBox::information(this, "Add nail too near", "Nail too near with other nail");
+	vector<double> slope =generate_mapxy();
+	char a[300];
+	for (int i = 0, j=0; i < slope.size(); i++)
+		j += sprintf(a + j, "k%d=%7f,", i, slope[i]);	
+	QMessageBox::information(this, "Add nail slope", QLatin1String(a));
 	return true;
 }
 
@@ -748,9 +750,9 @@ Nail StitchView::search_nail(LayerFeature * lf, Point p, int range)
 	return Nail();
 }
 
-unsigned long long StitchView::generate_mapxy()
+vector<double> StitchView::generate_mapxy()
 {
-	unsigned long long ret = 0;
+	vector<double> slope;
 	vector< vector<Nail> > layer_nails(lf.size());
 	for (int i = 0; i < (int)lf.size(); i++)
 		get_one_layer_nails(lf[i], layer_nails[i]);
@@ -777,7 +779,7 @@ unsigned long long StitchView::generate_mapxy()
 		CV_Assert(abs_nails.size() == finish_map[choose]);
 		finish_map[choose] = -1;
 		MapXY mxy = ri.get_mapxy(choose);
-		ret = mxy.recompute(abs_nails) << (choose * 2);
+		slope.push_back(mxy.recompute(abs_nails));
 		ri.set_mapxy(choose, mxy);
 
 		//3 change nail with choose layer from src to dst
@@ -790,7 +792,7 @@ unsigned long long StitchView::generate_mapxy()
 			}
 		}
 	}
-	return ret;
+	return slope;
 }
 
 int StitchView::which_layer(LayerFeature * l)
@@ -980,6 +982,13 @@ int StitchView::optimize_offset(int _layer)
 	return 0;
 }
 
+void StitchView::goto_xy(int x, int y)
+{
+	center = QPoint(x, y);
+	qDebug("Goto s=%6.3f, c=(%d,%d), l=%d", scale, center.x(), center.y(), layer);
+	update();
+}
+
 int StitchView::set_current_layer(int _layer) {
 	if (_layer < get_layer_num() && _layer >= 0)
 		layer = _layer;
@@ -1061,7 +1070,11 @@ int StitchView::delete_layer(int _layer)
 	}
 	delete lf[_layer];
 	lf.erase(lf.begin() + _layer);
-	generate_mapxy();
+	vector<double> slope = generate_mapxy();
+	char a[300];
+	for (int i = 0, j = 0; i < slope.size(); i++)
+		j += sprintf(a + j, "k%d=%7f,", i, slope[i]);
+	QMessageBox::information(this, "Add nail slope", QLatin1String(a));
 	if (layer >= _layer)
 		layer--;
 	update();	
@@ -1222,7 +1235,11 @@ int StitchView::read_file(string file_name)
 			int p1y = (int)(*it)["p1y"];
 			nails.push_back(Nail(lf[l0], lf[l1], Point(p0x, p0y), Point(p1x, p1y)));
 		}		
-		generate_mapxy();
+		vector<double> slope = generate_mapxy();
+        char text[300];
+        for (int i = 0, j = 0; i < slope.size(); i++)
+            j += sprintf(text + j, "k%d=%7f,", i, slope[i]);
+        qInfo(text);
 		Point ce0, ce1, ce2, ct;
 		fs["layer"] >> layer;
 		fs["scale"] >> scale;

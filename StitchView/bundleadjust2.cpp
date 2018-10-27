@@ -205,6 +205,7 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg)
 			}
 		}
 		pe->hard_score = alpha * (pe->diff->submind - mind) * (pe->diff->submind - min2) / ((avg - mind) * (avg - pe->diff->submind));
+		CV_Assert(abs(pe->hard_score) < COST_BIGER_THAN_AVG);
 		return;
 	}
 	Point idea_pos = pe->idea_pos - pe->diff->offset;

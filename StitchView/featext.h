@@ -15,6 +15,7 @@ using namespace std;
 #define DIR_DOWN			2
 #define DIR_LEFT			3
 
+#define DIFF_NOT_CONTACT			100000000
 class TuningPara {
 public:
 	vector<ParamItem> params;
@@ -157,11 +158,16 @@ public:
 	}
 	void compute_score() {
 		long long sum = 0;
+		int num = 0;
 		mind = 0x7fffffff, submind = 0x7fffffff;
 		for (int y = 0; y < dif.rows; y++) {
 			int * pd = dif.ptr<int>(y);			
 			for (int x = 0; x < dif.cols; x++) {
-				sum += pd[x];
+				if (pd[x] < DIFF_NOT_CONTACT - 1) {
+					sum += pd[x];
+					num++;
+				}
+				CV_Assert(pd[x] >= 0);
 				if (pd[x] < mind) {
 					submind = mind;
 					subminloc = minloc;
@@ -177,7 +183,7 @@ public:
 				}
 			}
 		}
-		avg = sum / (dif.rows * dif.cols);
+		avg = sum / num;
 		score = (submind - mind) * img_num;
 	}
 
