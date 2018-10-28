@@ -134,16 +134,6 @@ opt2: mix_diff2 mix_diff2 mix_diff1 mix_diff0
 */
 void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rect & r0, const Rect &r1, int xshift, int yshift, EdgeDiff * e, int step = 1)
 {
-#if 0
-	static int idx = 0;
-	string file_name = "gl0.jpg";
-	file_name[2] = '0' + idx;
-	imwrite(file_name, grad_x0);
-	file_name = "gr0.jpg";
-	file_name[2] = '0' + (idx++);
-	imwrite(file_name, grad_x1);
-#endif
-
 	int opidx[4] = { param.pi[1] >> 12 & 0xf, param.pi[1] >> 8 & 0xf, param.pi[1] >> 4 & 0xf, param.pi[1] & 0xf };
 	int mix[4] = { param.pi[2] >> 24 & 0xff, param.pi[2] >> 16 & 0xff, param.pi[2] >> 8 & 0xff, param.pi[2] & 0xff };
 
@@ -158,7 +148,7 @@ void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rec
 	if (mix[i] > 0) {
 		Mat m0 = img_diff.img_d0->v[opidx[i]].d(r0);
 		Mat m1 = img_diff.img_d1->v[opidx[i]].d(r1);		
-		CV_Assert(m0.channels() == 1 && m1.channels() == 1 && m0.type() == m1.type());
+		CV_Assert(m0.type() == m1.type());
 		if (m0.type() == CV_8SC1)
 		for (int y = 0; y < m0.rows; y += step) { //y,x is grad_x0, grad_y0
 			const char * pm0 = m0.ptr<char>(y);
@@ -292,6 +282,142 @@ void prepare_extract(ImageData & img_dat)
 			prepare_grad(img_dat, img_dat.tvar->params[i]);
 			break;
 		}
+	}
+}
+
+void compute_diff1(const ImageDiff & gd, const ParamItem & param)
+{
+	int x_shift = (gd.dir) ? gd.cvar->max_lr_xshift / gd.cvar->rescale : gd.cvar->max_ud_xshift / gd.cvar->rescale;
+	int y_shift = (gd.dir) ? gd.cvar->max_lr_yshift / gd.cvar->rescale : gd.cvar->max_ud_yshift / gd.cvar->rescale;
+	int x_org0 = (gd.dir) ? gd.img_d0->v[0].d.cols - gd.overlap / gd.cvar->rescale : gd.shift / gd.cvar->rescale;
+	int y_org0 = (gd.dir) ? gd.shift / gd.cvar->rescale : gd.img_d0->v[0].d.rows - gd.overlap / gd.cvar->rescale;
+	int opidx[4] = { param.pi[1] >> 12 & 0xf, param.pi[1] >> 8 & 0xf, param.pi[1] >> 4 & 0xf, param.pi[1] & 0xf };
+	int mix[4] = { param.pi[2] >> 24 & 0xff, param.pi[2] >> 16 & 0xff, param.pi[2] >> 8 & 0xff, param.pi[2] & 0xff };
+	gd.e->offset.x = (x_org0 - x_shift) * gd.cvar->rescale;
+	gd.e->offset.y = (y_org0 - y_shift) * gd.cvar->rescale;
+	qDebug("compute_diff, op0=%d, op1=%d, op2=%d, op3=%d, mix0=%d, mix1=%d, mix2=%d, mix3=%d",
+		opidx[0], opidx[1], opidx[2], opidx[3], mix[0], mix[1], mix[2], mix[3]);
+	gd.e->dif.create(2 * y_shift + 1, 2 * x_shift + 1);
+	for (int i = 0; i < 4; i++)
+	if (mix[i] > 0) {
+		Mat m0 = gd.img_d0->v[opidx[i]].d;
+		Mat m1 = gd.img_d1->v[opidx[i]].d;
+		CV_Assert(m0.type() == m1.type() && m0.size() == m1.size());
+		if (m0.type() == CV_8SC1)
+		for (int yy = -y_shift; yy <= y_shift; yy++)
+		for (int xx = -x_shift; xx <= x_shift; xx++) {
+			int y_org = y_org0 + yy;
+			int x_org = x_org0 + xx;
+			int y_overlap = m0.rows - abs(y_org);
+			int x_overlap = m0.cols - abs(x_org);
+			unsigned sum;
+			vector<int> last_row(x_overlap + 2, 0x10000000), this_row(x_overlap + 2), last_row_m(x_overlap + 2, 0x10000000);
+			this_row[0] = 0x10000000, this_row[x_overlap + 1] = 0x10000000;
+			for (int y = 0; y < y_overlap; y++) {
+				const char * pm0 = m0.ptr<char>(y + max(0, y_org), max(0, x_org));
+				const char * pm1 = m1.ptr<char>(y + max(0, -y_org), max(0, -x_org));
+				for (int x = 0; x < x_overlap; x++) {
+					int a0 = pm0[x], a1 = pm1[x];
+					this_row[x + 1] = abs(a0 - a1);
+				}
+				for (int x = 0; x < x_overlap; x++) {
+					sum += min(last_row_m[x + 1], this_row[x + 1]) * mix[i];
+					last_row_m[x + 1] = min(min(last_row[x + 1], this_row[x + 1]), min(this_row[x], this_row[x + 2]));
+					last_row[x + 1] = this_row[x + 1];
+				}
+				if (y == 0)
+					sum = 0;
+			}
+			for (int x = 0; x < x_overlap; x++)
+				sum += last_row_m[x + 1] * mix[i];
+			if (y_overlap > 1 && x_overlap > 1)
+				gd.e->dif(yy + y_shift, xx + x_shift) = sum * 100.0 / (x_overlap * y_overlap);
+			else
+				gd.e->dif(yy + y_shift, xx + x_shift) = DIFF_NOT_CONTACT;
+		}
+		if (m0.type() == CV_8UC1)
+		for (int yy = -y_shift; yy <= y_shift; yy++) 
+		for (int xx = -x_shift; xx <= x_shift; xx++) {
+			int y_org = y_org0 + yy;
+			int x_org = x_org0 + xx;
+			int y_overlap = m0.rows - abs(y_org);
+			int x_overlap = m0.cols - abs(x_org);
+			unsigned sum;
+			vector<int> last_row(x_overlap + 2, 0x10000000), this_row(x_overlap + 2), last_row_m(x_overlap + 2, 0x10000000);
+			this_row[0] = 0x10000000, this_row[x_overlap + 1] = 0x10000000;
+			for (int y = 0; y < y_overlap; y++) {
+				const unsigned char * pm0 = m0.ptr<unsigned char>(y + max(0, y_org), max(0, x_org));
+				const unsigned char * pm1 = m1.ptr<unsigned char>(y + max(0, -y_org), max(0, -x_org));
+				for (int x = 0; x < x_overlap; x++) {
+					int a0 = pm0[x], a1 = pm1[x];
+					this_row[x+1] = abs(a0 - a1);
+				}				
+				for (int x = 0; x < x_overlap; x++) {
+					sum += min(last_row_m[x + 1], this_row[x + 1]) * mix[i];
+					last_row_m[x + 1] = min(min(last_row[x + 1], this_row[x + 1]), min(this_row[x], this_row[x + 2]));
+					last_row[x + 1] = this_row[x + 1];
+				}
+				if (y == 0)
+					sum = 0;
+			}
+			for (int x = 0; x < x_overlap; x++)
+				sum += last_row_m[x + 1] * mix[i];
+			if (y_overlap > 1 && x_overlap > 1)
+				gd.e->dif(yy + y_shift, xx + x_shift) = sum * 100.0 / (x_overlap * y_overlap);
+			else
+				gd.e->dif(yy + y_shift, xx + x_shift) = DIFF_NOT_CONTACT;
+		}
+		if (m0.type() == CV_8UC3)
+		for (int yy = -y_shift; yy <= y_shift; yy++)
+		for (int xx = -x_shift; xx <= x_shift; xx++) {
+			int y_org = y_org0 + yy;
+			int x_org = x_org0 + xx;
+			int y_overlap = m0.rows - abs(y_org);
+			int x_overlap = m0.cols - abs(x_org);
+			unsigned sum;
+			vector<int> last_row(x_overlap + 2, 0x10000000), this_row(x_overlap + 2), last_row_m(x_overlap + 2, 0x10000000);
+			this_row[0] = 0x10000000, this_row[x_overlap + 1] = 0x10000000;
+			for (int y = 0; y < y_overlap; y++) {
+				const unsigned char * pm0 = m0.ptr<unsigned char>(y + max(0, y_org), max(0, x_org));
+				const unsigned char * pm1 = m1.ptr<unsigned char>(y + max(0, -y_org), max(0, -x_org));
+				for (int x = 0; x < x_overlap; x++) {
+					const unsigned char * ppm0 = &pm0[3 * x];
+					const unsigned char * ppm1 = &pm1[3 * x];
+					int a0 = ppm0[0], b0 = ppm1[0];
+					int a1 = ppm0[1], b1 = ppm1[1];
+					int a2 = ppm0[2], b2 = ppm1[2];
+					this_row[x + 1] = abs(a0 - b0) + abs(a1 - b1) + abs(a2 - b2);
+				}
+				for (int x = 0; x < x_overlap; x++) {
+					sum += min(last_row_m[x + 1], this_row[x + 1]) * mix[i];
+					last_row_m[x + 1] = min(min(last_row[x + 1], this_row[x + 1]), min(this_row[x], this_row[x + 2]));
+					last_row[x + 1] = this_row[x + 1];
+				}
+				if (y == 0)
+					sum = 0;
+			}
+			for (int x = 0; x < x_overlap; x++)
+				sum += last_row_m[x + 1] * mix[i];
+			if (y_overlap > 1 && x_overlap > 1)
+				gd.e->dif(yy + y_shift, xx + x_shift) = sum * 100.0 / (x_overlap * y_overlap);
+			else
+				gd.e->dif(yy + y_shift, xx + x_shift) = DIFF_NOT_CONTACT;
+		}
+	}
+	gd.e->compute_score();
+}
+
+void extract_diff1(ImageDiff & gd)
+{
+	if (gd.img_d0->v[0].d.empty() || gd.img_d1->v[0].d.empty()) {
+		gd.e->img_num = 0;
+		return;
+	}
+	for (int i = 0; i < gd.tvar->params.size(); i++) {
+		ParamItem param = gd.tvar->params[i];
+		int method = param.pi[1] >> 16 & 0xff;
+		if (method == DIFF_NORMAL)
+			compute_diff1(gd, param);
 	}
 }
 
@@ -429,12 +555,16 @@ void FeatExt::generate_feature_diff(int start_x, int start_y, int debug_en)
 						gdiff[i].tvar = &tpara;
 					}
 				}
+				if (cpara.rescale <= 2) {
 #if PARALLEL
-				QtConcurrent::blockingMap<vector<ImageDiff> >(gdiff, extract_diff);
+					QtConcurrent::blockingMap<vector<ImageDiff> >(gdiff, extract_diff);
 #else
-				for (int i = 0; i < gdiff.size(); i++)
-					extract_diff(gdiff[i]);
+					for (int i = 0; i < gdiff.size(); i++)
+						extract_diff(gdiff[i]);
 #endif										
+				} else
+				for (int i = 0; i < gdiff.size(); i++)
+					extract_diff1(gdiff[i]);
 			}
 			if (x + 1 == cpara.img_num_w) {
 				gdiff.resize(image[x&1].size() - 1);
@@ -448,12 +578,22 @@ void FeatExt::generate_feature_diff(int start_x, int start_y, int debug_en)
 					gdiff[i].cvar = &cpara;
 					gdiff[i].tvar = &tpara;
 				}
+				if (cpara.rescale <= 2) {
 #if PARALLEL
-				QtConcurrent::blockingMap<vector<ImageDiff> >(gdiff, extract_diff);
+					QtConcurrent::blockingMap<vector<ImageDiff> >(gdiff, extract_diff);
 #else
-				for (int i = 0; i < gdiff.size(); i++)
-					extract_diff(gdiff[i]);
+					for (int i = 0; i < gdiff.size(); i++)
+						extract_diff(gdiff[i]);
 #endif
+				}
+				else {
+#if PARALLEL
+					QtConcurrent::blockingMap<vector<ImageDiff> >(gdiff, extract_diff1);
+#else
+					for (int i = 0; i < gdiff.size(); i++)
+						extract_diff1(gdiff[i]);
+#endif
+				}				
 			}
 		}
 	}

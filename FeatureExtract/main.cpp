@@ -104,10 +104,8 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 void test_bundleadjust()
 {
     FeatExt feature;
-    BundleAdjust ba;
 
     feature.read_diff_file("C:/chenyu/work/ChipPintu/app/diff.xml");
-    ba.arrange(feature, 5, 5);
 }
 
 int main(int argc, char** argv)
@@ -126,8 +124,8 @@ int main(int argc, char** argv)
     cpara.max_ud_xshift = 16;
     cpara.max_ud_yshift = 40;
     cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
-    cpara.img_num_w = 6;
-	cpara.img_num_h = 11;
+    cpara.img_num_w = 3;
+	cpara.img_num_h = 3;
     cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
     for (int y = 0; y < cpara.img_num_h; y++) {
         for (int x = 0; x < cpara.img_num_w; x++) {
@@ -137,18 +135,18 @@ int main(int argc, char** argv)
     }
 	ExtractParam ep;
 	ep.read_file("./tune.xml");
-	TuningPara _tpara(ep, "Grad");
+	TuningPara _tpara(ep, "RawGray");
 #if 1
 	feature.set_cfg_para(cpara);
 	feature.set_tune_para(_tpara);
-	feature.generate_feature_diff(4, 9, 1);
+	feature.generate_feature_diff(0, 0, 1);
     feature.write_diff_file("diff.xml");
 #else
 	feature.read_diff_file("diff.xml");
 #endif
     double minval, maxval;
     Point minloc, maxloc;
-	int y0 = 10, x0 = 6, y1 = 11, x1 = 6;
+	int y0 = 1, x0 = 1, y1 = 1, x1 = 2;
 	char img1_name[50], img2_name[50];
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
@@ -174,7 +172,7 @@ int main(int argc, char** argv)
 	imshow(img1_name, left);
 	imshow(img2_name, right);
 	
-	y0 = 10, x0 = 5, y1 = 11, x1 = 5;
+	y0 = 2, x0 = 2, y1 = 3, x1 = 2;
 	sprintf(img1_name, "%d_%d.jpg", y0, x0);
 	sprintf(img2_name, "%d_%d.jpg", y1, x1);
 	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0 - 1, x0 - 1)->dif, &minval, &maxval, &minloc, &maxloc);
