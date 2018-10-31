@@ -451,6 +451,10 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 			}
 			corner_info(y, x) = (res_sft.x & 0xffff) | res_sft.y << 16;
 		}
+		else {
+			if (y < img_num_h && x < img_num_w)
+				corner_info(y, x) = 0;
+		}
 
 		CV_Assert(res_sft.x % scale == 0 && res_sft.y % scale == 0);
 		res_sft.x = res_sft.x / scale;

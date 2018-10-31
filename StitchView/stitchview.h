@@ -7,6 +7,8 @@
 #include <map>
 #include <list>
 #include <string>
+#include<functional>
+#include <algorithm>
 #include <QKeyEvent>
 #include <QtConcurrent>
 #include "featext.h"
@@ -42,8 +44,10 @@ struct LayerFeature {
 	FeatExt feature;
 	string feature_file; //feature file name in disk
     string layer_name;
-	Mat_<unsigned long long> corner_info;
+	Mat_<Vec2i> corner_info;
 	Mat_<int> fix_edge[2];
+	vector<Point> unsure_corner[4];
+	int choose[5];
 	vector<unsigned> get_fix_img(unsigned img_idx, int bind_flag) {
 		vector<unsigned> ret;
 		vector<unsigned> queue;
@@ -128,6 +132,34 @@ struct LayerFeature {
 		if (x > 0 && check_edge(MAKE_EDGE_IDX(x - 1, y, 1)))
 			return 1;
 		return 0;
+	}
+	void compute_unsure_corner() {
+		vector<unsigned long long> corner_set[4];
+		for (int y = 0; y < corner_info.rows; y++) {
+			for (int x = 0; x < corner_info.cols; x++) {
+				unsigned long long info = corner_info(y, x)[1];
+				info = info << 32 | corner_info(y, x)[0];
+				for (int i = 0; i < 4; i++) {
+					short val;
+					val = info >> 16 * i & 0xffff;
+					unsigned long long c = abs(val);
+					corner_set[i].push_back(c << 32 | y << 16 | x);
+				}
+			}
+		}
+		for (int i = 0; i < 4; i++) {
+			unsure_corner[i].clear();	
+			sort(corner_set[i].begin(), corner_set[i].end(), greater<unsigned long long>());
+			for (int j = 0; j < (int)corner_set[i].size() / 5; j++) {
+				unsigned long long c = corner_set[i][j];
+				if (i < 3 && c >> 32 > cpara.rescale || i==3)
+					unsure_corner[i].push_back(Point(c & 0xffff, c >> 16 & 0xffff));
+			}
+		}
+	}
+	LayerFeature() {
+		for (int i = 0; i < 5; i++)
+			choose[i] = 0;
 	}
 };
 

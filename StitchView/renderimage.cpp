@@ -438,11 +438,7 @@ void thread_map_image(MapRequest & pr)
 	//0 Following compute 4 dst vertex and src point
 	Point lt, rb;
 	Point2d src_lt, src_rb, src_lb, src_rt;
-#if 1
-	if (MAPID_X(pr.id) == 1 && MAPID_Y(pr.id) == 1) {
-		pr.id = pr.id * 2 - pr.id;
-	}
-#endif
+
 	Point dst_lt(dst_w * MAPID_X(pr.id), dst_w * MAPID_Y(pr.id));
 	Point dst_rb(dst_lt.x + dst_w - 1, dst_lt.y + dst_w - 1);
 	Point dst_lb(dst_lt.x, dst_rb.y);
@@ -474,8 +470,8 @@ void thread_map_image(MapRequest & pr)
 		int ret = pmc->find_reserve(id, &pmap);
 		if (ret == NOT_FETCH) { //load from disk
 			char file_name[200];
-			sprintf(file_name, "%s%d_%d.jpg", pr.cpara->img_path.c_str(), y + 1, x + 1);
-			qDebug("loadImage, %s", file_name);
+			sprintf(file_name, pr.cpara->get_img_name(x, y).c_str());			
+			qDebug("loadImage, %s", file_name);			
 			Mat raw_img = imread(file_name, pr.cpara->load_flag);
 			//pmc->insert(id, raw_img, Point(pr.cpara->offset(y, x)[1], pr.cpara->offset(y, x)[0]), pr.src);
 			if (raw_img.empty())
@@ -711,7 +707,7 @@ void RenderImage::set_cfg_para(int layer, const ConfigPara * _cpara)
 		postmap_cache.clear(layer);
 	}
 	char file_name[200];
-	sprintf(file_name, "%s%d_%d.jpg", _cpara->img_path.c_str(), 1, 1);
+	sprintf(file_name, _cpara->get_img_name(1, 1).c_str());
 	qDebug("loadImage, %s", file_name);
 	Mat raw_img = imread(file_name);
 	if (raw_img.empty()) {
@@ -757,6 +753,12 @@ MapXY RenderImage::get_mapxy(int layer)
 	return mapxy[layer];
 }
 
+int RenderImage::mapxy_merge_method(int layer)
+{
+	if (layer >= cpara.size() || layer < 0)
+		return false;
+	return mapxy[layer].get_merge_method();
+}
 bool RenderImage::is_mapxy_origin(int layer)
 {
 	if (layer >= cpara.size() || layer < 0)

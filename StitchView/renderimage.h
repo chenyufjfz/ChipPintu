@@ -399,6 +399,7 @@ public:
 	Size get_src_img_size(int layer);
 	void set_mapxy(int layer, const MapXY & _mapxy);
 	MapXY get_mapxy(int layer);
+	int mapxy_merge_method(int layer);
 	bool is_mapxy_origin(int layer);
 	void set_dst_wide(int wide);
 	int get_dst_wide();

@@ -501,15 +501,12 @@ void FeatExt::generate_feature_diff(int start_x, int start_y, int debug_en)
 	for (int y = 0; y < cpara.img_num_h; y++)
 		for (int x = 0; x < cpara.img_num_w - 1; x++)
 			edge[1][y*(cpara.img_num_w - 1) + x].edge_idx = MAKE_EDGE_IDX(x, y, 1);
-
+	
 	for (int row = start_y; row < cpara.img_num_h - 1; row += img_load_num) { //once load img_load_num
 		for (int x = start_x; x < cpara.img_num_w; x++) {
 			image[x & 1].resize(min(img_load_num + 1, cpara.img_num_h - row));
-			for (int y = row; y < min(row + img_load_num + 1, cpara.img_num_h); y++) {
-				char filename[50];
-				sprintf(filename, "%d_%d.jpg", y + 1, x + 1); //image name postfix
-				image[x & 1][y - row].filename = cpara.img_path + filename;
-			}			
+			for (int y = row; y < min(row + img_load_num + 1, cpara.img_num_h); y++)
+				image[x & 1][y - row].filename = cpara.get_img_name(x, y);
 #if PARALLEL
 			QtConcurrent::blockingMap<vector<ImageData> >(image[x & 1], prepare_extract);
 #else

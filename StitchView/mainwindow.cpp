@@ -150,8 +150,9 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 		}
 		if (para_dlg.cpara.rescale > cpara.rescale) {
 			QMessageBox::information(this, "Info", "Reduce rescale");
-			return;
+			return;			
 		}
+
 		cpara = para_dlg.cpara;
 		stitch_view->set_config_para(-1, cpara);
 		stitch_view->compute_new_feature(-1);

@@ -32,11 +32,17 @@ string thread_generate_diff(FeatExt * feature, int layer)
 	return filename;
 }
 
-void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<unsigned long long> * c_info, vector<FixEdge> * fe)
+void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<Vec2i> * c_info, vector<FixEdge> * fe)
 {
 	ba->arrange(*feature, -1, -1, fe);
 	*offset = ba->get_best_offset();
-	*c_info = ba->get_corner();
+	Mat_<unsigned long long> corner = ba->get_corner();
+	c_info->create(corner.rows, corner.cols);
+	for (int y = 0; y < corner.rows; y++)
+	for (int x = 0; x < corner.cols; x++) {
+		unsigned long long c = corner(y, x);
+		(*c_info)(y, x) = Vec2i(c & 0xffffffff, c >> 32);
+	}
 }
 
 StitchView::StitchView(QWidget *parent) : QWidget(parent)
@@ -184,7 +190,7 @@ void StitchView::paintEvent(QPaintEvent *)
 			src_edge_center[i].y = src_edge_center[i].y / 2;
 			QPoint dst_edge_center = TOQPOINT(mxy.src2dst(src_edge_center[i]));
 			if (view_rect.contains(dst_edge_center)) {
-				dst_edge_center = (dst_edge_center - view_rect.topLeft()) / scale + QPoint(0, -5);
+				dst_edge_center = (dst_edge_center - view_rect.topLeft()) / scale;
 				int fe = 0;
 				if (y > 0 && i == 0)
 					fe = lf[layer]->fix_edge[i](y - 1, x);
@@ -213,13 +219,16 @@ void StitchView::paintEvent(QPaintEvent *)
 							val = (fe & BIND_Y_MASK) ? 0 : shift.y;
 							break;
 						case 3:
-							val = 0;
+							val = abs(shift.x) + abs(shift.y);
 							break;
 						case 4:
 							val = cost;
 							break;
 						}
-						painter.drawText(dst_edge_center + QPoint(-10, 15), QString::number(val));
+						if (i==1)
+							painter.drawText(dst_edge_center + QPoint(-10, 15), QString::number(val));
+						else
+							painter.drawText(dst_edge_center + QPoint(-60, -8), QString::number(val));
 					}					
 				}
 			}
@@ -240,7 +249,8 @@ void StitchView::paintEvent(QPaintEvent *)
 					painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 3, 3);
 				}
 				else {
-					unsigned long long info = lf[layer]->corner_info(y, x);
+					unsigned long long info = lf[layer]->corner_info(y, x)[1];
+					info = info << 32 | lf[layer]->corner_info(y, x)[0];
 					short val;
 					switch (draw_corner) {
 					case 1:
@@ -461,6 +471,33 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			ri.set_mapxy(layer, mxy);
 		}
 		break;
+	case Qt::Key_N: {
+			Point loc(-1,-1);
+			if (mouse_state == ChangeNail) {
+				vector<Nail> ns;
+				get_one_layer_nails(lf[layer], ns);
+				if (ns.size() > 0) {
+					lf[layer]->choose[4] = lf[layer]->choose[4] % ns.size();
+					loc = ns[lf[layer]->choose[4]].p0;
+					lf[layer]->choose[4]++;
+				}
+			}
+			else 
+			if (draw_corner > 0) {
+				int d = draw_corner - 1;
+				if (lf[layer]->unsure_corner[d].size() > 0) {
+					lf[layer]->choose[d] = lf[layer]->choose[d] % lf[layer]->unsure_corner[d].size();
+					loc = lf[layer]->unsure_corner[d][lf[layer]->choose[d]];
+					lf[layer]->choose[d]++;
+					Point src_corner(lf[layer]->cpara.offset(loc.y, loc.x)[1], lf[layer]->cpara.offset(loc.y, loc.x)[0]);
+					MapXY mxy = get_mapxy(layer);
+					loc = mxy.src2dst(src_corner);
+				}
+			}
+			if (loc.x > 0)
+				goto_xy(loc.x, loc.y);
+		}
+		break;
 	case Qt::Key_Delete:
 	case Qt::Key_Escape: {
 			switch (mouse_state) {
@@ -474,13 +511,16 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				break;			
 			}
 		}
+		break;
 	default:
 		QWidget::keyPressEvent(e);
 		return;
 	}
 	char title[100];
-	char c = (draw_corner == 1) ? 'x' : (draw_corner == 2) ? 'y' : ((draw_corner == 0) ? ' ' : 'c');
-	sprintf(title, "%d:%s s=%d %c", layer, lf[layer]->layer_name.c_str(), lf[layer]->cpara.rescale, c);
+	string c = (draw_corner == 1) ? "x" : (draw_corner == 2) ? "y" : ((draw_corner == 3) ? "xy" : (draw_corner == 0) ? "" : "c");
+	string m = ri.mapxy_merge_method(layer) ? "Merge" : "";
+	sprintf(title, "%d:%s s=%d %s,%s", layer, lf[layer]->layer_name.c_str(), lf[layer]->cpara.rescale, 
+		c.c_str(), m.c_str());
 	emit title_change(QString::fromLocal8Bit(title));
 	qDebug("Key=%d press, l=%d, s=%d, center=(%d,%d)", e->key(), layer, scale, center.x(), center.y());
 	update();
@@ -976,6 +1016,7 @@ int StitchView::optimize_offset(int _layer)
 	}
 	thread_bundle_adjust(ba, &lf[layer]->feature, &adjust_offset, &lf[layer]->corner_info, &fe);
 	lf[layer]->cpara.offset = adjust_offset;
+	lf[layer]->compute_unsure_corner();
 	ri.invalidate_cache(layer);
 	update();
 
@@ -1150,6 +1191,8 @@ void StitchView::write_file(string file_name)
 		fs << name << lf[i]->fix_edge[1];
 		sprintf(name, "name%d", i);
 		fs << name << lf[i]->layer_name;
+		sprintf(name, "corner%d", i);
+		fs << name << lf[i]->corner_info;
 	}
 	fs << "dst_w" << ri.get_dst_wide();
 	fs << "Nails" << "[";
@@ -1220,6 +1263,11 @@ int StitchView::read_file(string file_name)
 			}
 			sprintf(name, "name%d", i);
 			fs[name] >> lf[i]->layer_name;
+#if 0
+			sprintf(name, "corner%d", i);
+			fs[name] >> lf[i]->corner_info;
+			lf[i]->compute_unsure_corner();
+#endif
 		}
 		int dst_w;
 		fs["dst_w"] >> dst_w;

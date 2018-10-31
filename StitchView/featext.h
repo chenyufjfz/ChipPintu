@@ -131,6 +131,26 @@ public:
 	int bottom_bound() const {
 		return offset(img_num_h - 1, 0)[0] + offset(1, 0)[0] * 3 - offset(0,0)[0];
 	}
+
+	string get_img_name(int x, int y) const {
+		string::size_type ypos, xpos;
+		ypos = img_path.find("%y", 0);
+		if (ypos == string::npos) {
+			char filename[50];
+			sprintf(filename, "%d_%d.jpg", y + 1, x + 1); //image name postfix
+			return img_path + filename;
+		}
+		else {
+			char filename[10];
+			sprintf(filename, "%d", y + 1);
+			string s = img_path;
+			s.replace(ypos, 2, filename, 0, strlen(filename));
+			xpos = s.find("%x", 0);
+			sprintf(filename, "%d", x + 1);
+			s.replace(xpos, 2, filename, 0, strlen(filename));
+			return s;
+		}
+	}
 };
 
 #define MAKE_EDGE_IDX(x, y, e) ((e) << 31 | (y) << 16 | (x))
