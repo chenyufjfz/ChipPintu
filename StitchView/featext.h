@@ -381,7 +381,9 @@ public:
 	const EdgeDiff * get_edge(int idx) const;
 	const EdgeDiff * get_edge(int y0, int x0, int y1, int x1) const;
 	ConfigPara get_config_para() const {
-		return cpara;
+		ConfigPara ret = cpara;
+		ret.offset = ret.offset.clone();
+		return ret;
 	}
 };
 

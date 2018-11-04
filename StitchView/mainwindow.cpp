@@ -74,7 +74,8 @@ void MainWindow::on_actionConfig_Para_triggered()
 		cpara.offset(1, 0) = Vec2i(1558, 0);
 		cpara.offset(0, 1) = Vec2i(1558, 1817);
 	}
-	
+	cpara.rescale = 4;
+
 	CparaDialog para_dlg(cpara, true, this);
 	if (para_dlg.exec() == QDialog::Accepted) {
 		if (cpara.rescale != 1 && cpara.rescale != 2 && cpara.rescale != 4 && cpara.rescale != 8) {
@@ -161,13 +162,13 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 
 void MainWindow::on_actionQuick_Save_triggered()
 {
-	string filename = qApp->applicationDirPath().toStdString() + "/WorkData/quicksave.xml";
+	string filename = stitch_view->get_project_path() + "/WorkData/quicksave.xml";
 	stitch_view->write_file(filename);
 }
 
 void MainWindow::on_actionQuick_Load_triggered()
 {
-	string filename = qApp->applicationDirPath().toStdString() + "/WorkData/quicksave.xml";
+	string filename = stitch_view->get_project_path() + "/WorkData/quicksave.xml";
 	stitch_view->read_file(filename);
 }
 
@@ -196,32 +197,36 @@ void MainWindow::on_actionTransForm_triggered()
 
 void MainWindow::on_actionLoad_triggered()
 {
-	QString dirname = qApp->applicationDirPath() + "/WorkData/";
+	QString dirname = QString::fromStdString(stitch_view->get_project_path() + "/WorkData/");
 	QString filename = QFileDialog::getOpenFileName(this, tr("Open File"),
 		dirname,
 		tr("Project (*.xml)"));
-	stitch_view->read_file(filename.toStdString());
+	if (!filename.isEmpty())
+		stitch_view->read_file(filename.toStdString());
 }
 
 void MainWindow::on_actionSave_as_triggered()
 {
-	QString dirname = qApp->applicationDirPath() + "/WorkData/autosave.xml";
+	QString dirname = QString::fromStdString(stitch_view->get_project_path() + "/WorkData/autosave.xml");
 	QString filename = QFileDialog::getSaveFileName(this, tr("Open File"),
 		dirname,
 		tr("Project (*.xml)"));
-	stitch_view->write_file(filename.toStdString());
+	if (!filename.isEmpty())
+		stitch_view->write_file(filename.toStdString());
 }
 
 void MainWindow::on_actionOutput_layer_triggered()
 {
-	QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"));
+	QString dirname = QString::fromStdString(stitch_view->get_project_path() + "/WorkData");
+	QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"), dirname);
 	if (!pathname.isEmpty())
 		stitch_view->output_layer(-1, pathname.toStdString());
 }
 
 void MainWindow::on_actionOutput_all_triggered()
 {
-    QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"));
+	QString dirname = QString::fromStdString(stitch_view->get_project_path());
+    QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"), dirname);
     if (!pathname.isEmpty()) {
         int layer_num = stitch_view->get_layer_num();
         for (int l=0; l<layer_num; l++)

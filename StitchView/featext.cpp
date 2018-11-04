@@ -560,8 +560,12 @@ void FeatExt::generate_feature_diff(int start_x, int start_y, int debug_en)
 						extract_diff(gdiff[i]);
 #endif										
 				} else
+#if PARALLEL
+					QtConcurrent::blockingMap<vector<ImageDiff> >(gdiff, extract_diff1);
+#else
 				for (int i = 0; i < gdiff.size(); i++)
 					extract_diff1(gdiff[i]);
+#endif
 			}
 			if (x + 1 == cpara.img_num_w) {
 				gdiff.resize(image[x&1].size() - 1);

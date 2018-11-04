@@ -9,14 +9,16 @@
 #define MAKE_CORNER_IDX(x, y) ((y) << 16 | (x))
 #define CORNER_Y(idx) ((idx) >> 16 & 0x7fff)
 #define CORNER_X(idx) ((idx) & 0x7fff)
-#define COST_BIND 10000000
+#define COST_BIND			10000000
+#define COST_BIGER_THAN_AVG 50000
+#define COST_BOUNDARY		(2 * COST_BIGER_THAN_AVG)
 
 struct Edge2 {
 	const EdgeDiff * diff;
 	Mat_<float> cost;
 	float hard_score; //higher means not easy to move
 	int mls[2]; //min location shift, mls0 for y, mls1 for x
-	int flag; //BIND_X_MASK, BIND_Y_MASK
+	int flag; //scale, BIND_X_MASK, BIND_Y_MASK
 	Point idea_pos;
 	void get_4corner_idx(unsigned & idx1, unsigned & idx2) {
 		unsigned edge_idx = diff->edge_idx;
@@ -29,11 +31,22 @@ struct Edge2 {
 			idx2 = edge_idx + 0x10001;
 		}
 	}
-	float get_point_cost(Point o) {
-		if (o.x < 0 || o.x >= cost.cols)
-			return COST_BIND;
-		if (o.y < 0 || o.y >= cost.rows)
-			return COST_BIND;
+
+	float get_point_cost(Point o, int scale) {
+		if (o.x < 0 || o.x >= cost.cols || o.y < 0 || o.y >= cost.rows) {
+			if (flag == 0)
+				return COST_BOUNDARY;
+			int nearby = FIX_EDGE_SCALE(flag) / scale;
+			int valid_x = FIX_EDGE_BINDX(flag) ? nearby / 2 : 10000;
+			int valid_y = FIX_EDGE_BINDY(flag) ? nearby / 2 : 10000;
+			Point pos = idea_pos - diff->offset;
+			pos.x = pos.x / scale;
+			pos.y = pos.y / scale;
+			if (abs(o.y - pos.y) <= valid_y && abs(o.x - pos.x) <= valid_x)
+				return 0;
+			else
+				return COST_BIND;
+		}			
 		return cost(o);
 	}
 	Point get_current_point(int scale) {
@@ -200,6 +213,7 @@ protected:
 	void adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, int change_id, UndoPatch * patch, float cost_th);
 	void relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, UndoPatch * patch, float cost_th);
 	void check_relax(const Rect & rect, float cost_th);
+	void check_fix_edge();
 	int merge_square_area(const Rect & src_rect, const Rect & tgt_rect, const Rect & outer, int src_posx, int src_posy, float cost_th);
 	Bundle search_bundle(FourCorner * pc, int len_limit, int width_limit);
 	bool merge_one_bundle(Bundle b);

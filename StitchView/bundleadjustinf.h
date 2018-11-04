@@ -4,6 +4,10 @@
 
 #define BIND_X_MASK		2
 #define BIND_Y_MASK		1
+#define FIX_EDGE_SCALE(e) ((e) >> 2)
+#define FIX_EDGE_BINDX(e) (((e) & BIND_X_MASK) >> 1)
+#define FIX_EDGE_BINDY(e) ((e) & BIND_Y_MASK)
+#define MAKE_FIX_EDGE(xy, s) ((s) << 2 | (xy))
 
 struct FixEdge {
 	int idx;

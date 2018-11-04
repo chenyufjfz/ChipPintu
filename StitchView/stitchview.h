@@ -46,8 +46,8 @@ struct LayerFeature {
     string layer_name;
 	Mat_<Vec2i> corner_info;
 	Mat_<int> fix_edge[2];
-	vector<Point> unsure_corner[4];
-	int choose[5];
+	vector<Point> unsure_corner;
+	int find_next[2];
 	vector<unsigned> get_fix_img(unsigned img_idx, int bind_flag) {
 		vector<unsigned> ret;
 		vector<unsigned> queue;
@@ -134,32 +134,31 @@ struct LayerFeature {
 		return 0;
 	}
 	void compute_unsure_corner() {
-		vector<unsigned long long> corner_set[4];
+		vector<unsigned long long> corner_set;
 		for (int y = 0; y < corner_info.rows; y++) {
 			for (int x = 0; x < corner_info.cols; x++) {
 				unsigned long long info = corner_info(y, x)[1];
 				info = info << 32 | corner_info(y, x)[0];
-				for (int i = 0; i < 4; i++) {
-					short val;
-					val = info >> 16 * i & 0xffff;
-					unsigned long long c = abs(val);
-					corner_set[i].push_back(c << 32 | y << 16 | x);
-				}
+				short val0, val1;
+				val0 = info & 0xffff;
+				val1 = info >> 16 & 0xffff;
+				unsigned long long c = abs(val0) + abs(val1);
+				corner_set.push_back(c << 32 | y << 16 | x);				
 			}
 		}
-		for (int i = 0; i < 4; i++) {
-			unsure_corner[i].clear();	
-			sort(corner_set[i].begin(), corner_set[i].end(), greater<unsigned long long>());
-			for (int j = 0; j < (int)corner_set[i].size() / 5; j++) {
-				unsigned long long c = corner_set[i][j];
-				if (i < 3 && c >> 32 > cpara.rescale || i==3)
-					unsure_corner[i].push_back(Point(c & 0xffff, c >> 16 & 0xffff));
-			}
+		
+		unsure_corner.clear();	
+		sort(corner_set.begin(), corner_set.end(), greater<unsigned long long>());
+		for (int j = 0; j < (int)corner_set.size() / 4; j++) {
+			unsigned long long c = corner_set[j];
+			if (c >> 32 > cpara.rescale)
+				unsure_corner.push_back(Point(c & 0xffff, c >> 16 & 0xffff));
 		}
+		
 	}
 	LayerFeature() {
-		for (int i = 0; i < 5; i++)
-			choose[i] = 0;
+		for (int i = 0; i < sizeof(find_next) / sizeof(find_next[0]); i++)
+			find_next[i] = 0;
 	}
 };
 
@@ -230,10 +229,12 @@ protected:
 	void timerEvent(QTimerEvent *e);
 
 protected:
+	string project_path;
+	int choose_edge;
 	//Following is for drawing layer and rect
 	double scale; //current scale, should be bigger than cpara.rescale /2
     unsigned char layer; //current layer, use cpara[layer] for drawing
-	QPoint choose[3], may_choose;
+	QPoint choose[3];
 	QRect view_rect; //view_rect unit is pixel for dst file image
 	QPoint center;
 	int edge_cost;
@@ -281,11 +282,11 @@ public:
 	//if _layer==-1, means current layer, if _layer==get_layer_num(), add new layer
 	int set_config_para(int _layer, const ConfigPara & _cpara);
 	//if _layer==-1, means get config of current layer
-	int get_config_para(int _layer, ConfigPara & _cpara);
+	int get_config_para(int _layer, ConfigPara & _cpara) const;
 	//if _layer==-1, means set tune of current layer
 	int set_tune_para(int _layer, const TuningPara & _tpara);
 	//if _layer==-1, means get tune of current layer
-	int get_tune_para(int _layer, TuningPara & _tpara);
+	int get_tune_para(int _layer, TuningPara & _tpara) const;
 	//if _layer==-1, means get tune of current layer
 	void set_mapxy_dstw(int _layer, const MapXY & _mapxy, int _dst_w);
 	//if _layer==-1, means get tune of current layer
@@ -299,24 +300,13 @@ public:
 	int optimize_offset(int _layer);
 	int get_layer_num() { return (int)lf.size(); }
 	void goto_xy(int x, int y);
+	string get_project_path() {
+		return project_path;
+	}
 	int get_current_layer() { return layer; }
 	int set_current_layer(int _layer);
-	string get_layer_name(int _layer) {
-		if (_layer == -1)
-			_layer = layer;
-		if (_layer >= lf.size() || _layer < 0)
-			return string();
-		else
-			return lf[_layer]->layer_name;
-	}
-	void set_layer_name(int _layer, string name) {
-		if (_layer == -1)
-			_layer = layer;
-		if (_layer >= lf.size() || _layer < 0)
-			return;
-		else
-			lf[_layer]->layer_name = name;
-	}
+	string get_layer_name(int _layer);
+	void set_layer_name(int _layer, string name);
 	void to_state_add_nail();
 	void to_state_change_nail();
 	int output_layer(int _layer, string pathname);
@@ -324,6 +314,8 @@ public:
 	int delete_layer(int _layer);
 	int layer_up(int _layer);
 	int layer_down(int _layer);
+	void update_title();
+	QPoint point2choose(QPoint mouse_point);
 	void write_file(string file_name);
 	int read_file(string file_name);
 };

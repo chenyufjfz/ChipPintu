@@ -406,6 +406,17 @@ public:
 	void invalidate_cache(int layer) {
 		postmap_cache.clear(layer);
 	}
+	Point2d src2dst(int layer, Point src) const {
+		if (layer >= cpara.size() || layer < 0)
+			return Point2d(0, 0);
+		return mapxy[layer].mid2dst(mapxy[layer].src2mid(src));
+	}
+
+	Point2d dst2src(int layer, Point dst) const {
+		if (layer >= cpara.size() || layer < 0)
+			return Point2d(0, 0);
+		return mapxy[layer].mid2src(mapxy[layer].dst2mid(dst));
+	}
 	//Input: mapid is for dst mapid
 	//Output: imgs is dst QImage
 	void render_img(const vector<MapID> & map_id, vector<QImage> & imgs, const vector<MapID> & draw_order);

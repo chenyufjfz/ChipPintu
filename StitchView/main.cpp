@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     MainWindow w;
-	QDir work_dir(qApp->applicationDirPath() + "/WorkData");
+	
 #ifdef Q_OS_WIN
 #ifdef QT_DEBUG
 	//_CrtSetBreakAlloc(36207);
@@ -177,14 +177,6 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
     qInstallMessageHandler(myMessageOutput);
-
-	if (!work_dir.exists()) {
-		bool ret = work_dir.mkdir(qApp->applicationDirPath() + "/WorkData");
-		if (!ret) {
-			qFatal("Unable to create work dir %s", work_dir.absolutePath().toStdString().c_str());
-			return -1;
-		}
-	}
 
     w.show();
 

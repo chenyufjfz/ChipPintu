@@ -19,7 +19,6 @@ const int dxy[4][2] = {
 };
 
 #define SGN(x) ((x)>0 ? 1 : ((x<0) ? -1 : 0))
-#define COST_BIGER_THAN_AVG 100000
 
 struct BundleShape {
 	int len;
@@ -54,10 +53,6 @@ struct BundleShape {
 	{ 4, { { 0, 1 }, { 1, 1 }, { 0, 2 }, { 0, 0 } }, { 0, 1, 1, 0 }, 1 },
 	{ 4, { { 1, 0 }, { 2, 0 }, { 1, -1 }, { 0, 0 } }, { 0, 1, 1, 0 }, 1 },
 	{ 4, { { 1, 0 }, { 1, -1 }, { 1, 1 }, { 0, 0 } }, { 0, 1, 1, 0 }, 1 },
-	/*{ 4, { { 0, 1 }, { 1, 1 }, { 1, 0 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 }, //tian
-	{ 4, { { 1, 0 }, { 1, 1 }, { 0, 1 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 },
-	{ 4, { { 0, -1 }, { 1, -1 }, { 1, 0 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 },
-	{ 4, { { -1, 0 }, { -1, 1 }, { 0, 1 }, { 0, 0 } }, { 0, 0, 0, 0 }, 3 },*/
 	{ 5, { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 0, 4 } }, { 0, 0, 0, 1 }, 3 }, // |
 	{ 5, { { 1, 0 }, { 2, 0 }, { 3, 0 }, { 4, 0 } }, { 0, 0, 0, 1 }, 3 },
 	{ 5, { { 0, 1 }, { 0, 2 }, { 0, 3 }, { 1, 3 } }, { 0, 0, 0, 1 }, 3 }, // L
@@ -87,7 +82,7 @@ struct BundleShape {
 	{ 5, { { 0, 1 }, { 0, 2 }, { -1, 2 }, { 1, 2 } }, { 0, 0, 1, 1 }, 2 }, // T
 	{ 5, { { 1, 0 }, { 2, 0 }, { 2, -1 }, { 2, 1 } }, { 0, 0, 1, 1 }, 2 },
 	{ 5, { { 0, -1 }, { 0, -2 }, { -1, -2 }, { 1, -2 } }, { 0, 0, 1, 1 }, 2 },
-	{ 5, { { 0, 1 }, { 1, 1 }, { 2, 1 }, { 0, 2 } }, { 0, 0, 1, 1 }, 2 }
+	{ 5, { { -1, 0 }, { -2, 0 }, { -2, -1 }, { -2, 1 } }, { 0, 0, 1, 1 }, 2 }
 };
 
 
@@ -190,86 +185,47 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg)
 	if (avg - mind < 9)
 		qWarning("edge(%x) cost is all 0 because avg(%f) - mind(%f) is small", pe->diff->edge_idx, avg, mind);
 	pe->cost.create(pe->diff->dif.size());
-	if (pe->flag == 0) {
-		for (int y = 0; y < pe->cost.rows; y++) {
-			const int * pdif = pe->diff->dif.ptr<int>(y);
-			float * pcost = pe->cost.ptr<float>(y);
-			for (int x = 0; x < pe->cost.cols; x++) {
-				float z = pdif[x];
-				if (z > avg - 1)
-					pcost[x] = COST_BIGER_THAN_AVG;
-				else {
-					pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - mind) * (avg - z));
-					pcost[x] = min(pcost[x], (float)COST_BIGER_THAN_AVG);
-				}
-			}
-		}
-		pe->hard_score = alpha * (pe->diff->submind - mind) * (pe->diff->submind - min2) / ((avg - mind) * (avg - pe->diff->submind));
-		CV_Assert(abs(pe->hard_score) < COST_BIGER_THAN_AVG);
-		return;
+	int nearby = FIX_EDGE_SCALE(pe->flag) / scale;
+	int valid_x = FIX_EDGE_BINDX(pe->flag) ? nearby / 2 : 10000;
+	int valid_y = FIX_EDGE_BINDY(pe->flag) ? nearby / 2 : 10000;
+	if (pe->flag) { //make fix edge cost euqal to nearly 0
+		alpha = alpha / 10;
+		avg = pe->diff->avg * 2;
 	}
 	Point idea_pos = pe->idea_pos - pe->diff->offset;
 	idea_pos.x = idea_pos.x / scale;
 	idea_pos.y = idea_pos.y / scale;
-	if (idea_pos.y < 0 || idea_pos.y >= pe->cost.rows || idea_pos.x < 0 || idea_pos.x >= pe->cost.cols) {
+
+	/*if (idea_pos.y < 0 || idea_pos.y >= pe->cost.rows || idea_pos.x < 0 || idea_pos.x >= pe->cost.cols) {
 		qCritical("edge (x=%d,y=%d,e=%d), idea_pos (x=%d, y=%d), x or y error", EDGE_X(pe->diff->edge_idx),
 			EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), idea_pos.x, idea_pos.y);
 		CV_Assert(0);
-	}
-	if (pe->flag == (BIND_X_MASK | BIND_Y_MASK)) {
-		pe->cost = COST_BIND;
-		pe->cost(idea_pos) = 0;
-		pe->hard_score = COST_BIND;
-		return;
-	}
-	if (pe->flag == BIND_X_MASK) {
-		pe->hard_score = COST_BIND;
-		for (int y = 0; y < pe->cost.rows; y++) {
-			const int * pdif = pe->diff->dif.ptr<int>(y);
-			float * pcost = pe->cost.ptr<float>(y);
-			for (int x = 0; x < pe->cost.cols; x++) {
-				float z = pdif[x];
-				if (x != idea_pos.x)
-					pcost[x] = COST_BIND;
-				else
-				if (z > avg - 1)
-					pcost[x] = COST_BIGER_THAN_AVG;
-				else {
-					pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - mind) * (avg - z));
-					pcost[x] = min(pcost[x], (float)COST_BIGER_THAN_AVG);
-					if (pcost[x] > 0.001) //z!=mind
-						pe->hard_score = min(pe->hard_score, pcost[x]);
-				}
+	}*/
+
+	pe->hard_score = COST_BIND;
+	for (int y = 0; y < pe->cost.rows; y++) {
+		const int * pdif = pe->diff->dif.ptr<int>(y);
+		float * pcost = pe->cost.ptr<float>(y);
+		for (int x = 0; x < pe->cost.cols; x++) {
+			float z = pdif[x];
+			if (abs(y - idea_pos.y) >valid_y || abs(x-idea_pos.x) > valid_x)
+				pcost[x] = COST_BIND + z;
+			else
+			if (z > avg - 1) {
+				pcost[x] = COST_BIGER_THAN_AVG + z - avg + 1;
+				pcost[x] = min(pcost[x], (float)COST_BOUNDARY - 2);
+			}
+			else {
+				pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - mind) * (avg - z));
+				pcost[x] = min(pcost[x], (float)COST_BIGER_THAN_AVG);
+				if (pcost[x] > 0.001) //z!=mind
+					pe->hard_score = min(pe->hard_score, pcost[x]);
 			}
 		}
-		if (pe->hard_score >= COST_BIND - 2)
-			pe->hard_score = 0;
-		return;
 	}
-	if (pe->flag == BIND_Y_MASK) {
-		pe->hard_score = COST_BIND;
-		for (int y = 0; y < pe->cost.rows; y++) {
-			const int * pdif = pe->diff->dif.ptr<int>(y);
-			float * pcost = pe->cost.ptr<float>(y);
-			for (int x = 0; x < pe->cost.cols; x++) {
-				float z = pdif[x];
-				if (y != idea_pos.y)
-					pcost[x] = COST_BIND;
-				else
-				if (z > avg - 1)
-					pcost[x] = COST_BIGER_THAN_AVG;
-				else {
-					pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - mind) * (avg - z));
-					pcost[x] = min(pcost[x], (float)COST_BIGER_THAN_AVG);
-					if (pcost[x] > 0.001) //z!=mind
-						pe->hard_score = min(pe->hard_score, pcost[x]);
-				}
-			}
-		}
-		if (pe->hard_score >= COST_BIND - 2)
-			pe->hard_score = 0;
-		return;
-	}
+	if (pe->hard_score >= COST_BIND - 2)
+		pe->hard_score = 0;
+	return;
 }
 
 Edge2 * BundleAdjust2::get_edge(int i, int y, int x)
@@ -414,9 +370,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 			pe->flag = vfe[i].bind_flag;
 			Point idea_pos = vfe[i].shift - pe->diff->offset;
 			CV_Assert(idea_pos.x % scale == 0 && idea_pos.y % scale == 0);
-			idea_pos.x = idea_pos.x / scale;
-			idea_pos.y = idea_pos.y / scale;
-			pe->idea_pos = idea_pos * scale + pe->diff->offset;
+			pe->idea_pos = idea_pos + pe->diff->offset;
 		}
 	}
 	//1.2 init edge cost
@@ -435,6 +389,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		pc->bd = min(min(x, y), min(img_num_w - x, img_num_h - y));
 		Point res_sft(0, 0);
 		if (pc->bd) {
+			int bind_mask = 0;
 			for (int i = 0; i < 4; i++) {
 				Edge2 * pe = get_edge(pc->get_edge_idx(i));
 				CV_Assert(pe != NULL);
@@ -448,8 +403,18 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 					res_sft += pe->idea_pos;
 				else
 					res_sft -= pe->idea_pos;
+				if (pe->flag) {
+					if (!FIX_EDGE_BINDX(pe->flag))
+						bind_mask |= BIND_X_MASK;
+					if (!FIX_EDGE_BINDY(pe->flag))
+						bind_mask |= BIND_Y_MASK;
+				}
 			}
 			corner_info(y, x) = (res_sft.x & 0xffff) | res_sft.y << 16;
+			if (bind_mask & BIND_X_MASK)
+				corner_info(y, x) = res_sft.y << 16;
+			if (bind_mask & BIND_Y_MASK)
+				corner_info(y, x) = res_sft.x & 0xffff;
 		}
 		else {
 			if (y < img_num_h && x < img_num_w)
@@ -686,7 +651,7 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 		if (!range.contains(Point(CORNER_X(pc1->idx), CORNER_Y(pc1->idx)))) //pc1 not in range
 			continue;
 		Point cur_edge_point = pe->get_current_point(scale);
-		float cur_edge_cost = pe->get_point_cost(cur_edge_point);
+		float cur_edge_cost = pe->get_point_cost(cur_edge_point, scale);
 		int sign = dir < 2 ? -1 : 1;
 		vector <float> new_edge_cost_cache(max_shift_num * 4);
 		vector <int> new_cost_cache_valid(max_shift_num * 4, 0);
@@ -706,7 +671,7 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 						new_edge_point.x += sign * source[i].sign * j;
 					else
 						new_edge_point.y += sign * source[i].sign * j;
-					new_edge_cost = pe->get_point_cost(new_edge_point);
+					new_edge_cost = pe->get_point_cost(new_edge_point, scale);
 					new_edge_cost_cache[cache_idx] = new_edge_cost;
 					new_cost_cache_valid[cache_idx] = 1;
 				}
@@ -775,7 +740,7 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 						new_edge_point.x += -sign * source[i].sign * j;
 					else
 						new_edge_point.y += -sign * source[i].sign * j;
-					new_edge_cost = pe->get_point_cost(new_edge_point);
+					new_edge_cost = pe->get_point_cost(new_edge_point, scale);
 					new_edge_cost_cache[cache_idx] = new_edge_cost;
 					new_cost_cache_valid[cache_idx] = 1;
 				}
@@ -821,7 +786,7 @@ void BundleAdjust2::check_relax(const Rect & rect, float)
 			if (!rect.contains(Point(CORNER_X(pc1->idx), CORNER_Y(pc1->idx)))) //pc1 not in range
 				continue;
 			Point cur_edge_point = pe->get_current_point(scale);
-			float cur_edge_cost = pe->get_point_cost(cur_edge_point);
+			float cur_edge_cost = pe->get_point_cost(cur_edge_point, scale);
 			int sign = dir < 2 ? -1 : 1;
 			for (int i = 0; i < pc->cs.size(); i++)
 			for (int j = 1; j <= source[i].cap; j++) {
@@ -831,7 +796,7 @@ void BundleAdjust2::check_relax(const Rect & rect, float)
 					new_edge_point.x += -sign * source[i].sign * j;
 				else
 					new_edge_point.y += -sign * source[i].sign * j;
-				float new_edge_cost = pe->get_point_cost(new_edge_point);
+				float new_edge_cost = pe->get_point_cost(new_edge_point, scale);
 				float delta_cost = new_edge_cost - cur_edge_cost; //from pc1 to pc
 				if (new_edge_cost > COST_BIND / 2) {
 					CV_Assert(pc1->idx != pc->cs[i][j].fa);
@@ -854,6 +819,24 @@ void BundleAdjust2::check_relax(const Rect & rect, float)
 				if (source[i].idx == pc->idx)
 					CV_Assert(pc->cs[i][j].fa == pc->idx && abs(pc->cs[i][j].cost) < 0.001);
 			}
+		}
+	}
+
+}
+
+void BundleAdjust2::check_fix_edge()
+{
+	for (int i = 0; i < 2; i++)
+	for (int j = 0; j < eds[i].size(); j++) {
+		Edge2 * pe = &eds[i][j];
+		Point cur_edge_point = pe->get_current_point(scale);
+		float cur_edge_cost = pe->get_point_cost(cur_edge_point, scale);
+		if (cur_edge_cost > COST_BIND / 2) {
+			Point pos = pe->idea_pos - pe->diff->offset;
+			pos.x = pos.x / scale;
+			pos.y = pos.y / scale;
+			qCritical("internal error, edge (x=%d,y=%d,e=%d,f=0x%x), idea (%d,%d), actual (%d,%d)", EDGE_X(pe->diff->edge_idx),
+				EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), pe->flag, pos.x, pos.y, cur_edge_point.x, cur_edge_point.y);
 		}
 	}
 }
@@ -1014,8 +997,8 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 				|| dest[k].sign==0) {
 				for (int j = min(source[i].cap, dest[k].cap); j>0; j--) {
 					COST_TYPE cost = pc->cs[i][j].cost / j;
-					if (dest[k].sign == 0)
-						cost = cost*1.5;
+					/*if (dest[k].sign == 0) //increase border cost
+						cost = cost*1.5;*/
 					if (cost < min_unit_cost && pc->cs[i][j].cost < cost_th) {
 						min_unit_cost = cost;
 						best_src = i;
@@ -1045,6 +1028,7 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 			left_source--;
 		adjust_edge_mls(p_best_src, p_best_dst, best_src, best_modify, rq, change_id, p_patch, cost_th);
 		cnt++;
+		check_fix_edge();
 	}
 	source.clear();
 	for (int y = outer.y; y < outer.y + outer.height; y++)
@@ -1088,10 +1072,12 @@ Bundle BundleAdjust2::search_bundle(FourCorner * pc, int len_limit, int width_li
 			}
 			Edge2 * pe = get_edge(pc1, pc0);
 			CV_Assert(pe != NULL);
-			if (pe->flag & BIND_X_MASK) //edge can't move
+#if 0
+			if (FIX_EDGE_BINDX(pe->flag)) //edge can't move
 				xok = 0;
-			if (pe->flag & BIND_Y_MASK)
+			if (FIX_EDGE_BINDY(pe->flag))
 				yok = 0;
+#endif
 			dx += pc1->res_sft[1];
 			dy += pc1->res_sft[0];
 			sum_res_x += abs(pc1->res_sft[1]);
@@ -1141,6 +1127,7 @@ Bundle BundleAdjust2::search_bundle(FourCorner * pc, int len_limit, int width_li
 
 			int sign = 1;
 			Point newpos;
+			Point oldpos = pe->get_current_point(scale);
 			if (bundle_shape[i].c[j] == 0) {
 				if (CORNER_X(pc0->idx) == CORNER_X(pc1->idx)) {
 					if (CORNER_Y(pc0->idx) > CORNER_Y(pc1->idx)) //pc0 is under pc1
@@ -1165,32 +1152,31 @@ Bundle BundleAdjust2::search_bundle(FourCorner * pc, int len_limit, int width_li
 				newpos.x = newpos.x / scale + pe->mls[1] + sign * pc1->res_sft[1];
 				newpos.y = newpos.y / scale + pe->mls[0] + sign * pc1->res_sft[0];
 			}
-			if (xok && (newpos.x < 0 || newpos.x >= pe->cost.cols)) { //out of cost matrix, fail
-				cost += COST_BIND / 4;
+
+			if (xok && pe->get_point_cost(Point(newpos.x, oldpos.y), scale) >= COST_BOUNDARY -1) { //out of cost matrix, fail
+				cost += COST_BOUNDARY;
 				break;
 			}
 
-			if (yok && (newpos.y < 0 || newpos.y >= pe->cost.rows)) { //out of cost matrix, fail
-				cost += COST_BIND / 4;
+			if (yok && pe->get_point_cost(Point(oldpos.x, newpos.y), scale) >= COST_BOUNDARY - 1) { //one move out of cost matrix, fail
+				cost += COST_BOUNDARY;
 				break;
 			}
 
 			if ((xok && sum_res_y <= 1 || yok && sum_res_x <= 1) &&
-				(newpos.x >= 0 && newpos.x < pe->cost.cols) &&
-				(newpos.y >= 0 && newpos.y < pe->cost.rows) &&
-				(pe->cost(newpos) >= COST_BIGER_THAN_AVG - 1)) { //Low than average, fail
+				pe->get_point_cost(newpos, scale) >= COST_BIGER_THAN_AVG - 1) { //Low than average, fail
 				cost += COST_BIGER_THAN_AVG;
 				break;
 			}
 
-			cost += (queue < 6) ? pe->cost(newpos) : pe->hard_score;
+			cost += (queue < 6) ? pe->get_point_cost(newpos, scale) : pe->hard_score;
 
 			dx += pc1->res_sft[1];
 			dy += pc1->res_sft[0];
 			pc0 = pc1;
 		}
 		CV_Assert(cost < COST_BIND / 2);
-		if (cost >= COST_BIGER_THAN_AVG)
+		if (cost >= COST_BIGER_THAN_AVG) //if total err bigger than average, fail
 			continue;
 		if (queue < BUNDLE_QUEUE(best) || cost < best_cost) {
 			best_cost = cost;
@@ -1349,10 +1335,6 @@ bool BundleAdjust2::merge_one_bundle(Bundle b)
 		CV_Assert(pc1->bd != 0);
 		Edge2 * pe = get_edge(pc1, pc0);
 		CV_Assert(pe != NULL);
-		if (xok)
-			CV_Assert(!(pe->flag & BIND_X_MASK));
-		if (yok)
-			CV_Assert(!(pe->flag & BIND_Y_MASK));
 		dx += pc1->res_sft[1];
 		dy += pc1->res_sft[0];
 		pc0 = pc1;
@@ -1566,6 +1548,7 @@ void BundleAdjust2::merge_bundles()
 			change_queue[13], change_queue[14], change_queue[15]);
 		if (change_id == prev_change_id && i > 15)
 			break;
+		check_fix_edge();
 	}
 	print_4corner_stat();
 }
@@ -1782,10 +1765,14 @@ void BundleAdjust2::output()
 						need_visit[y * img_num_w + x] = 2;
 						best_offset(y, x) = Vec2i(offset.y, offset.x);
 						Point cur_edge_point = pe->get_current_point(scale);
-						float cur_edge_cost = pe->get_point_cost(cur_edge_point);
-						if (cur_edge_cost > COST_BIND / 2)
-							qFatal("internal error, edge (x=%d,y=%d,e=%d) point (x=%d,y=%d)", EDGE_X(pe->diff->edge_idx),
-							EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), cur_edge_point.x, cur_edge_point.y);
+						float cur_edge_cost = pe->get_point_cost(cur_edge_point, scale);
+						if (cur_edge_cost > COST_BIND / 2) {
+							Point pos = pe->idea_pos - pe->diff->offset;
+							pos.x = pos.x / scale;
+							pos.y = pos.y / scale;
+							qCritical("internal error, edge (x=%d,y=%d,e=%d), fix(%d,%d), actual (%d,%d)", EDGE_X(pe->diff->edge_idx),
+								EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), cur_edge_point.x, cur_edge_point.y);
+						}
 						corner_cost(y, x) += cur_edge_cost * 20;
 						if (corner_cost(y, x) > 65535)
 							corner_cost(y, x) = 65535;
