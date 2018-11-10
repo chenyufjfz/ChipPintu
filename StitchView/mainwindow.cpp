@@ -272,3 +272,8 @@ void MainWindow::on_actionLayer_Down_triggered()
 {
 	stitch_view->layer_down(-1);
 }
+
+void MainWindow::on_actionClear_Fix_Edge_triggered()
+{
+    stitch_view->clear_fix_edge(-1);
+}

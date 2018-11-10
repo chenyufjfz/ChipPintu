@@ -40,6 +40,7 @@
     <addaction name="actionTune_Para"/>
     <addaction name="actionPrepare_Next_Iter"/>
     <addaction name="actionOptimize_Offset"/>
+    <addaction name="actionClear_Fix_Edge"/>
    </widget>
    <widget class="QMenu" name="menuPostProcess">
     <property name="title">
@@ -159,6 +160,11 @@
   <action name="actionLayer_Down">
    <property name="text">
     <string>Layer Down</string>
+   </property>
+  </action>
+  <action name="actionClear_Fix_Edge">
+   <property name="text">
+    <string>Clear Fix Edge</string>
    </property>
   </action>
  </widget>

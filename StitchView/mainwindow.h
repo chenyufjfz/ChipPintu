@@ -58,6 +58,8 @@ private slots:
 
     void on_actionLayer_Down_triggered();
 
+    void on_actionClear_Fix_Edge_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

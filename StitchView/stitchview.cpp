@@ -487,11 +487,10 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			}
 			else 
 			if (draw_corner > 0) {
-				int d = draw_corner;
 				if (lf[layer]->unsure_corner.size() > 0) {
-					lf[layer]->find_next[d] = lf[layer]->find_next[d] % lf[layer]->unsure_corner.size();
-					loc = lf[layer]->unsure_corner[lf[layer]->find_next[d]];
-					lf[layer]->find_next[d]++;
+					lf[layer]->find_next[1] = lf[layer]->find_next[1] % lf[layer]->unsure_corner.size();
+					loc = lf[layer]->unsure_corner[lf[layer]->find_next[1]];
+					lf[layer]->find_next[1]++;
 					Point src_corner(lf[layer]->cpara.offset(loc.y, loc.x)[1], lf[layer]->cpara.offset(loc.y, loc.x)[0]);
 					loc = ri.src2dst(layer, src_corner);
 				}
@@ -503,49 +502,11 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	case Qt::Key_E:	{
 			//found edge which shift is bigger than rescale
 			Point loc(-1, -1);
-			//following same as above draw edge
-			for (int y = 0; y < lf[layer]->cpara.img_num_h; y++)
-			for (int x = 0; x < lf[layer]->cpara.img_num_w; x++) {
-				Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
-				Point src_corner1, src_corner2;
-				if (y + 1 < lf[layer]->cpara.offset.rows)
-					src_corner1 = Point(lf[layer]->cpara.offset(y + 1, x)[1], lf[layer]->cpara.offset(y + 1, x)[0]);
-				else {
-					src_corner1 = Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]);
-					src_corner1 = 2 * src_corner - src_corner1;
-				}
-				if (x + 1 < lf[layer]->cpara.offset.cols)
-					src_corner2 = Point(lf[layer]->cpara.offset(y, x + 1)[1], lf[layer]->cpara.offset(y, x + 1)[0]);
-				else {
-					src_corner2 = Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
-					src_corner2 = 2 * src_corner - src_corner2;
-				}
-				Point src_edge_center[2] = { src_corner + src_corner2, src_corner + src_corner1 };
-				for (int i = 0; i < 2; i++) {
-					src_edge_center[i].x = src_edge_center[i].x / 2;
-					src_edge_center[i].y = src_edge_center[i].y / 2;
-					int fe = 0;
-					if (y > 0 && i == 0)
-						fe = lf[layer]->fix_edge[i](y - 1, x);
-					if (x > 0 && i == 1)
-						fe = lf[layer]->fix_edge[i](y, x - 1);
-					const EdgeDiff * ed = (i == 0) ? lf[layer]->feature.get_edge(0, y - 1, x) :
-						lf[layer]->feature.get_edge(1, y, x - 1);
-					if (ed && ed->img_num > 0) {
-						Point src_corner3 = (i == 0) ? Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]) :
-							Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
-						Point oo = src_corner - src_corner3;
-						Point shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
-						int val_x = fe ? 0 : shift.x;
-						int val_y = fe ? 0 : shift.y;
-						if (val_x > lf[layer]->cpara.rescale || val_y > lf[layer]->cpara.rescale) {
-							loc = ri.src2dst(layer, src_edge_center[i]);
-							x = lf[layer]->cpara.img_num_w;
-							y = lf[layer]->cpara.img_num_h;
-							break;
-						}
-					}
-				}
+			if (lf[layer]->unsure_edge.size() > 0) {
+				lf[layer]->find_next[2] = lf[layer]->find_next[2] % lf[layer]->unsure_edge.size();
+				loc = lf[layer]->unsure_edge[lf[layer]->find_next[2]];
+				lf[layer]->find_next[2]++;
+				loc = ri.src2dst(layer, loc);
 			}
 			if (loc.x > 0)
 				goto_xy(loc.x, loc.y);
@@ -672,7 +633,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 				src_corner1 + src_corner3,
 				src_corner2 + src_corner3
 			};
-			int choose = -1;
+			int choose = -1; //choose decide which edge
 			int min_dis = 10000000;
 			for (int i = 0; i <= 3; i++) {
 				src_edge_center[i].x = src_edge_center[i].x / 2;
@@ -759,7 +720,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 				choose[2] = may_choose;
 			}
 		}
-		if (QApplication::keyboardModifiers() == Qt::ControlModifier) {
+		if (QApplication::keyboardModifiers() == Qt::ControlModifier) { //adjust corner error focus to one edge
 			int y = may_choose.y(), x = may_choose.x();
 			Point lt(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
 			Point rb;
@@ -771,7 +732,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 				Point(lt.y, rb.x),
 				rb
 			};
-			int choose = -1;
+			int choose = -1; //choose decide which corner
 			int min_dis = 10000000;
 			for (int i = 0; i <= 3; i++) {
 				Point dis = src_point - src_corner[i];
@@ -795,6 +756,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 			default:
 				break;
 			}
+			//now x,y is choose corner location, following is corner's 4 edge
 			const EdgeDiff * edl = lf[layer]->feature.get_edge(0, y - 1, x - 1);
 			const EdgeDiff * edr = lf[layer]->feature.get_edge(0, y - 1, x);
 			const EdgeDiff * edt = lf[layer]->feature.get_edge(1, y - 1, x - 1);
@@ -802,11 +764,11 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 			if (edl == NULL || edl->img_num == 0 || edr == NULL || edr->img_num == 0 ||
 				edt == NULL || edt->img_num == 0 || edb == NULL || edb->img_num == 0)
 				break;
-			const EdgeDiff * eds[4][3] = {
-				{ edl, edb, edr},
-				{ edl, edb, edt},
-				{ edl, edt, edr},
-				{ edt, edr, edb}
+			const EdgeDiff * eds[4][3] = { //eds is apply order
+				{ edl, edb, edr}, //focus error to up edge
+				{ edl, edb, edt}, //focus error to right edge
+				{ edl, edt, edr}, //focus error to bottom edge
+				{ edt, edr, edb} //focus error to left edge
 			};
 			int apply_dir[4][3] = {
 				{ 1, 1, -1 },
@@ -825,12 +787,13 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 					Point img1 = img0 + ed->offset + ed->minloc * lf[layer]->cpara.rescale;
 					lf[layer]->cpara.offset(IMG_Y(i1), IMG_X(i1)) = Vec2i(img1.y, img1.x);
 				}
-				else {
+				else { //compute img0 base on img1
 					Point img1(lf[layer]->cpara.offset(IMG_Y(i1), IMG_X(i1))[1], lf[layer]->cpara.offset(IMG_Y(i1), IMG_X(i1))[0]);
 					Point img0 = img1 - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
 					lf[layer]->cpara.offset(IMG_Y(i0), IMG_X(i0)) = Vec2i(img0.y, img0.x);
 				}
 			}
+			ri.invalidate_cache(layer);
 		}
 		break;
 	}
@@ -1023,6 +986,16 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 	else {
 		if (lf[_layer]->cpara.img_path == _cpara.img_path && lf[_layer]->cpara.img_num_w == _cpara.img_num_w &&
 			lf[_layer]->cpara.img_num_h == _cpara.img_num_h) {
+			if (lf[_layer]->cpara.rescale > _cpara.rescale) { //only inherit free-move fix edge
+				for (int y = 0; y < _cpara.offset.rows - 1; y++)
+				for (int x = 0; x < _cpara.offset.cols; x++) 
+				if ((lf[_layer]->fix_edge[0](y, x) & 3) != 0)
+					lf[_layer]->fix_edge[0](y, x) = 0;
+				for (int y = 0; y < _cpara.offset.rows; y++)
+				for (int x = 0; x < _cpara.offset.cols - 1; x++)
+				if ((lf[_layer]->fix_edge[1](y, x) & 3) != 0)
+					lf[_layer]->fix_edge[1](y, x) = 0;
+			}
 			lf[_layer]->cpara = _cpara;
 		}
 		else {
@@ -1184,6 +1157,16 @@ void StitchView::goto_xy(int x, int y)
 	center = QPoint(x, y);
 	qDebug("Goto s=%6.3f, c=(%d,%d), l=%d", scale, center.x(), center.y(), layer);
 	update();
+}
+
+void StitchView::clear_fix_edge(int _layer)
+{
+    if (_layer == -1)
+        _layer = layer;
+    if (_layer >= lf.size() || _layer < 0)
+        return;
+	lf[_layer]->fix_edge[0] = 0;
+    lf[_layer]->fix_edge[1] = 0;
 }
 
 int StitchView::set_current_layer(int _layer) {

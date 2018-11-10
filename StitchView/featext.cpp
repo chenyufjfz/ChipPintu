@@ -136,8 +136,8 @@ void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rec
 {
 	int opidx[4] = { param.pi[1] >> 12 & 0xf, param.pi[1] >> 8 & 0xf, param.pi[1] >> 4 & 0xf, param.pi[1] & 0xf };
 	int mix[4] = { param.pi[2] >> 24 & 0xff, param.pi[2] >> 16 & 0xff, param.pi[2] >> 8 & 0xff, param.pi[2] & 0xff };
-
-	qDebug("compute_diff, op0=%d, op1=%d, op2=%d, op3=%d, mix0=%d, mix1=%d, mix2=%d, mix3=%d",
+	qDebug("compute_diff for img1=%s, img2=%s", img_diff.img_d0->filename.c_str(), img_diff.img_d1->filename.c_str());
+	qDebug("compute_diff, op0=%d, op1=%d, op2=%d, op3=%d, mix0=%d, mix1=%d, mix2=%d, mix3=%d",		
 		opidx[0], opidx[1], opidx[2], opidx[3], mix[0], mix[1], mix[2], mix[3]);
 
     vector<int> out((2 * yshift + 1)*(2 * xshift + 1), 0);

@@ -47,7 +47,8 @@ struct LayerFeature {
 	Mat_<Vec2i> corner_info;
 	Mat_<int> fix_edge[2];
 	vector<Point> unsure_corner;
-	int find_next[2];
+	vector<Point> unsure_edge;
+	int find_next[3];
 	vector<unsigned> get_fix_img(unsigned img_idx, int bind_flag) {
 		vector<unsigned> ret;
 		vector<unsigned> queue;
@@ -143,18 +144,71 @@ struct LayerFeature {
 				val0 = info & 0xffff;
 				val1 = info >> 16 & 0xffff;
 				unsigned long long c = abs(val0) + abs(val1);
-				corner_set.push_back(c << 32 | y << 16 | x);				
+				if (c > cpara.rescale)
+					corner_set.push_back(c << 32 | y << 16 | x);				
 			}
 		}
 		
 		unsure_corner.clear();	
 		sort(corner_set.begin(), corner_set.end(), greater<unsigned long long>());
-		for (int j = 0; j < (int)corner_set.size() / 4; j++) {
+		for (int j = 0; j < (int)corner_set.size(); j++) {
 			unsigned long long c = corner_set[j];
-			if (c >> 32 > cpara.rescale)
-				unsure_corner.push_back(Point(c & 0xffff, c >> 16 & 0xffff));
+			unsure_corner.push_back(Point(c & 0xffff, c >> 16 & 0xffff));
 		}
-		
+
+		//following same as above draw edge
+		vector<unsigned long long> edge_set;
+		for (int y = 0; y < cpara.img_num_h; y++)
+		for (int x = 0; x < cpara.img_num_w; x++) {
+			Point src_corner(cpara.offset(y, x)[1], cpara.offset(y, x)[0]);
+			Point src_corner1, src_corner2;
+			if (y + 1 < cpara.offset.rows)
+				src_corner1 = Point(cpara.offset(y + 1, x)[1], cpara.offset(y + 1, x)[0]);
+			else {
+				src_corner1 = Point(cpara.offset(y - 1, x)[1], cpara.offset(y - 1, x)[0]);
+				src_corner1 = 2 * src_corner - src_corner1;
+			}
+			if (x + 1 < cpara.offset.cols)
+				src_corner2 = Point(cpara.offset(y, x + 1)[1], cpara.offset(y, x + 1)[0]);
+			else {
+				src_corner2 = Point(cpara.offset(y, x - 1)[1], cpara.offset(y, x - 1)[0]);
+				src_corner2 = 2 * src_corner - src_corner2;
+			}
+			Point src_edge_center[2] = { src_corner + src_corner2, src_corner + src_corner1 };
+			for (int i = 0; i < 2; i++) {
+				src_edge_center[i].x = src_edge_center[i].x / 2;
+				src_edge_center[i].y = src_edge_center[i].y / 2;
+				int fe = 0;
+				if (y > 0 && i == 0)
+					fe = fix_edge[i](y - 1, x);
+				if (x > 0 && i == 1)
+					fe = fix_edge[i](y, x - 1);
+				const EdgeDiff * ed = (i == 0) ? feature.get_edge(0, y - 1, x) :
+					feature.get_edge(1, y, x - 1);
+				if (ed && ed->img_num > 0) {
+					Point src_corner3 = (i == 0) ? Point(cpara.offset(y - 1, x)[1], cpara.offset(y - 1, x)[0]) :
+						Point(cpara.offset(y, x - 1)[1], cpara.offset(y, x - 1)[0]);
+					Point oo = src_corner - src_corner3;
+					Point shift = oo - ed->offset - ed->minloc * cpara.rescale;
+					int val_x = fe ? 0 : shift.x;
+					int val_y = fe ? 0 : shift.y;
+					if (abs(val_x) > cpara.rescale || abs(val_y) > cpara.rescale) {
+						unsigned long long c = (abs(val_x) + abs(val_y)) / cpara.rescale;
+						c = min(c, 15ULL);
+						edge_set.push_back(c << 60 | (unsigned long long) abs(src_edge_center[i].y) << 30 | abs(src_edge_center[i].x));
+					}
+				}
+			}
+		}
+
+		unsure_edge.clear();
+		sort(edge_set.begin(), edge_set.end(), greater<unsigned long long>());
+		for (int j = 0; j < (int)edge_set.size(); j++) {
+			unsigned long long c = edge_set[j];
+			unsure_edge.push_back(Point(c & 0x3fffffff, c >> 30 & 0x3fffffff));
+		}
+		find_next[1] = 0;
+		find_next[2] = 0;
 	}
 	LayerFeature() {
 		for (int i = 0; i < sizeof(find_next) / sizeof(find_next[0]); i++)
@@ -300,6 +354,7 @@ public:
 	int optimize_offset(int _layer);
 	int get_layer_num() { return (int)lf.size(); }
 	void goto_xy(int x, int y);
+    void clear_fix_edge(int _layer);
 	string get_project_path() {
 		return project_path;
 	}
