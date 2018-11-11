@@ -351,7 +351,7 @@ public:
 	//From cpara, tpara, generate new FeatExt. if _layer==-1, means get tune of current layer
 	int compute_new_feature(int _layer);
 	//From FeatExt, compute new cpara.offset
-	int optimize_offset(int _layer);
+	int optimize_offset(int _layer, bool weak_border);
 	int get_layer_num() { return (int)lf.size(); }
 	void goto_xy(int x, int y);
     void clear_fix_edge(int _layer);

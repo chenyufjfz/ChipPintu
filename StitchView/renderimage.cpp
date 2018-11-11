@@ -6,6 +6,7 @@
 #include <QtConcurrent>
 
 #define PARALLEL 1
+#define PRINT_LOAD_IMAGE 0
 
 void write(FileStorage& fs, const std::string&, const MapXY & x)
 {
@@ -470,8 +471,10 @@ void thread_map_image(MapRequest & pr)
 		int ret = pmc->find_reserve(id, &pmap);
 		if (ret == NOT_FETCH) { //load from disk
 			char file_name[200];
-			sprintf(file_name, pr.cpara->get_img_name(x, y).c_str());			
+			sprintf(file_name, pr.cpara->get_img_name(x, y).c_str());
+#if PRINT_LOAD_IMAGE
 			qDebug("loadImage, %s", file_name);			
+#endif
 			Mat raw_img = imread(file_name, pr.cpara->load_flag);
 			//pmc->insert(id, raw_img, Point(pr.cpara->offset(y, x)[1], pr.cpara->offset(y, x)[0]), pr.src);
 			if (raw_img.empty())
@@ -844,7 +847,7 @@ void RenderImage::render_img(const vector<MapID> & map_id, vector<QImage> & imgs
 RenderImage::RenderImage()
 {
 	dst_w = 1024;
-	premap_cache.set_size(200);
+	premap_cache.set_size(36);
 	postmap_cache.set_size(30);
 }
 

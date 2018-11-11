@@ -11,6 +11,8 @@
 const int step_para = 3;
 const int max_scale = 8;
 
+#define PRINT_DRAW_IMAGE	0
+
 enum MouseState {
 	IDLE,
 	PutFirstNail,
@@ -32,9 +34,9 @@ string thread_generate_diff(FeatExt * feature, string project_path, int layer)
 	return filename;
 }
 
-void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<Vec2i> * c_info, vector<FixEdge> * fe)
+void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<Vec2i> * c_info, vector<FixEdge> * fe, bool weak_border)
 {
-	ba->arrange(*feature, -1, -1, fe);
+	ba->arrange(*feature, -1, -1, fe, weak_border);
 	*offset = ba->get_best_offset();
 	Mat_<unsigned long long> corner = ba->get_corner();
 	c_info->create(corner.rows, corner.cols);
@@ -145,9 +147,11 @@ void StitchView::paintEvent(QPaintEvent *)
 			QRect src_rect(target_rect.topLeft() - img_rect.topLeft(),
 				target_rect.bottomRight() - img_rect.topLeft());
 			painter.drawImage(target_rect, subimg, src_rect);
+#if PRINT_DRAW_IMAGE
 			qDebug("drawImage, (y=%d,x=%d) (l=%d,t=%d,w=%d, h=%d) -> (l=%d,t=%d,w=%d,h=%d)", y, x,
 				src_rect.left(), src_rect.top(), src_rect.width(), src_rect.height(),
 				target_rect.left(), target_rect.top(), target_rect.width(), target_rect.height());
+#endif
 			img_idx++;
 		}
 
@@ -579,7 +583,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 	switch (mouse_state) {
 	case ChangeNail:
 	{
-		cur_nail = search_nail(lf[layer], ri.dst2src(layer, TOPOINT(mouse_point)), 5);
+		cur_nail = search_nail(lf[layer], ri.dst2src(layer, TOPOINT(mouse_point)), 25);
 		if (cur_nail.lf0 != NULL) {
 			del_nail(cur_nail);
 			if (cur_nail.lf1 != lf[layer])
@@ -1105,7 +1109,7 @@ int StitchView::compute_new_feature(int _layer)
 	return 0;
 }
 
-int StitchView::optimize_offset(int _layer)
+int StitchView::optimize_offset(int _layer, bool weak_border)
 {
 	if (_layer == -1)
 		_layer = layer;
@@ -1143,7 +1147,7 @@ int StitchView::optimize_offset(int _layer)
 			}
 		}
 	}
-	thread_bundle_adjust(ba, &lf[layer]->feature, &adjust_offset, &lf[layer]->corner_info, &fe);
+	thread_bundle_adjust(ba, &lf[layer]->feature, &adjust_offset, &lf[layer]->corner_info, &fe, weak_border);
 	lf[layer]->cpara.offset = adjust_offset;
 	lf[layer]->compute_unsure_corner();
 	ri.invalidate_cache(layer);
@@ -1249,6 +1253,7 @@ int StitchView::output_layer(int _layer, string pathname) {
 	CV_Assert(map_id.empty());
 	delete ic;
 	emit notify_progress(0);
+    return 0;
 }
 
 int StitchView::delete_layer(int _layer)

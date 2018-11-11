@@ -26,7 +26,7 @@ public:
     /*input fet, fet.diff
     input _img_num_h, if < 0, img_num_h = fet.cpara.img_num_h
     input _img_num_w, if < 0, img_num_w = fet.cpara.img_num_w*/
-    virtual int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe) = 0;
+    virtual int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool weak_border) = 0;
     virtual ~BundleAdjustInf() {}
 };
 

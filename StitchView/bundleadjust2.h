@@ -206,12 +206,12 @@ protected:
 	Edge2 * get_edge(int idx);
 	FourCorner * get_4corner(int y, int x);
 	FourCorner * get_4corner(int idx);
-	void compute_edge_cost(Edge2 * pe, float alpha);
+	void compute_edge_cost(Edge2 * pe, float alpha, bool weak);
 	void print_4corner_stat();
-	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe);
+	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool week_border);
 	void undo(const UndoPatch & patch);
-	void adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, int change_id, UndoPatch * patch, float cost_th);
-	void relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, UndoPatch * patch, float cost_th);
+	void adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, int change_id, UndoPatch * patch, float cost_th, bool border_is_source);
+	void relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, UndoPatch * patch, float cost_th, bool border_is_source);
 	void check_relax(const Rect & rect, float cost_th);
 	void check_fix_edge();
 	int merge_square_area(const Rect & src_rect, const Rect & tgt_rect, const Rect & outer, int src_posx, int src_posy, float cost_th);
@@ -220,6 +220,7 @@ protected:
 	void merge_bundles();
 	void merge_all();
 	void optimize_corner(unsigned corner_idx, int max_shift_x, int max_shift_y);
+	void optimize_corner(int max_shift_x, int max_shift_y);
 	void output();
 	
 public:
@@ -231,7 +232,7 @@ public:
 	Mat_<unsigned long long> get_corner() {
 		return corner_info.clone();
 	}
-	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe);
+	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool week_border);
 };
 
 #endif // BUNDLEADJUST2_H

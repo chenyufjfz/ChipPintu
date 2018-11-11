@@ -153,6 +153,7 @@ public:
 	}
 };
 
+//e=0 means up-down image edge
 #define MAKE_EDGE_IDX(x, y, e) ((e) << 31 | (y) << 16 | (x))
 #define EDGE_Y(idx) ((idx) >> 16 & 0x7fff)
 #define EDGE_X(idx) ((idx) & 0x7fff)

@@ -87,6 +87,8 @@ void MainWindow::on_actionConfig_Para_triggered()
 		int init_offset_y = cpara.offset(1, 0)[0] - cpara.offset(0, 0)[0];
 		init_offset_x = (init_offset_x + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
 		init_offset_y = (init_offset_y + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
+		qInfo("UI: config init, path=%s, ox=%d,oy=%d, nw=%d, nh=%d", cpara.img_path.c_str(), 
+			init_offset_x, init_offset_y, cpara.img_num_w, cpara.img_num_h);
 		cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
 		for (int y = 0; y < cpara.img_num_h; y++) {
 			for (int x = 0; x < cpara.img_num_w; x++) {
@@ -153,7 +155,8 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 			QMessageBox::information(this, "Info", "Reduce rescale");
 			return;			
 		}
-
+		qInfo("UI: prepare next, scale=%d, lrx=%d, lry=%d, udx=%d, udy=%d", cpara.rescale,
+			cpara.max_lr_xshift, cpara.max_lr_yshift, cpara.max_ud_xshift, cpara.max_ud_yshift);
 		cpara = para_dlg.cpara;
 		stitch_view->set_config_para(-1, cpara);
 		stitch_view->compute_new_feature(-1);
@@ -163,18 +166,21 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 void MainWindow::on_actionQuick_Save_triggered()
 {
 	string filename = stitch_view->get_project_path() + "/WorkData/quicksave.xml";
+	qInfo("UI: quick save %s", filename.c_str());
 	stitch_view->write_file(filename);
 }
 
 void MainWindow::on_actionQuick_Load_triggered()
 {
 	string filename = stitch_view->get_project_path() + "/WorkData/quicksave.xml";
+	qInfo("UI: quick load %s", filename.c_str());
 	stitch_view->read_file(filename);
 }
 
 void MainWindow::on_actionOptimize_Offset_triggered()
 {
-    stitch_view->optimize_offset(-1);
+	qInfo("UI: optimize offset");
+    stitch_view->optimize_offset(-1, false);
 }
 
 void MainWindow::on_actionTransForm_triggered()
@@ -184,6 +190,8 @@ void MainWindow::on_actionTransForm_triggered()
 	MapxyDialog mxy_dlg(mxy.get_beta(), mxy.get_default_zoomx(), mxy.get_default_zoomy(), 
 		mxy.get_merge_method(), dst_w, mxy.get_max_pt_error(), mxy.get_merge_pt_distance(), this);
 	if (mxy_dlg.exec() == QDialog::Accepted) {
+		qInfo("UI: deg=%f, zx=%f, zy=%f,dst_w=%d, pterr=%d, md=%d", mxy_dlg.beta, 
+			mxy_dlg.zx, mxy_dlg.zy, mxy_dlg.dst_w, mxy_dlg.max_pt_err, mxy_dlg.merge_distance);
 		mxy.set_beta(mxy_dlg.beta);
 		mxy.set_default_zoomx(mxy_dlg.zx);
 		mxy.set_default_zoomy(mxy_dlg.zy);
@@ -201,8 +209,10 @@ void MainWindow::on_actionLoad_triggered()
 	QString filename = QFileDialog::getOpenFileName(this, tr("Open File"),
 		dirname,
 		tr("Project (*.xml)"));
-	if (!filename.isEmpty())
+	if (!filename.isEmpty()) {
+		qInfo("UI: load %s", filename.toStdString().c_str());
 		stitch_view->read_file(filename.toStdString());
+	}
 }
 
 void MainWindow::on_actionSave_as_triggered()
@@ -211,16 +221,20 @@ void MainWindow::on_actionSave_as_triggered()
 	QString filename = QFileDialog::getSaveFileName(this, tr("Open File"),
 		dirname,
 		tr("Project (*.xml)"));
-	if (!filename.isEmpty())
+	if (!filename.isEmpty()) {
+		qInfo("UI: save as %s", filename.toStdString().c_str());
 		stitch_view->write_file(filename.toStdString());
+	}
 }
 
 void MainWindow::on_actionOutput_layer_triggered()
 {
 	QString dirname = QString::fromStdString(stitch_view->get_project_path() + "/WorkData");
 	QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"), dirname);
-	if (!pathname.isEmpty())
+	if (!pathname.isEmpty()) {
+		qInfo("UI: Output layer%d, %s", stitch_view->get_current_layer(), pathname.toStdString().c_str());
 		stitch_view->output_layer(-1, pathname.toStdString());
+	}
 }
 
 void MainWindow::on_actionOutput_all_triggered()
@@ -229,8 +243,10 @@ void MainWindow::on_actionOutput_all_triggered()
     QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"), dirname);
     if (!pathname.isEmpty()) {
         int layer_num = stitch_view->get_layer_num();
-        for (int l=0; l<layer_num; l++)
-            stitch_view->output_layer(l, pathname.toStdString());
+		for (int l = 0; l < layer_num; l++) {
+			qInfo("UI: Output layer%d, %s", l, pathname.toStdString().c_str());
+			stitch_view->output_layer(l, pathname.toStdString());
+		}
     }
 }
 
@@ -240,6 +256,7 @@ void MainWindow::on_actionDrawGrid_triggered()
     stitch_view->get_grid(ox, oy, gw, gh);
     GridDialog grid_dlg(this, gh, gw, oy, ox);
     if (grid_dlg.exec() == QDialog::Accepted) {
+		qInfo("UI: draw grid ox=%d, oy=%d, gw=%d, gh=%d", grid_dlg.offset_x, grid_dlg.offset_y, grid_dlg.grid_width, grid_dlg.grid_high);
 		stitch_view->set_grid(grid_dlg.offset_x, grid_dlg.offset_y, grid_dlg.grid_width, grid_dlg.grid_high);
     }
 
@@ -276,4 +293,10 @@ void MainWindow::on_actionLayer_Down_triggered()
 void MainWindow::on_actionClear_Fix_Edge_triggered()
 {
     stitch_view->clear_fix_edge(-1);
+}
+
+void MainWindow::on_actionOptimize_Offset_NB_triggered()
+{
+	qInfo("UI: optimize offset neglect border");
+	stitch_view->optimize_offset(-1, true);
 }

@@ -60,6 +60,8 @@ private slots:
 
     void on_actionClear_Fix_Edge_triggered();
 
+    void on_actionOptimize_Offset_NB_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;
