@@ -1433,14 +1433,14 @@ int StitchView::read_file(string file_name)
 				QFile file(QString::fromStdString(path));
 				if (!file.exists()) { //may change path
 					int loc2 = lf[i]->cpara.img_path.find_last_of("\\/", loc - 1);
-					string another_path = project_path + lf[i]->feature_file.substr(loc2, loc - loc2);
+					string another_path = project_path + lf[i]->cpara.img_path.substr(loc2, loc - loc2);
 					QFile file1(QString::fromStdString(another_path));
 					if (!file1.exists()) {
 						QMessageBox::information(this, "Info", QString::fromStdString(path + " not exist"));
 						lf[i]->cpara.img_path.clear();
 					}
 					else {
-						lf[i]->cpara.img_path = project_path + lf[i]->feature_file.substr(loc2);
+						lf[i]->cpara.img_path = project_path + lf[i]->cpara.img_path.substr(loc2);
 					}
 						
 				}

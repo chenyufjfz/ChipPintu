@@ -16,27 +16,27 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
     QTime datetime;
     datetime = QTime::currentTime();
     QString str_dt = datetime.toString("hh:mm:ss.zzz");
-
+	Qt::HANDLE id = QThread::currentThreadId();
     if (context.function==NULL) {
         switch (type) {
         case QtDebugMsg:
-            fprintf(fp, "<D>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+            fprintf(fp, "<D>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
 			fflush(fp);
             break;
         case QtInfoMsg:
-            fprintf(fp, "<I>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+            fprintf(fp, "<I>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
 			fflush(fp);
             break;
         case QtWarningMsg:
-            fprintf(fp, "<W>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+            fprintf(fp, "<W>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
 			fflush(fp);
             break;
         case QtCriticalMsg:
-            fprintf(fp, "<E>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+            fprintf(fp, "<E>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
             fflush(fp);
             break;
         case QtFatalMsg:
-            fprintf(fp, "<F>[%s] %s\n", qPrintable(str_dt), qPrintable(msg));
+            fprintf(fp, "<F>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
             fclose(fp);
             exit(-1);
         }
@@ -74,23 +74,23 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 
     switch (type) {
     case QtDebugMsg:
-        fprintf(fp, "<D>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<D>[%d,%p] [%s] [%s:%s] %s\n", context.line, id, qPrintable(str_dt), file, func, qPrintable(msg));
 		fflush(fp);
         break;
     case QtInfoMsg:
-        fprintf(fp, "<I>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<I>[%d,%p] [%s] [%s:%s] %s\n", context.line, id, qPrintable(str_dt), file, func, qPrintable(msg));
 		fflush(fp);
         break;
     case QtWarningMsg:
-        fprintf(fp, "<W>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<W>[%d,%p] [%s] [%s:%s] %s\n", context.line, id, qPrintable(str_dt), file, func, qPrintable(msg));
 		fflush(fp);
         break;
     case QtCriticalMsg:
-        fprintf(fp, "<E>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<E>[%d,%p] [%s] [%s:%s] %s\n", context.line, id, qPrintable(str_dt), file, func, qPrintable(msg));
         fflush(fp);
         break;
     case QtFatalMsg:
-        fprintf(fp, "<F>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<F>[%d,%p] [%s] [%s:%s] %s\n", context.line, id, qPrintable(str_dt), file, func, qPrintable(msg));
         fclose(fp);
         exit(-1);
     }

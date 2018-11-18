@@ -194,7 +194,6 @@ class BundleAdjust2 : public BundleAdjustInf
 protected:	
 	vector<Edge2> eds[2]; //0 for up-down edge
 	vector<FourCorner> fc; //(rows+1) * (cols+1)
-	vector<SourceInfo> source;
 	int img_num_h, img_num_w, scale;
 	Mat_<Vec2i> best_offset;
 	Mat_<unsigned long long> corner_info;
@@ -210,11 +209,10 @@ protected:
 	void print_4corner_stat();
 	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool week_border);
 	void undo(const UndoPatch & patch);
-	void adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, int change_id, UndoPatch * patch, float cost_th, bool border_is_source);
-	void relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, UndoPatch * patch, float cost_th, bool border_is_source);
-	void check_relax(const Rect & rect, float cost_th);
+	void adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, vector<SourceInfo> & source, int change_id, UndoPatch * patch, float cost_th, bool border_is_source);
+	void relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, vector<SourceInfo> & source, UndoPatch * patch, float cost_th, bool border_is_source);
+	void check_relax(const Rect & rect, vector<SourceInfo> & source, float cost_th);
 	void check_fix_edge();
-	int merge_square_area(const Rect & src_rect, const Rect & tgt_rect, const Rect & outer, int src_posx, int src_posy, float cost_th);
 	Bundle search_bundle(FourCorner * pc, int len_limit, int width_limit);
 	bool merge_one_bundle(Bundle b);
 	void merge_bundles();
@@ -224,6 +222,7 @@ protected:
 	void output();
 	
 public:
+	int merge_square_area(const Rect & src_rect, const Rect & tgt_rect, const Rect & outer, int src_posx, int src_posy, float cost_th);
 	BundleAdjust2() {}
 	~BundleAdjust2() {}
 	Mat_<Vec2i> get_best_offset() {

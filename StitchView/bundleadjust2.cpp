@@ -2,6 +2,7 @@
 #include <algorithm> 
 #include <queue>
 #include <functional>
+#include <QtConcurrent>
 
 enum {
 	NOT_VALID_4CORNER,
@@ -103,8 +104,49 @@ struct BundleShape {
 #define BUNDLE_SHAPE_INVALID 255
 
 #define PRINT_ADJUST_PATH 1
-#define CHECK_LOOP_NUM 8
-#define MERGE_ALL_SUM_TH 25
+#define CHECK_LOOP_NUM 5
+//#define MERGE_ALL_SUM_TH 25
+#define MERGE_ALL_GRID0 10
+#define MERGE_ALL_GRID1 15
+#define PARALLEL 0
+
+struct MergeSquarePara {
+	BundleAdjust2 * ba;
+	Rect r;
+	float cost_th;
+	MergeSquarePara(BundleAdjust2 * _ba, Rect & _r, float _cost_th) {
+		ba = _ba;
+		r = _r;
+		cost_th = _cost_th;
+	}
+};
+
+static void thread_merge_square(MergeSquarePara & ms)
+{
+	ms.ba->merge_square_area(ms.r, ms.r, ms.r, 9, 9, ms.cost_th);
+}
+
+/*
+input total
+input unit
+output grid
+e.g. total = 50, unit =12, grid = {-1, 11, 23, 35, 50}
+total = 50, unit =18, grid = {-1, 17, 35, 50}
+*/
+static void split(int total, int unit, vector<int> & grid)
+{
+	grid.clear();
+	grid.push_back(-1);
+
+	for (int i = 0;; i++) {
+		grid.push_back(grid[i] + unit);
+		if (grid.back() >= total - 3) {
+			grid.pop_back();
+			grid.push_back(total);
+			return;
+		}
+	}
+}
 
 template < class T >
 void clear_vec(vector< T >& vt)
@@ -168,10 +210,6 @@ unsigned queue_number(int shape_len, int dx, int dy)
 	return 1000;
 }
 
-bool less_bd_4corner(const FourCorner * c1, const FourCorner * c2) {
-	return c1->bd < c2->bd;
-}
-
 /*
 Compute pe->cost and pe->hard_score
 */
@@ -230,7 +268,7 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 			}
 		}
 	}
-	if (pe->hard_score >= COST_BIND - 2)
+	if (pe->hard_score >= COST_BIND - 10)
 		pe->hard_score = 0;
 	return;
 }
@@ -498,7 +536,7 @@ if true, border is used as source, so not update border.
 if false, border is used as dest, so update border
 It depend on source, adjust edge from ps to pt with modify
 */
-void BundleAdjust2::adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, int change_id, UndoPatch * patch, float cost_th, bool border_is_source)
+void BundleAdjust2::adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, vector<SourceInfo> & source, int change_id, UndoPatch * patch, float cost_th, bool border_is_source)
 {
 	//following change path FourCorner update_state to 2
 	int isloop = (ps == pt) ? 1 : 0;
@@ -598,15 +636,19 @@ void BundleAdjust2::adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, 
 			}
 		}
 		if (source[sidx].isx) {
-			ps->res_sft[1] -= source[sidx].sign *modify;
-			pt->res_sft[1] += source[sidx].sign *modify;
+			if (ps->bd)
+				ps->res_sft[1] -= source[sidx].sign *modify;
+			if (pt->bd)
+				pt->res_sft[1] += source[sidx].sign *modify;
 		}
 		else {
-			ps->res_sft[0] -= source[sidx].sign *modify;
-			pt->res_sft[0] += source[sidx].sign *modify;
+			if (ps->bd)
+				ps->res_sft[0] -= source[sidx].sign *modify;
+			if (pt->bd)
+				pt->res_sft[0] += source[sidx].sign *modify;
 		}
 	}
-	while (!invalid_queue.empty()) {
+	while (!invalid_queue.empty()) { //propogate more cs update_state to 2
 		pa = invalid_queue.back();
 		invalid_queue.pop_back();
 		for (int dir = 0; dir < 4; dir++) {
@@ -667,7 +709,7 @@ input border_is_source,
 	  if false, border is used as dest, so update border
 It depend on source
 */
-void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, UndoPatch * patch, float cost_th, bool border_is_source)
+void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, vector<SourceInfo> & source, UndoPatch * patch, float cost_th, bool border_is_source)
 {
 	CV_Assert(pc->already_inqueue && pc->cs.size() == source.size());
 	CV_Assert(border_is_source || pc->bd > 0);
@@ -742,7 +784,7 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 						pa->cs[i][j].update_num = 0;
 						if (find_loop) {//if not reach root, find loop
 							qDebug("relax find loop shift %c=%d", source[i].isx ? 'x' : 'y', j);
-							adjust_edge_mls(pa, pa, i, j, rq, -1, patch, cost_th, border_is_source);
+							adjust_edge_mls(pa, pa, i, j, rq, source, -1, patch, cost_th, border_is_source);
 							return;
 						}
 					}
@@ -802,13 +844,15 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 	}
 }
 
-void BundleAdjust2::check_relax(const Rect & rect, float)
+void BundleAdjust2::check_relax(const Rect & rect, vector<SourceInfo> & source, float)
 {
 	for (int y = rect.y; y < rect.y + rect.height; y++)
 	for (int x = rect.x; x < rect.x + rect.width; x++)  {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
-		if (pc->bd == 0)
+		if (pc->bd == 0) {
+			CV_Assert(pc->res_sft[0] == 0 && pc->res_sft[1] == 0);
 			continue;
+		}
 		CV_Assert(!pc->already_inqueue && !pc->visited);
 		for (int dir = 0; dir < 4; dir++) {
 			FourCorner * pc1 = get_4corner(pc->get_4corner_idx(dir));
@@ -858,7 +902,8 @@ void BundleAdjust2::check_relax(const Rect & rect, float)
 void BundleAdjust2::check_fix_edge()
 {
 	for (int i = 0; i < 2; i++)
-	for (int j = 0; j < eds[i].size(); j++) {
+	for (int j = 0; j < eds[i].size(); j++)
+	if (eds[i][j].flag) {
 		Edge2 * pe = &eds[i][j];
 		Point cur_edge_point = pe->get_current_point(scale);
 		float cur_edge_cost = pe->get_point_cost(cur_edge_point, scale);
@@ -876,16 +921,18 @@ void BundleAdjust2::check_fix_edge()
 Input src_rect, source FourCorner rect
 Input dst_rect, dest FourCorner rect
 Input outer, route boundary
-src_posx =-2, merge negative x, if can't find path, no undo
-src_posx =-1, merge negative x, if can't find path, undo
-src_posx =1,  merge positive x, if can't find path, undo
-src_posx =2,  merge positive x, if can't find path, no undo
-src_posx =other value, not merge
-src_posy =-2,  merge negative y, if can't find path, no undo
-src_posy =-1,  merge negative y, if can't find path, undo
-src_posy =1,  merge positive y, if can't find path, undo
-src_posx =2,  merge positive y, if can't find path, no undo
-src_posy =other value, not merge
+src_posx =-2, merge negative x as source, if can't find path, no undo
+src_posx =-1, merge negative x as source, if can't find path, undo
+src_posx =1,  merge positive x as source, if can't find path, undo
+src_posx =2,  merge positive x as source, if can't find path, no undo
+src_posx =0, not merge x
+src_posx =9, choos negative or positive x as source based on number
+src_posy =-2,  merge negative y as source, if can't find path, no undo
+src_posy =-1,  merge negative y as source, if can't find path, undo
+src_posy =1,  merge positive y as source, if can't find path, undo
+src_posy =2,  merge positive y as source, if can't find path, no undo
+src_posy =0, not merge y
+src_posy =9, choos negative or positive x as source based on number
 cost_th,
 return: how mange time it adjust edge
 */
@@ -895,7 +942,7 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 	CV_Assert(cost_th > COST_BIGER_THAN_AVG - 1);
 	vector<pair<unsigned, int> > pos_x, pos_y, neg_x, neg_y; //first is idx, second is res_sft
 	UndoPatch patch;
-	UndoPatch * p_patch = (abs(src_posx == 2) || abs(src_posy) == 2) ? NULL : &patch;
+	UndoPatch * p_patch = (abs(src_posx >= 2) || abs(src_posy) >= 2) ? NULL : &patch;
 	if (abs(src_posx) == 2)
 		src_posx = src_posx / 2;
 	if (abs(src_posy) == 2)
@@ -905,13 +952,13 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 	for (int y = src_rect.y; y < src_rect.y + src_rect.height; y++)
 	for (int x = src_rect.x; x < src_rect.x + src_rect.width; x++)  {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
-		if (pc->res_sft[0] > 0 && src_posy == 1)
+		if (pc->res_sft[0] > 0 && src_posy > 0)
 			pos_y.push_back(make_pair(pc->idx, pc->res_sft[0]));
-		if (pc->res_sft[0] < 0 && src_posy == -1)
+		if (pc->res_sft[0] < 0 && src_posy < 0)
 			neg_y.push_back(make_pair(pc->idx, -pc->res_sft[0]));
-		if (pc->res_sft[1] > 0 && src_posx == 1)
+		if (pc->res_sft[1] > 0 && src_posx > 0)
 			pos_x.push_back(make_pair(pc->idx, pc->res_sft[1]));
-		if (pc->res_sft[1] < 0 && src_posx == -1)
+		if (pc->res_sft[1] < 0 && src_posx < 0)
 			neg_x.push_back(make_pair(pc->idx, -pc->res_sft[1]));
 		sumy += pc->res_sft[0];
 		sumx += pc->res_sft[1];
@@ -921,7 +968,7 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 	qDebug("merge_square_area ir=(x=%d,y=%d,%d,%d), sumx=%d, sumy=%d, absx=%d, absy=%d, posx=%d, posy=%d", src_rect.x, src_rect.y,
 		src_rect.x + src_rect.width - 1, src_rect.y + src_rect.height - 1, sumx, sumy, abs_sumx, abs_sumy, src_posx, src_posy);
 	//1.2 search FourCorner res_sft tgt_rect
-	vector<SourceInfo> dest;
+	vector<SourceInfo> source, dest;
 	for (int y = tgt_rect.y; y < tgt_rect.y + tgt_rect.height; y++)
 	for (int x = tgt_rect.x; x < tgt_rect.x + tgt_rect.width; x++)  {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
@@ -929,22 +976,28 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 			dest.push_back(SourceInfo(pc->idx, 0, 0, 30000));
 			continue;
 		}
-		if (pc->res_sft[0] > 0 && src_posy == -1)
+		if (pc->res_sft[0] > 0 && src_posy < 0)
 			pos_y.push_back(make_pair(pc->idx, pc->res_sft[0]));
-		if (pc->res_sft[0] < 0 && src_posy == 1)
+		if (pc->res_sft[0] < 0 && src_posy > 0)
 			neg_y.push_back(make_pair(pc->idx, -pc->res_sft[0]));
-		if (pc->res_sft[1] > 0 && src_posx == -1)
+		if (pc->res_sft[1] > 0 && src_posx < 0)
 			pos_x.push_back(make_pair(pc->idx, pc->res_sft[1]));
-		if (pc->res_sft[1] < 0 && src_posx == 1)
+		if (pc->res_sft[1] < 0 && src_posx > 0)
 			neg_x.push_back(make_pair(pc->idx, -pc->res_sft[1]));
 	}
 	if (abs_sumx == 0 && abs_sumy == 0) {
-		qWarning("merge_square_area abs sumx and abs sumy=0, no need merge");
-		return false;
+		qInfo("merge_square_area abs sumx and abs sumy=0, no need merge");
+		return 0;
 	}
 	//2 init Source Info and dest
-	source.clear();
-	if (abs_sumy != 0) {
+	bool has_border = !dest.empty();
+	if (abs_sumy != 0 && (!neg_y.empty() && !pos_y.empty() || has_border)) {
+		if (src_posy == 9) {//choose source based on number
+			if (has_border)
+				src_posy = (sumy < 0) ? -1 : 1; //sumy < 0 means pos_y is less, choose neg_y as source, has_border choose more
+			else
+				src_posy = (sumy < 0) ? 1 : -1; //sumy < 0 means pos_y is less, choose pos_y as source
+		}
 		if (src_posy == -1) { //merge negative y
 			for (int i = 0; i < (int)neg_y.size(); i++)
 				source.push_back(SourceInfo(neg_y[i].first, -1, 0, neg_y[i].second));
@@ -958,7 +1011,13 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 				dest.push_back(SourceInfo(neg_y[i].first, -1, 0, neg_y[i].second));
 		}
 	}
-	if (abs_sumx != 0) {
+	if (abs_sumx != 0 && (!neg_x.empty() && !pos_x.empty() || has_border)) {
+		if (src_posx == 9) { //choose source based on number
+			if (has_border)
+				src_posx = (sumx < 0) ? -1 : 1; //sumx < 0 means pos_x is less, choose neg_x as source,has_border choose more
+			else
+				src_posx = (sumx < 0) ? 1 : -1; //sumx < 0 means pos_x is less, choose pos_x as source
+		}
 		if (src_posx == -1) { //merge negative x
 			for (int i = 0; i < (int)neg_x.size(); i++)
 				source.push_back(SourceInfo(neg_x[i].first, -1, 1, neg_x[i].second));
@@ -972,12 +1031,17 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 				dest.push_back(SourceInfo(neg_x[i].first, -1, 1, neg_x[i].second));
 		}
 	}
+	if (source.empty() || dest.empty()) {
+		qInfo("merge_square_area source=%d dest=%d, no need merge", source.size(), dest.size());
+		return 0;
+	}
 
 	//3 init FourCorner SourceCost inside outer
 	queue<unsigned> rq;
 	for (int y = outer.y; y < outer.y + outer.height; y++)
 	for (int x = outer.x; x < outer.x + outer.width; x++)  {
 		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
+		CV_Assert(pc->cs.empty());
 		pc->cs.resize(source.size());
 		pc->already_inqueue = false;
 		pc->visited = false;
@@ -1012,9 +1076,9 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 		while (!rq.empty()) {
 			FourCorner * pc = get_4corner(rq.front());
 			rq.pop();
-			relax(pc, outer, rq, p_patch, cost_th, false);
+			relax(pc, outer, rq, source, p_patch, cost_th, false);
 		}
-		check_relax(outer, cost_th);
+		check_relax(outer, source, cost_th);
 		//5.2 find min unit cost
 		FourCorner * p_best_src = NULL;
 		FourCorner *p_best_dst = NULL;
@@ -1028,8 +1092,6 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 				|| dest[k].sign==0) {
 				for (int j = min(source[i].cap, dest[k].cap); j>0; j--) {
 					COST_TYPE cost = pc->cs[i][j].cost / j;
-					/*if (dest[k].sign == 0) //increase border cost
-						cost = cost*1.5;*/
 					if (cost < min_unit_cost && pc->cs[i][j].cost < cost_th) {
 						min_unit_cost = cost;
 						best_src = i;
@@ -1057,7 +1119,7 @@ int BundleAdjust2::merge_square_area(const Rect & src_rect, const Rect & tgt_rec
 		source[best_src].cap -= best_modify;
 		if (source[best_src].cap == 0)
 			left_source--;
-		adjust_edge_mls(p_best_src, p_best_dst, best_src, best_modify, rq, change_id, p_patch, cost_th, false);
+		adjust_edge_mls(p_best_src, p_best_dst, best_src, best_modify, rq, source, change_id, p_patch, cost_th, false);
 		cnt++;
 		check_fix_edge();
 	}
@@ -1103,12 +1165,6 @@ Bundle BundleAdjust2::search_bundle(FourCorner * pc, int len_limit, int width_li
 			}
 			Edge2 * pe = get_edge(pc1, pc0);
 			CV_Assert(pe != NULL);
-#if 0
-			if (FIX_EDGE_BINDX(pe->flag)) //edge can't move
-				xok = 0;
-			if (FIX_EDGE_BINDY(pe->flag))
-				yok = 0;
-#endif
 			dx += pc1->res_sft[1];
 			dy += pc1->res_sft[0];
 			sum_res_x += abs(pc1->res_sft[1]);
@@ -1593,7 +1649,7 @@ struct FourCornerBdStat {
 		sum_negy = 0;
 	}
 };
-
+/*
 void BundleAdjust2::merge_all()
 {
 	int prev_src_bd = -1;
@@ -1660,13 +1716,34 @@ void BundleAdjust2::merge_all()
 			change_id++;
 		prev_src_bd = src_bd;
 	}
+}*/
+
+void BundleAdjust2::merge_all()
+{
+	int unit[2] = { MERGE_ALL_GRID0, MERGE_ALL_GRID1 };
+	for (int i = 0; i < 2; i++) {
+		vector<int> gy, gx;
+		vector<MergeSquarePara> ms;
+		qInfo("merge_all unit%d=%d", i, unit[i]);
+		split(img_num_h + 1, unit[i], gy);
+		split(img_num_w + 1, unit[i], gx);
+		for (int y = 0; y < gy.size() - 1; y++)
+		for (int x = 0; x < gx.size() - 1; x++)
+			ms.push_back(MergeSquarePara(this, Rect(gx[x] + 1, gy[y] + 1, gx[x + 1] - gx[x] - 1, gy[y + 1] - gy[y] - 1), COST_BIGER_THAN_AVG * 1.5));
+#if PARALLEL
+		QtConcurrent::blockingMap<vector<MergeSquarePara> >(ms, thread_merge_square);
+#else
+		for (int j = 0; j < ms.size(); j++)
+			thread_merge_square(ms[j]);
+#endif
+	}
 }
 
 void BundleAdjust2::optimize_corner(unsigned corner_idx, int max_shift_x, int max_shift_y)
 {
 	qInfo("optimize_corner idx=%x, shift_x=%d, shifty=%d", corner_idx, max_shift_x, max_shift_y);
 	//1 init Source Info and dest
-	source.clear();
+	vector<SourceInfo> source;
 	source.push_back(SourceInfo(corner_idx, -1, 0, max_shift_y));
 	source.push_back(SourceInfo(corner_idx, 1, 0, max_shift_y));
 	source.push_back(SourceInfo(corner_idx, -1, 1, max_shift_x));
@@ -1702,9 +1779,9 @@ void BundleAdjust2::optimize_corner(unsigned corner_idx, int max_shift_x, int ma
 	while (!rq.empty()) {
 		FourCorner * pc = get_4corner(rq.front());
 		rq.pop();
-		relax(pc, outer, rq, NULL, COST_BIND * 10, false);
+		relax(pc, outer, rq, source, NULL, COST_BIND * 10, false);
 	}
-	check_relax(outer, COST_BIND * 10);
+	check_relax(outer, source, COST_BIND * 10);
 
 	//4 clear
 	source.clear();
@@ -1715,16 +1792,30 @@ void BundleAdjust2::optimize_corner(unsigned corner_idx, int max_shift_x, int ma
 }
 
 void BundleAdjust2::optimize_corner(int max_shift_x, int max_shift_y)
-{
-	qInfo("optimize_corner shift_x=%d, shifty=%d", max_shift_x, max_shift_y);
+{	
+	vector<SourceInfo> source, dest;
+	for (int y = 0; y < img_num_h; y++)
+	for (int x = 0; x < img_num_w; x++) {
+		FourCorner * pc = &fc[y * (img_num_w + 1) + x];
+		if (pc->res_sft[0] != 0) {
+			CV_Assert(pc->bd);
+			max_shift_y = max(max_shift_y, abs(pc->res_sft[0]));
+			dest.push_back(SourceInfo(pc->idx, SGN(pc->res_sft[0]), 0, abs(pc->res_sft[0])));
+		}
+		if (pc->res_sft[1] != 0) {
+			CV_Assert(pc->bd);
+			max_shift_x = max(max_shift_x, abs(pc->res_sft[1]));
+			dest.push_back(SourceInfo(pc->idx, SGN(pc->res_sft[1]), 1, abs(pc->res_sft[1])));
+		}		
+	}
+	qInfo("optimize_corner shift_x=%d, shifty=%d, dest_num=%d", max_shift_x, max_shift_y, dest.size());
+
 	//1 init Source Info and dest
-	source.clear();
 	source.push_back(SourceInfo(0, -1, 0, max_shift_y));
 	source.push_back(SourceInfo(0, 1, 0, max_shift_y));
 	source.push_back(SourceInfo(0, -1, 1, max_shift_x));
 	source.push_back(SourceInfo(0, 1, 1, max_shift_x));
 	queue<unsigned> rq;
-
 
 	//2 init FourCorner SourceCost
 	for (int k = 0; k < fc.size(); k++) {
@@ -1751,6 +1842,7 @@ void BundleAdjust2::optimize_corner(int max_shift_x, int max_shift_y)
 	}
 
 	Rect outer(0, 0, img_num_w + 1, img_num_h + 1);
+	bool res_all0 = dest.empty();
 	//3 search loop
 	while (1) {
 		//3.1 do relax
@@ -1762,11 +1854,51 @@ void BundleAdjust2::optimize_corner(int max_shift_x, int max_shift_y)
 		while (!rq.empty()) {
 			FourCorner * pc = get_4corner(rq.front());
 			rq.pop();
-			relax(pc, outer, rq, NULL, COST_BIND * 10, true);
+			relax(pc, outer, rq, source, NULL, COST_BIND * 10, true);
 		}
-		check_relax(outer, COST_BIND * 10);
-		//3.2 find border loop
-		COST_TYPE min_loop_cost = -0.00001;
+		check_relax(outer, source, COST_BIND * 10);
+
+		//3.2 merge all non-zero pc
+		if (!res_all0) {
+			COST_TYPE min_unit_cost = COST_BIND;
+			FourCorner * p_best = NULL;
+			int best_source, best_dst, best_modify = 0;
+			for (int k = 0; k < (int)dest.size(); k++)
+			if (dest[k].cap > 0) {
+				FourCorner * pc = get_4corner(dest[k].idx);
+				for (int i = 0; i < pc->cs.size(); i++) //only one i will be selected
+				if ((source[i].isx == dest[k].isx && source[i].sign == -dest[k].sign)) {
+					for (int j = dest[k].cap; j > 0; j--) {
+						COST_TYPE cost = pc->cs[i][j].cost / j;
+						if (cost < min_unit_cost) {
+							min_unit_cost = cost;
+							p_best = pc;
+							best_source = i;
+							best_dst = k;
+							best_modify = j;
+						}
+					}
+					break;
+				}
+			}
+			if (p_best != NULL) {
+				dest[best_dst].cap -= best_modify;
+				FourCorner * p_src = p_best;
+				while (p_src->bd) //find the border
+					p_src = get_4corner(p_src->cs[best_source][best_modify].fa);
+				adjust_edge_mls(p_src, p_best, best_source, best_modify, rq, source, change_id, NULL, COST_BIND * 10, true);
+				change_id++;
+				check_fix_edge();
+				continue;
+			}
+			else {
+				qInfo("optimize_corner finish merge non-zero");
+				res_all0 = true;
+			}
+		}
+
+		//3.3 find border cost-negative loop
+		COST_TYPE min_loop_cost = -0.00001;	
 		FourCorner * p_best = NULL;
 		int best_source, best_modify = 0;
 		for (int k = 0; k < fc.size(); k++) {
@@ -1787,13 +1919,14 @@ void BundleAdjust2::optimize_corner(int max_shift_x, int max_shift_y)
 			}
 		}
 
-		if (p_best == NULL)
+		if (p_best == NULL) //no negative loop, return
 			break;
+
 		FourCorner * p_src[2];
 		int len[2] = { 0, 0 };
 		for (int i = 0; i < 2; i++) {
 			p_src[i] = p_best;
-			while (p_src[i]->bd) {
+			while (p_src[i]->bd) { //find the border
 				p_src[i] = get_4corner(p_src[i]->cs[best_source + i][best_modify].fa);
 				len[i]++;
 			}
@@ -1802,7 +1935,7 @@ void BundleAdjust2::optimize_corner(int max_shift_x, int max_shift_y)
 		int cho = (len[0] == 1) ? 1 : 0;
 		p_src[1-cho]->cs[best_source + cho][best_modify].fa = p_best->idx;
 		qInfo("optimize_corner corner=0x%x, shift%c %d, cost=%f", p_best->idx, best_source ? 'x' : 'y', cho ? best_modify : -best_modify, min_loop_cost);
-		adjust_edge_mls(p_src[cho], p_src[1-cho], best_source + cho, best_modify, rq, change_id, NULL, COST_BIND * 10, true);
+		adjust_edge_mls(p_src[cho], p_src[1-cho], best_source + cho, best_modify, rq, source, change_id, NULL, COST_BIND * 10, true);
 		p_src[1-cho]->cs[best_source + cho][best_modify].fa = 0;
 		change_id++;
 		check_fix_edge();
