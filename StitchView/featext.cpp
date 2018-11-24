@@ -19,6 +19,7 @@
 
 struct ImageData {
 	string filename;
+	bool is_black_img;
 	struct {
 		int type;
 		Mat d;
@@ -129,6 +130,31 @@ void prepare_grad(ImageData & img_d, const ParamItem & param)
 
 /*     31..24  23..16   15..8   7..0
 opt0:							layer
+opt1: debug_opt  method   th     ratio
+*/
+void detect_black_img(ImageData & img_d, const ParamItem & param)
+{
+	int th = param.pi[1] >> 8 & 0xff;
+	unsigned ratio = param.pi[1] & 0xff;
+	Mat & m0 = img_d.v[0].d;
+	CV_Assert(m0.type() == CV_8UC1);
+	unsigned long long sum2 = 0;
+	for (int y = 0; y < m0.rows; y++) { //y,x is grad_x0, grad_y0
+		const unsigned char * pm0 = m0.ptr<unsigned char>(y);
+		for (int x = 0; x < m0.cols; x++) {
+			if (pm0[x] > th)
+				sum2++;
+		}
+	}
+	unsigned long long sum1 = m0.rows * m0.cols;
+
+	if (sum2 * 1000 < sum1 * ratio) {
+		img_d.is_black_img = true;
+		qInfo("detect_black_img %s", img_d.filename.c_str());
+	}
+}
+/*     31..24  23..16   15..8   7..0
+opt0:							layer
 opt1: debug_opt method  opidx_diff3 opidx_diff2 opidx_diff1 opidx_diff0
 opt2: mix_diff2 mix_diff2 mix_diff1 mix_diff0
 */
@@ -144,6 +170,13 @@ void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rec
     vector<int> num((2 * yshift + 1)*(2 * xshift + 1), 0);
     vector<double> normal_out((2 * yshift + 1)*(2 * xshift + 1));
 
+	if (img_diff.img_d0->is_black_img || img_diff.img_d1->is_black_img) {
+		e->img_num = 0;
+		e->dif.create(2 * yshift + 1, 2 * xshift + 1);
+		e->dif = 0;
+		e->compute_score();
+		return;
+	}
 	for (int i = 0; i < 4; i++)
 	if (mix[i] > 0) {
 		Mat m0 = img_diff.img_d0->v[opidx[i]].d(r0);
@@ -228,6 +261,10 @@ void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rec
 			pdiff[2 * xshift - x] = pout[x] * 100;
     }
 	e->compute_score();
+	if (e->avg == 0) {
+		qDebug("compute_diff found black img1=%s, img2=%s", img_diff.img_d0->filename.c_str(), img_diff.img_d1->filename.c_str());
+		e->img_num = 0;	
+	}		
 }
 
 void write_mat_binary(FILE * fp, unsigned short para0, unsigned short para1, const Mat &m)
@@ -281,10 +318,14 @@ void prepare_extract(ImageData & img_dat)
 		case PP_COMPUTE_GRAD:
 			prepare_grad(img_dat, img_dat.tvar->params[i]);
 			break;
+		case PP_DETECT_BLACK_IMG:
+			detect_black_img(img_dat, img_dat.tvar->params[i]);
+			break;
 		}
 	}
 }
 
+//diff and erode
 void compute_diff1(const ImageDiff & gd, const ParamItem & param)
 {
 	int x_shift = (gd.dir) ? gd.cvar->max_lr_xshift / gd.cvar->rescale : gd.cvar->max_ud_xshift / gd.cvar->rescale;
@@ -298,6 +339,12 @@ void compute_diff1(const ImageDiff & gd, const ParamItem & param)
 	qDebug("compute_diff, op0=%d, op1=%d, op2=%d, op3=%d, mix0=%d, mix1=%d, mix2=%d, mix3=%d",
 		opidx[0], opidx[1], opidx[2], opidx[3], mix[0], mix[1], mix[2], mix[3]);
 	gd.e->dif.create(2 * y_shift + 1, 2 * x_shift + 1);
+	if (gd.img_d0->is_black_img || gd.img_d1->is_black_img) {
+		gd.e->img_num = 0;
+		gd.e->dif = 0;
+		gd.e->compute_score();
+		return;
+	}
 	for (int i = 0; i < 4; i++)
 	if (mix[i] > 0) {
 		Mat m0 = gd.img_d0->v[opidx[i]].d;
@@ -405,6 +452,10 @@ void compute_diff1(const ImageDiff & gd, const ParamItem & param)
 		}
 	}
 	gd.e->compute_score();
+	if (gd.e->avg == 0) {
+		qDebug("compute_diff found black img1=%s, img2=%s", gd.img_d0->filename.c_str(), gd.img_d1->filename.c_str());
+		gd.e->img_num = 0;
+	}
 }
 
 void extract_diff1(ImageDiff & gd)

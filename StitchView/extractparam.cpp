@@ -8,12 +8,14 @@ using namespace cv;
 enum {
 	Rgb2Gray,
 	ComputeGrad,
+	DetectBlackImg,
 	DiffNormal
 };
 
 string method_name[] = {
 	"Rgb2Gray",
 	"ComputeGrad",
+	"DetectBlackImg",
 	"DiffNormal"
 };
 
@@ -81,6 +83,9 @@ string ExtractParam::set_param(int pi0, int pi1, int pi2, int pi3, int pi4, int 
 		break;
 	case PP_COMPUTE_GRAD:
 		method = ComputeGrad;
+		break;
+	case PP_DETECT_BLACK_IMG:
+		method = DetectBlackImg;
 		break;
 	case DIFF_NORMAL:
 		method = DiffNormal;
@@ -171,6 +176,22 @@ bool ExtractParam::read_file(string filename)
 			}
 			break;
 
+		case DetectBlackImg:
+			{
+				int layer = (int)(*it)["layer"];
+				int debug_opt = (int)(*it)["debug_opt"];
+				int th = (int)(*it)["th"];
+				int ratio = (int)(*it)["ratio"];
+				if (th > 255 || ratio > 255) {
+					qCritical("ParamItems file error, name=%s, th=%d, ratio=%d",
+						name.c_str(), th, ratio);
+					check_pass = false;
+				}
+				param.pi[0] = layer;
+				param.pi[1] = debug_opt << 24 | PP_DETECT_BLACK_IMG << 16 | th << 8 | ratio;
+			}
+			break;
+
 		case DiffNormal:
 			{
 				int layer = (int)(*it)["layer"];
@@ -198,6 +219,8 @@ bool ExtractParam::read_file(string filename)
 				param.pi[2] = mix_diff3 << 24 | mix_diff2 << 16 | mix_diff1 << 8 | mix_diff0;
 			}
 			break;
+		default:
+			check_pass = false;
 		}
 		if (check_pass)
 			params[name] = param;
@@ -245,6 +268,24 @@ void ExtractParam::write_file(string filename)
 			fs << "sobel_th" << (it->second.pi[3] >> 8 & 0xff);
 			fs << "edge_dialte" << (it->second.pi[3] >> 16 & 0xff);
 			fs << "alpha" << (it->second.pi[3] >> 24 & 0xff);
+			break;
+		case DetectBlackImg:			
+			fs << "layer" << it->second.pi[0];
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "th" << (it->second.pi[1] >> 8 & 0xff);
+			fs << "ratio" << (it->second.pi[1] & 0xff);
+			break;
+		case DiffNormal:
+			fs << "layer" << it->second.pi[0];
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "opidx_diff0" << (it->second.pi[1] & 0xf);
+			fs << "opidx_diff1" << (it->second.pi[1] >> 4 & 0xf);
+			fs << "opidx_diff2" << (it->second.pi[1] >> 8 & 0xf);
+			fs << "opidx_diff3" << (it->second.pi[1] >> 12 & 0xf);
+			fs << "mix_diff0" << (it->second.pi[2] & 0xff);
+			fs << "mix_diff1" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "mix_diff2" << (it->second.pi[2] >> 16 & 0xff);
+			fs << "mix_diff3" << (it->second.pi[2] >> 24 & 0xff);
 			break;
 		}
 		fs << "}";

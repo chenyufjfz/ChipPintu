@@ -90,18 +90,30 @@ void StitchView::paintEvent(QPaintEvent *)
     QPoint ce(size().width()*scale/2, size().height()*scale/2);
     QSize s(size().width()*scale, size().height()*scale);
     view_rect = QRect(center - ce, s);
-	if (view_rect.width() > lf[layer]->cpara.right_bound())
+	if (view_rect.width() > lf[layer]->cpara.right_bound()) {
 		view_rect.adjust(view_rect.width() - lf[layer]->cpara.right_bound(), 0, 0, 0);
-	if (view_rect.height() > lf[layer]->cpara.bottom_bound())
+		center = view_rect.center();
+	}
+	if (view_rect.height() > lf[layer]->cpara.bottom_bound()) {
 		view_rect.adjust(0, view_rect.height() - lf[layer]->cpara.bottom_bound(), 0, 0);
-    if (view_rect.left() < 0)
-        view_rect.moveLeft(0);
-	if (view_rect.right() > lf[layer]->cpara.right_bound() - 1)
+		center = view_rect.center();
+	}
+	if (view_rect.left() < 0) {
+		view_rect.moveLeft(0);
+		center = view_rect.center();
+	}
+	if (view_rect.right() > lf[layer]->cpara.right_bound() - 1) {
 		view_rect.moveRight(lf[layer]->cpara.right_bound() - 1);
-    if (view_rect.top() < 0)
-        view_rect.moveTop(0);
-	if (view_rect.bottom() > lf[layer]->cpara.bottom_bound() - 1)
+		center = view_rect.center();
+	}
+	if (view_rect.top() < 0) {
+		view_rect.moveTop(0);
+		center = view_rect.center();
+	}
+	if (view_rect.bottom() > lf[layer]->cpara.bottom_bound() - 1) {
 		view_rect.moveBottom(lf[layer]->cpara.bottom_bound() - 1);
+		center = view_rect.center();
+	}
 	Q_ASSERT(view_rect.left() >= 0 && view_rect.right() < lf[layer]->cpara.right_bound() &&
 		view_rect.top() >= 0 && view_rect.bottom() < lf[layer]->cpara.bottom_bound());
 
@@ -271,24 +283,51 @@ void StitchView::paintEvent(QPaintEvent *)
 
 	//4 draw grid
 	if (draw_grid) {
-		painter.setPen(QPen(Qt::red, 1, Qt::DashLine));
 		int width = size().width();
 		int height = size().height();
 		if (ygrid_size >= 2)
 		for (int i = (view_rect.top() - yoffset) / ygrid_size + 1; i <= (view_rect.bottom() - yoffset) / ygrid_size; i++) {
 			int y = (i * ygrid_size + yoffset - view_rect.top()) / scale;
+			switch (i & 3) {
+			case 0:
+				painter.setPen(QPen(Qt::red, 1, Qt::DashLine));
+				break;
+			case 1:
+				painter.setPen(QPen(Qt::yellow, 1, Qt::DashLine));
+				break;
+			case 2:
+				painter.setPen(QPen(Qt::blue, 1, Qt::DashLine));
+				break;
+			case 3:
+				painter.setPen(QPen(Qt::green, 1, Qt::DashLine));
+				break;
+			}
 			painter.drawLine(0, y, width, y);
 		}
 		if (xgrid_size >= 2)
 		for (int i = (view_rect.left() - xoffset) / xgrid_size + 1; i <= (view_rect.right() - xoffset) / xgrid_size; i++) {
 			int x = (i * xgrid_size + xoffset - view_rect.left()) / scale;
+			switch (i & 3) {
+			case 0:
+				painter.setPen(QPen(Qt::red, 1, Qt::DashLine));
+				break;
+			case 1:
+				painter.setPen(QPen(Qt::yellow, 1, Qt::DashLine));
+				break;
+			case 2:
+				painter.setPen(QPen(Qt::blue, 1, Qt::DashLine));
+				break;
+			case 3:
+				painter.setPen(QPen(Qt::green, 1, Qt::DashLine));
+				break;
+			}
 			painter.drawLine(x, 0, x, height);
 		}
 	}
 
 	//5 draw nail
 	vector<Nail> ns;
-	painter.setPen(Qt::yellow);
+	painter.setPen(Qt::blue);
 	painter.setBrush(QBrush());
 	get_one_layer_nails(lf[layer], ns);
 	for (int i = 0; i < (int)ns.size(); i++) {
@@ -346,8 +385,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		else {
 			step = view_rect.width() * step_para / 10;
-			view_rect.moveLeft(max(0, view_rect.left() - step));
-			center = view_rect.center();
+			center += QPoint(-step, 0);
 		}
 		break;
 	case Qt::Key_Up:		
@@ -371,8 +409,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		else {
 			step = view_rect.height() * step_para / 10;
-			view_rect.moveTop(max(0, view_rect.top() - step));
-			center = view_rect.center();
+			center += QPoint(0, -step);
 		}
 		break;
 	case Qt::Key_Right:
@@ -396,8 +433,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		else {
 			step = view_rect.width() * step_para / 10;
-			view_rect.moveRight(min(lf[layer]->cpara.right_bound() - 1, view_rect.right() + step));
-			center = view_rect.center();
+			center += QPoint(step, 0);
 		}
 		break;
 	case Qt::Key_Down:		
@@ -421,8 +457,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		else {
 			step = view_rect.height() * step_para / 10;
-			view_rect.moveBottom(min(lf[layer]->cpara.bottom_bound() - 1, view_rect.bottom() + step));
-			center = view_rect.center();
+			center += QPoint(0, -step);
 		}
 		break;
 	case Qt::Key_PageUp:
@@ -537,6 +572,13 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	update_title();
 	qDebug("Key=%d press, l=%d, s=%d, center=(%d,%d)", e->key(), layer, scale, center.x(), center.y());
 	update();
+	char info[200];
+	QPoint mouse_point = cur_mouse_point * scale + view_rect.topLeft();
+	Point src_point = ri.dst2src(layer, TOPOINT(mouse_point));
+	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d",
+		mouse_point.x(), mouse_point.y(), src_point.x, src_point.y,
+		may_choose.x() + 1, may_choose.y() + 1, minloc_shift.x, minloc_shift.y, edge_cost);
+	emit MouseChange(info);
 }
 
 void StitchView::mouseMoveEvent(QMouseEvent *event)
@@ -1279,7 +1321,7 @@ int StitchView::delete_layer(int _layer)
 	for (int i = 0, j = 0; i < slope.size(); i++)
 		j += sprintf(a + j, "k%d=%7f,", i, slope[i]);
 	QMessageBox::information(this, "Add nail slope", QLatin1String(a));
-	if (layer >= _layer)
+	if (layer >= _layer && layer >= 0)
 		layer--;
 	update();	
 	return 0;

@@ -46,7 +46,7 @@ struct Edge2 {
 				return 0;
 			else
 				return COST_BIND;
-		}			
+		}
 		return cost(o);
 	}
 	Point get_current_point(int scale) {
@@ -191,7 +191,7 @@ public:
 };
 class BundleAdjust2 : public BundleAdjustInf
 {
-protected:	
+protected:
 	vector<Edge2> eds[2]; //0 for up-down edge
 	vector<FourCorner> fc; //(rows+1) * (cols+1)
 	int img_num_h, img_num_w, scale;
@@ -220,7 +220,7 @@ protected:
 	void optimize_corner(unsigned corner_idx, int max_shift_x, int max_shift_y);
 	void optimize_corner(int max_shift_x, int max_shift_y);
 	void output();
-	
+
 public:
 	int merge_square_area(const Rect & src_rect, const Rect & tgt_rect, const Rect & outer, int src_posx, int src_posy, float cost_th);
 	BundleAdjust2() {}

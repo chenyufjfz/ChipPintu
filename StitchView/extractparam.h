@@ -17,6 +17,7 @@ void print_stack(void);
 #define PP_SET_PARAM			0
 #define PP_RGB2GRAY				1
 #define PP_COMPUTE_GRAD			2
+#define PP_DETECT_BLACK_IMG		3
 #define PP_END					128
 #define DIFF_NORMAL				129
 
