@@ -30,20 +30,16 @@ struct TurnPoint {
 class MapXY {
 protected:
 	double beta; //rotate angle
-	double cos_beta, sin_beta;
 	int merge_method; //for picture merge, it should not be here, but there is no good place to put it
 	int merge_pt_distance, max_pt_error;
+	double z0x, z0y;
 	double max_slope;
-	vector<TurnPoint> tx, ty; //fold line
-    double z0x, z0y;
-	double recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z);
-	void recompute_tp(vector<TurnPoint> & tp, double default_zoom);
 
 public:
-	MapXY() {
-		set_original();
-	}
-	
+	virtual ~MapXY() {}
+	virtual void copy_base(MapXY & b) = 0;
+
+	static MapXY * create_mapxy(int method = -1);
 	void read_file(const FileNode& node) {
 		beta = (double)node["beta"];
 		z0x = (double)node["z0x"];
@@ -52,8 +48,7 @@ public:
 		merge_pt_distance = (int)node["merge_pt_distance"];
 		max_pt_error = (int)node["max_pt_error"];
 		max_slope = (double)node["max_slope"];
-		cos_beta = cos(beta);
-		sin_beta = sin(beta);
+		copy_base(*this);
 	}
 
 	void write_file(FileStorage& fs) const {
@@ -65,10 +60,6 @@ public:
 		fs << "max_pt_error" << max_pt_error;
 		fs << "max_slope" << max_slope << "}";
 	}
-
-	void set_original();
-
-	bool is_original() const;
 
 	int get_max_pt_error() const {
 		return max_pt_error;
@@ -94,22 +85,6 @@ public:
 		merge_method = _merge_method;
 	}
 
-	void set_default_zoomx(double _sz) {
-		CV_Assert(_sz != 0);
-		if (tx.size() <= 1)
-			z0x = _sz;
-	}
-
-	double get_default_zoomx() const {
-		return z0x;
-	}
-
-	void set_default_zoomy(double _sz) {
-		CV_Assert(_sz != 0);
-		if (ty.size() <= 1)
-			z0y = _sz;
-	}
-
 	double get_max_slope() const {
 		return max_slope;
 	}
@@ -119,8 +94,74 @@ public:
 			max_slope = _max_slope;
 	}
 
+	virtual MapXY * clone() const = 0;
+	virtual void set_original() = 0;
+	virtual bool is_original() const = 0;
+	virtual void set_default_zoomx(double _sz) = 0;
+	virtual double get_default_zoomx() const = 0;
+	virtual void set_default_zoomy(double _sz) = 0;
+	virtual double get_default_zoomy() const = 0;
+	virtual void set_beta(double _beta) = 0;
+	virtual double get_beta() const = 0;
+	virtual Point2d src2dst(Point2d src) const = 0;
+	virtual Point2d dst2src(Point2d dst) const = 0;
+	//nail.first is src, nail.second is dst
+	virtual double recompute(const vector<pair<Point, Point> > & nail) = 0;
+};
+
+class MapXY0 : public MapXY {
+protected:	
+	double cos_beta, sin_beta;
+	vector<TurnPoint> tx, ty; //fold line
+	double recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z);
+	void recompute_tp(vector<TurnPoint> & tp, double default_zoom);
+
+public:
+	MapXY0() {
+		set_original();
+	}
+	
+	MapXY * clone() const {
+		MapXY0 * a = new MapXY0();
+		*a = *this;
+		return a;
+	}
+
+	void copy_base(MapXY & b)
+	{
+		beta = b.get_beta();
+		merge_method = b.get_merge_method();
+		merge_pt_distance = b.get_merge_pt_distance();
+		max_pt_error = b.get_max_pt_error();
+		z0x = b.get_default_zoomx();
+		z0y = b.get_default_zoomy();
+		max_slope = b.get_max_slope();
+		cos_beta = cos(beta);
+		sin_beta = sin(beta);
+	}
+
+	void set_original();
+
+	bool is_original() const;
+
+	double get_default_zoomx() const {
+		return z0x;
+	}
+
+	void set_default_zoomx(double _sz) {
+		CV_Assert(_sz != 0);
+		if (tx.size() <= 1)
+			z0x = _sz;
+	}
+
 	double get_default_zoomy() const {
 		return z0y;
+	}
+
+	void set_default_zoomy(double _sz) {
+		CV_Assert(_sz != 0);
+		if (ty.size() <= 1)
+			z0y = _sz;
 	}
 
 	void set_beta(double _beta) {
@@ -137,23 +178,87 @@ public:
 
 	Point2d dst2mid(Point2d dst) const;
 
-    Point2d src2mid(Point src) const {
+    Point2d src2mid(Point2d src) const {
         return Point2d(cos_beta * src.x + sin_beta * src.y, - sin_beta * src.x + cos_beta * src.y);
     }
 
-    Point2d mid2src(Point mid) const {
+    Point2d mid2src(Point2d mid) const {
         return Point2d(cos_beta * mid.x - sin_beta * mid.y, sin_beta * mid.x + cos_beta * mid.y);
     }
 
-	Point2d src2dst(Point src) const {
+	Point2d src2dst(Point2d src) const {
 		return mid2dst(src2mid(src));
 	}
 
-	Point2d dst2src(Point dst) const {
+	Point2d dst2src(Point2d dst) const {
 		return mid2src(dst2mid(dst));
 	}
 
 	/*return 0 means success*/
+	double recompute(const vector<pair<Point, Point> > & nail);
+};
+
+class MapXY1 : public MapXY {
+protected:
+	vector<pair<Point, Point> > ns;
+	Mat_<double> trans;
+	Mat_<Vec2d> s, d; //vec0 is y, vec1 is x
+	void cluster(vector<pair<int, int> > & nxy);
+
+public:
+	MapXY1() {
+		set_original();
+	}
+
+	MapXY * clone() const {
+		MapXY1 * a = new MapXY1();
+		*a = *this;
+		return a;
+	}
+
+	void copy_base(MapXY & b)
+	{
+		beta = b.get_beta();
+		merge_method = b.get_merge_method();
+		merge_pt_distance = b.get_merge_pt_distance();
+		max_pt_error = b.get_max_pt_error();
+		z0x = b.get_default_zoomx();
+		z0y = b.get_default_zoomy();
+		max_slope = b.get_max_slope();
+	}
+
+	void set_original();
+
+	bool is_original() const;
+
+	double get_default_zoomx() const {
+		return z0x;
+	}
+
+	void set_default_zoomx(double _sz) {
+		z0x = _sz;
+	}
+
+	double get_default_zoomy() const {
+		return z0y;
+	}
+
+	void set_default_zoomy(double _sz) {
+		z0y = _sz;
+	}
+
+	void set_beta(double _beta) {
+		beta = _beta;
+	}
+
+	double get_beta() const {
+		return beta;
+	}
+
+	Point2d src2dst(Point2d src) const;
+
+	Point2d dst2src(Point2d dst) const;
+
 	double recompute(const vector<pair<Point, Point> > & nail);
 };
 
@@ -381,7 +486,7 @@ class RenderImage
 protected:
 	//Following is for map dst to src
 	vector<const ConfigPara *> cpara; //each layer's cpara, index is layer
-	vector<MapXY> mapxy;
+	vector<MapXY *> mapxy;
 	vector<Size> src_img_size; //each layer's src raw image size
 	int dst_w;
 	//upper is for map dst to src
@@ -397,8 +502,8 @@ public:
 	void set_cfg_para(int layer, const ConfigPara * _cpara);
 	const ConfigPara * get_cfg_para(int layer);
 	Size get_src_img_size(int layer);
-	void set_mapxy(int layer, const MapXY & _mapxy);
-	MapXY get_mapxy(int layer);
+	void set_mapxy(int layer, const MapXY * _mapxy);
+	MapXY * get_mapxy(int layer);
 	int mapxy_merge_method(int layer);
 	bool is_mapxy_origin(int layer);
 	void set_dst_wide(int wide);
@@ -409,13 +514,13 @@ public:
 	Point2d src2dst(int layer, Point src) const {
 		if (layer >= cpara.size() || layer < 0)
 			return Point2d(0, 0);
-		return mapxy[layer].mid2dst(mapxy[layer].src2mid(src));
+		return mapxy[layer]->src2dst(src);
 	}
 
 	Point2d dst2src(int layer, Point dst) const {
 		if (layer >= cpara.size() || layer < 0)
 			return Point2d(0, 0);
-		return mapxy[layer].mid2src(mapxy[layer].dst2mid(dst));
+		return mapxy[layer]->dst2src(dst);
 	}
 	//Input: mapid is for dst mapid
 	//Output: imgs is dst QImage

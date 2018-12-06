@@ -7,6 +7,7 @@
 #include <QMessageBox>
 #include <QDateTime>
 #include <QApplication>
+#include <QScopedPointer>
 
 const int step_para = 3;
 const int max_scale = 8;
@@ -457,7 +458,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		else {
 			step = view_rect.height() * step_para / 10;
-			center += QPoint(0, -step);
+			center += QPoint(0, step);
 		}
 		break;
 	case Qt::Key_PageUp:
@@ -507,10 +508,10 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		draw_corner = 1 - draw_corner;
 		break; 
 	case Qt::Key_M: {
-			MapXY mxy = get_mapxy(layer);
-			int merge = mxy.get_merge_method();
-			mxy.set_merge_method(!merge);
-			ri.set_mapxy(layer, mxy);
+			QScopedPointer<MapXY> mxy(get_mapxy(layer));
+			int merge = mxy->get_merge_method();
+			mxy->set_merge_method(!merge);
+			ri.set_mapxy(layer, mxy.data());
 		}
 		break;
 	case Qt::Key_N: {
@@ -521,6 +522,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				if (ns.size() > 0) {
 					lf[layer]->find_next[0] = lf[layer]->find_next[0] % ns.size();
 					loc = ns[lf[layer]->find_next[0]].p0;
+					loc = ri.src2dst(layer, loc);
 					lf[layer]->find_next[0]++;
 				}
 			}
@@ -958,19 +960,18 @@ vector<double> StitchView::generate_mapxy()
 			abs_nails.push_back(make_pair(layer_nails[choose][j].p0, layer_nails[choose][j].p1));
 		CV_Assert(abs_nails.size() == finish_map[choose]);
 		finish_map[choose] = -1;
-		MapXY mxy = ri.get_mapxy(choose);
-		slope.push_back(mxy.recompute(abs_nails));
-		ri.set_mapxy(choose, mxy);
-
+		QScopedPointer<MapXY> mxy(get_mapxy(choose));
+		slope.push_back(mxy->recompute(abs_nails));		
+		ri.set_mapxy(choose, mxy.data());
 		//3 change nail with choose layer from src to dst
 		for (int i = 0; i < (int)layer_nails.size(); i++) 
 		if (finish_map[i] >= 0) {
 			for (int j = 0; j < (int)layer_nails[i].size(); j++)
 			if (layer_nails[i][j].lf1 == lf[choose]) {
 				layer_nails[i][j].lf1 = layer_nails[i][j].lf0; //make it absolute
-				layer_nails[i][j].p1 = mxy.src2dst(layer_nails[i][j].p1);
+				layer_nails[i][j].p1 = mxy->src2dst(layer_nails[i][j].p1);
 			}
-		}
+		}		
 	}
 	return slope;
 }
@@ -1092,7 +1093,7 @@ int StitchView::get_tune_para(int _layer, TuningPara & _tpara) const
 }
 
 //if _layer==-1, means get tune of current layer
-void StitchView::set_mapxy_dstw(int _layer, const MapXY & _mapxy, int _dst_w)
+void StitchView::set_mapxy_dstw(int _layer, const MapXY * _mapxy, int _dst_w)
 {
 	if (_layer == -1)
 		_layer = layer;
@@ -1102,7 +1103,7 @@ void StitchView::set_mapxy_dstw(int _layer, const MapXY & _mapxy, int _dst_w)
 	update();
 }
 //if _layer==-1, means get tune of current layer
-MapXY StitchView::get_mapxy(int _layer)
+MapXY * StitchView::get_mapxy(int _layer)
 {
 	if (_layer == -1)
 		_layer = layer;
@@ -1310,8 +1311,8 @@ int StitchView::delete_layer(int _layer)
 		return -1;
 	del_one_layer_nails(lf[_layer]);
 	for (int i = _layer; i < (int)lf.size() - 1; i++) {
-		MapXY mxy = ri.get_mapxy(i + 1);
-		ri.set_mapxy(i, mxy);
+		QScopedPointer<MapXY> mxy(get_mapxy(i + 1));
+		ri.set_mapxy(i, mxy.data());
 		ri.set_cfg_para(i, &lf[i + 1]->cpara);
 	}
 	delete lf[_layer];
@@ -1337,10 +1338,10 @@ int StitchView::layer_up(int _layer)
 		_layer = layer;
 	if (_layer + 1 >= lf.size() || _layer < 0)
 		return -1;
-	MapXY mxy = ri.get_mapxy(_layer);
-	MapXY mxy1 = ri.get_mapxy(_layer + 1);
-	ri.set_mapxy(_layer, mxy1);
-	ri.set_mapxy(_layer + 1, mxy);
+	QScopedPointer<MapXY> mxy(get_mapxy(_layer));
+	QScopedPointer<MapXY> mxy1(get_mapxy(_layer + 1));
+	ri.set_mapxy(_layer, mxy1.data());
+	ri.set_mapxy(_layer + 1, mxy.data());
 	swap(lf[_layer], lf[_layer + 1]);
 	ri.set_cfg_para(_layer, &lf[_layer]->cpara);
 	ri.set_cfg_para(_layer + 1, &lf[_layer + 1]->cpara);
@@ -1361,10 +1362,10 @@ int StitchView::layer_down(int _layer)
 		_layer = layer;
 	if (_layer >= lf.size() || _layer <= 0)
 		return -1;
-	MapXY mxy = ri.get_mapxy(_layer);
-	MapXY mxy1 = ri.get_mapxy(_layer - 1);
-	ri.set_mapxy(_layer, mxy1);
-	ri.set_mapxy(_layer - 1, mxy);
+	QScopedPointer<MapXY> mxy(get_mapxy(_layer));
+	QScopedPointer<MapXY> mxy1(get_mapxy(_layer - 1));
+	ri.set_mapxy(_layer, mxy1.data());
+	ri.set_mapxy(_layer - 1, mxy.data());
 	swap(lf[_layer], lf[_layer - 1]);
 	ri.set_cfg_para(_layer, &lf[_layer]->cpara);
 	ri.set_cfg_para(_layer - 1, &lf[_layer - 1]->cpara);
@@ -1412,7 +1413,7 @@ void StitchView::write_file(string file_name)
 		sprintf(name, "diff_file%d", i);
 		fs << name << lf[i]->feature_file;
 		sprintf(name, "mapxy%d", i);
-		fs << name << ri.get_mapxy(i);
+		fs << name << *get_mapxy(i);
 		sprintf(name, "fixedge%d_0", i);
 		fs << name << lf[i]->fix_edge[0];
 		sprintf(name, "fixedge%d_1", i);
@@ -1510,10 +1511,12 @@ int StitchView::read_file(string file_name)
 					lf[i]->feature.read_diff_file(lf[i]->feature_file);
 			}
 				
-			MapXY mxy;
+			MapXY0 mxy0;
 			sprintf(name, "mapxy%d", i);
-			fs[name] >> mxy;
-			ri.set_mapxy(i, mxy);
+			fs[name] >> mxy0;
+			QScopedPointer<MapXY> mxy(MapXY::create_mapxy()); //stupid method, but what else I can do?
+			mxy->copy_base(mxy0);
+			ri.set_mapxy(i, mxy.data());
 			sprintf(name, "fixedge%d_0", i);
 			fs[name] >> lf[i]->fix_edge[0];
 			if (lf[i]->fix_edge[0].empty()) {

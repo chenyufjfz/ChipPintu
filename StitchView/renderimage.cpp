@@ -5,8 +5,10 @@
 #include <QColor>
 #include <QtConcurrent>
 
-#define PARALLEL 1
+#define PARALLEL 0
 #define PRINT_LOAD_IMAGE 0
+#define DISTANCE(p0, p1) sqrt((p0.x - p1.x) * (p0.x - p1.x) + (p0.y - p1.y) *(p0.y - p1.y))
+#define DISTANCE2(p0, p1) ((p0.x - p1.x) * (p0.x - p1.x) + (p0.y - p1.y) *(p0.y - p1.y))
 
 void write(FileStorage& fs, const std::string&, const MapXY & x)
 {
@@ -82,6 +84,82 @@ QLineF clipline(QLineF line, QRectF box)
 	}
 }
 
+/*
+Input p, point
+Input polygen
+Return trun if point in polygen, polygen can be any shape
+*/
+bool ptin_poly(Point_<double> p, const vector<Point_<double> > & polygen)
+{
+	int cross_num = 0; //cross number 
+	for (int i = 0; i < polygen.size(); i++) {
+		Point_<double> p1 = polygen[i];
+		Point_<double> p2 = (i + 1 == polygen.size()) ? polygen[0] : polygen[i + 1];
+		if (p1.y == p2.y) {
+			if (p.y == p1.y && (p.x - p1.x) * (p.x - p2.x) <= 0) //on line
+				return true;
+			continue;
+		}
+		if (p.y < min(p1.y, p2.y))
+			continue;
+		if (p.y > max(p1.y, p2.y))
+			continue;
+
+		double x = (p.y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x;
+
+		if (x > p.x)
+			cross_num++;
+		if (abs(x - p.x) < 0.00001) //on line
+			return true;
+	}
+	return (cross_num % 2 == 1);
+}
+
+/*
+Input p, point
+Input rec, polygen
+Return true it pt in tu polygen, polygen in anti-clock order
+*/
+bool ptin_rec(Point_<double> p, const vector<Point_<double> > & rec)
+{
+	for (int i = 0; i + 1 < rec.size(); i++) {
+		Point_<double> p1 = p - rec[i];
+		Point_<double> p2 = rec[i+1] - rec[i];
+		if (p2.cross(p1) > 0)
+			return false;
+	}
+	return true;
+}
+
+/*
+nail[i].first is source, nail[i].second is dst
+t is 2*3, 
+t(0,0) * nail[0].second.x + t(0,1) * nail[0].second.y + t(0,2) = nail[0].first.x
+t(1,0) * nail[0].second.x + t(1,1) * nail[0].second.y + t(1,2) = nail[0].first.y
+*/
+void compute_trans(const vector<pair<Point, Point> > & nail, Mat & t)
+{
+	t.create(2, 3, CV_64FC1);
+	Mat c1, c2;
+	Mat_<double> a(nail.size(), 3), b(nail.size(), 1);
+	for (int i = 0; i < (int)nail.size(); i++) {
+		a(i, 0) = nail[i].second.x;
+		a(i, 1) = nail[i].second.y;
+		a(i, 2) = 1;
+		b(i, 0) = nail[i].first.x;
+	}
+	solve(a, b, c1, DECOMP_NORMAL);
+	for (int i = 0; i < (int)nail.size(); i++)
+		b(i, 0) = nail[i].first.y;
+	solve(a, b, c2, DECOMP_NORMAL);
+	t.at<double>(0, 0) = c1.at<double>(0, 0);
+	t.at<double>(0, 1) = c1.at<double>(1, 0);
+	t.at<double>(0, 2) = c1.at<double>(2, 0);
+	t.at<double>(1, 0) = c2.at<double>(0, 0);
+	t.at<double>(1, 1) = c2.at<double>(1, 0);
+	t.at<double>(1, 2) = c2.at<double>(2, 0);
+}
+
 QImage mat2qimage(const Mat & mat)
 {
 	// 8-bits unsigned, NO. OF CHANNELS = 1
@@ -143,7 +221,17 @@ pair<double, double> least_square(const vector<pair<int, int> >& xy) {
 	return make_pair(a, b);
 }
 
-void MapXY::recompute_tp(vector<TurnPoint> & tp, double default_zoom)
+MapXY * MapXY::create_mapxy(int method)
+{
+	switch (method) {
+	case 0:
+		return new MapXY0;
+	default:
+		return new MapXY1;
+	}
+}
+
+void MapXY0::recompute_tp(vector<TurnPoint> & tp, double default_zoom)
 {
 	for (int i = 0; i < (int)tp.size() - 1; i++) {
 		CV_Assert(tp[i + 1].sp != tp[i].sp && tp[i + 1].dp != tp[i].dp);
@@ -180,7 +268,7 @@ inout nxy, nail's x or y nxy.first is mid, nxy.second is dst
 output z, default slope rate
 return 0 if good, else bad
 */
-double MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z)
+double MapXY0::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int> > & nxy, double & z)
 {
 	double ret = 0;
     //1 sort and merge
@@ -246,7 +334,7 @@ double MapXY::recompute_turn_point(vector<TurnPoint> & tp, vector<pair<int, int>
 	return ret;
 }
 
-void MapXY::set_original()
+void MapXY0::set_original()
 {
 	beta = 0; //set default rotation angle
 	cos_beta = 1;
@@ -263,14 +351,14 @@ void MapXY::set_original()
 	max_slope = 0.001;
 }
 
-bool MapXY::is_original() const
+bool MapXY0::is_original() const
 {
 	return (beta == 0 && z0x == 1 && z0y == 1 && tx.size() == 1 && ty.size() == 1
 		&& (abs(tx[0].sp - tx[0].dp - (int)(tx[0].sp - tx[0].dp)) < 0.00001)
 		&& (abs(ty[0].sp - ty[0].dp - (int)(ty[0].sp - ty[0].dp)) < 0.00001));
 }
 
-Point2d MapXY::mid2dst(Point2d mid) const
+Point2d MapXY0::mid2dst(Point2d mid) const
 {
 	Point2d dst;
 	int i;
@@ -300,7 +388,7 @@ Point2d MapXY::mid2dst(Point2d mid) const
 	return dst;
 }
 
-Point2d MapXY::dst2mid(Point2d dst) const
+Point2d MapXY0::dst2mid(Point2d dst) const
 {
 	Point2d mid;
 	int i;
@@ -333,7 +421,7 @@ Point2d MapXY::dst2mid(Point2d dst) const
 /*
 	Return 0: success, 1 means x wrong, 2 means y wrong
 */
-double MapXY::recompute(const vector<pair<Point, Point> > & nail)
+double MapXY0::recompute(const vector<pair<Point, Point> > & nail)
 {
 	double ret = 0;
 	if (nail.size() == 0)
@@ -351,6 +439,327 @@ double MapXY::recompute(const vector<pair<Point, Point> > & nail)
 	ret = max(ret, recompute_turn_point(ty, ny, z0y));
 	recompute_tp(ty, z0y);
 
+	return ret;
+}
+
+void MapXY1::set_original()
+{
+	beta = 0; //set default rotation angle
+	z0x = 1;
+	z0y = 1;
+	ns.clear();
+	merge_pt_distance = 500;
+	max_pt_error = 2;
+	max_slope = 0.1;
+}
+
+bool MapXY1::is_original() const
+{
+	return (beta == 0 && z0x == 1 && z0y == 1 && ns.size() <= 1);
+}
+
+Point2d MapXY1::src2dst(Point2d src) const
+{
+	Point2d dst;
+	if (s.empty()) {
+		if (ns.empty())
+			return src;
+		if (ns.size() == 1) {
+			dst.x = z0x * (src.x - ns[0].first.x) + ns[0].second.x;
+			dst.y = z0y * (src.y - ns[0].first.y) + ns[0].second.y;
+			return dst;
+		}
+		if (ns.size() == 2) {
+			double kx = abs(ns[1].first.x - ns[0].first.x) > merge_pt_distance ?
+				(ns[1].second.x - ns[0].second.x) / (ns[1].first.x - ns[0].first.x) : z0x;
+			double ky = abs(ns[1].first.y - ns[0].first.y) > merge_pt_distance ?
+				(ns[1].second.y - ns[0].second.y) / (ns[1].first.y - ns[0].first.y) : z0y;
+			dst.x = kx * (src.x - ns[0].first.x) + ns[0].second.x;
+			dst.y = ky * (src.y - ns[0].first.y) + ns[0].second.y;
+			return dst;
+		}
+		if (ns.size() >= 3) {
+			CV_Assert(!trans.empty());
+			Mat_<double> a(2, 2);
+			Mat_<double> b(2, 1);
+			a(0, 0) = trans(0, 0);
+			a(0, 1) = trans(0, 1);
+			a(1, 0) = trans(1, 0);
+			a(1, 1) = trans(1, 1);
+			b(0, 0) = src.x - trans(0, 2);
+			b(1, 0) = src.y - trans(1, 2);
+			Mat_<double> c;
+			solve(a, b, c, DECOMP_NORMAL);
+			dst.x = c(0, 0);
+			dst.y = c(1, 0);
+			return dst;
+		}
+	}
+	int x, y; //(x-1,y-1,x,y) is the rect src locates;
+    Point_<double> sa, sb, sc, sd, da, db, dc, dd;
+	for (int yy = 1; yy < d.rows; yy++) 
+	for (int xx = 1; xx < d.cols; xx++)
+	if (max(s(yy, xx)[0], s(yy, xx - 1)[0]) >= src.y && max(s(yy, xx)[1], s(yy - 1, xx)[1]) >= src.x &&
+		min(s(yy - 1, xx - 1)[0], s(yy - 1, xx)[0]) <= src.y && min(s(yy - 1, xx - 1)[1], s(yy, xx - 1)[1]) <= src.x
+		|| yy == 1 || xx == 1 || yy + 1 == d.rows || xx + 1 == d.cols) {
+		vector<Point_<double> > rect;
+        sa = Point_<double>(s(yy - 1, xx - 1)[1], s(yy - 1, xx - 1)[0]);
+        sb = Point_<double>(s(yy, xx - 1)[1], s(yy, xx - 1)[0]);
+        sc = Point_<double>(s(yy, xx)[1], s(yy, xx)[0]);
+        sd = Point_<double>(s(yy - 1, xx)[1], s(yy - 1, xx)[0]);
+        da = Point_<double>(d(yy - 1, xx - 1)[1], d(yy - 1, xx - 1)[0]);
+        db = Point_<double>(d(yy, xx - 1)[1], d(yy, xx - 1)[0]);
+        dc = Point_<double>(d(yy, xx)[1], d(yy, xx)[0]);
+        dd = Point_<double>(d(yy - 1, xx)[1], d(yy - 1, xx)[0]);
+		y = yy;
+		x = xx;
+		if (d.rows == 2 && d.cols == 2)
+			break; 
+		else 
+		if (d.rows == 2) {
+            rect.push_back(sc);
+            rect.push_back(sd);
+		} else
+		if (d.cols == 2) {
+            rect.push_back(sb);
+            rect.push_back(sc);
+		}
+		else
+		if (yy == 1 && xx == 1) {
+            rect.push_back(sb);
+            rect.push_back(sc);
+            rect.push_back(sd);
+		} else
+		if (yy == 1 && xx + 1 == d.cols) {
+            rect.push_back(sa);
+            rect.push_back(sb);
+            rect.push_back(sc);
+		} else
+		if (yy + 1 == d.rows && xx == 1) {
+            rect.push_back(sc);
+            rect.push_back(sd);
+            rect.push_back(sa);
+		} else
+		if (yy + 1 == d.rows && xx + 1 == d.cols) {
+            rect.push_back(sd);
+            rect.push_back(sa);
+            rect.push_back(sb);
+		} else
+		if (yy == 1) {
+            rect.push_back(sa);
+            rect.push_back(sb);
+            rect.push_back(sc);
+            rect.push_back(sd);
+		} else
+		if (yy + 1 == d.rows) {
+            rect.push_back(sc);
+            rect.push_back(sd);
+            rect.push_back(sa);
+            rect.push_back(sb);
+		} else
+		if (xx == 1) {
+            rect.push_back(sb);
+            rect.push_back(sc);
+            rect.push_back(sd);
+            rect.push_back(sa);
+		} else 
+		if (xx + 1 == d.cols) {
+            rect.push_back(sd);
+            rect.push_back(sa);
+            rect.push_back(sb);
+            rect.push_back(sc);
+		}
+		else {
+            rect.push_back(sa);
+            rect.push_back(sb);
+            rect.push_back(sc);
+            rect.push_back(sd);
+            rect.push_back(sa);
+		}
+		
+		if (ptin_rec(src, rect)) {			
+			yy = d.rows;
+			break;			
+		}
+	}
+	CV_Assert(y < s.rows && x < s.cols);
+	double am = 0.5;
+	double pre_x, pre_am = 2;
+	while (1) {
+        Point_<double> p1 = sa * (1 - am) + sd * am;
+        Point_<double> p2 = sb * (1 - am) + sc * am;
+		double x = (src.y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x;
+		if (abs(x - src.x) < 0.001) {
+			double d0 = DISTANCE2(p1, p2); 
+			double d1 = DISTANCE2(p1, src); 
+			double d2 = DISTANCE2(p2, src); 
+			double b = (d2 > d1 && d2 > d0) ? -sqrt(d1 / d0) : sqrt(d1 / d0);
+            dst = am * b * dc + (1 - am) * b * db + am * (1 - b) * dd + (1 - am) * (1 - b) *da;
+			Point2d srcd = dst2src(dst);
+			srcd.x = srcd.x - src.x;
+			srcd.y = srcd.y - src.y;
+			CV_Assert(abs(srcd.x) + abs(srcd.y) <= 0.5);
+			return dst;
+		}
+		if (pre_am == 2) {
+			pre_am = am;
+			am = (x > src.x) ? 0.25 : 0.75;
+		}
+		else {
+			double r = (am - pre_am) / (x - pre_x);
+			pre_am = am;
+			am = am + r * (src.x - x);
+		}
+		pre_x = x;		
+	}
+}
+
+Point2d MapXY1::dst2src(Point2d dst) const
+{
+	Point2d src;
+	if (d.empty()) {
+		if (ns.empty())
+			return dst;
+		if (ns.size() == 1) {
+			src.x = (dst.x - ns[0].second.x) / z0x + ns[0].first.x;
+			src.y = (dst.y - ns[0].second.y) / z0y + ns[0].first.y;
+			return src;
+		}
+		if (ns.size() == 2) {
+			double kx = abs(ns[1].first.x - ns[0].first.x) > merge_pt_distance * 10?
+				(double) (ns[1].second.x - ns[0].second.x) / (ns[1].first.x - ns[0].first.x) : z0x;
+			double ky = abs(ns[1].first.y - ns[0].first.y) > merge_pt_distance * 10?
+				(double) (ns[1].second.y - ns[0].second.y) / (ns[1].first.y - ns[0].first.y) : z0y;
+			src.x = (dst.x - ns[0].second.x) / kx + ns[0].first.x;
+			src.y = (dst.y - ns[0].second.y) / ky + ns[0].first.y;
+			return src;
+		}
+		if (ns.size() >= 3) {
+			CV_Assert(!trans.empty());
+			Mat_<double> a(3, 1);
+			a(0, 0) = dst.x;
+			a(1, 0) = dst.y;
+			a(2, 0) = 1;
+			Mat_<double> b = trans * a;
+			src.x = b(0, 0);
+			src.y = b(1, 0);
+			return src;
+		}
+	}
+	int x, y; //(x-1,y-1,x,y) is the rect dst locates;
+	for (y = 1; y + 1 < d.rows; y++)
+	if (d(y, 0)[0] >= dst.y)
+		break;
+	for (x = 1; x + 1 < d.cols; x++)
+	if (d(y, x)[1] >= dst.x)
+		break;
+	double a = (dst.x - d(y, x - 1)[1]) / (d(y, x)[1] - d(y, x - 1)[1]); //a is x ratio
+	double b = (dst.y - d(y - 1, x)[0]) / (d(y, x)[0] - d(y - 1, x)[0]); //b is y ratio
+	src.x = a * b * s(y, x)[1] + (1 - a) * b * s(y, x - 1)[1] +
+		a * (1 - b) * s(y - 1, x)[1] + (1 - a) * (1 - b) * s(y - 1, x - 1)[1];
+	src.y = a * b * s(y, x)[0] + (1 - a) * b * s(y, x - 1)[0] +
+		a * (1 - b) * s(y - 1, x)[0] + (1 - a) * (1 - b) * s(y - 1, x - 1)[0];
+	return src;
+}
+
+//nxy first is dst, second is src
+void MapXY1::cluster(vector<pair<int, int> > & nxy)
+{
+	sort(nxy.begin(), nxy.end());
+	for (int i = 0, weight = 1; i + 1 < (int)nxy.size();) {
+		if (abs(nxy[i].first - nxy[i + 1].first) < merge_pt_distance) {
+			nxy[i].first = (weight * (long long) nxy[i].first + nxy[i + 1].first) / (weight + 1);
+			nxy[i].second = (weight * (long long) nxy[i].second + nxy[i + 1].second) / (weight + 1);
+			weight++;
+			nxy.erase(nxy.begin() + i + 1);
+		}
+		else {
+			i++;
+			weight = 1;
+		}
+	}
+}
+
+double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
+{
+	s.release();
+	d.release();
+	ns.clear();
+	if (nail.empty())
+		return 0;
+	if (nail.size() == 1) {
+		ns = nail;
+		return 0;
+	}
+	//1 compute x, y cluster
+	vector<pair<int, int> > nx, ny;
+	for (int i = 0; i < nail.size(); i++) {
+		nx.push_back(make_pair(nail[i].second.x, nail[i].first.x));
+		ny.push_back(make_pair(nail[i].second.y, nail[i].first.y));
+	}
+	cluster(nx);
+	cluster(ny);
+	if (nx.size() == 1 && ny.size() == 1) {
+		//ns size=1, ns[0] = avg{nail src}, avg{nail dst}
+		Point src(nx[0].second, ny[0].second);
+		Point dst(nx[0].first, ny[0].first);
+		ns.push_back(make_pair(src, dst));
+		return 0;
+	}
+	if (nx.size() == 1) {
+		s.create(ny.size(), 2);
+		d.create(ny.size(), 2);
+		for (int i = 0; i < ny.size(); i++) {
+			s(i, 0) = Vec2d(ny[i].second, nx[0].second);
+			d(i, 0) = Vec2d(ny[i].first, nx[0].first);
+			s(i, 1) = Vec2d(ny[i].second, nx[0].second + 10000);
+			d(i, 1) = Vec2d(ny[i].first, nx[0].first + 10000 * z0x);
+		}
+		return 0;
+	}
+	if (ny.size() == 1) {
+		s.create(2, nx.size());
+		d.create(2, nx.size());
+		for (int i = 0; i < nx.size(); i++) {
+			s(0, i) = Vec2d(ny[0].second, nx[i].second);
+			d(0, i) = Vec2d(ny[0].first, nx[i].first);
+			s(1, i) = Vec2d(ny[0].second + 10000, nx[i].second);
+			d(1, i) = Vec2d(ny[0].first + 10000 * z0y, nx[i].first);
+		}
+		return 0;
+	}
+	//2 create normal s and d (ny * nx), d is standard grid, s is use nearest 4 point trans estimate 
+	s.create(ny.size(), nx.size());
+	for (int i = 0; i < (int)ny.size(); i++)
+	for (int j = 0; j < (int)nx.size(); j++) {
+		Point_<double> dst(nx[j].first, ny[i].first);
+		vector<pair<double, int> > dis;
+		for (int k = 0; k < nail.size(); k++)
+			dis.push_back(make_pair(DISTANCE2(dst, nail[k].second), k));
+		sort(dis.begin(), dis.end());
+		ns.clear();
+		for (int k = 0; k < min(4, (int)dis.size()); k++)
+			ns.push_back(nail[dis[k].second]);
+		if (ns.size() >= 3)
+			compute_trans(ns, trans);
+		Point2d src = dst2src(dst);
+		s(i, j) = Vec2d(src.y, src.x);
+	}
+	ns.clear();
+	d.create(ny.size(), nx.size());
+	for (int i = 0; i < (int)ny.size(); i++)
+	for (int j = 0; j < (int)nx.size(); j++)
+		d(i, j) = Vec2d(ny[i].first, nx[j].first);
+	
+	//3 compute error
+	double ret = 0;
+	for (int i = 0; i < (int) nail.size(); i++) {
+		Point dst = nail[i].second;
+		Point2d src = dst2src(dst);
+		Point2d dst1 = src2dst(src);
+		CV_Assert(abs(dst1.x - dst.x) + abs(dst1.y - dst.y) < 0.5);
+		ret = max(ret, abs(src.x - nail[i].first.x) + abs(src.y - nail[i].first.y));
+	}
 	return ret;
 }
 
@@ -699,7 +1108,7 @@ void RenderImage::set_cfg_para(int layer, const ConfigPara * _cpara)
 	if (layer == cpara.size()) {
 		cpara.push_back(_cpara);
 		if (layer == mapxy.size()) {
-			mapxy.push_back(MapXY());
+			mapxy.push_back(MapXY::create_mapxy());
 			src_img_size.push_back(Size(0, 0));
 		}
 	}
@@ -736,37 +1145,38 @@ Size RenderImage::get_src_img_size(int layer)
 		return Size(0, 0);
 	return src_img_size[layer];
 }
-void RenderImage::set_mapxy(int layer, const MapXY & _mapxy)
+void RenderImage::set_mapxy(int layer, const MapXY * _mapxy)
 {
 	if (layer > mapxy.size() || layer < 0)
 		return;
 	if (layer == mapxy.size())
-		mapxy.push_back(_mapxy);
+		mapxy.push_back(_mapxy->clone());
 	else {
-		mapxy[layer] = _mapxy;
+		delete mapxy[layer];
+		mapxy[layer] = _mapxy->clone();		
 		postmap_cache.clear(layer);
 	}
-	qInfo("set mapxy, l=%d, beta=%f, z0x=%f, z0y=%f", layer, _mapxy.get_beta(), _mapxy.get_default_zoomx(), _mapxy.get_default_zoomy());
+	qInfo("set mapxy, l=%d, beta=%f, z0x=%f, z0y=%f", layer, _mapxy->get_beta(), _mapxy->get_default_zoomx(), _mapxy->get_default_zoomy());
 }
 
-MapXY RenderImage::get_mapxy(int layer)
+MapXY * RenderImage::get_mapxy(int layer)
 {
 	if (layer >= cpara.size() || layer < 0)
-		return MapXY();
-	return mapxy[layer];
+		return NULL;
+	return mapxy[layer]->clone();
 }
 
 int RenderImage::mapxy_merge_method(int layer)
 {
 	if (layer >= cpara.size() || layer < 0)
 		return false;
-	return mapxy[layer].get_merge_method();
+	return mapxy[layer]->get_merge_method();
 }
 bool RenderImage::is_mapxy_origin(int layer)
 {
 	if (layer >= cpara.size() || layer < 0)
 		return true;
-	return mapxy[layer].is_original();
+	return mapxy[layer]->is_original();
 }
 
 void RenderImage::set_dst_wide(int wide)
@@ -809,7 +1219,7 @@ void RenderImage::render_img(const vector<MapID> & map_id, vector<QImage> & imgs
 				mr.id = map_id[i];
 				mr.cpara = cpara[layer];
 				mr.dst_w = dst_w;
-				mr.pmapxy = &mapxy[layer];
+				mr.pmapxy = mapxy[layer];
 				mr.premap_cache = &premap_cache;
 				mr.src = src_img_size[layer];
 				mr.draw_order = &draw_order;

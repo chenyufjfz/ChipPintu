@@ -342,9 +342,9 @@ public:
 	//if _layer==-1, means get tune of current layer
 	int get_tune_para(int _layer, TuningPara & _tpara) const;
 	//if _layer==-1, means get tune of current layer
-	void set_mapxy_dstw(int _layer, const MapXY & _mapxy, int _dst_w);
+	void set_mapxy_dstw(int _layer, const MapXY * _mapxy, int _dst_w);
 	//if _layer==-1, means get tune of current layer
-	MapXY get_mapxy(int _layer);
+	MapXY * get_mapxy(int _layer);
 	int get_dst_wide();
 	void set_grid(double _xoffset, double _yoffset, double _xgrid_size, double _ygrid_size);
 	void get_grid(double & _xoffset, double & _yoffset, double & _xgrid_size, double & _ygrid_size);
