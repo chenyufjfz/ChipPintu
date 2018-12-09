@@ -7,14 +7,25 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QScopedPointer>
+#include <QSplitter>
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    stitch_view = new StitchView(this);
-	setCentralWidget(stitch_view);
+
+    stitch_view = new StitchView();	
+	nview = new NavigateView();
+	stitch_view->set_nview(nview);
+
+	QSplitter *splitter = new QSplitter(Qt::Horizontal);
+	setCentralWidget(splitter);
+	splitter->addWidget(nview);
+	splitter->addWidget(stitch_view);
+	splitter->setStretchFactor(0, 1);
+	splitter->setStretchFactor(1, 4);
+
 	stitch_view->setFocus();
 
 	status_label = new QLabel();

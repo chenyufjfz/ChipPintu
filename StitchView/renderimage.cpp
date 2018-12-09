@@ -445,6 +445,8 @@ double MapXY0::recompute(const vector<pair<Point, Point> > & nail)
 void MapXY1::set_original()
 {
 	beta = 0; //set default rotation angle
+	cos_beta = 1;
+	sin_beta = 0;
 	z0x = 1;
 	z0y = 1;
 	ns.clear();
@@ -455,27 +457,52 @@ void MapXY1::set_original()
 
 bool MapXY1::is_original() const
 {
-	return (beta == 0 && z0x == 1 && z0y == 1 && ns.size() <= 1);
+	return (beta == 0 && z0x == 1 && z0y == 1 && ns.size() <= 1 && s.empty());
 }
 
 Point2d MapXY1::src2dst(Point2d src) const
 {
 	Point2d dst;
 	if (s.empty()) {
-		if (ns.empty())
+		/*
+		for ns.size() ==0 or ==1
+		d.x = ((s.x - s0.x) * cos + (s.y - s0.y) * sin) * zx + d0.x
+		d.y = ((s.x - s0.x) * -sin + (s.y - s0.y) * cos) * zy + d0.y
+		*/
+		if (ns.empty()) {
+			dst.x = (src.x * cos_beta + src.y * sin_beta) * z0x;
+			dst.y = (- src.x * sin_beta + src.y * cos_beta) * z0y;
 			return src;
+		}
 		if (ns.size() == 1) {
-			dst.x = z0x * (src.x - ns[0].first.x) + ns[0].second.x;
-			dst.y = z0y * (src.y - ns[0].first.y) + ns[0].second.y;
+			src.x -= ns[0].first.x;
+			src.y -= ns[0].first.y;
+			dst.x = (src.x * cos_beta + src.y * sin_beta) * z0x + ns[0].second.x;
+			dst.y = (-src.x * sin_beta + src.y * cos_beta) * z0y + ns[0].second.y;
 			return dst;
 		}
+		/*
+		for ns.size() == 2, same as ns.size()==1, but replace zx as following
+		zx = (d1.x - d0.x) / ((s1.x - s0.x) * cos + (s1.y - s0.y) * sin);
+		zy = (d1.y - d0.y) / ((s1.x - s0.x) * -sin + (s1.y - s0.y) * cos);
+		d.x = ((s.x - s0.x) * cos + (s.y - s0.y) * sin) * zx + d0.x
+		d.y = ((s.x - s0.x) * -sin + (s.y - s0.y) * cos) * zy + d0.y
+		*/
 		if (ns.size() == 2) {
-			double kx = abs(ns[1].first.x - ns[0].first.x) > merge_pt_distance ?
-				(ns[1].second.x - ns[0].second.x) / (ns[1].first.x - ns[0].first.x) : z0x;
-			double ky = abs(ns[1].first.y - ns[0].first.y) > merge_pt_distance ?
-				(ns[1].second.y - ns[0].second.y) / (ns[1].first.y - ns[0].first.y) : z0y;
-			dst.x = kx * (src.x - ns[0].first.x) + ns[0].second.x;
-			dst.y = ky * (src.y - ns[0].first.y) + ns[0].second.y;
+			double kx, ky;
+			if (abs(ns[1].first.x - ns[0].first.x) <= 10000)
+				kx = z0x;
+			else
+				kx = (ns[1].second.x - ns[0].second.x) / ((ns[1].first.x - ns[0].first.x) * cos_beta + (ns[1].first.y - ns[0].first.y) * sin_beta);
+			if (abs(ns[1].first.y - ns[0].first.y) <= 10000)
+				ky = z0y;
+			else
+				ky = (ns[1].second.y - ns[0].second.y) / (-(ns[1].first.x - ns[0].first.x) * sin_beta + (ns[1].first.y - ns[0].first.y) * cos_beta);
+
+			src.x -= ns[0].first.x;
+			src.y -= ns[0].first.y;
+			dst.x = (src.x * cos_beta + src.y * sin_beta) * kx + ns[0].second.x;
+			dst.y = (-src.x * sin_beta + src.y * cos_beta) * ky + ns[0].second.y;
 			return dst;
 		}
 		if (ns.size() >= 3) {
@@ -618,20 +645,45 @@ Point2d MapXY1::dst2src(Point2d dst) const
 {
 	Point2d src;
 	if (d.empty()) {
-		if (ns.empty())
+		/*
+		for ns.size() ==0 or ==1
+		s.x = (d.x - d0.x) / zx * cos + (d.y - d0.y) / zy * -sin + s.x0
+		s.y = (d.x - d0.x) / zx * sin + (d.y - d0.y) / zy * cos + s.y0
+		*/
+		if (ns.empty()) {
+			src.x = (dst.x / z0x * cos_beta - dst.y / z0y * sin_beta);
+			src.y = (dst.x / z0x * sin_beta + dst.y / z0y * cos_beta);
 			return dst;
+		}
 		if (ns.size() == 1) {
-			src.x = (dst.x - ns[0].second.x) / z0x + ns[0].first.x;
-			src.y = (dst.y - ns[0].second.y) / z0y + ns[0].first.y;
+			dst.x -= ns[0].second.x;
+			dst.y -= ns[0].second.y;
+			src.x = (dst.x / z0x * cos_beta - dst.y / z0y * sin_beta) + ns[0].first.x;
+			src.y = (dst.x / z0x * sin_beta + dst.y / z0y * cos_beta) + ns[0].first.y;
 			return src;
 		}
+		/*
+		for ns.size() == 2, same as ns.size()==1, but replace zx as following
+		zx = (d1.x - d0.x) / ((s1.x - s0.x) * cos + (s1.y - s0.y) * sin);
+		zy = (d1.y - d0.y) / ((s1.x - s0.x) * -sin + (s1.y - s0.y) * cos);
+		s.x = (d.x - d0.x) / zx * cos + (d.y - d0.y) / zy * -sin + s.x0
+		s.y = (d.x - d0.x) / zx * sin + (d.y - d0.y) / zy * cos + s.y0
+		*/
 		if (ns.size() == 2) {
-			double kx = abs(ns[1].first.x - ns[0].first.x) > merge_pt_distance * 10?
-				(double) (ns[1].second.x - ns[0].second.x) / (ns[1].first.x - ns[0].first.x) : z0x;
-			double ky = abs(ns[1].first.y - ns[0].first.y) > merge_pt_distance * 10?
-				(double) (ns[1].second.y - ns[0].second.y) / (ns[1].first.y - ns[0].first.y) : z0y;
-			src.x = (dst.x - ns[0].second.x) / kx + ns[0].first.x;
-			src.y = (dst.y - ns[0].second.y) / ky + ns[0].first.y;
+			double kx, ky;
+			if (abs(ns[1].first.x - ns[0].first.x) <= 10000)
+				kx = z0x;
+			else
+				kx = (ns[1].second.x - ns[0].second.x) / ((ns[1].first.x - ns[0].first.x) * cos_beta + (ns[1].first.y - ns[0].first.y) * sin_beta);
+			if (abs(ns[1].first.y - ns[0].first.y) <= 10000)
+				ky = z0y;
+			else
+				ky = (ns[1].second.y - ns[0].second.y) / (-(ns[1].first.x - ns[0].first.x) * sin_beta + (ns[1].first.y - ns[0].first.y) * cos_beta);
+
+			dst.x -= ns[0].second.x;
+			dst.y -= ns[0].second.y;
+			src.x = (dst.x / kx * cos_beta - dst.y / ky * sin_beta) + ns[0].first.x;
+			src.y = (dst.x / kx * sin_beta + dst.y / ky * cos_beta) + ns[0].first.y;
 			return src;
 		}
 		if (ns.size() >= 3) {

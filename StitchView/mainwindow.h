@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include "stitchview.h"
+#include "navigateview.h"
 #include <QLabel>
 #include <QProgressBar>
 
@@ -67,6 +68,7 @@ private:
 	QLabel *status_label;
 	QProgressBar * pProgressBar;
     StitchView * stitch_view;
+	NavigateView * nview;
 };
 
 #endif // MAINWINDOW_H

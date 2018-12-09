@@ -7,13 +7,14 @@
 #include <map>
 #include <list>
 #include <string>
-#include<functional>
+#include <functional>
 #include <algorithm>
 #include <QKeyEvent>
 #include <QtConcurrent>
 #include "featext.h"
 #include "bundleadjustinf.h"
 #include "renderimage.h"
+#include "navigateview.h"
 
 using namespace std;
 using namespace cv;
@@ -272,6 +273,7 @@ signals:
 	void title_change(QString title);
 
 public slots:
+	void update_center(QPoint center);
 
 protected:
     void paintEvent(QPaintEvent *e);
@@ -281,6 +283,8 @@ protected:
 	void mouseReleaseEvent(QMouseEvent *event);
 	void remove_cache_front();
 	void timerEvent(QTimerEvent *e);
+	void update_nview();
+	void convert_nails(vector<Nail> & nsrc, vector<Nail> & nabs, int method);
 
 protected:
 	string project_path;
@@ -328,7 +332,11 @@ protected:
 	Nail cur_nail;
 	//Upper is for nail
 
-	//follow is for draw mouse
+	//following is for navigate view
+	NavigateView * nview;
+	//Upper is for navigate view
+
+	//following is for draw mouse
 	int mouse_state;
 	QPoint cur_mouse_point;
 	//upper is for draw mouse
@@ -362,6 +370,7 @@ public:
 	int set_current_layer(int _layer);
 	string get_layer_name(int _layer);
 	void set_layer_name(int _layer, string name);
+	void set_nview(NavigateView * nview);
 	void to_state_add_nail();
 	void to_state_change_nail();
 	int output_layer(int _layer, string pathname);

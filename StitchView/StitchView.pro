@@ -26,7 +26,8 @@ SOURCES += main.cpp\
     bundleadjust2.cpp \
     bundleadjustinf.cpp \
     $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.cpp \
-    griddialog.cpp
+    griddialog.cpp \
+    navigateview.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -40,7 +41,8 @@ HEADERS  += mainwindow.h \
     bundleadjust2.h \
     bundleadjustinf.h \
     $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.h \
-    griddialog.h
+    griddialog.h \
+    navigateview.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \

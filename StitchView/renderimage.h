@@ -200,6 +200,7 @@ public:
 
 class MapXY1 : public MapXY {
 protected:
+	double cos_beta, sin_beta;
 	vector<pair<Point, Point> > ns;
 	Mat_<double> trans;
 	Mat_<Vec2d> s, d; //vec0 is y, vec1 is x
@@ -225,6 +226,8 @@ public:
 		z0x = b.get_default_zoomx();
 		z0y = b.get_default_zoomy();
 		max_slope = b.get_max_slope();
+		cos_beta = cos(beta);
+		sin_beta = sin(beta);
 	}
 
 	void set_original();
@@ -249,6 +252,8 @@ public:
 
 	void set_beta(double _beta) {
 		beta = _beta;
+		cos_beta = cos(beta);
+		sin_beta = sin(beta);
 	}
 
 	double get_beta() const {
