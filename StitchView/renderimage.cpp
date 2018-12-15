@@ -5,7 +5,7 @@
 #include <QColor>
 #include <QtConcurrent>
 
-#define PARALLEL 0
+#define PARALLEL 1
 #define PRINT_LOAD_IMAGE 0
 #define DISTANCE(p0, p1) sqrt((p0.x - p1.x) * (p0.x - p1.x) + (p0.y - p1.y) *(p0.y - p1.y))
 #define DISTANCE2(p0, p1) ((p0.x - p1.x) * (p0.x - p1.x) + (p0.y - p1.y) *(p0.y - p1.y))

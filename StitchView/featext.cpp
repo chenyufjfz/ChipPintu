@@ -26,6 +26,9 @@ struct ImageData {
 	} v[16];
 	const TuningPara * tvar;
 	const ConfigPara * cvar;
+	ImageData() {
+		is_black_img = false;
+	}
 };
 
 struct ImageDiff {

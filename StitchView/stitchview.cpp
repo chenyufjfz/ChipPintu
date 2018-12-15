@@ -1283,7 +1283,10 @@ int StitchView::optimize_offset(int _layer, bool weak_border)
 
 	string filename = project_path + name;
 	write_file(filename);
-	convert_nails(nails, nails, 0);
+	vector<Nail> ns;
+	get_one_layer_nails(lf[_layer], ns);
+	if (!ns.empty())
+		convert_nails(nails, nails, 0);
 	vector<FixEdge> fe;
 	for (int i = 0; i < 2; i++) {
 		for (int y = 0; y < lf[_layer]->fix_edge[i].rows; y++)
@@ -1309,9 +1312,12 @@ int StitchView::optimize_offset(int _layer, bool weak_border)
 	lf[_layer]->cpara.offset = adjust_offset;
 	adjust_offset.release();
 	lf[_layer]->compute_unsure_corner();
+	if (!ns.empty()) {
+		convert_nails(nails, nails, 1);
+		generate_mapxy();
+	}
 	ri.invalidate_cache(_layer);
 	update();
-	convert_nails(nails, nails, 1);
 	return 0;
 }
 
@@ -1725,10 +1731,6 @@ int StitchView::read_file(string file_name)
 		update();
 		update_title();
 		update_nview();
-#if 1	
-		convert_nails(nails, nails, 0);
-		convert_nails(nails, nails, 1);
-#endif
 		return 0;
 	}
 	return -1;
