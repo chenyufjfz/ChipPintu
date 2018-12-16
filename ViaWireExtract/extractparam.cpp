@@ -300,6 +300,7 @@ bool ExtractParam::read_file(string filename)
 						  int gray1 = (int)(*it)["gray1"];
 						  int gray2 = (int)(*it)["gray2"];
 						  int gray3 = (int)(*it)["gray3"];
+						  int grad = (int)(*it)["grad"];
 						  if (shape > 255 || type > 255 || subtype > 255) {
 							  qCritical("ParamItems file error, name=%s shape=%d, type=%d, subtype=%d",
 								  name.c_str(), shape, type, subtype);
@@ -330,13 +331,13 @@ bool ExtractParam::read_file(string filename)
 								  name.c_str(), connect_d, cgray_d, cgray_ratio, connect_rd);
 							  check_pass = false;
 						  }
-						  if (swide_min > 255) {
-							  qCritical("ParamItems file error, name=%s swide_min=%d", name.c_str(), swide_min);
+						  if (grad > 255 || swide_min > 255) {
+							  qCritical("ParamItems file error, name=%s grad=%d, swide_min=%d", name.c_str(), grad, swide_min);
 							  check_pass = false;
 						  }
 						  param.pi[5] = gray3 << 24 | gray2 << 16 | gray1 << 8 | gray0;
 						  param.pi[6] = connect_d << 24 | cgray_d << 16 | cgray_ratio << 8 | connect_rd;
-						  param.pi[7] = swide_min;
+						  param.pi[7] = grad << 8 | swide_min;
 		}
 			break;
 
@@ -1503,6 +1504,7 @@ void ExtractParam::write_file(string filename)
 			fs << "gray2" << (it->second.pi[5] >> 16 & 0xff);
 			fs << "gray3" << (it->second.pi[5] >> 24 & 0xff);
 			fs << "swide_min" << (it->second.pi[7] & 0xff);
+			fs << "grad" << (it->second.pi[7] >> 8 & 0xff);
 			break;
 
 		case WireInfo:

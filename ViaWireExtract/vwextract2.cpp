@@ -114,7 +114,7 @@ opt1:  pair_d  arfactor remove_rd guard
 opt2:    rd3    rd2      rd1     rd0
 opt3:   gray3  gray2    gray1   gray0
 opt4:	connect_d cgray_d cgray_ratio connnect_rd
-opt5:							swide_min
+opt5:					grad	swide_min
 opt6:
 */
 struct ViaParameter {
@@ -133,6 +133,7 @@ struct ViaParameter {
 	int connect_d; //for via remove
 	int cgray_d; //for check_via_wire_connect via wire border check
 	int cgray_ratio; //skin th
+	int grad;
 	int connect_rd; //used for skin points
 	int swide_min, opt1;
 	float optf;
@@ -226,6 +227,7 @@ public:
 			vw->v.cgray_ratio = cpara.opt4 >> 8 & 0xff;
 			vw->v.connect_rd = cpara.opt4 & 0xff;
 			vw->v.swide_min = cpara.opt5 & 0xff;
+			vw->v.grad = cpara.opt5 >> 8 & 0xff;
 			vw->v.optf = cpara.opt_f0;
 			qInfo("set_via_para, guard=%d, remove_rd=%d, rd0=%d, rd1=%d, rd2=%d, rd3=%d",
 				vw->v.guard, vw->v.remove_rd, vw->v.rd0, vw->v.rd1, vw->v.rd2, vw->v.rd3);
@@ -3194,11 +3196,104 @@ public:
 
 	virtual void prepare(int _layer, ViaParameter &vp, PipeData & _d) = 0;
 	virtual unsigned compute(int x0, int y0) = 0;
+	virtual bool double_check(int x0, int y0) {
+		return true;
+	}
 	virtual ~ViaComputeScore() {
 		qDebug("ViaComputeScore freed");
 	}
 };
 
+/*
+img is image
+xo, yo is via circle center
+r is via circle radius
+gd is grad depth
+th is grad threshold
+dx is compute by r
+*/
+bool via_double_check(Mat * img, int xo, int yo, int gd, int th, const vector<int> & dx) {
+	int r = dx.size() - 1;
+	for (int yc = -r + 2; yc <= -1; yc++) { //yc is offset
+		bool pass = false;
+		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
+		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if left side can pass 
+			int s = 0, s1 = 0;
+			for (int y = yc; y < yc + r; y++) {
+				int x = dx[abs(y)];
+				for (int i = x0 - x; i < x0 - x + gd; i++) //sum from x0-x to x0-x+gd-1
+					s += img->at<unsigned char>(y + y0, i);
+				for (int i = x0 - x - gd; i < x0 - x; i++) //sum from x0 - x - gd to x0-x-1
+					s1 += img->at<unsigned char>(y + y0, i);
+			}
+			if (s - s1 >= th) { //one (x0, y0) pass is ok
+				pass = true;
+				break;
+			}
+		}
+		if (!pass)
+			return false;
+
+		pass = false;
+		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
+		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if right side can pass 
+			int s = 0, s1 = 0;
+			for (int y = yc; y < yc + r; y++) {
+				int x = dx[abs(y)];
+				for (int i = x0 + x + 1 - gd; i <= x0 + x; i++) //sum from x0 + x + 1 - gd to x0+x
+					s += img->at<unsigned char>(y + y0, i);
+				for (int i = x0 + x + 1; i <= x0 + x + gd; i++) //sum from x0+x+1 to x0+x+gd
+					s1 += img->at<unsigned char>(y + y0, i);
+			}
+			if (s - s1 >= th) { //one (x0, y0) pass is ok
+				pass = true;
+				break;
+			}
+		}
+		if (!pass)
+			return false;
+	}
+
+	for (int xc = -r + 2; xc <= -1; xc++) {
+		bool pass = false;
+		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
+		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if up side can pass 
+			int s = 0, s1 = 0;
+			for (int x = xc; x < xc + r; x++) {
+				int y = dx[abs(x)];
+				for (int i = y0 - y; i < y0 - y + gd; i++) //sum from y0 - y to y0 - y + gd - 1
+					s += img->at<unsigned char>(i, x0 + x);
+				for (int i = y0 - y - gd; i < y0 - y; i++) //sum from y0 - y - gd to y0 - y - 1
+					s1 += img->at<unsigned char>(i, x0 + x);
+			}
+			if (s - s1 >= th) { //one (x0, y0) pass is ok
+				pass = true;
+				break;
+			}
+		}
+		if (!pass)
+			return false;
+		pass = false;
+		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
+		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if down side can pass 
+			int s = 0, s1 = 0;
+			for (int x = xc; x < xc + r; x++) {
+				int y = dx[abs(x)];
+				for (int i = y0 + y - gd + 1; i <= y0 + y; i++) //sum from y0 + y -gd + 1 to y0+y
+					s += img->at<unsigned char>(i, x0 + x);
+				for (int i = y0 + y + 1; i <= y0 + y + gd; i++) //sum from y0 +y+1 to y0 +y+gd
+					s1 += img->at<unsigned char>(i, x0 + x);
+			}
+			if (s - s1 >= th) { //one (x0, y0) pass is ok
+				pass = true;
+				break;
+			}
+		}
+		if (!pass)
+			return false;
+	}
+	return true;
+}
 /*
 It require internal circle =gray
 external circle = gray1
@@ -3207,13 +3302,15 @@ class TwoCircleEECompute : public ViaComputeScore {
 protected:
 	int r, r1;
 	int gray, gray1;
+	int gd;
+	int th;
 	vector<int> dx, dx1;
 	float a, a1, b, b1;
 	int layer;
 	PipeData * d;
 	Mat * lg;
 	Mat *llg;
-
+	Mat *img;
 public:
 	friend class TwoCirclelBSCompute;
 	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
@@ -3222,12 +3319,16 @@ public:
 		d->l[layer].validate_ig();
 		lg = &(d->l[layer].lg);
 		llg = &(d->l[layer].llg);
+		img = &(d->l[layer].img);
 		r = vp.rd0;
 		r1 = vp.rd1;
 		gray = vp.gray0;
 		gray1 = vp.gray1;
+		gd = vp.cgray_d;
+		th = gd * r * (gray - gray1) * vp.grad / 100;
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCirclePrepare r0=%d,r1=%d,g0=%d,g1=%d, gamma=%f", r, r1, gray, gray1, gamma);
+		qInfo("TwoCircleEECompute r0=%d,r1=%d,g0=%d,g1=%d,gd=%d,grad=%d,th=%d, gamma=%f", 
+			r, r1, gray, gray1, gd, vp.grad, th, gamma);
 		if (r >= r1)
 			qCritical("invalid r0 and r1");
 		int n = compute_circle_dx(r, dx);
@@ -3245,7 +3346,7 @@ public:
 		int s = 0, ss = 0, s1 = 0, ss1 = 0;
 		for (int y = -r; y <= r; y++) {
 			int x = dx[abs(y)];
-			s += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x);
+			s += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x); //sum from x0-x to x0+x
 			ss += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
 		}
 		for (int y = -r1; y <= r1; y++) {
@@ -3262,6 +3363,10 @@ public:
 
 		CV_Assert(score < 65536 && f[1] + 1 >= f[0] * f[0] * a && f[2] >= 0 && f[3] + 1 >= f[2] * f[2] * a1);
 		return (score < MIN_SCORE) ? MIN_SCORE : score;
+	}
+
+	bool double_check(int x0, int y0) {
+		return via_double_check(img, x0, y0, gd, th, dx);
 	}
 };
 
@@ -3295,8 +3400,12 @@ public:
 		tcc.r1 = vp.rd1;
 		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
+		tcc.img = &_d.l[_layer].img;
+		tcc.gd = vp.cgray_d;
+		tcc.th = tcc.gd * tcc.r * (tcc.gray - tcc.gray1) * vp.grad / 100;
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCircleXPrepare r0=%d,r1=%d,g0=%d,g1=%d, gamma=%f", tcc.r, tcc.r1, vp.gray0, vp.gray1, gamma);
+		qInfo("TwoCirclelBSCompute r0=%d,r1=%d,g0=%d,g1=%d, grad=%d, th=%d,gamma=%f", 
+			tcc.r, tcc.r1, vp.gray0, vp.gray1, vp.grad, tcc.th, gamma);
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
 		if (vp.gray1 >= vp.gray0)
@@ -3315,6 +3424,9 @@ public:
 	unsigned compute(int x0, int y0) {
 		return tcc.compute(x0, y0);
 	}
+	bool double_check(int xo, int yo) {
+		return tcc.double_check(xo, yo);
+	}
 };
 
 /*
@@ -3329,9 +3441,12 @@ protected:
 	vector<int> dx, dx1, dx2;
 	float a, a1, a2, b, b1, b2;
 	int layer;
+	int gd;
+	int th;
 	PipeData * d;
 	Mat * lg;
 	Mat * llg;
+	Mat * img;
 
 public:
 	friend class ThreeCircleBSSCompute;
@@ -3341,14 +3456,18 @@ public:
 		d->l[layer].validate_ig();
 		lg = &(d->l[layer].lg);
 		llg = &(d->l[layer].llg);
+		img = &(d->l[layer].img);
 		r = vp.rd0;
 		r1 = vp.rd1;
 		r2 = vp.rd2;
 		gray = vp.gray0;
 		gray1 = vp.gray1;
 		gray2 = vp.gray2;
+		gd = vp.cgray_d;
+		th = gd * r1 * (gray1 - gray2) * vp.grad / 100;
 		float gamma = vp.arfactor / 100.0;
-		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d, gamma=%f", r, r1, r2, gray, gray1, gray2, gamma);
+		qInfo("ThreeCircleEEECompute r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d,grad=%d,th=%d,gamma=%f", 
+			r, r1, r2, gray, gray1, gray2, vp.grad, th, gamma);
 		if (r >= r1)
 			qCritical("invalid r0 and r1");
 		if (r1 >= r2)
@@ -3400,6 +3519,10 @@ public:
 		CV_Assert(score < 65536);
 		return (score < MIN_SCORE) ? MIN_SCORE : score;
 	}
+
+	bool double_check(int x0, int y0) {
+		return via_double_check(img, x0, y0, gd, th, dx1);
+	}
 };
 
 /*
@@ -3440,8 +3563,12 @@ public:
 		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
 		tcc.gray2 = vp.gray2;
+		tcc.img = &_d.l[_layer].img;
+		tcc.gd = vp.cgray_d;
+		tcc.th = tcc.gd * tcc.r1 * (tcc.gray1 - tcc.gray2) * vp.grad / 100;
 		float gamma = vp.arfactor / 100.0;
-		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d, gamma=%f", tcc.r, tcc.r1, tcc.r2, vp.gray0, vp.gray1, vp.gray2, gamma);
+		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d,grad=%d,th=%d,gamma=%f", 
+			tcc.r, tcc.r1, tcc.r2, vp.gray0, vp.gray1, vp.gray2, vp.grad, tcc.th, gamma);
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
 		if (tcc.r1 >= tcc.r2)
@@ -3463,6 +3590,10 @@ public:
 
 	unsigned compute(int x0, int y0) {
 		return tcc.compute(x0, y0);
+	}
+
+	bool double_check(int x0, int y0) {
+		return tcc.double_check(x0, y0);
 	}
 };
 
@@ -5663,6 +5794,10 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 			via_para.gray3 = glv[via_para.gray3];
 		qInfo("%d: fine_via_search type=%d, subtype=%d, pattern=%d, th=%d, g0=%d, g1=%d, g2=%d, g3=%d", i, v_type[i],
 			v_subtype[i], v_pattern[i], v_th[i], via_para.gray0, via_para.gray1, via_para.gray2, via_para.gray3);
+		if (via_para.rd1 >= d.l[layer].compute_border || via_para.rd0 >= d.l[layer].compute_border) {
+			qCritical("via_para rd (%d,%d) > compute_border(%d)", via_para.rd0, via_para.rd1, d.l[layer].compute_border);
+			return;
+		}
 		vcs[i].reset(ViaComputeScore::create_via_compute_score(layer, via_para, d));
 	}
 	d.l[layer].validate_ig();
@@ -5715,6 +5850,8 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 				}
 			}
 			if (pass) {
+				if (!vcs[gi]->double_check(PROB_X(prob0), PROB_Y(prob0)))
+					continue;
 				unsigned long long score = prob0;
 				SET_PROB_TYPE(score, v_type[gi]);
 				push_new_prob(d.l[layer].prob, score, d.l[layer].gs);

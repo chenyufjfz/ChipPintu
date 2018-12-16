@@ -294,7 +294,7 @@
     <vnum>1</vnum>
     <subtype0>3</subtype0>
     <wide0>10</wide0>
-    <percent0>50</percent0>
+    <percent0>55</percent0>
     <subtype1>0</subtype1>
     <wide1>0</wide1>
     <percent1>0</percent1>
@@ -630,7 +630,7 @@
     <update_fv>1</update_fv>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <th0>25</th0>
+    <th0>26</th0>
     <pattern0>254</pattern0>
     <subtype1>0</subtype1>
     <type1>0</type1>
@@ -660,7 +660,7 @@
     <update_fv>1</update_fv>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <th0>25</th0>
+    <th0>26</th0>
     <pattern0>254</pattern0>
     <subtype1>0</subtype1>
     <type1>0</type1>
@@ -1366,12 +1366,12 @@
     <shape>254</shape>
     <type>1</type>
     <subtype>3</subtype>
-    <guard>9</guard>
+    <guard>11</guard>
     <remove_rd>9</remove_rd>
     <arfactor>50</arfactor>
     <pair_d>0</pair_d>
     <connect_rd>7</connect_rd>
-    <cgray_d>2</cgray_d>
+    <cgray_d>3</cgray_d>
     <cgray_ratio>70</cgray_ratio>
     <connect_d>12</connect_d>
     <rd0>6</rd0>
@@ -1379,10 +1379,11 @@
     <rd2>10</rd2>
     <rd3>10</rd3>
     <gray0>8</gray0>
-    <gray1>6</gray1>
+    <gray1>5</gray1>
     <gray2>1</gray2>
     <gray3>0</gray3>
-    <swide_min>5</swide_min></_>
+    <swide_min>5</swide_min>
+    <grad>20</grad></_>
   <_>
     <name>ViaInfo_2</name>
     <debug_opt>192</debug_opt>
@@ -1395,7 +1396,7 @@
     <arfactor>50</arfactor>
     <pair_d>0</pair_d>
     <connect_rd>6</connect_rd>
-    <cgray_d>2</cgray_d>
+    <cgray_d>3</cgray_d>
     <cgray_ratio>70</cgray_ratio>
     <connect_d>12</connect_d>
     <rd0>7</rd0>
@@ -1406,7 +1407,8 @@
     <gray1>5</gray1>
     <gray2>1</gray2>
     <gray3>0</gray3>
-    <swide_min>5</swide_min></_>
+    <swide_min>5</swide_min>
+    <grad>25</grad></_>
   <_>
     <name>ViaInfo_3</name>
     <debug_opt>192</debug_opt>
@@ -1430,7 +1432,8 @@
     <gray1>5</gray1>
     <gray2>1</gray2>
     <gray3>0</gray3>
-    <swide_min>5</swide_min></_>
+    <swide_min>5</swide_min>
+    <grad>25</grad></_>
   <_>
     <name>ViaInfo_4</name>
     <debug_opt>192</debug_opt>
@@ -1454,7 +1457,8 @@
     <gray1>5</gray1>
     <gray2>1</gray2>
     <gray3>0</gray3>
-    <swide_min>5</swide_min></_>  
+    <swide_min>5</swide_min>
+    <grad>25</grad></_>  
   <_>
     <name>WireInfo_2</name>
     <debug_opt>128</debug_opt>
@@ -1577,7 +1581,11 @@
   <_>
     <name>action_all_layer</name>
     <items>
-      layer1_via_wire layer2_via_wire layer3_via_wire layer4_wire</items></_>
+      layer1_via layer2_via_wire layer3_via_wire layer4_wire</items></_>
+  <_>
+    <name>action_all_layer_M1_wire</name>
+    <items>
+      layer1_via_wire layer2_via_wire layer3_via_wire layer4_wire</items></_>      
   <_>
     <name>action_all_layer_via_only</name>
     <items>
