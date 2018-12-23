@@ -3226,8 +3226,9 @@ bool via_double_check(Mat * img, int xo, int yo, int gd, int th, const vector<in
 				for (int i = x0 - x - gd; i < x0 - x; i++) //sum from x0 - x - gd to x0-x-1
 					s1 += img->at<unsigned char>(y + y0, i);
 			}
-			if (s - s1 >= th) { //one (x0, y0) pass is ok
+			if (s - s1 >= th) { //one (x0, y0) pass is ok				
 				pass = true;
+				y0 = yo + 1;
 				break;
 			}
 		}
@@ -3245,8 +3246,9 @@ bool via_double_check(Mat * img, int xo, int yo, int gd, int th, const vector<in
 				for (int i = x0 + x + 1; i <= x0 + x + gd; i++) //sum from x0+x+1 to x0+x+gd
 					s1 += img->at<unsigned char>(y + y0, i);
 			}
-			if (s - s1 >= th) { //one (x0, y0) pass is ok
+			if (s - s1 >= th) { //one (x0, y0) pass is ok				
 				pass = true;
+				y0 = yo + 1;
 				break;
 			}
 		}
@@ -3268,6 +3270,7 @@ bool via_double_check(Mat * img, int xo, int yo, int gd, int th, const vector<in
 			}
 			if (s - s1 >= th) { //one (x0, y0) pass is ok
 				pass = true;
+				y0 = yo + 1;
 				break;
 			}
 		}
@@ -3286,6 +3289,7 @@ bool via_double_check(Mat * img, int xo, int yo, int gd, int th, const vector<in
 			}
 			if (s - s1 >= th) { //one (x0, y0) pass is ok
 				pass = true;
+				y0 = yo + 1;
 				break;
 			}
 		}

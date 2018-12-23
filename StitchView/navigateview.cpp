@@ -39,7 +39,9 @@ void NavigateView::paintEvent(QPaintEvent *)
 		//draw view rect
 		paint.setPen(QPen(Qt::yellow, 1));
 		paint.setBrush(Qt::NoBrush);
-		QRect rect(view_rect.x() * zr, view_rect.y() * zr, view_rect.width() * zr, view_rect.height() * zr);
+		w = view_rect.width() * zr;
+		h = view_rect.height() * zr;
+		QRect rect(view_rect.x() * zr, view_rect.y() * zr, max(1, (int) w), max(1, (int) h));
 		paint.drawRect(rect);
 	}
 	QPainter painter(this);

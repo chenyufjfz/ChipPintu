@@ -219,7 +219,7 @@ struct LayerFeature {
 
 class Nail {
 public:
-	LayerFeature * lf0;
+	LayerFeature * lf0; //lf0==lf1 means absolute nail
 	LayerFeature * lf1;
 	Point p0, p1;
 	Nail() {
@@ -284,7 +284,7 @@ protected:
 	void remove_cache_front();
 	void timerEvent(QTimerEvent *e);
 	void update_nview();
-	void convert_nails(vector<Nail> & nsrc, vector<Nail> & nabs, int method);
+	void convert_nails(vector<Nail> & nsrc, vector<Nail> & nimg, int method);
 
 protected:
 	string project_path;
@@ -324,6 +324,7 @@ protected:
 	vector<Nail> nails;
 	bool add_nail(Nail nail);
 	void del_nail(Nail nail);
+	void get_absolute_nails(vector<Nail> &ns);
 	void get_one_layer_nails(LayerFeature * lf, vector<Nail> &ns);
 	void del_one_layer_nails(LayerFeature * lf);
 	Nail search_nail(LayerFeature * lf, Point p, int range);

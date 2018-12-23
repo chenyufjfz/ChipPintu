@@ -52,7 +52,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 {
     scale = 8;
 	center = QPoint(0, 0);
-    layer = -1;
+    layer = ABS_LAYER;
 	edge_cost = 0;
 	minloc_shift = Point(0, 0);
 	feature_layer = -1;
@@ -87,73 +87,72 @@ StitchView::~StitchView()
 
 void StitchView::paintEvent(QPaintEvent *)
 {
-	if (lf.empty())
-		return;
-	Q_ASSERT(layer < (int) lf.size());
+	Q_ASSERT((layer < (int) lf.size() && layer >= 0) || layer == ABS_LAYER);
     QPoint ce(size().width()*scale/2, size().height()*scale/2);
     QSize s(size().width()*scale, size().height()*scale);
     view_rect = QRect(center - ce, s);
-	if (view_rect.width() > lf[layer]->cpara.right_bound()) {
-		view_rect.adjust(view_rect.width() - lf[layer]->cpara.right_bound(), 0, 0, 0);
-		center = view_rect.center();
-	}
-	if (view_rect.height() > lf[layer]->cpara.bottom_bound()) {
-		view_rect.adjust(0, view_rect.height() - lf[layer]->cpara.bottom_bound(), 0, 0);
-		center = view_rect.center();
+
+	if (layer != ABS_LAYER) {
+		if (view_rect.width() > lf[layer]->cpara.right_bound()) {
+			view_rect.adjust(view_rect.width() - lf[layer]->cpara.right_bound(), 0, 0, 0);
+			center = view_rect.center();
+		}
+		if (view_rect.height() > lf[layer]->cpara.bottom_bound()) {
+			view_rect.adjust(0, view_rect.height() - lf[layer]->cpara.bottom_bound(), 0, 0);
+			center = view_rect.center();
+		}
+
+		if (view_rect.right() > lf[layer]->cpara.right_bound() - 1) {
+			view_rect.moveRight(lf[layer]->cpara.right_bound() - 1);
+			center = view_rect.center();
+		}
+
+		if (view_rect.bottom() > lf[layer]->cpara.bottom_bound() - 1) {
+			view_rect.moveBottom(lf[layer]->cpara.bottom_bound() - 1);
+			center = view_rect.center();
+		}
+		Q_ASSERT(view_rect.right() < lf[layer]->cpara.right_bound() && view_rect.bottom() < lf[layer]->cpara.bottom_bound());
 	}
 	if (view_rect.left() < 0) {
 		view_rect.moveLeft(0);
-		center = view_rect.center();
-	}
-	if (view_rect.right() > lf[layer]->cpara.right_bound() - 1) {
-		view_rect.moveRight(lf[layer]->cpara.right_bound() - 1);
 		center = view_rect.center();
 	}
 	if (view_rect.top() < 0) {
 		view_rect.moveTop(0);
 		center = view_rect.center();
 	}
-	if (view_rect.bottom() > lf[layer]->cpara.bottom_bound() - 1) {
-		view_rect.moveBottom(lf[layer]->cpara.bottom_bound() - 1);
-		center = view_rect.center();
-	}
-	Q_ASSERT(view_rect.left() >= 0 && view_rect.right() < lf[layer]->cpara.right_bound() &&
-		view_rect.top() >= 0 && view_rect.bottom() < lf[layer]->cpara.bottom_bound());
+
+	Q_ASSERT(view_rect.left() >= 0 && view_rect.top() >= 0);
 
     QImage image(size(), QImage::Format_RGB32);
 	image.fill(QColor(0, 0, 0));
     QPainter painter(&image);
-	painter.setPen(QPen(Qt::green));
-	painter.setBrush(QBrush(Qt::green));
-	QRect screen_rect(0, 0, width(), height());	
 
-	//1 Draw image
-	//first loop, prepare for renderimage
-	int dst_w = ri.get_dst_wide();
-	int start_y = view_rect.top() / dst_w;
-	int end_y = view_rect.bottom() / dst_w + 1;
-	int start_x = view_rect.left() / dst_w;
-	int end_x = view_rect.right() / dst_w + 1;
-	vector<MapID> map_id;
-	for (int y = start_y; y < end_y; y++)
-		for (int x = start_x; x < end_x; x++)		
+	if (layer != ABS_LAYER) {
+		painter.setPen(QPen(Qt::green));
+		painter.setBrush(QBrush(Qt::green));
+		QRect screen_rect(0, 0, width(), height());
+
+		//1 Draw image
+		//first loop, prepare for renderimage
+		int dst_w = ri.get_dst_wide();
+		int start_y = view_rect.top() / dst_w;
+		int end_y = view_rect.bottom() / dst_w + 1;
+		int start_x = view_rect.left() / dst_w;
+		int end_x = view_rect.right() / dst_w + 1;
+		vector<MapID> map_id;
+		for (int y = start_y; y < end_y; y++)
+		for (int x = start_x; x < end_x; x++)
 			map_id.push_back(MAPID(layer, x, y));
-	vector<MapID> draw_order;
-	for (int i = 0; i < 3; i++)
-		draw_order.push_back(MAPID(layer, choose[i].x(), choose[i].y()));
-	vector<QImage> imgs;
-	ri.render_img(map_id, imgs, draw_order);
+		vector<MapID> draw_order;
+		for (int i = 0; i < 3; i++)
+			draw_order.push_back(MAPID(layer, choose[i].x(), choose[i].y()));
+		vector<QImage> imgs;
+		ri.render_img(map_id, imgs, draw_order);
 
-#if 0
-	for (int i = 0; i < imgs.size(); i++) {
-		char filename[100];
-		sprintf(filename, "%d_%d.jpg", MAPID_Y(map_id[i]), MAPID_X(map_id[i]));
-		imgs[i].save(filename);
-	}
-#endif
-	//second loop, draw image
-	int img_idx = 0;
-	for (int y = start_y; y < end_y; y++)
+		//second loop, draw image
+		int img_idx = 0;
+		for (int y = start_y; y < end_y; y++)
 		for (int x = start_x; x < end_x; x++)  {
 			QImage subimg = imgs[img_idx].scaled(imgs[img_idx].size() / scale);
 			QPoint offset(x * dst_w, y * dst_w);
@@ -170,120 +169,120 @@ void StitchView::paintEvent(QPaintEvent *)
 			img_idx++;
 		}
 
-	//2 draw edge
-	Point src_lt = ri.dst2src(layer, TOPOINT(view_rect.topLeft())); //dst_lt map to src_lt, src_lt is not src left top.
-	Point src_rb = ri.dst2src(layer, TOPOINT(view_rect.bottomRight()));
-	Point src_lb = ri.dst2src(layer, TOPOINT(view_rect.bottomLeft()));
-	Point src_rt = ri.dst2src(layer, TOPOINT(view_rect.topRight()));
+		//2 draw edge
+		Point src_lt = ri.dst2src(layer, TOPOINT(view_rect.topLeft())); //dst_lt map to src_lt, src_lt is not src left top.
+		Point src_rb = ri.dst2src(layer, TOPOINT(view_rect.bottomRight()));
+		Point src_lb = ri.dst2src(layer, TOPOINT(view_rect.bottomLeft()));
+		Point src_rt = ri.dst2src(layer, TOPOINT(view_rect.topRight()));
 
-	double minx = min(min(src_lt.x, src_rb.x), min(src_lb.x, src_rt.x));
-	double miny = min(min(src_lt.y, src_rb.y), min(src_lb.y, src_rt.y));
-	double maxx = max(max(src_lt.x, src_rb.x), max(src_lb.x, src_rt.x));
-	double maxy = max(max(src_lt.y, src_rb.y), max(src_lb.y, src_rt.y));
-	//now Point(minx,miny) is src left top, Point (max, maxy) is src right bottom
+		double minx = min(min(src_lt.x, src_rb.x), min(src_lb.x, src_rt.x));
+		double miny = min(min(src_lt.y, src_rb.y), min(src_lb.y, src_rt.y));
+		double maxx = max(max(src_lt.x, src_rb.x), max(src_lb.x, src_rt.x));
+		double maxy = max(max(src_lt.y, src_rb.y), max(src_lb.y, src_rt.y));
+		//now Point(minx,miny) is src left top, Point (max, maxy) is src right bottom
 
-	Point lt = find_src_map(lf[layer]->cpara, Point(minx, miny), ri.get_src_img_size(layer), 1);
-	Point rb = find_src_map(lf[layer]->cpara, Point(maxx + 1, maxy + 1), ri.get_src_img_size(layer), 0);
-	//now lt is src left top map, rb is src right bottom map
-	//following code is same as below Key_E
-	for (int y = lt.y; y <= rb.y; y++)
-	for (int x = lt.x; x <= rb.x; x++) {
-		Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
-		Point src_corner1, src_corner2;
-		if (y + 1 < lf[layer]->cpara.offset.rows)
-			src_corner1 = Point(lf[layer]->cpara.offset(y + 1, x)[1], lf[layer]->cpara.offset(y + 1, x)[0]);
-		else {
-			src_corner1 = Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]);
-			src_corner1 = 2 * src_corner - src_corner1;
-		}
-		if (x + 1 < lf[layer]->cpara.offset.cols)
-			src_corner2 = Point(lf[layer]->cpara.offset(y, x + 1)[1], lf[layer]->cpara.offset(y, x + 1)[0]);
-		else {
-			src_corner2 = Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
-			src_corner2 = 2 * src_corner - src_corner2;
-		}
-		Point src_edge_center[2] = { src_corner + src_corner2, src_corner + src_corner1};
-		for (int i = 0; i < 2; i++) {
-			src_edge_center[i].x = src_edge_center[i].x / 2;
-			src_edge_center[i].y = src_edge_center[i].y / 2;
-			QPoint dst_edge_center = TOQPOINT(ri.src2dst(layer, src_edge_center[i]));
-			if (view_rect.contains(dst_edge_center)) {
-				dst_edge_center = (dst_edge_center - view_rect.topLeft()) / scale;
-				int fe = 0;
-				if (y > 0 && i == 0)
-					fe = lf[layer]->fix_edge[i](y - 1, x);
-				if (x > 0 && i == 1)
-					fe = lf[layer]->fix_edge[i](y, x - 1);
-				//draw fix edge
-				if (fe) {
-					if (FIX_EDGE_BINDY(fe))
-						painter.setPen(QPen(Qt::red, 1));
-					else
-						painter.setPen(QPen(Qt::green, 1));					
-					painter.drawLine(dst_edge_center - QPoint(0, 5), dst_edge_center + QPoint(0, 5));
-					if (FIX_EDGE_BINDX(fe))
-						painter.setPen(QPen(Qt::red, 1));
-					else
-						painter.setPen(QPen(Qt::green, 1));
-					painter.drawLine(dst_edge_center - QPoint(5, 0), dst_edge_center + QPoint(5, 0));
-				}
-				if (draw_corner) {
-					const EdgeDiff * ed = (i == 0) ? lf[layer]->feature.get_edge(0, y - 1, x) :
-						lf[layer]->feature.get_edge(1, y, x - 1);
-					if (ed && ed->img_num > 0) {
-						Point src_corner3 = (i == 0) ? Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]) :
-							Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
-						Point oo = src_corner - src_corner3;
-						Point shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
-						int cost = ed->get_dif(oo, lf[layer]->cpara.rescale) - ed->mind;
-						int val_x = shift.x;
-						int val_y = shift.y;
-						char val[50];
-						Point t = oo - ed->offset;
-						t.y = t.y / lf[layer]->cpara.rescale;
-						t.x = t.x / lf[layer]->cpara.rescale;
-						if (t.y < 0 || t.x < 0 || t.y >= ed->dif.rows || t.x >= ed->dif.cols)
-							painter.setPen(QPen(Qt::red, 1));
-						else
-							painter.setPen(QPen(Qt::green, 1));
-						sprintf(val, "%d,%d", val_x, val_y);
-						if (i == 1)
-							painter.drawText(dst_edge_center + QPoint(-10, -30), val);
-						else
-							painter.drawText(dst_edge_center + QPoint(-60, -8), val);
-					}
-				}				
-			}
-		}
-	}
-	
-	//3 Draw corner
-	painter.setPen(QPen(Qt::yellow, 1));
-	if (draw_corner) {
-		char val[50];
+		Point lt = find_src_map(lf[layer]->cpara, Point(minx, miny), ri.get_src_img_size(layer), 1);
+		Point rb = find_src_map(lf[layer]->cpara, Point(maxx + 1, maxy + 1), ri.get_src_img_size(layer), 0);
+		//now lt is src left top map, rb is src right bottom map
+		//following code is same as below Key_E
 		for (int y = lt.y; y <= rb.y; y++)
 		for (int x = lt.x; x <= rb.x; x++) {
 			Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
-			QPoint dst_corner = TOQPOINT(ri.src2dst(layer, src_corner));
-			if (view_rect.contains(dst_corner)) {
-				if (lf[layer]->corner_info.empty()) {
-					painter.setPen(QPen(Qt::green));
-					painter.setBrush(QBrush(Qt::green));
-					painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 3, 3);
+			Point src_corner1, src_corner2;
+			if (y + 1 < lf[layer]->cpara.offset.rows)
+				src_corner1 = Point(lf[layer]->cpara.offset(y + 1, x)[1], lf[layer]->cpara.offset(y + 1, x)[0]);
+			else {
+				src_corner1 = Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]);
+				src_corner1 = 2 * src_corner - src_corner1;
+			}
+			if (x + 1 < lf[layer]->cpara.offset.cols)
+				src_corner2 = Point(lf[layer]->cpara.offset(y, x + 1)[1], lf[layer]->cpara.offset(y, x + 1)[0]);
+			else {
+				src_corner2 = Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
+				src_corner2 = 2 * src_corner - src_corner2;
+			}
+			Point src_edge_center[2] = { src_corner + src_corner2, src_corner + src_corner1 };
+			for (int i = 0; i < 2; i++) {
+				src_edge_center[i].x = src_edge_center[i].x / 2;
+				src_edge_center[i].y = src_edge_center[i].y / 2;
+				QPoint dst_edge_center = TOQPOINT(ri.src2dst(layer, src_edge_center[i]));
+				if (view_rect.contains(dst_edge_center)) {
+					dst_edge_center = (dst_edge_center - view_rect.topLeft()) / scale;
+					int fe = 0;
+					if (y > 0 && i == 0)
+						fe = lf[layer]->fix_edge[i](y - 1, x);
+					if (x > 0 && i == 1)
+						fe = lf[layer]->fix_edge[i](y, x - 1);
+					//draw fix edge
+					if (fe) {
+						if (FIX_EDGE_BINDY(fe))
+							painter.setPen(QPen(Qt::red, 1));
+						else
+							painter.setPen(QPen(Qt::green, 1));
+						painter.drawLine(dst_edge_center - QPoint(0, 5), dst_edge_center + QPoint(0, 5));
+						if (FIX_EDGE_BINDX(fe))
+							painter.setPen(QPen(Qt::red, 1));
+						else
+							painter.setPen(QPen(Qt::green, 1));
+						painter.drawLine(dst_edge_center - QPoint(5, 0), dst_edge_center + QPoint(5, 0));
+					}
+					if (draw_corner) {
+						const EdgeDiff * ed = (i == 0) ? lf[layer]->feature.get_edge(0, y - 1, x) :
+							lf[layer]->feature.get_edge(1, y, x - 1);
+						if (ed && ed->img_num > 0) {
+							Point src_corner3 = (i == 0) ? Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]) :
+								Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
+							Point oo = src_corner - src_corner3;
+							Point shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
+							int cost = ed->get_dif(oo, lf[layer]->cpara.rescale) - ed->mind;
+							int val_x = shift.x;
+							int val_y = shift.y;
+							char val[50];
+							Point t = oo - ed->offset;
+							t.y = t.y / lf[layer]->cpara.rescale;
+							t.x = t.x / lf[layer]->cpara.rescale;
+							if (t.y < 0 || t.x < 0 || t.y >= ed->dif.rows || t.x >= ed->dif.cols)
+								painter.setPen(QPen(Qt::red, 1));
+							else
+								painter.setPen(QPen(Qt::green, 1));
+							sprintf(val, "%d,%d", val_x, val_y);
+							if (i == 1)
+								painter.drawText(dst_edge_center + QPoint(-10, -30), val);
+							else
+								painter.drawText(dst_edge_center + QPoint(-60, -8), val);
+						}
+					}
 				}
-				else {
-					unsigned long long info = lf[layer]->corner_info(y, x)[1];
-					info = info << 32 | lf[layer]->corner_info(y, x)[0];
-					short val_x = info & 0xffff; 
-					short val_y = (info >> 16) & 0xffff;
-					sprintf(val, "%d,%d", val_x, val_y);
-					QPoint center = (dst_corner - view_rect.topLeft()) / scale;
-					painter.drawText(center - QPoint(10, 5), val);
+			}
+		}
+
+		//3 Draw corner
+		painter.setPen(QPen(Qt::yellow, 1));
+		if (draw_corner) {
+			char val[50];
+			for (int y = lt.y; y <= rb.y; y++)
+			for (int x = lt.x; x <= rb.x; x++) {
+				Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
+				QPoint dst_corner = TOQPOINT(ri.src2dst(layer, src_corner));
+				if (view_rect.contains(dst_corner)) {
+					if (lf[layer]->corner_info.empty()) {
+						painter.setPen(QPen(Qt::green));
+						painter.setBrush(QBrush(Qt::green));
+						painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 3, 3);
+					}
+					else {
+						unsigned long long info = lf[layer]->corner_info(y, x)[1];
+						info = info << 32 | lf[layer]->corner_info(y, x)[0];
+						short val_x = info & 0xffff;
+						short val_y = (info >> 16) & 0xffff;
+						sprintf(val, "%d,%d", val_x, val_y);
+						QPoint center = (dst_corner - view_rect.topLeft()) / scale;
+						painter.drawText(center - QPoint(10, 5), val);
+					}
 				}
 			}
 		}
 	}
-
 	//4 draw grid
 	if (draw_grid) {
 		int width = size().width();
@@ -293,16 +292,16 @@ void StitchView::paintEvent(QPaintEvent *)
 			int y = (i * ygrid_size + yoffset - view_rect.top()) / scale;
 			switch (i & 3) {
 			case 0:
-				painter.setPen(QPen(Qt::red, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::red, 1, Qt::DotLine));
 				break;
 			case 1:
-				painter.setPen(QPen(Qt::yellow, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::yellow, 1, Qt::DotLine));
 				break;
 			case 2:
-				painter.setPen(QPen(Qt::blue, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::blue, 1, Qt::DotLine));
 				break;
 			case 3:
-				painter.setPen(QPen(Qt::green, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::green, 1, Qt::DotLine));
 				break;
 			}
 			painter.drawLine(0, y, width, y);
@@ -312,16 +311,16 @@ void StitchView::paintEvent(QPaintEvent *)
 			int x = (i * xgrid_size + xoffset - view_rect.left()) / scale;
 			switch (i & 3) {
 			case 0:
-				painter.setPen(QPen(Qt::red, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::red, 1, Qt::DotLine));
 				break;
 			case 1:
-				painter.setPen(QPen(Qt::yellow, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::yellow, 1, Qt::DotLine));
 				break;
 			case 2:
-				painter.setPen(QPen(Qt::blue, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::blue, 1, Qt::DotLine));
 				break;
 			case 3:
-				painter.setPen(QPen(Qt::green, 1, Qt::DashLine));
+				painter.setPen(QPen(Qt::green, 1, Qt::DotLine));
 				break;
 			}
 			painter.drawLine(x, 0, x, height);
@@ -329,32 +328,44 @@ void StitchView::paintEvent(QPaintEvent *)
 	}
 
 	//5 draw nail
-	vector<Nail> ns;
-	painter.setBrush(Qt::NoBrush);
-	get_one_layer_nails(lf[layer], ns);
-	for (int i = 0; i < (int)ns.size(); i++) {
-		QPoint ns_point = TOQPOINT(ri.src2dst(layer, ns[i].p0));
-		if (view_rect.contains(ns_point)) {
-			if (layer > 0 && lf[layer - 1] == ns[i].lf1)
-				painter.setPen(Qt::blue);
-			else
-				painter.setPen(Qt::red);
-			ns_point = (ns_point - view_rect.topLeft()) / scale;
-			painter.drawLine(ns_point + QPoint(-6, -6), ns_point + QPoint(6, 6));
-			painter.drawLine(ns_point + QPoint(-6, 6), ns_point + QPoint(6, -6));
-		}
-		if (ns[i].lf1 == lf[layer]) {
-			ns_point = TOQPOINT(ns[i].p1);
-			ns_point = (ns_point - view_rect.topLeft()) / scale;
-			painter.drawEllipse(ns_point, 3, 3);
+	if (layer == ABS_LAYER) {
+		vector<Nail> ns;
+		painter.setBrush(Qt::NoBrush);
+		painter.setPen(Qt::red);
+		get_absolute_nails(ns);
+		for (int i = 0; i < (int)ns.size(); i++) {
+			QPoint ns_point = TOQPOINT(ns[i].p1);
+			if (view_rect.contains(ns_point)) {
+				ns_point = (ns_point - view_rect.topLeft()) / scale;
+				painter.drawLine(ns_point + QPoint(-6, -6), ns_point + QPoint(6, 6));
+				painter.drawLine(ns_point + QPoint(-6, 6), ns_point + QPoint(6, -6));
+			}
 		}
 	}
-	if (cur_nail.lf0 == lf[layer]) {
-		QPoint ns_point = TOQPOINT(ri.src2dst(layer, cur_nail.p0));
-		if (view_rect.contains(ns_point)) {
-			ns_point = (ns_point - view_rect.topLeft()) / scale;
-			painter.drawLine(ns_point + QPoint(-6, -6), ns_point + QPoint(6, 6));
-			painter.drawLine(ns_point + QPoint(-6, 6), ns_point + QPoint(6, -6));
+	else {
+		vector<Nail> ns;
+		painter.setBrush(Qt::NoBrush);
+		get_one_layer_nails(lf[layer], ns);
+		for (int i = 0; i < (int)ns.size(); i++) {
+			QPoint ns_point = TOQPOINT(ri.src2dst(layer, ns[i].p0));
+			if (view_rect.contains(ns_point)) {
+				if (layer > 0 && lf[layer - 1] == ns[i].lf1 || ns[i].lf0 == ns[i].lf1)
+					painter.setPen(Qt::blue);
+				else
+					painter.setPen(Qt::red);
+				ns_point = (ns_point - view_rect.topLeft()) / scale;
+				painter.drawLine(ns_point + QPoint(-6, -6), ns_point + QPoint(6, 6));
+				painter.drawLine(ns_point + QPoint(-6, 6), ns_point + QPoint(6, -6));
+			}
+		}
+		if (cur_nail.lf0 == lf[layer]) {
+			painter.setPen(Qt::red);
+			QPoint ns_point = TOQPOINT(ri.src2dst(layer, cur_nail.p0));
+			if (view_rect.contains(ns_point)) {
+				ns_point = (ns_point - view_rect.topLeft()) / scale;
+				painter.drawLine(ns_point + QPoint(-6, -6), ns_point + QPoint(6, 6));
+				painter.drawLine(ns_point + QPoint(-6, 6), ns_point + QPoint(6, -6));
+			}
 		}
 	}
 
@@ -371,7 +382,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	int step;
 	switch (e->key()) {
 	case Qt::Key_Left:		
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[1] -= lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -382,7 +393,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else 
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
 			for (int i = 0; i < (int) imgs.size(); i++)
@@ -395,7 +406,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		break;
 	case Qt::Key_Up:		
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[0] -= lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -406,7 +417,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
@@ -419,7 +430,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		break;
 	case Qt::Key_Right:
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[1] += lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -430,7 +441,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
@@ -443,7 +454,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		break;
 	case Qt::Key_Down:		
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[0] += lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -454,7 +465,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier) {
+		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
@@ -475,52 +486,83 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			scale = scale / 2;
 		break;
 	case Qt::Key_0:
-		if (lf.size() > 0)
-			layer = 0;		
+		layer = ABS_LAYER;
 		break;
 	case Qt::Key_1:
+		if (lf.size() > 0)
+			layer = 0;
+		break;
+	case Qt::Key_2:
 		if (lf.size() > 1)
 			layer = 1;
 		break;
-	case Qt::Key_2:
+	case Qt::Key_3:
 		if (lf.size() > 2)
 			layer = 2;
 		break;
-	case Qt::Key_3:
+	case Qt::Key_4:
 		if (lf.size() > 3)
 			layer = 3;
 		break;
-	case Qt::Key_4:
+	case Qt::Key_5:
 		if (lf.size() > 4)
 			layer = 4;
 		break;
-	case Qt::Key_5:
+	case Qt::Key_6:
 		if (lf.size() > 5)
 			layer = 5;
 		break;
-	case Qt::Key_6:
+	case Qt::Key_7:
 		if (lf.size() > 6)
 			layer = 6;
 		break;
-	case Qt::Key_7:
+	case Qt::Key_8:
 		if (lf.size() > 7)
 			layer = 7;
 		break;
-	case Qt::Key_G:
-		draw_grid = !draw_grid;
+	case Qt::Key_9:
+		if (lf.size() > 8)
+			layer = 8;
+		break;
+	case Qt::Key_A:
+		if (lf.size() > 9)
+			layer = 9;
+		break;
+	case Qt::Key_B:
+		if (lf.size() > 10)
+			layer = 10;
 		break;
 	case Qt::Key_C:
-		draw_corner = 1 - draw_corner;
+		if (lf.size() > 11)
+			layer = 11;
+		break;
+	case Qt::Key_D:
+		if (lf.size() > 12)
+			layer = 12;
+		break;
+	case Qt::Key_E:
+		if (lf.size() > 13)
+			layer = 13;
+		break;
+	case Qt::Key_F:
+		if (lf.size() > 14)
+			layer = 14;
+		break;
+	case Qt::Key_F1:
+		if (layer != ABS_LAYER)
+			draw_corner = 1 - draw_corner;
 		break; 
-	case Qt::Key_M: {
+	case Qt::Key_F2: 
+		if (layer != ABS_LAYER) {
 			QScopedPointer<MapXY> mxy(get_mapxy(layer));
 			int merge = mxy->get_merge_method();
 			mxy->set_merge_method(!merge);
 			ri.set_mapxy(layer, mxy.data());
 		}
 		break;
-	case Qt::Key_N: {
-			Point loc(-1,-1);
+	case Qt::Key_F3: 
+		if (layer != ABS_LAYER) {			
+			Point loc(-1, -1);
 			if (mouse_state == ChangeNail) {
 				vector<Nail> ns;
 				get_one_layer_nails(lf[layer], ns);
@@ -544,8 +586,23 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			if (loc.x > 0)
 				goto_xy(loc.x, loc.y);
 		}
+		else {
+			Point loc(-1, -1);
+			if (mouse_state == ChangeNail) {
+				vector<Nail> ns;
+				get_absolute_nails(ns);
+				if (ns.size() > 0) {
+					lf[0]->find_next[0] = lf[0]->find_next[0] % ns.size();
+					loc = ns[lf[0]->find_next[0]].p1;
+					lf[0]->find_next[0]++;
+				}
+			}
+			if (loc.x > 0)
+				goto_xy(loc.x, loc.y);
+		}		
 		break;
-	case Qt::Key_E:	{
+	case Qt::Key_F4:	
+		if (layer != ABS_LAYER) {
 			//found edge which shift is bigger than rescale
 			Point loc(-1, -1);
 			if (lf[layer]->unsure_edge.size() > 0) {
@@ -558,6 +615,10 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				goto_xy(loc.x, loc.y);
 		}
 		break;
+	case Qt::Key_F5:
+		draw_grid = !draw_grid;
+		break;
+
 	case Qt::Key_Delete:
 	case Qt::Key_Escape: {
 			switch (mouse_state) {
@@ -606,7 +667,7 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 	mouse_point = mouse_point * scale + view_rect.topLeft();
 	Point src_point = ri.dst2src(layer, TOPOINT(mouse_point));
 
-	if (may_choose != prev_may_choose && lf[layer]->feature.is_valid()) {
+	if (layer != ABS_LAYER && may_choose != prev_may_choose && lf[layer]->feature.is_valid()) {
 		const EdgeDiff * ed = lf[layer]->feature.get_edge(may_choose.y(), may_choose.x(), prev_may_choose.y(), prev_may_choose.x());
 		if (ed) {
 			Point o0(lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[1],
@@ -638,10 +699,19 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 	switch (mouse_state) {
 	case ChangeNail:
 	{
-		cur_nail = search_nail(lf[layer], ri.dst2src(layer, TOPOINT(mouse_point)), 25);
+		if (layer == ABS_LAYER) {
+			cur_nail = Nail();
+			vector<Nail> ns;
+			get_absolute_nails(ns);
+			for (int i = 0; i < (int)ns.size(); i++) {
+				if (abs(ns[i].p1.x - mouse_point.x()) < 25 && abs(ns[i].p1.y - mouse_point.y()) < 25)
+					cur_nail = ns[i];
+			}
+		} else
+			cur_nail = search_nail(lf[layer], ri.dst2src(layer, TOPOINT(mouse_point)), 25);
 		if (cur_nail.lf0 != NULL) {
 			del_nail(cur_nail);
-			if (cur_nail.lf1 != lf[layer])
+			if (layer != ABS_LAYER && cur_nail.lf1 != lf[layer])
 				cur_nail.swap_order();
 			cur_nail.lf1 = NULL;
 			mouse_state = PutSecondNail;
@@ -651,6 +721,10 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 	}
 	case PutFirstNail: 
 	{
+		if (layer == ABS_LAYER) {
+			QMessageBox::information(this, "Info", "click actual layer first");
+			return;
+		}			
 		cur_nail.lf0 = lf[layer];
 		cur_nail.p0 = ri.dst2src(layer, TOPOINT(mouse_point));
 		mouse_state = PutSecondNail;
@@ -658,7 +732,12 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 	}
 	case PutSecondNail: 
 	{
-		cur_nail.lf1 = lf[layer];
+		if (layer == ABS_LAYER) 
+			cur_nail.lf1 = cur_nail.lf0;
+		else
+			cur_nail.lf1 = lf[layer];
+		if (cur_nail.lf0 == cur_nail.lf1)
+			layer = ABS_LAYER;
 		cur_nail.p1 = ri.dst2src(layer, TOPOINT(mouse_point));
 		add_nail(cur_nail);
 		cur_nail = Nail();
@@ -667,7 +746,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 		break;
 	}
 	case IDLE: 
-	{
+	if (layer != ABS_LAYER) {
 		Point src_point = ri.dst2src(layer, TOPOINT(mouse_point));
 		if (QApplication::keyboardModifiers() == Qt::ShiftModifier) {
 			int y = may_choose.y(), x = may_choose.x();
@@ -884,58 +963,68 @@ void StitchView::timerEvent(QTimerEvent *e)
 
 void StitchView::update_nview()
 {
-	nview->set_boundary(lf[layer]->cpara.right_bound(), lf[layer]->cpara.bottom_bound());
-	vector<Nail> ns;
-	get_one_layer_nails(lf[layer], ns);
 	vector<Point> nsp;
 	vector<int> ns_state;
-	for (int i = 0; i < (int)ns.size(); i++) {
-		nsp.push_back(ri.src2dst(layer, ns[i].p0));
-		if (layer > 0 && lf[layer - 1] == ns[i].lf1)
-			ns_state.push_back(1);
-		else
+	vector<Nail> ns;
+	if (layer == ABS_LAYER) {
+		get_absolute_nails(ns);
+		for (int i = 0; i < (int)ns.size(); i++) {
+			nsp.push_back(ns[i].p1);
 			ns_state.push_back(0);
+		}
+	}
+	else {
+		nview->set_boundary(lf[layer]->cpara.right_bound(), lf[layer]->cpara.bottom_bound());
+		get_one_layer_nails(lf[layer], ns);
+		for (int i = 0; i < (int)ns.size(); i++) {
+			nsp.push_back(ri.src2dst(layer, ns[i].p0));
+			if (layer > 0 && lf[layer - 1] == ns[i].lf1 || ns[i].lf0 == ns[i].lf1)
+				ns_state.push_back(1);
+			else
+				ns_state.push_back(0);
+		}
 	}
 	nview->set_nails(nsp, ns_state);
 	nview->set_viewrect(view_rect);	
 }
 
 /*
-method = 0, means convert nsrc to nabs
-method = 1, means convert nabs to nsrc
+method = 0, means convert nsrc to nimg
+method = 1, means convert nimg to nsrc
 nabs is  31..16   15..0
         img_idx point_offset
 */
-void StitchView::convert_nails(vector<Nail> & nsrc, vector<Nail> & nabs, int method)
+void StitchView::convert_nails(vector<Nail> & nsrc, vector<Nail> & nimg, int method)
 {
 	if (method == 0) {
-		nabs = nsrc;
+        nimg = nsrc;
 		for (int i = 0; i < (int)nsrc.size(); i++) {
-			int l0 = which_layer(nabs[i].lf0);
-			Point idx0 = find_src_map(nabs[i].lf0->cpara, nabs[i].p0, ri.get_src_img_size(l0), 0);
+            int l0 = which_layer(nimg[i].lf0);
+            Point idx0 = find_src_map(nimg[i].lf0->cpara, nimg[i].p0, ri.get_src_img_size(l0), 0);
 			if (idx0.x >= 32768 || idx0.y >= 32768 || idx0.x < 0 || idx0.y < 0)
-				nabs[i].p0 = -nabs[i].p0;
+                nimg[i].p0 = -nimg[i].p0;
 			else {
-				Point offset0(nabs[i].lf0->cpara.offset(idx0.y, idx0.x)[1], nabs[i].lf0->cpara.offset(idx0.y, idx0.x)[0]);
-				offset0 = nabs[i].p0 - offset0;
+                Point offset0(nimg[i].lf0->cpara.offset(idx0.y, idx0.x)[1], nimg[i].lf0->cpara.offset(idx0.y, idx0.x)[0]);
+                offset0 = nimg[i].p0 - offset0;
 				CV_Assert(offset0.x >= 0 && offset0.y >= 0);
-				nabs[i].p0 = idx0 * 65536 + offset0;
+                nimg[i].p0 = idx0 * 65536 + offset0;
 			}
-
-			int l1 = which_layer(nabs[i].lf1);
-			Point idx1 = find_src_map(nabs[i].lf1->cpara, nabs[i].p1, ri.get_src_img_size(l1), 0);
+			if (nimg[i].lf0 == nimg[i].lf1) //absolute nail, not modify p1
+				continue;
+            int l1 = which_layer(nimg[i].lf1);
+            Point idx1 = find_src_map(nimg[i].lf1->cpara, nimg[i].p1, ri.get_src_img_size(l1), 0);
 			if (idx1.x >= 32768 || idx1.y >= 32768 || idx1.x < 0 || idx1.y < 0)
-				nabs[i].p1 = -nabs[i].p1;
+                nimg[i].p1 = -nimg[i].p1;
 			else {
-				Point offset1(nabs[i].lf1->cpara.offset(idx1.y, idx1.x)[1], nabs[i].lf1->cpara.offset(idx1.y, idx1.x)[0]);
-				offset1 = nabs[i].p1 - offset1;
+                Point offset1(nimg[i].lf1->cpara.offset(idx1.y, idx1.x)[1], nimg[i].lf1->cpara.offset(idx1.y, idx1.x)[0]);
+                offset1 = nimg[i].p1 - offset1;
 				CV_Assert(offset1.x >= 0 && offset1.y >= 0);
-				nabs[i].p1 = idx1 * 65536 + offset1;
+                nimg[i].p1 = idx1 * 65536 + offset1;
 			}
 		}
 	}
 	else {
-		nsrc = nabs;
+        nsrc = nimg;
 		for (int i = 0; i < (int)nsrc.size(); i++) {
 			if (nsrc[i].p0.x < 0 || nsrc[i].p0.y < 0)
 				nsrc[i].p0 = -nsrc[i].p0;
@@ -945,7 +1034,8 @@ void StitchView::convert_nails(vector<Nail> & nsrc, vector<Nail> & nabs, int met
 				nsrc[i].p0 = Point(nsrc[i].lf0->cpara.offset(idx0.y, idx0.x)[1], nsrc[i].lf0->cpara.offset(idx0.y, idx0.x)[0]);
 				nsrc[i].p0 += offset0;
 			}
-
+			if (nsrc[i].lf0 == nsrc[i].lf1) //absolute nail, not modify p1
+				continue;
 			if (nsrc[i].p1.x < 0 || nsrc[i].p1.y < 0)
 				nsrc[i].p1 = -nsrc[i].p1;
 			else {
@@ -971,12 +1061,6 @@ void StitchView::update_center(QPoint center)
 
 bool StitchView::add_nail(Nail nail)
 {
-	for (int i = 0; i < (int)nails.size(); i++) {
-		if (nails[i].within_range(nail, 1024)) {
-			QMessageBox::information(this, "Add nail fail", "Nail add fail because of too near with other nail");
-			return false;
-		}
-	}
 	nails.push_back(nail);
 	vector<double> slope =generate_mapxy();
 	char a[300];
@@ -994,6 +1078,14 @@ void StitchView::del_nail(Nail nail)
 		nails.erase(nails.begin() + i);
 		return;
 	}
+}
+
+void StitchView::get_absolute_nails(vector<Nail> &ns)
+{
+	ns.clear();
+	for (int i = 0; i < (int)nails.size(); i++) 
+	if (nails[i].lf0 == nails[i].lf1)
+		ns.push_back(nails[i]);
 }
 
 void StitchView::get_one_layer_nails(LayerFeature * lf, vector<Nail> &ns)
@@ -1208,6 +1300,8 @@ void StitchView::set_mapxy_dstw(int _layer, const MapXY * _mapxy, int _dst_w)
 {
 	if (_layer == -1)
 		_layer = layer;
+	if (_layer >= lf.size() || _layer < 0)
+		return;
 	ri.set_mapxy(_layer, _mapxy);
 	ri.set_dst_wide(_dst_w);
 	generate_mapxy();
@@ -1219,6 +1313,8 @@ MapXY * StitchView::get_mapxy(int _layer)
 {
 	if (_layer == -1)
 		_layer = layer;
+	if (_layer >= lf.size() || _layer < 0)
+		return NULL;
 	qInfo("get_mapxy, l=%d", _layer);
 	return ri.get_mapxy(_layer);
 }
@@ -1521,13 +1617,20 @@ int StitchView::layer_down(int _layer)
 void StitchView::update_title()
 {
 	char title[100];
-	string m = ri.mapxy_merge_method(layer) ? "Merge" : "";
-	sprintf(title, "%d:%s s=%d %s", layer, lf[layer]->layer_name.c_str(), lf[layer]->cpara.rescale, m.c_str());
+	
+	if (layer == ABS_LAYER)
+		sprintf(title, "%d:%s s=%d", 0, "ABS", 1);
+	else {
+		string m = ri.mapxy_merge_method(layer) ? "Merge" : "";
+		sprintf(title, "%d:%s s=%d %s", layer + 1, lf[layer]->layer_name.c_str(), lf[layer]->cpara.rescale, m.c_str());
+	}
 	emit title_change(QString::fromLocal8Bit(title));
 }
 
 QPoint StitchView::point2choose(QPoint mouse_point)
 {
+	if (layer == ABS_LAYER)
+		return QPoint(10000, 10000);
 	mouse_point = mouse_point * scale + view_rect.topLeft();
 	Point src_point = ri.dst2src(layer, TOPOINT(mouse_point));
 	return TOQPOINT(find_src_map(lf[layer]->cpara, src_point, ri.get_src_img_size(layer), 0));

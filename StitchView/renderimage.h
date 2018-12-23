@@ -8,6 +8,8 @@
 #include <list>
 #include <QMutexLocker>
 
+#define ABS_LAYER 255
+
 enum {
 	MERGE_BY_DRAW_ORDER,
 	MERGE_MULTI_SRC
@@ -517,12 +519,16 @@ public:
 		postmap_cache.clear(layer);
 	}
 	Point2d src2dst(int layer, Point src) const {
+		if (layer == ABS_LAYER)
+			return src;
 		if (layer >= cpara.size() || layer < 0)
 			return Point2d(0, 0);
 		return mapxy[layer]->src2dst(src);
 	}
 
 	Point2d dst2src(int layer, Point dst) const {
+		if (layer == ABS_LAYER)
+			return dst;
 		if (layer >= cpara.size() || layer < 0)
 			return Point2d(0, 0);
 		return mapxy[layer]->dst2src(dst);
