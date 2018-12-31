@@ -155,6 +155,8 @@ void detect_black_img(ImageData & img_d, const ParamItem & param)
 		img_d.is_black_img = true;
 		qInfo("detect_black_img %s", img_d.filename.c_str());
 	}
+	else
+		img_d.is_black_img = false;
 }
 /*     31..24  23..16   15..8   7..0
 opt0:							layer

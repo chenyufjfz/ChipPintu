@@ -108,7 +108,8 @@ struct BundleShape {
 //#define MERGE_ALL_SUM_TH 25
 #define MERGE_ALL_GRID0 10
 #define MERGE_ALL_GRID1 15
-#define PARALLEL 0
+#define MERGE_ALL_GRID2 22
+#define PARALLEL 1
 #define VALID_COST_DIFF 50
 
 struct MergeSquarePara {
@@ -454,7 +455,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 						bind_mask |= BIND_Y_MASK;
 				}
 			}
-			corner_info(y, x) = (res_sft.x & 0xffff) | res_sft.y << 16;
+			corner_info(y, x) = (res_sft.x & 0xffff) | (res_sft.y & 0xffff) << 16;
 			if (bind_mask & BIND_X_MASK)
 				corner_info(y, x) = res_sft.y << 16;
 			if (bind_mask & BIND_Y_MASK)
@@ -488,6 +489,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 				CV_Assert(pe != NULL);
 				if (pe->diff->img_num == 0) {
 					pc1->bd = 0;
+					corner_info(CORNER_Y(pc1->idx), CORNER_X(pc1->idx)) = 0;
 					pc1->res_sft[0] = 0;
 					pc1->res_sft[1] = 0;
 					bd_update.push(pc1);
@@ -510,8 +512,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 			if (get_4corner(img0)->bd == 0 || get_4corner(img1)->bd == 0)
 				weak = true; //it is border
 		}
-		if (eds[i][j].diff->img_num)
-			compute_edge_cost(&eds[i][j], avg[i], weak);
+		compute_edge_cost(&eds[i][j], avg[i], weak);
 	}
 
 	//3 init best offset
@@ -875,6 +876,8 @@ void BundleAdjust2::check_relax(const Rect & rect, vector<SourceInfo> & source, 
 			CV_Assert(pc1 != NULL && pe != NULL);
 			if (!rect.contains(Point(CORNER_X(pc1->idx), CORNER_Y(pc1->idx)))) //pc1 not in range
 				continue;
+			if (pe->diff->img_num == 0)
+				continue;
 			Point cur_edge_point = pe->get_current_point(scale);
 			float cur_edge_cost = pe->get_point_cost(cur_edge_point, scale);
 			int sign = dir < 2 ? -1 : 1;
@@ -902,7 +905,7 @@ void BundleAdjust2::check_relax(const Rect & rect, vector<SourceInfo> & source, 
 					}
 				}
 				else
-				if (pc1->cs[i][j].fa != pc->idx && pc1->cs[i][j].fa != 0xffffffff)
+				if (pc1->cs[i][j].fa != pc->idx && pc1->cs[i][j].fa != 0xffffffff && pc1->bd!=0)
 					CV_Assert(pc->cs[i][j].cost <= pc1->cs[i][j].cost + delta_cost + 0.001); //pc.cost[i][j]<=pc1.cost[i][j]+delta_cost
 				if (pc->cs[i][j].fa == pc->idx)
 					CV_Assert(source[i].idx == pc->idx);
@@ -1735,8 +1738,8 @@ prev_src_bd = src_bd;
 
 void BundleAdjust2::merge_all()
 {
-	int unit[2] = { MERGE_ALL_GRID0, MERGE_ALL_GRID1 };
-	for (int i = 0; i < 2; i++) {
+	int unit[] = { MERGE_ALL_GRID0, MERGE_ALL_GRID1, MERGE_ALL_GRID2 };
+	for (int i = 0; i < sizeof(unit) / sizeof(unit[0]); i++) {
 		vector<int> gy, gx;
 		vector<MergeSquarePara> ms;
 		qInfo("merge_all unit%d=%d", i, unit[i]);
@@ -1823,7 +1826,7 @@ void BundleAdjust2::optimize_corner(int max_shift_x, int max_shift_y)
 			dest.push_back(SourceInfo(pc->idx, SGN(pc->res_sft[1]), 1, abs(pc->res_sft[1])));
 		}
 	}
-	qInfo("optimize_corner shift_x=%d, shifty=%d, dest_num=%d", max_shift_x, max_shift_y, dest.size());
+	qInfo("optimize_corner max_shift_x=%d, max_shifty=%d, dest_num=%d", max_shift_x, max_shift_y, dest.size());
 
 	//1 init Source Info and dest
 	source.push_back(SourceInfo(0, -1, 0, max_shift_y));

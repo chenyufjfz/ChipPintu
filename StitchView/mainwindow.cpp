@@ -17,11 +17,17 @@ MainWindow::MainWindow(QWidget *parent) :
 
     stitch_view = new StitchView();	
 	nview = new NavigateView();
+	ce_dlg = new CornerEdge();
 	stitch_view->set_nview(nview);
-
+	stitch_view->set_ceview(ce_dlg);
 	QSplitter *splitter = new QSplitter(Qt::Horizontal);
+	QSplitter *vsplitter = new QSplitter(Qt::Vertical);
+	vsplitter->addWidget(nview);
+	vsplitter->addWidget(ce_dlg);
+	vsplitter->setStretchFactor(0, 1);
+	vsplitter->setStretchFactor(1, 3);
 	setCentralWidget(splitter);
-	splitter->addWidget(nview);
+	splitter->addWidget(vsplitter);
 	splitter->addWidget(stitch_view);
 	splitter->setStretchFactor(0, 1);
 	splitter->setStretchFactor(1, 4);

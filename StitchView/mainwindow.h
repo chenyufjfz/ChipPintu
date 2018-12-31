@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include "stitchview.h"
 #include "navigateview.h"
+#include "corneredge.h"
 #include <QLabel>
 #include <QProgressBar>
 
@@ -69,6 +70,7 @@ private:
 	QProgressBar * pProgressBar;
     StitchView * stitch_view;
 	NavigateView * nview;
+	CornerEdge * ce_dlg;
 };
 
 #endif // MAINWINDOW_H

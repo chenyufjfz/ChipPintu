@@ -154,14 +154,18 @@ public:
 };
 
 //e=0 means up-down image edge
-#define MAKE_EDGE_IDX(x, y, e) ((e) << 31 | (y) << 16 | (x))
+#define MAKE_EDGE_IDX(x, y, e) ((unsigned) ((e) << 31 | (y) << 16 | (x)))
 #define EDGE_Y(idx) ((idx) >> 16 & 0x7fff)
 #define EDGE_X(idx) ((idx) & 0x7fff)
 #define EDGE_E(idx) ((idx) >> 31 & 1)
 
-#define MAKE_IMG_IDX(x, y) ((y) << 16 | (x))
+#define MAKE_IMG_IDX(x, y) ((unsigned) ((y) << 16 | (x)))
 #define IMG_Y(idx) ((idx) >> 16 & 0x7fff)
 #define IMG_X(idx) ((idx) & 0x7fff)
+
+#define MAKE_CORNER_IDX(x, y) ((unsigned)((y) << 16 | (x)))
+#define CORNER_Y(idx) ((idx) >> 16 & 0x7fff)
+#define CORNER_X(idx) ((idx) & 0x7fff)
 
 class EdgeDiff {
 public:

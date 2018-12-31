@@ -6,9 +6,6 @@
 #include <deque>
 #include <map>
 
-#define MAKE_CORNER_IDX(x, y) ((y) << 16 | (x))
-#define CORNER_Y(idx) ((idx) >> 16 & 0x7fff)
-#define CORNER_X(idx) ((idx) & 0x7fff)
 #define COST_BIND			10000000
 #define COST_BIGER_THAN_AVG 50000
 #define COST_BOUNDARY		(2 * COST_BIGER_THAN_AVG)

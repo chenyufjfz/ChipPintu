@@ -20,23 +20,23 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
     if (context.function==NULL) {
         switch (type) {
         case QtDebugMsg:
-            fprintf(fp, "<D>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
+            fprintf(fp, "<D>[%s] [%x] %s\n", qPrintable(str_dt), (int) id, qPrintable(msg));
 			fflush(fp);
             break;
         case QtInfoMsg:
-            fprintf(fp, "<I>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
+            fprintf(fp, "<I>[%s] [%x] %s\n", qPrintable(str_dt), (int) id, qPrintable(msg));
 			fflush(fp);
             break;
         case QtWarningMsg:
-            fprintf(fp, "<W>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
+            fprintf(fp, "<W>[%s] [%x] %s\n", qPrintable(str_dt), (int) id, qPrintable(msg));
 			fflush(fp);
             break;
         case QtCriticalMsg:
-            fprintf(fp, "<E>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
+            fprintf(fp, "<E>[%s] [%x] %s\n", qPrintable(str_dt), (int) id, qPrintable(msg));
             fflush(fp);
             break;
         case QtFatalMsg:
-            fprintf(fp, "<F>[%s] [%p] %s\n", qPrintable(str_dt), id, qPrintable(msg));
+            fprintf(fp, "<F>[%s] [%x] %s\n", qPrintable(str_dt), (int) id, qPrintable(msg));
             fclose(fp);
             exit(-1);
         }

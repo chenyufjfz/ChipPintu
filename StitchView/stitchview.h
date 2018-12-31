@@ -15,6 +15,8 @@
 #include "bundleadjustinf.h"
 #include "renderimage.h"
 #include "navigateview.h"
+struct LayerFeature;
+#include "corneredge.h"
 
 using namespace std;
 using namespace cv;
@@ -45,7 +47,7 @@ struct LayerFeature {
 	FeatExt feature;
 	string feature_file; //feature file name in disk
     string layer_name;
-	Mat_<Vec2i> corner_info;
+	Mat_<Vec2i> corner_info; //y_bias is in vec0 31..16, x_bias is in vec0 15..0
 	Mat_<int> fix_edge[2];
 	vector<Point> unsure_corner;
 	vector<Point> unsure_edge;
@@ -274,6 +276,8 @@ signals:
 
 public slots:
 	void update_center(QPoint center);
+	void goto_corner(unsigned corner_idx);
+	void goto_edge(unsigned edge_idx);
 
 protected:
     void paintEvent(QPaintEvent *e);
@@ -335,6 +339,7 @@ protected:
 
 	//following is for navigate view
 	NavigateView * nview;
+	CornerEdge * ceview;
 	//Upper is for navigate view
 
 	//following is for draw mouse
@@ -371,7 +376,8 @@ public:
 	int set_current_layer(int _layer);
 	string get_layer_name(int _layer);
 	void set_layer_name(int _layer, string name);
-	void set_nview(NavigateView * nview);
+	void set_nview(NavigateView * _nview);
+	void set_ceview(CornerEdge * _ceview);
 	void to_state_add_nail();
 	void to_state_change_nail();
 	int output_layer(int _layer, string pathname);

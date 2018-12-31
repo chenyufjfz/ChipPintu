@@ -1475,6 +1475,7 @@ protected:
 	return true if all line are drawed
 	*/
 	bool draw_sub_branch(vector<pair<Point, int> > lines, vector<int> & link_bch) {
+		CV_Assert(lines.size() > 1);
 		Point p0 = lines.front().first; //start cross point
 		Point p1;
 		int branch = MARK2_BRANCH(mark2.at<int>(p0.y, p0.x));
@@ -1490,9 +1491,16 @@ protected:
 				sb.push_back(p0);
 			}
 		}
-		CV_Assert(p0 != lines.back().first);
-		p0 = lines.back().first;
-		sb.push_back(p0);
+		//warning: why it happen? CV_Assert(p0 != lines.back().first);
+		if (p0 != lines.back().first) { //TODO, change it to Assert
+			p0 = lines.back().first;
+			sb.push_back(p0);
+		}
+		else {
+			for (int i = 0; i < (int)lines.size(); i++)
+				qInfo("line[%d] = (x=%d,y=%d), dir=%d", i, lines[i].first.x, lines[i].first.y, lines[i].second);
+			qCritical("draw_sub_branch Error");
+		}
 
 		for (int i = 0; i < (int)sb.size() - 1; i++)
 			draw_mark2_line(sb[i], sb[i + 1], branch, link_bch, false);
@@ -7469,6 +7477,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 	for (int area_idx = 0; area_idx < area_.size(); area_idx++) {
 		//extend area to sr, this is because extract can't process edge grid
 		QRect sr = area_[area_idx].rect.marginsAdded(QMargins(BORDER_SIZE, BORDER_SIZE, BORDER_SIZE, BORDER_SIZE));
+		sr = sr.intersected(QRect(1, 1, 0x7fffffff, 0x7fffffff));
 		parallel_search = area_[area_idx].option & OPT_PARALLEL_SEARCH;
 		sr &= QRect(0, 0, block_x << 15, block_y << 15);
 		if (sr.width() <= 0x8000 || sr.height() <= 0x8000) {

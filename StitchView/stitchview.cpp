@@ -378,6 +378,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 {
 	if (lf.empty())
 		return;
+	int prev_layer = layer;
 	QPoint may_choose = point2choose(cur_mouse_point);
 	int step;
 	switch (e->key()) {
@@ -637,6 +638,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		QWidget::keyPressEvent(e);
 		return;
 	}
+	if (prev_layer != layer && layer != ABS_LAYER)
+		ceview->set_layer_info(lf[layer]);
 	update_title();
 	qDebug("Key=%d press, l=%d, s=%d, center=(%d,%d)", e->key(), layer, scale, center.x(), center.y());
 	update();
@@ -689,6 +692,7 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 
 void StitchView::mousePressEvent(QMouseEvent *event)
 {
+	setFocus();
 	if (lf.empty())
 		return;
 	QPoint mouse_point(event->localPos().x(), event->localPos().y());
@@ -1059,6 +1063,44 @@ void StitchView::update_center(QPoint center)
 	nview->set_viewrect(view_rect);
 }
 
+void StitchView::goto_corner(unsigned corner_idx)
+{
+	int y = CORNER_Y(corner_idx);
+	int x = CORNER_X(corner_idx);
+	Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
+	Point loc = ri.src2dst(layer, src_corner);
+	goto_xy(loc.x, loc.y);
+	update_nview();
+}
+
+void StitchView::goto_edge(unsigned edge_idx)
+{
+	int y = EDGE_Y(edge_idx);
+	int x = EDGE_X(edge_idx);
+	if (EDGE_E(edge_idx))
+		x++;
+	else
+		y++;
+	Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
+	Point src_corner1, src_corner2;
+	if (y + 1 < lf[layer]->cpara.offset.rows)
+		src_corner1 = Point(lf[layer]->cpara.offset(y + 1, x)[1], lf[layer]->cpara.offset(y + 1, x)[0]);
+	else {
+		src_corner1 = Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]);
+		src_corner1 = 2 * src_corner - src_corner1;
+	}
+	if (x + 1 < lf[layer]->cpara.offset.cols)
+		src_corner2 = Point(lf[layer]->cpara.offset(y, x + 1)[1], lf[layer]->cpara.offset(y, x + 1)[0]);
+	else {
+		src_corner2 = Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
+		src_corner2 = 2 * src_corner - src_corner2;
+	}
+	Point src_edge_center[2] = { src_corner + src_corner2, src_corner + src_corner1 };
+	int e = EDGE_E(edge_idx);
+	goto_xy(src_edge_center[e].x / 2, src_edge_center[e].y / 2);
+	update_nview();
+}
+
 bool StitchView::add_nail(Nail nail)
 {
 	nails.push_back(nail);
@@ -1185,8 +1227,8 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 	if (_layer > lf.size() || _layer < 0)
 		return -1;
 	if (lf.empty()) {
-		int loc = _cpara.img_path.find_last_of("\\/");
-		int loc2 = _cpara.img_path.find_last_of("\\/", loc - 1);
+		int loc = (int) _cpara.img_path.find_last_of("\\/");
+		int loc2 = (int) _cpara.img_path.find_last_of("\\/", loc - 1);
 		project_path = _cpara.img_path.substr(0, loc2);
 		QFile file(QString::fromStdString(project_path));
 		if (!file.exists()) {
@@ -1413,6 +1455,8 @@ int StitchView::optimize_offset(int _layer, bool weak_border)
 		generate_mapxy();
 	}
 	ri.invalidate_cache(_layer);
+	if (_layer == layer)
+		ceview->set_layer_info(lf[layer]);
 	update();
 	return 0;
 }
@@ -1470,6 +1514,12 @@ void StitchView::set_layer_name(int _layer, string name) {
 void StitchView::set_nview(NavigateView * _nview) {
 	nview = _nview;
 	connect(nview, SIGNAL(update_center(QPoint)), this, SLOT(update_center(QPoint)));
+}
+
+void StitchView::set_ceview(CornerEdge * _ceview) {
+	ceview = _ceview;
+	connect(ceview, SIGNAL(goto_corner(unsigned)), this, SLOT(goto_corner(unsigned)));
+	connect(ceview, SIGNAL(goto_edge(unsigned)), this, SLOT(goto_edge(unsigned)));
 }
 
 void StitchView::to_state_add_nail() {
@@ -1638,7 +1688,7 @@ QPoint StitchView::point2choose(QPoint mouse_point)
 
 void StitchView::write_file(string file_name)
 {	
-	int loc = file_name.find_last_of("\\/");
+	int loc = (int) file_name.find_last_of("\\/");
 	string path = file_name.substr(0, loc);
 	QFile file(QString::fromStdString(path));
 	if (!file.exists()) {
@@ -1704,8 +1754,8 @@ int StitchView::read_file(string file_name)
 	qInfo("read_file name=%s", file_name.c_str());
 	FileStorage fs(file_name, FileStorage::READ);
 	if (fs.isOpened()) {
-		int loc = file_name.find_last_of("\\/");
-		int loc2 = file_name.find_last_of("\\/", loc - 1);
+		int loc = (int) file_name.find_last_of("\\/");
+		int loc2 = (int) file_name.find_last_of("\\/", loc - 1);
 		project_path = file_name.substr(0, loc2);
 		int layer_num;
 		for (int i = 0; i < lf.size(); i++)
@@ -1718,11 +1768,11 @@ int StitchView::read_file(string file_name)
 			sprintf(name, "cpara%d", i);
 			fs[name] >> lf[i]->cpara;
 			if (!lf[i]->cpara.img_path.empty()) {
-				int loc = lf[i]->cpara.img_path.find_last_of("\\/");
+				int loc = (int) lf[i]->cpara.img_path.find_last_of("\\/");
 				string path = lf[i]->cpara.img_path.substr(0, loc);
 				QFile file(QString::fromStdString(path));
 				if (!file.exists()) { //may change path
-					int loc2 = lf[i]->cpara.img_path.find_last_of("\\/", loc - 1);
+					int loc2 = (int) lf[i]->cpara.img_path.find_last_of("\\/", loc - 1);
 					string another_path = project_path + lf[i]->cpara.img_path.substr(loc2, loc - loc2);
 					QFile file1(QString::fromStdString(another_path));
 					if (!file1.exists()) {
@@ -1743,8 +1793,8 @@ int StitchView::read_file(string file_name)
 			if (!lf[i]->feature_file.empty()) {
 				QFile file(QString::fromStdString(lf[i]->feature_file));
 				if (!file.exists()) { //may change path
-					int loc = lf[i]->feature_file.find_last_of("\\/"); //try project path
-					int loc2 = lf[i]->feature_file.find_last_of("\\/", loc - 1);
+					int loc = (int) lf[i]->feature_file.find_last_of("\\/"); //try project path
+					int loc2 = (int) lf[i]->feature_file.find_last_of("\\/", loc - 1);
 					string another_path = project_path + lf[i]->feature_file.substr(loc2);
 					QFile file1(QString::fromStdString(another_path));
 					if (!file1.exists()) {
@@ -1833,7 +1883,12 @@ int StitchView::read_file(string file_name)
 		feature_layer = -1;
 		update();
 		update_title();
+		QPoint ce(size().width()*scale / 2, size().height()*scale / 2);
+		QSize s(size().width()*scale, size().height()*scale);
+		view_rect = QRect(center - ce, s);
 		update_nview();
+		if (layer != ABS_LAYER)
+			ceview->set_layer_info(lf[layer]);
 		return 0;
 	}
 	return -1;

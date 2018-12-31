@@ -67,27 +67,27 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 		unsigned thread_id = quintptr(QThread::currentThreadId());
 		switch (type) {
 		case QtDebugMsg:
-			fprintf(fp, "<D>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fprintf(fp, "<D>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
 #if QMSG_FLUSH
 			fflush(fp);
 #endif
 			break;
 		case QtInfoMsg:
-			fprintf(fp, "<I>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fprintf(fp, "<I>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
 #if QMSG_FLUSH
 			fflush(fp);
 #endif
 			break;
 		case QtWarningMsg:
-			fprintf(fp, "<W>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fprintf(fp, "<W>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
 			fflush(fp);
 			break;
 		case QtCriticalMsg:
-			fprintf(fp, "<E>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fprintf(fp, "<E>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
 			fflush(fp);
 			break;
 		case QtFatalMsg:
-			fprintf(fp, "<F>[%s] [%d] %s\n", qPrintable(str_dt), thread_id, qPrintable(msg));
+			fprintf(fp, "<F>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
 			fclose(fp);
 			exit(-1);
 		}
@@ -541,7 +541,7 @@ int test_extractparam2()
 	vector<string> action;
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A12/chip.prj", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A22180604/chip.prj", 0);
 	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A1002/chip_enc.prj", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
@@ -601,7 +601,7 @@ int test_extractparam2()
 			params[l].pi[5], params[l].pi[6], params[l].pi[7], params[l].pi[8], params[l].pf);
 	}
 	//search.push_back(SearchArea(QRect(QPoint(100000, 100000), QPoint(224000, 672000)), 0));
-	search.push_back(SearchArea(QRect(QPoint(1063904, 276096), QPoint(1171936, 365440)), 0));
+	search.push_back(SearchArea(QRect(QPoint(-78072, 14914), QPoint(100000, 100000)), 0));
 	//search.push_back(SearchArea(QRect(QPoint(8000*32, 13000*32), QPoint(11000 *32, 15000*32)), 0));
 	//search.push_back(SearchArea(QRect(QPoint(106496, 786528), QPoint(200302, 905000)), 0));
 	//search.push_back(SearchArea(QRect(QPoint(106496, 720992), QPoint(674304, 1181792)), 0));
