@@ -630,7 +630,7 @@
     <update_fv>1</update_fv>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <th0>26</th0>
+    <th0>27</th0>
     <pattern0>254</pattern0>
     <subtype1>0</subtype1>
     <type1>0</type1>
@@ -1371,7 +1371,7 @@
     <arfactor>50</arfactor>
     <pair_d>0</pair_d>
     <connect_rd>7</connect_rd>
-    <cgray_d>3</cgray_d>
+    <cgray_d>70</cgray_d>
     <cgray_ratio>70</cgray_ratio>
     <connect_d>12</connect_d>
     <rd0>6</rd0>
@@ -1383,7 +1383,7 @@
     <gray2>1</gray2>
     <gray3>0</gray3>
     <swide_min>5</swide_min>
-    <grad>20</grad></_>
+    <grad>30</grad></_>
   <_>
     <name>ViaInfo_2</name>
     <debug_opt>192</debug_opt>

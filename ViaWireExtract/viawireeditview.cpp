@@ -630,12 +630,13 @@ void ViaWireEditView::mouseReleaseEvent(QMouseEvent *event)
 
 void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 {	
+	QPoint move_pos(event->pos() - QPoint(scale / 2, scale / 2));
     if (mouse_press) {
 		if (mark_state == SELECT_OBJ) {
 			if (current_obj.state == 1 || current_obj.state == 3)
-                current_obj.p0 = obj_set[select_idx].p0 + event->pos() / scale - mp_point;
+				current_obj.p0 = obj_set[select_idx].p0 + move_pos / scale - mp_point;
 			if (current_obj.state == 2 || current_obj.state == 3)
-                current_obj.p1 = obj_set[select_idx].p1 + event->pos() / scale - mp_point;
+				current_obj.p1 = obj_set[select_idx].p1 + move_pos / scale - mp_point;
 			if (current_obj.type == OBJ_LINE) {
 				if (current_obj.state == 1)
 					adjust_wire_point(current_obj.p1, current_obj.p0);
@@ -643,7 +644,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 					adjust_wire_point(current_obj.p0, current_obj.p1);
 			}
 			if (current_obj.type == OBJ_AREA) {
-                QPoint offset = event->pos() / scale - mp_point;
+				QPoint offset = move_pos / scale - mp_point;
 				if (current_obj.state == 5) {
 					current_obj.p0.setY(obj_set[select_idx].p0.y() + offset.y());
 					current_obj.p1.setX(obj_set[select_idx].p1.x() + offset.x());
@@ -655,7 +656,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			}
 		}
 		else {
-            current_obj.p1 = event->pos() / scale;
+			current_obj.p1 = move_pos / scale;
 			if (mark_state == OBJ_LINE)
 				adjust_wire_point(current_obj.p0, current_obj.p1);
 			if (mark_state == OBJ_POINT)
@@ -671,7 +672,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 				double dis;
                 obj_set[i].state = 0;
 				if (obj_set[i].type == OBJ_LINE || obj_set[i].type == OBJ_POINT) {
-                    dis = distance_p2l(obj_set[i].p0, obj_set[i].p1, event->pos() / scale, wp);
+					dis = distance_p2l(obj_set[i].p0, obj_set[i].p1, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
 						min_wp = wp;
@@ -681,25 +682,25 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 				if (obj_set[i].type == OBJ_AREA) {
 					QPoint top_right(obj_set[i].p1.x(), obj_set[i].p0.y());
 					QPoint bot_left(obj_set[i].p0.x(), obj_set[i].p1.y());
-                    dis = distance_p2l(obj_set[i].p0, top_right, event->pos() / scale, wp);
+					dis = distance_p2l(obj_set[i].p0, top_right, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
 						min_wp = (wp == 2) ? 5 : wp;
 						select_idx = i;
 					}
-                    dis = distance_p2l(top_right, obj_set[i].p1, event->pos() / scale, wp);
+					dis = distance_p2l(top_right, obj_set[i].p1, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
 						min_wp = (wp == 1) ? 5 : wp;
 						select_idx = i;
 					}
-                    dis = distance_p2l(bot_left, obj_set[i].p1, event->pos() / scale, wp);
+					dis = distance_p2l(bot_left, obj_set[i].p1, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
 						min_wp = (wp == 1) ? 6 : wp;
 						select_idx = i;
 					}
-                    dis = distance_p2l(obj_set[i].p0, bot_left, event->pos() / scale, wp);
+					dis = distance_p2l(obj_set[i].p0, bot_left, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
 						min_wp = (wp == 2) ? 6 : wp;
@@ -715,12 +716,12 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			update();
         }
     }
-	if (bk_img.empty() || !bk_img[layer].valid(event->pos() / scale))
+	if (bk_img.empty() || !bk_img[layer].valid(move_pos / scale))
 		return;
 	char s[500];
 	unsigned modify = QGuiApplication::queryKeyboardModifiers();
 	if (modify != Qt::NoModifier && bse_param.w_wide>0) {
-		QPoint point = event->pos() / scale;
+		QPoint point = move_pos / scale;
 		int dx[6], dy[6];
 		int w_wide;
 		switch (modify) {
@@ -806,10 +807,10 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			}
 		}
 		len += sprintf(s + len, "lr=%d,", (s0 - s1) / (i_wide * w_wide1));
-		emit mouse_change(event->pos() / scale, QString(s));
+		emit mouse_change(move_pos / scale, QString(s));
 		return;
 	}
-	QRgb color = bk_img_mask.pixel(event->pos() / scale);
+	QRgb color = bk_img_mask.pixel(move_pos / scale);
 	
 	if (current_train == NULL) 
 		sprintf(s, "c=%x", color);	
@@ -817,7 +818,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 		int len = 0;
 		vector<float> feature;
 		vector<int> feature2;
-		current_train->get_feature(layer, (event->pos()).x() / scale, (event->pos()).y() / scale, feature, feature2);
+		current_train->get_feature(layer, move_pos.x() / scale, move_pos.y() / scale, feature, feature2);
 		if (!feature.empty()) {
 			for (int i = 0; i < feature.size(); i++) {
 				len += sprintf(s + len, "f%d=%f,", i, feature[i]);
@@ -830,7 +831,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 		}
 		sprintf(s, "%s, c=%x", s, color);
 	}
-    emit mouse_change(event->pos() / scale, QString(s));
+	emit mouse_change(move_pos / scale, QString(s));
 }
 
 void ViaWireEditView::keyPressEvent(QKeyEvent *e)

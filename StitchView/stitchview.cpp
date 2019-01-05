@@ -383,7 +383,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	int step;
 	switch (e->key()) {
 	case Qt::Key_Left:		
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER &&
+                abs(may_choose.x()) < 10000000) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[1] -= lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -394,7 +395,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else 
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER  &&
+                abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
 			for (int i = 0; i < (int) imgs.size(); i++)
@@ -407,7 +409,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		break;
 	case Qt::Key_Up:		
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER &&
+                abs(may_choose.x()) < 10000000) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[0] -= lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -418,7 +421,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER &&
+                abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
@@ -431,7 +435,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		break;
 	case Qt::Key_Right:
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER &&
+                abs(may_choose.x()) < 10000000) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[1] += lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -442,7 +447,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER &&
+                abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
@@ -455,7 +461,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		}
 		break;
 	case Qt::Key_Down:		
-		if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER &&
+                abs(may_choose.x()) < 10000000) {
 			lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[0] += lf[layer]->cpara.rescale;
 			/*
 			//check image offset
@@ -466,7 +473,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				ri.invalidate_cache(layer);
 		}
 		else
-		if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER) {
+        if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER &&
+                abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
 			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
@@ -667,6 +675,9 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 	cur_mouse_point = mouse_point;
 	QPoint may_choose = point2choose(cur_mouse_point);
 
+    if (abs(may_choose.x()) >= 10000000 || abs(prev_may_choose.x()) >= 10000000)
+        return;
+
 	mouse_point = mouse_point * scale + view_rect.topLeft();
 	Point src_point = ri.dst2src(layer, TOPOINT(mouse_point));
 
@@ -699,6 +710,8 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 	cur_mouse_point = mouse_point;
 	QPoint may_choose = point2choose(cur_mouse_point);
 	mouse_point = mouse_point * scale + view_rect.topLeft();
+    if (abs(may_choose.x()) >= 10000000)
+        return;
 	qInfo("receive mousePress, state=%d, (x=%d,y=%d)", mouse_state, may_choose.x(), may_choose.y());
 	switch (mouse_state) {
 	case ChangeNail:
@@ -1342,9 +1355,22 @@ void StitchView::set_mapxy_dstw(int _layer, const MapXY * _mapxy, int _dst_w)
 {
 	if (_layer == -1)
 		_layer = layer;
-	if (_layer >= lf.size() || _layer < 0)
-		return;
-	ri.set_mapxy(_layer, _mapxy);
+    if (_layer == ABS_LAYER) {
+        double zx = _mapxy->get_default_zoomx();
+        double zy = _mapxy->get_default_zoomy();
+        if (zx < 0.2 || zy < 0.2)
+            return;
+        for (int i = 0; i < (int)nails.size(); i++)
+        if (nails[i].lf0 == nails[i].lf1) {
+            nails[i].p1.x = nails[i].p1.x * zx;
+            nails[i].p1.y = nails[i].p1.y * zy;
+        }
+    }
+    else{
+        if (_layer >= lf.size() || _layer < 0)
+            return;
+        ri.set_mapxy(_layer, _mapxy);
+    }
 	ri.set_dst_wide(_dst_w);
 	generate_mapxy();
 	qInfo("set_mapxy_dstw, l=%d, dst_w=%d", _layer, _dst_w);
@@ -1355,6 +1381,13 @@ MapXY * StitchView::get_mapxy(int _layer)
 {
 	if (_layer == -1)
 		_layer = layer;
+    if (_layer == ABS_LAYER) {
+        MapXY * ret = ri.get_mapxy(0);
+        ret->set_default_zoomx(1);
+        ret->set_default_zoomy(1);
+        ret->set_beta(0);
+        return ret;
+    }
 	if (_layer >= lf.size() || _layer < 0)
 		return NULL;
 	qInfo("get_mapxy, l=%d", _layer);
@@ -1550,7 +1583,10 @@ int StitchView::output_layer(int _layer, string pathname) {
 	vector<MapID> map_id;
 	vector<MapID> draw_order;
 	for (int i = 0; i < 3; i++)
-		draw_order.push_back(MAPID(_layer, choose[i].x(), choose[i].y()));
+        draw_order.push_back(MAPID(_layer, 0xffff, 0xffff));
+    QScopedPointer<MapXY> mxy(get_mapxy(layer));
+    mxy->set_merge_method(0);
+    ri.set_mapxy(_layer, mxy.data());
 	float cnt = 0;
 	for (int y = 0; y < end_y; y++)
 	for (int x = 0; x < end_x; x++) {
@@ -1632,7 +1668,8 @@ int StitchView::layer_up(int _layer)
 	if (layer == _layer) {
 		layer++;
 		update_nview();
-	}		
+    }
+    update_title();
 	update();
 	return 0;
 }
@@ -1660,6 +1697,7 @@ int StitchView::layer_down(int _layer)
 		layer--;
 		update_nview();
 	}
+    update_title();
 	update();
 	return 0;
 }

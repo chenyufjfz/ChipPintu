@@ -612,7 +612,7 @@ Point2d MapXY1::src2dst(Point2d src) const
 	CV_Assert(y < s.rows && x < s.cols);
 	double am = 0.5;
 	double pre_x, pre_am = 2;
-	while (1) {
+	while (1) { //use recursion method to compute am
         Point_<double> p1 = sa * (1 - am) + sd * am;
         Point_<double> p2 = sb * (1 - am) + sc * am;
 		double x = (src.y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x;
@@ -633,7 +633,7 @@ Point2d MapXY1::src2dst(Point2d src) const
 			am = (x > src.x) ? 0.25 : 0.75;
 		}
 		else {
-			double r = (am - pre_am) / (x - pre_x);
+			double r = (am - pre_am) / (x - pre_x); //Newton method
 			pre_am = am;
 			am = am + r * (src.x - x);
 		}
@@ -847,11 +847,11 @@ Point find_src_map(const ConfigPara & cpara, const Point & p, const Size & wh, i
 {
 	int start_x = min(p.x / wh.width, cpara.img_num_w - 1);
 	start_x = max(start_x, 0);
-	int end_x = min(cpara.img_num_w - (cpara.right_bound() - p.x) / wh.width + 2, cpara.img_num_w);
+    int end_x = min(cpara.img_num_w - (cpara.right_bound() - p.x) / wh.width + 5, cpara.img_num_w);
 	end_x = max(end_x, 1);
 	int start_y = min(p.y / wh.height, cpara.img_num_h - 1);
 	start_y = max(start_y, 0);
-	int end_y = min(cpara.img_num_h - (cpara.bottom_bound() - p.y) / wh.height + 2, cpara.img_num_h);
+    int end_y = min(cpara.img_num_h - (cpara.bottom_bound() - p.y) / wh.height + 5, cpara.img_num_h);
 	end_y = max(end_y, 1);
 
 	for (int y = start_y; y < end_y; y++)

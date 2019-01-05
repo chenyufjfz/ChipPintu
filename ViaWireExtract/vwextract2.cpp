@@ -545,6 +545,7 @@ static const int cnear[8][2] = {
 /*
 input pt1, pt2
 output pts, line points include [pt1,pt2)
+go with - / or | /
 */
 static void get_line_pts(Point pt1, Point pt2, vector <Point> & pts)
 {
@@ -588,6 +589,56 @@ static void get_line_pts(Point pt1, Point pt2, vector <Point> & pts)
 	}
 }
 
+/*
+input pt1, pt2
+output pts, line points include [pt1,pt2]
+go with - |
+*/
+static void get_line_pts2(Point pt1, Point pt2, vector <Point> & pts)
+{
+	int dx = abs(pt2.x - pt1.x);
+	int dy = abs(pt2.y - pt1.y);
+	bool dir = dx > dy;
+	int ix = (pt2.x - pt1.x > 0) ? 1 : -1;
+	int iy = (pt2.y - pt1.y > 0) ? 1 : -1;
+	pts.clear();
+	if (dir) {
+		int dy2 = 2 * dy;
+		int dy2dx2 = 2 * dy - 2 * dx;
+		int d = 2 * dy - dx;
+		int x = pt1.x, y = pt1.y;
+		for (; x != pt2.x; x += ix) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dy2;
+			else {
+				d += dy2dx2;
+				pts.push_back(Point(x + ix, y));
+				y += iy;
+			}
+		}
+		pts.push_back(Point(x, y));
+		CV_Assert(y == pt2.y);
+	}
+	else {
+		int dx2 = 2 * dx;
+		int dx2dy2 = 2 * dx - 2 * dy;
+		int d = 2 * dx - dy;
+		int x = pt1.x, y = pt1.y;
+		for (; y != pt2.y; y += iy) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dx2;
+			else {
+				d += dx2dy2;
+				pts.push_back(Point(x, y + iy));
+				x += ix;
+			}
+		}
+		pts.push_back(Point(x, y));
+		CV_Assert(x == pt2.x);
+	}
+}
 /*
 Input line
 Input p0
@@ -3306,6 +3357,215 @@ bool via_double_check(Mat * img, int xo, int yo, int gd, int th, const vector<in
 	}
 	return true;
 }
+
+/*
+img is image
+xo, yo is via circle center
+r is via circle radius
+gd is pass number percent
+th is grad threshold
+offset0 contain point inside circle
+offset1 contain point outside circle
+*/
+static bool via_double_check2(Mat * img, int xo, int yo, int gd, int th, const vector<vector<int> > & offset0, const vector<vector<int> > & offset1) {
+	CV_Assert(img->type() == CV_8UC1 && offset0.size() == offset1.size());
+	for (int dir = 0; dir < 5; dir++) {
+		int x0 = xo, y0 = yo;
+		if (dir <= 3) {
+			x0 += dxy[dir][1];
+			y0 += dxy[dir][0];
+		}
+		unsigned char * p0 = img->ptr<unsigned char>(y0, x0);
+		int pass_num = 0;
+		for (int i = 0; i < (int)offset0.size(); i++) {
+			int sum0 = 0, sum1 = 0;
+			for (int j = 0; j < (int)offset0[i].size(); j++)
+				sum0 += p0[offset0[i][j]];
+			for (int j = 0; j < (int)offset1[i].size(); j++)
+				sum1 += p0[offset1[i][j]];
+			if (sum0 * offset1[i].size() - sum1 * offset0[i].size() > th * offset0[i].size() * offset1[i].size())
+				pass_num++;
+
+			sum0 = 0, sum1 = 0;
+			for (int j = 0; j < (int)offset0[i].size(); j++)
+				sum0 += p0[-offset0[i][j]];
+			for (int j = 0; j < (int)offset1[i].size(); j++)
+				sum1 += p0[-offset1[i][j]];
+			if (sum0 * offset1[i].size() - sum1 * offset0[i].size() > th * offset0[i].size() * offset1[i].size())
+				pass_num++;
+		}
+		if (pass_num * 50 > offset0.size() * gd)
+			return true;
+	}
+	return false;
+}
+
+static void via_double_check_prepare_offset(Mat * img, int r0, int r1, vector<vector<int> > & offset0, vector<vector<int> > & offset1) {
+	CV_Assert(img->type() == CV_8UC1);
+	offset0.clear();
+	offset1.clear();
+	if (r0 < 2)
+		return;
+	int r02_2 = (r0 - 2) * (r0 - 2);
+	int r0_2 = r0 * r0;
+	int r01_2 = (r0 + 1)* (r0 + 1);
+	int r1_2 = r1 * r1;
+	for (int area = 0; area < 4; area++) {
+		for (int i = 0; i < r1; i++) {
+			Point p1, p2;
+			int y1, y2, x1, x2;
+			switch (area) {
+			case 0:
+				p1 = Point(r1, i);
+				p2 = Point(r1 - i, r1);
+				y1 = 0;
+				y2 = r1;
+				x1 = 0;
+				x2 = r1;
+				break;
+			case 1:
+				p1 = Point(r1 - i, r1);
+				p2 = Point(-i, r1);
+				y1 = 0;
+				y2 = r1;
+				x1 = -r1;
+				x2 = r1;
+				break;
+			case 2:
+				p1 = Point(-i, r1);
+				p2 = Point(-r1, r1 - i);
+				y1 = 0;
+				y2 = r1;
+				x1 = -r1;
+				x2 = 0;
+				break;
+			case 3:
+				p1 = Point(-r1, r1 - i);
+				p2 = Point(-r1, -i);
+				y1 = -r1;
+				y2 = r1;
+				x1 = -r1;
+				x2 = 0;
+				break;
+			}
+			vector<Point> pts; //pts contain 45 degree point in [0.. r1] * [0..r1]
+			vector<int> a0, a1; //a0 contain 45 degree point inside circle, a1 contain 45 degree point outside circle
+			for (int y = y1; y <= y2; y++)
+			for (int x = x1; x <= x2; x++) {
+				Point pt(x, y);
+				if (pt.cross(p1) * pt.cross(p2) <= 0)
+					pts.push_back(pt);
+			}
+			for (int j = 0; j<(int)pts.size(); j++) {
+				int dis = pts[j].x * pts[j].x + pts[j].y * pts[j].y;
+				if (dis < r02_2 || dis > r1_2) //out of range pass
+					continue;
+				if (dis > r0_2 && dis < r01_2) //at the boundary
+					continue;
+				if (dis <= r0_2)
+					a0.push_back((pts[j].y * (int)img->step.p[0] + pts[j].x * (int)img->step.p[1]) / sizeof(char));
+				else
+					a1.push_back((pts[j].y * (int)img->step.p[0] + pts[j].x * (int)img->step.p[1]) / sizeof(char));
+			}
+			offset0.push_back(a0);
+			offset1.push_back(a1);
+		}
+	}
+}
+
+/*
+Input img
+Input o, vertex for up, down, left, right
+Input r, compute cost rect
+Input right_dir, right dir=1, left dir=-1
+Output c, cost
+*/
+static void seperate(Mat * img, Point o, Rect r, int right_dir, int grad_th, Mat & c) {
+	CV_Assert(c.type() == CV_32SC1);
+	int dy, dx, yend, xend, yi, xi;
+	if (o == r.tl()) {
+		dy = 1;  //dx, dy is scan direction
+		dx = 1;  
+		yend = r.br().y; //yend, xend is scan end
+		xend = r.br().x;
+		yi = -1;  //yi, xi is image offset to scan
+		xi = -1;
+	} else
+	if (o == r.br()) {
+		dy = -1;
+		dx = -1;
+		yend = r.tl().y;
+		xend = r.tl().x;
+		yi = 0;
+		xi = 0;
+	} else
+	if (o.x == r.x) { //bl
+		dy = -1;
+		dx = 1;
+		yend = r.tl().y;
+		xend = r.br().x;
+		yi = 0;
+		xi = -1;
+	} else
+	if (o.y == r.y) { //tr
+		dy = 1;
+		dx = -1;
+		yend = r.br().y;
+		xend = r.tl().x;
+		yi = -1;
+		xi = 0;
+	}
+	else
+		CV_Assert(0);
+	Point tl = r.tl();
+	for (int y = o.y; y != yend; y += dy) {
+		int prev_cost = 0;
+		for (int x = o.x + dx; x != xend; x += dx) {
+			int * pc = c.ptr<int>(y - tl.y, x - tl.x);
+			if (pc[0] >= 10000000)
+				continue;
+			int x_score, y_score;
+			int a = img->at<unsigned char>(y + yi, x + xi);
+			if (y != o.y) {
+				y_score = c.at<int>(y - tl.y - dy, x - tl.x);				
+				int ay = img->at<unsigned char>(y + yi, x + xi + dx);
+				int grad = (a - ay) * right_dir;
+				if (grad < 0)
+					y_score += grad_th - grad * 2;
+				else
+					y_score += max(grad_th - grad, 0);
+				
+			}
+			else
+				y_score = 10000000;
+			x_score = c.at<int>(y - tl.y, x - tl.x - dx);
+			int ax = img->at<unsigned char>(y + yi + dy, x + xi);
+			int grad = (a - ax) * right_dir;
+			if (grad < 0)
+				x_score += grad_th - grad * 2;
+			else
+				x_score += max(grad_th - grad, 0);
+			pc[0] = min(x_score, y_score);
+		}
+	}
+}
+
+static void via_double_check_prepare_offset(Mat * img, int xo, int yo, int r0, int r1, int th, Mat & c1, Mat & c2) {
+	c1.create(2 * r1 + 2, 2 * r1 + 2, CV_32SC1); //in img[xo-r1, yo-r1] [xo+r1, yo+r1]
+	c2.create(2 * r1 + 2, 2 * r1 + 2, CV_32SC1);
+	c1 = 0;
+	c2 = 0;
+	for (int y = r1 - r0 + 1; y <= r1 + r0; y++) {
+		c1.at<int>(y, r1 + 1) = 10000000;
+		c2.at<int>(y, r1 + 1) = 10000000;
+	}
+	for (int x = r1 - r0 + 2; x < r1 + r0; x++) {
+		c1.at<int>(r1 + 1, x) = 10000000;
+		c2.at<int>(r1, x) = 10000000;
+	}
+	//seperate(img, Point(xo, yo - r1), Rect(Point(xo, yo - r1), Point(xo + r1 + 1, yo + 1)), 1, th, c1);
+}
+
 /*
 It require internal circle =gray
 external circle = gray1
@@ -3317,6 +3577,7 @@ protected:
 	int gd;
 	int th;
 	vector<int> dx, dx1;
+	vector<vector<int> > offset0, offset1;
 	float a, a1, b, b1;
 	int layer;
 	PipeData * d;
@@ -3337,10 +3598,11 @@ public:
 		gray = vp.gray0;
 		gray1 = vp.gray1;
 		gd = vp.cgray_d;
-		th = gd * r * (gray - gray1) * vp.grad / 100;
+		th = (gray - gray1) * vp.grad / 100;
+		via_double_check_prepare_offset(img, r - 1, r + 1, offset0, offset1);
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCircleEECompute r0=%d,r1=%d,g0=%d,g1=%d,gd=%d,grad=%d,th=%d, gamma=%f", 
-			r, r1, gray, gray1, gd, vp.grad, th, gamma);
+		qInfo("TwoCircleEECompute r0=%d,r1=%d,g0=%d,g1=%d,gd=%d,grad=%d,th=%d, gamma=%f,osize=%d", 
+			r, r1, gray, gray1, gd, vp.grad, th, gamma, offset0.size());
 		if (r >= r1)
 			qCritical("invalid r0 and r1");
 		int n = compute_circle_dx(r, dx);
@@ -3378,7 +3640,7 @@ public:
 	}
 
 	bool double_check(int x0, int y0) {
-		return via_double_check(img, x0, y0, gd, th, dx);
+		return via_double_check2(img, x0, y0, gd, th, offset0, offset1);
 	}
 };
 
@@ -3414,10 +3676,11 @@ public:
 		tcc.gray1 = vp.gray1;
 		tcc.img = &_d.l[_layer].img;
 		tcc.gd = vp.cgray_d;
-		tcc.th = tcc.gd * tcc.r * (tcc.gray - tcc.gray1) * vp.grad / 100;
+		tcc.th = (tcc.gray - tcc.gray1) *vp.grad / 100;
+		via_double_check_prepare_offset(tcc.img, tcc.r - 1, tcc.r + 1, tcc.offset0, tcc.offset1);
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCirclelBSCompute r0=%d,r1=%d,g0=%d,g1=%d, grad=%d, th=%d,gamma=%f", 
-			tcc.r, tcc.r1, vp.gray0, vp.gray1, vp.grad, tcc.th, gamma);
+		qInfo("TwoCirclelBSCompute r0=%d,r1=%d,g0=%d,g1=%d, grad=%d, th=%d,gamma=%f,osize=%d", 
+			tcc.r, tcc.r1, vp.gray0, vp.gray1, vp.grad, tcc.th, gamma, tcc.offset0.size());
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
 		if (vp.gray1 >= vp.gray0)
