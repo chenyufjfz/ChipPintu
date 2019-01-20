@@ -472,7 +472,7 @@ Point2d MapXY1::src2dst(Point2d src) const
 		if (ns.empty()) {
 			dst.x = (src.x * cos_beta + src.y * sin_beta) * z0x;
 			dst.y = (- src.x * sin_beta + src.y * cos_beta) * z0y;
-			return src;
+			return dst;
 		}
 		if (ns.size() == 1) {
 			src.x -= ns[0].first.x;
@@ -653,7 +653,7 @@ Point2d MapXY1::dst2src(Point2d dst) const
 		if (ns.empty()) {
 			src.x = (dst.x / z0x * cos_beta - dst.y / z0y * sin_beta);
 			src.y = (dst.x / z0x * sin_beta + dst.y / z0y * cos_beta);
-			return dst;
+			return src;
 		}
 		if (ns.size() == 1) {
 			dst.x -= ns[0].second.x;
@@ -854,22 +854,25 @@ Point find_src_map(const ConfigPara & cpara, const Point & p, const Size & wh, i
     int end_y = min(cpara.img_num_h - (cpara.bottom_bound() - p.y) / wh.height + 5, cpara.img_num_h);
 	end_y = max(end_y, 1);
 
-	for (int y = start_y; y < end_y; y++)
-	for (int x = start_x; x < end_x; x++) {
-		int yy = cpara.offset(y, x)[0];
-		int xx = cpara.offset(y, x)[1];
-		if (method == 0 &&
-			(yy <= p.y &&
-			(y + 1 == cpara.img_num_h || cpara.offset(y + 1, x)[0] > p.y)) &&
-			(xx <= p.x &&
-			(x + 1 == cpara.img_num_w || cpara.offset(y, x + 1)[1] > p.x)))
-			return Point(x, y);
-		if (method != 0 &&
-			(yy + wh.height > p.y &&
-			(y == 0 || yy <= p.y)) &&
-			(xx + wh.width  > p.x &&
-			(x == 0 || xx <= p.x)))
-			return Point(x, y);
+	if (method != 0) {
+		for (int y = start_y; y < end_y; y++)
+		for (int x = start_x; x < end_x; x++) {
+			int yy = cpara.offset(y, x)[0];
+			int xx = cpara.offset(y, x)[1];
+			if (yy + wh.height > p.y && (y == 0 || yy <= p.y) &&
+				xx + wh.width  > p.x && (x == 0 || xx <= p.x))
+				return Point(x, y);
+		}
+	}
+	else {
+		for (int y = end_y - 1; y >= start_y; y--)
+		for (int x = end_x - 1; x >= start_x; x--) {
+			int yy = cpara.offset(y, x)[0];
+			int xx = cpara.offset(y, x)[1];
+			if ((yy + wh.height > p.y || y + 1 == cpara.img_num_h) && yy <= p.y &&
+				(xx + wh.width  > p.x || x + 1 == cpara.img_num_w) && xx <= p.x)
+				return Point(x, y);
+		}
 	}
 
 	if (method != 0)
@@ -901,6 +904,10 @@ void thread_map_image(MapRequest & pr)
 	Point lt, rb;
 	Point2d src_lt, src_rb, src_lb, src_rt;
 
+#if 1
+	if (MAPID_X(pr.id) == 7 && MAPID_Y(pr.id) == 11)
+		dst_w = dst_w * 2 - dst_w;
+#endif
 	Point dst_lt(dst_w * MAPID_X(pr.id), dst_w * MAPID_Y(pr.id));
 	Point dst_rb(dst_lt.x + dst_w - 1, dst_lt.y + dst_w - 1);
 	Point dst_lb(dst_lt.x, dst_rb.y);

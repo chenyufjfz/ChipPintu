@@ -177,7 +177,7 @@
     <inc0>8</inc0>
     <inc1>8</inc1>
     <wnum>1</wnum>
-    <th>23</th>
+    <th>20</th>
     <search_opt>1</search_opt>
     <update_prob>1</update_prob>
     <subtype0>3</subtype0>
@@ -273,7 +273,7 @@
     <vnum>1</vnum>
     <subtype0>3</subtype0>
     <wide0>10</wide0>
-    <percent0>50</percent0>
+    <percent0>65</percent0>
     <subtype1>0</subtype1>
     <wide1>0</wide1>
     <percent1>0</percent1>
@@ -294,7 +294,7 @@
     <vnum>1</vnum>
     <subtype0>3</subtype0>
     <wide0>10</wide0>
-    <percent0>55</percent0>
+    <percent0>65</percent0>
     <subtype1>0</subtype1>
     <wide1>0</wide1>
     <percent1>0</percent1>
@@ -433,28 +433,28 @@
     <detect_opt>7</detect_opt>
     <ed_long>8</ed_long>
     <ed_guard>5</ed_guard>
-    <grad_low_l>50</grad_low_l>
+    <grad_low_l>20</grad_low_l>
     <grad_high_l>250</grad_high_l>
-    <gi_high_l>70</gi_high_l>
-    <gw_low_l>68</gw_low_l>
+    <gi_high_l>30</gi_high_l>
+    <gw_low_l>35</gw_low_l>
     <gw_high_l>250</gw_high_l>
     <dw_high_l>25</dw_high_l>
-    <grad_low_r>50</grad_low_r>
+    <grad_low_r>20</grad_low_r>
     <grad_high_r>250</grad_high_r>
-    <gi_high_r>80</gi_high_r>
-    <gw_low_r>80</gw_low_r>
+    <gi_high_r>30</gi_high_r>
+    <gw_low_r>35</gw_low_r>
     <gw_high_r>250</gw_high_r>
-    <dw_high_r>30</dw_high_r>
-    <grad_low_u>40</grad_low_u>
+    <dw_high_r>25</dw_high_r>
+    <grad_low_u>20</grad_low_u>
     <grad_high_u>250</grad_high_u>
-    <gi_high_u>70</gi_high_u>
-    <gw_low_u>68</gw_low_u>
+    <gi_high_u>30</gi_high_u>
+    <gw_low_u>35</gw_low_u>
     <gw_high_u>250</gw_high_u>
     <dw_high_u>25</dw_high_u>
-    <grad_low_d>40</grad_low_d>
+    <grad_low_d>20</grad_low_d>
     <grad_high_d>250</grad_high_d>
-    <gi_high_d>70</gi_high_d>
-    <gw_low_d>68</gw_low_d>
+    <gi_high_d>30</gi_high_d>
+    <gw_low_d>35</gw_low_d>
     <gw_high_d>250</gw_high_d>
     <dw_high_d>25</dw_high_d></_>    
   <_>
@@ -630,7 +630,7 @@
     <update_fv>1</update_fv>
     <subtype0>3</subtype0>
     <type0>1</type0>
-    <th0>27</th0>
+    <th0>26</th0>
     <pattern0>254</pattern0>
     <subtype1>0</subtype1>
     <type1>0</type1>
@@ -743,8 +743,8 @@
     <debug_opt>0</debug_opt>
     <layer>-2</layer>
     <gs>5</gs>
-    <border_size>36</border_size>
-    <computer_border>26</computer_border>
+    <border_size>32</border_size>
+    <computer_border>24</computer_border>
     <via_connect>8</via_connect>
     <via_merge>7</via_merge>
     <wire_connect>7</wire_connect>
@@ -783,6 +783,7 @@
     <name>GrayLevel_1</name>
     <debug_opt>208</debug_opt>
     <layer>1</layer>
+    <gray_lvl_opt>1</gray_lvl_opt>
     <opidx_tp>0</opidx_tp>
     <low_sep_min>0</low_sep_min>
     <low_sep_max>50</low_sep_max>
@@ -791,14 +792,14 @@
     <low_k0>30</low_k0>
     <low_k1>100</low_k1>
     <low_k2>100</low_k2>
-    <mid_sep_min>80</mid_sep_min>
-    <mid_sep_max>190</mid_sep_max>
+    <mid_sep_min>60</mid_sep_min>
+    <mid_sep_max>150</mid_sep_max>
     <mid_win>25</mid_win>
     <mid_dis_min>10</mid_dis_min>
     <mid_k0>30</mid_k0>
     <mid_k1>100</mid_k1>
     <mid_k2>100</mid_k2>
-    <high_sep_min>210</high_sep_min>
+    <high_sep_min>170</high_sep_min>
     <high_sep_max>254</high_sep_max>
     <high_win>25</high_win>
     <high_dis_min>3</high_dis_min>
@@ -812,20 +813,20 @@
     <gray_lvl_opt>1</gray_lvl_opt>
     <opidx_tp>0</opidx_tp>
     <low_sep_min>0</low_sep_min>
-    <low_sep_max>50</low_sep_max>
+    <low_sep_max>25</low_sep_max>
     <low_win>50</low_win>
     <low_dis_min>10</low_dis_min>
     <low_k0>30</low_k0>
     <low_k1>100</low_k1>
     <low_k2>100</low_k2>
-    <mid_sep_min>80</mid_sep_min>
-    <mid_sep_max>200</mid_sep_max>
+    <mid_sep_min>60</mid_sep_min>
+    <mid_sep_max>160</mid_sep_max>
     <mid_win>25</mid_win>
     <mid_dis_min>8</mid_dis_min>
     <mid_k0>25</mid_k0>
     <mid_k1>100</mid_k1>
     <mid_k2>100</mid_k2>
-    <high_sep_min>220</high_sep_min>
+    <high_sep_min>200</high_sep_min>
     <high_sep_max>255</high_sep_max>
     <high_win>20</high_win>
     <high_dis_min>3</high_dis_min>
@@ -839,20 +840,20 @@
     <gray_lvl_opt>1</gray_lvl_opt>
     <opidx_tp>0</opidx_tp>
     <low_sep_min>0</low_sep_min>
-    <low_sep_max>52</low_sep_max>
+    <low_sep_max>60</low_sep_max>
     <low_win>50</low_win>
     <low_dis_min>10</low_dis_min>
     <low_k0>30</low_k0>
     <low_k1>100</low_k1>
     <low_k2>100</low_k2>
     <mid_sep_min>80</mid_sep_min>
-    <mid_sep_max>195</mid_sep_max>
+    <mid_sep_max>250</mid_sep_max>
     <mid_win>25</mid_win>
     <mid_dis_min>3</mid_dis_min>
     <mid_k0>30</mid_k0>
     <mid_k1>100</mid_k1>
     <mid_k2>100</mid_k2>
-    <high_sep_min>215</high_sep_min>
+    <high_sep_min>252</high_sep_min>
     <high_sep_max>255</high_sep_max>
     <high_win>32</high_win>
     <high_dis_min>3</high_dis_min>
@@ -1367,11 +1368,11 @@
     <type>1</type>
     <subtype>3</subtype>
     <guard>11</guard>
-    <remove_rd>9</remove_rd>
+    <remove_rd>8</remove_rd>
     <arfactor>50</arfactor>
     <pair_d>0</pair_d>
     <connect_rd>7</connect_rd>
-    <cgray_d>70</cgray_d>
+    <cgray_d>3</cgray_d>
     <cgray_ratio>70</cgray_ratio>
     <connect_d>12</connect_d>
     <rd0>6</rd0>
@@ -1383,7 +1384,7 @@
     <gray2>1</gray2>
     <gray3>0</gray3>
     <swide_min>5</swide_min>
-    <grad>30</grad></_>
+    <grad>25</grad></_>
   <_>
     <name>ViaInfo_2</name>
     <debug_opt>192</debug_opt>
@@ -1392,15 +1393,15 @@
     <type>1</type>
     <subtype>3</subtype>
     <guard>11</guard>
-    <remove_rd>10</remove_rd>
+    <remove_rd>8</remove_rd>
     <arfactor>50</arfactor>
     <pair_d>0</pair_d>
     <connect_rd>6</connect_rd>
     <cgray_d>3</cgray_d>
     <cgray_ratio>70</cgray_ratio>
     <connect_d>12</connect_d>
-    <rd0>7</rd0>
-    <rd1>9</rd1>
+    <rd0>6</rd0>
+    <rd1>8</rd1>
     <rd2>10</rd2>
     <rd3>10</rd3>
     <gray0>8</gray0>
@@ -1478,7 +1479,7 @@
     <slen_min>10</slen_min>
     <mth_high>78</mth_high>
     <mth_low>45</mth_low>
-    <s_th>70</s_th></_>  
+    <s_th>80</s_th></_>  
   <_>
     <name>WireInfo_4</name>
     <debug_opt>128</debug_opt>
@@ -1488,17 +1489,17 @@
     <subtype>3</subtype>
     <guard>6</guard>
     <arfactor>50</arfactor>
-    <i_wide>5</i_wide>
-    <i_high>5</i_high>
-    <mwide_max>24</mwide_max>
-    <mwide_min>12</mwide_min>
+    <i_wide>4</i_wide>
+    <i_high>4</i_high>
+    <mwide_max>15</mwide_max>
+    <mwide_min>10</mwide_min>
     <swide_max>20</swide_max>
-    <swide_min>7</swide_min>
+    <swide_min>9</swide_min>
     <slen_max>200</slen_max>
     <slen_min>10</slen_min>
     <mth_high>70</mth_high>
     <mth_low>50</mth_low>
-    <s_th>70</s_th></_>  
+    <s_th>90</s_th></_>  
   <_>
     <name>WireInfo_6</name>
     <debug_opt>128</debug_opt>
@@ -1510,15 +1511,15 @@
     <arfactor>50</arfactor>
     <i_wide>5</i_wide>
     <i_high>5</i_high>
-    <mwide_max>24</mwide_max>
-    <mwide_min>12</mwide_min>
+    <mwide_max>20</mwide_max>
+    <mwide_min>14</mwide_min>
     <swide_max>20</swide_max>
     <swide_min>7</swide_min>
     <slen_max>200</slen_max>
     <slen_min>10</slen_min>
-    <mth_high>70</mth_high>
-    <mth_low>58</mth_low>
-    <s_th>70</s_th></_>
+    <mth_high>65</mth_high>
+    <mth_low>60</mth_low>
+    <s_th>90</s_th></_>
   <_>
     <name>WireInfo_8</name>
     <debug_opt>128</debug_opt>
@@ -1581,7 +1582,7 @@
   <_>
     <name>action_all_layer</name>
     <items>
-      layer1_via layer2_via_wire layer3_via_wire layer4_wire</items></_>
+      layer1_via layer2_via_wire layer3_wire</items></_>
   <_>
     <name>action_all_layer_M1_wire</name>
     <items>
@@ -1605,18 +1606,10 @@
   <_>
     <name>layer2_via_wire</name>
     <items>
-      layer2_via WireInfo_4 RemoveVia_2 EdgeDetect_2 ImageEnhance_2 CoarseLineSearch_2 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>          
+      layer2_via WireInfo_4 RemoveVia_2 EdgeDetect_2 ImageEnhance_2 CoarseLineSearch_2 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>             
   <_>
-    <name>layer3_via</name>
+    <name>layer3_wire</name>
     <items>
-      GrayLevel_3 LayerInfo_1 CoarseViaSearch_3 ViaInfo_3 FineViasSearch_3</items></_>       
-  <_>
-    <name>layer3_via_wire</name>
-    <items>
-      layer3_via WireInfo_6 RemoveVia_3 EdgeDetect_3 ImageEnhance_3 CoarseLineSearch_3 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>      
-  <_>
-    <name>layer4_wire</name>
-    <items>
-      GrayLevel_4 LayerInfo_1 WireInfo_8 EdgeDetect_4 ImageEnhance_4 CoarseLineSearch_4 HotPointSearch_2 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>   
+      GrayLevel_3 LayerInfo_1 WireInfo_6 EdgeDetect_3 ImageEnhance_3 CoarseLineSearch_3 HotPointSearch_3 AssembleVia_2 AssembleBranch_2 ShapeCheck_201 ShapeCheck_202</items></_>   
 </ParamSets>    
 </opencv_storage>

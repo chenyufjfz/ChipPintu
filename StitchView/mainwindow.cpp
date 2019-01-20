@@ -247,7 +247,7 @@ void MainWindow::on_actionSave_as_triggered()
 
 void MainWindow::on_actionOutput_layer_triggered()
 {
-	QString dirname = QString::fromStdString(stitch_view->get_project_path() + "/WorkData");
+	QString dirname = QString::fromStdString(stitch_view->get_project_path());
 	QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"), dirname);
 	if (!pathname.isEmpty()) {
 		qInfo("UI: Output layer%d, %s", stitch_view->get_current_layer(), pathname.toStdString().c_str());

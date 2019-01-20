@@ -65,22 +65,26 @@ struct LayerFeature {
 			int x = IMG_X(idx);
 			if (y > 0 && fix_edge[0](y - 1, x) & bind_flag) { 
 				unsigned idx1 = MAKE_IMG_IDX(x, y - 1);
-				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
+					find(queue.begin(), queue.end(), idx1) == queue.end())
 					queue.push_back(idx1);
 			}
 			if (y + 1 < cpara.img_num_h && fix_edge[0](y, x) & bind_flag) {
 				unsigned idx1 = MAKE_IMG_IDX(x, y + 1);
-				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
+					find(queue.begin(), queue.end(), idx1) == queue.end())
 					queue.push_back(idx1);
 			}
 			if (x > 0 && fix_edge[1](y, x - 1) & bind_flag) {
 				unsigned idx1 = MAKE_IMG_IDX(x - 1, y);
-				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
+					find(queue.begin(), queue.end(), idx1) == queue.end())
 					queue.push_back(idx1);
 			}
 			if (x + 1 < cpara.img_num_w && fix_edge[1](y, x) & bind_flag) {
 				unsigned idx1 = MAKE_IMG_IDX(x + 1, y);
-				if (find(ret.begin(), ret.end(), idx1) == ret.end())
+				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
+					find(queue.begin(), queue.end(), idx1) == queue.end())
 					queue.push_back(idx1);
 			}
 		}
@@ -284,8 +288,7 @@ protected:
     void keyPressEvent(QKeyEvent *e);
 	void mouseMoveEvent(QMouseEvent *event);
 	void mousePressEvent(QMouseEvent *event);
-	void mouseReleaseEvent(QMouseEvent *event);
-	void remove_cache_front();
+	void mouseDoubleClickEvent(QMouseEvent * event);
 	void timerEvent(QTimerEvent *e);
 	void update_nview();
 	void convert_nails(vector<Nail> & nsrc, vector<Nail> & nimg, int method);
