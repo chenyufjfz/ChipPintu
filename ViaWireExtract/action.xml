@@ -1494,7 +1494,7 @@
     <mwide_max>15</mwide_max>
     <mwide_min>10</mwide_min>
     <swide_max>20</swide_max>
-    <swide_min>9</swide_min>
+    <swide_min>11</swide_min>
     <slen_max>200</slen_max>
     <slen_min>10</slen_min>
     <mth_high>70</mth_high>
@@ -1514,7 +1514,7 @@
     <mwide_max>20</mwide_max>
     <mwide_min>14</mwide_min>
     <swide_max>20</swide_max>
-    <swide_min>7</swide_min>
+    <swide_min>10</swide_min>
     <slen_max>200</slen_max>
     <slen_min>10</slen_min>
     <mth_high>65</mth_high>

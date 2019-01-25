@@ -36,6 +36,10 @@ struct Edge2 {
 			int nearby = FIX_EDGE_SCALE(flag) / scale;
 			int valid_x = FIX_EDGE_BINDX(flag) ? nearby / 2 : 10000;
 			int valid_y = FIX_EDGE_BINDY(flag) ? nearby / 2 : 10000;
+			if (diff->img_num == 0) { //img_num==0 same as free move
+				valid_x = 10000;
+				valid_y = 10000;
+			}
 			Point pos = idea_pos - diff->offset;
 			pos.x = pos.x / scale;
 			pos.y = pos.y / scale;

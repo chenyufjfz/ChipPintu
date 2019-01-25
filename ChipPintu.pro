@@ -8,4 +8,5 @@ SUBDIRS += \
     VWExtractLib \
     ICLayerLib \
     Compare \
-    DBextract
+    DBextract \
+    PreProcess

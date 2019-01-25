@@ -13,7 +13,7 @@ const int step_para = 3;
 const int max_scale = 8;
 
 #define PRINT_DRAW_IMAGE	0
-
+#define IMAGE_OUTPUT_QUALITY 85
 enum MouseState {
 	IDLE,
 	PutFirstNail,
@@ -95,31 +95,31 @@ void StitchView::paintEvent(QPaintEvent *)
 		Point bd = ri.src2dst(layer, Point(lf[layer]->cpara.right_bound(), lf[layer]->cpara.bottom_bound()));
 		if (view_rect.width() > bd.x) {
 			view_rect.adjust(view_rect.width() - bd.x, 0, 0, 0);
-			center = view_rect.center();
+			center.setX(view_rect.center().x());
 		}
 		if (view_rect.height() > bd.y) {
 			view_rect.adjust(0, view_rect.height() - bd.y, 0, 0);
-			center = view_rect.center();
+			center.setY(view_rect.center().y());
 		}
 
 		if (view_rect.right() > bd.x - 1) {
 			view_rect.moveRight(bd.x - 1);
-			center = view_rect.center();
+			center.setX(view_rect.center().x());
 		}
 
 		if (view_rect.bottom() > bd.y - 1) {
 			view_rect.moveBottom(bd.y - 1);
-			center = view_rect.center();
+			center.setY(view_rect.center().y());
 		}
 		Q_ASSERT(view_rect.right() < bd.x && view_rect.bottom() < bd.y);
 	}
 	if (view_rect.left() < 0) {
 		view_rect.moveLeft(0);
-		center = view_rect.center();
+		center.setX(view_rect.center().x());
 	}
 	if (view_rect.top() < 0) {
 		view_rect.moveTop(0);
-		center = view_rect.center();
+		center.setY(view_rect.center().y());
 	}
 
 	Q_ASSERT(view_rect.left() >= 0 && view_rect.top() >= 0);
@@ -1524,7 +1524,7 @@ int StitchView::output_layer(int _layer, string pathname) {
 				QByteArray ba;
 				QBuffer buffer(&ba);
 				buffer.open(QIODevice::WriteOnly);
-				imgs[i].save(&buffer, "JPG", 85);
+				imgs[i].save(&buffer, "JPG", IMAGE_OUTPUT_QUALITY);
 				vector<uchar> buff;
 				buff.resize(ba.size());
 				memcpy(buff.data(), ba.data(), ba.size());

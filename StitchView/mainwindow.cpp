@@ -62,6 +62,7 @@ void MainWindow::mouse_change(QString info)
 void MainWindow::notify_progress(float pos)
 {
 	pProgressBar->setValue(100 * pos);
+	pProgressBar->repaint();
 }
 
 void MainWindow::title_change(QString title)

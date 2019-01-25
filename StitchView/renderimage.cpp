@@ -732,6 +732,7 @@ void MapXY1::cluster(vector<pair<int, int> > & nxy)
 	}
 }
 
+//nail.first is src, nail.second is dst
 double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
 {
 	s.release();
@@ -759,6 +760,15 @@ double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
 		return 0;
 	}
 	if (nx.size() == 1) {
+		if (ny.size() == 2) {
+			Point2d ss = nail[1].first - nail[0].first;
+			Point2d dd = nail[1].second - nail[0].second;
+			double b = atan2(ss.y, ss.x) - atan2(dd.y, dd.x);
+			set_beta(b);
+			z0y = sqrt(dd.ddot(dd) / ss.ddot(ss));
+			ns.push_back(make_pair(nail[0].first, nail[0].second));
+			return 0;
+		}
 		s.create(ny.size(), 2);
 		d.create(ny.size(), 2);
 		for (int i = 0; i < ny.size(); i++) {
@@ -770,6 +780,15 @@ double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
 		return 0;
 	}
 	if (ny.size() == 1) {
+		if (nx.size() == 2) {
+			Point2d ss = nail[1].first - nail[0].first;
+			Point2d dd = nail[1].second - nail[0].second;
+			double b = atan2(ss.y, ss.x) - atan2(dd.y, dd.x);
+			set_beta(b);
+			z0x = sqrt(dd.ddot(dd) / ss.ddot(ss));
+			ns.push_back(make_pair(nail[0].first, nail[0].second));
+			return 0;
+		}
 		s.create(2, nx.size());
 		d.create(2, nx.size());
 		for (int i = 0; i < nx.size(); i++) {
