@@ -213,8 +213,11 @@ void MainWindow::on_actionZoom_out_triggered()
 
 void MainWindow::on_actionSet_Param_triggered()
 {
+	std::string file_name = image_file_name.toStdString();
+	file_name.erase(file_name.find_last_of("/\\"));
+	file_name.append("/action.xml");
 	ExtractParam ep;
-	ep.read_file("action.xml");
+	ep.read_file(file_name);
 	WireViaParamDialog wv_dlg(this, &ep);
 	if (wv_dlg.exec() == QDialog::Accepted)
 		vw_view->set_wire_para(&ep, wv_dlg.action_name);

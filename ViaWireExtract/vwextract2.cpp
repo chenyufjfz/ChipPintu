@@ -125,10 +125,10 @@ struct ViaParameter {
 	int arfactor; //area gamma factor
 	int guard; //guard radius
 	int remove_rd; //remove radius	
-	int rd0; //inter via radius
-	int rd1; //middle via radius
-	int rd2; //outter via radius
-	int rd3; //outter via radius
+	int rd0; //inter via diameter
+	int rd1; //middle via diameter
+	int rd2; //outter via diameter
+	int rd3; //outter via diameter
 	int gray0, gray1, gray2, gray3;
 	int connect_d; //for via remove
 	int cgray_d; //for check_via_wire_connect via wire border check
@@ -2250,7 +2250,7 @@ public:
 									sbs[k].del_dc(i);
 									sbs[i].push_dc((int)sbs.size());
 									sbs[k].push_dc((int)sbs.size());
-									bm.idx = sbs.size();
+									bm.idx = (int) sbs.size();
 									bm.push_dc(i);
 									bm.push_dc(k);
 									sbs.push_back(bm);
@@ -3240,6 +3240,7 @@ static void cvt_tbl_hermite(const Mat & points, Mat & lut, int debug_en = 0)
 
 class ViaComputeScore {
 public:
+	vector<Point> vs;
 	static ViaComputeScore * create_via_compute_score(int _layer, ViaParameter &vp, PipeData &);
 
 	int compute_circle_dx(int r, vector<int> & dx)
@@ -3255,7 +3256,7 @@ public:
 
 	virtual void prepare(int _layer, ViaParameter &vp, PipeData & _d) = 0;
 	virtual unsigned compute(int x0, int y0) = 0;
-	virtual bool double_check(int x0, int y0) {
+	virtual bool double_check(int &, int &) {
 		return true;
 	}
 	virtual ~ViaComputeScore() {
@@ -3263,271 +3264,66 @@ public:
 	}
 };
 
-/*
-img is image
-xo, yo is via circle center
-r is via circle radius
-gd is grad depth
-th is grad threshold
-dx is compute by r
-*/
-bool via_double_check(Mat * img, int xo, int yo, int gd, int th, const vector<int> & dx) {
-	int r = dx.size() - 1;
-	for (int yc = -r + 2; yc <= -1; yc++) { //yc is offset
-		bool pass = false;
-		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
-		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if left side can pass 
-			int s = 0, s1 = 0;
-			for (int y = yc; y < yc + r; y++) {
-				int x = dx[abs(y)];
-				for (int i = x0 - x; i < x0 - x + gd; i++) //sum from x0-x to x0-x+gd-1
-					s += img->at<unsigned char>(y + y0, i);
-				for (int i = x0 - x - gd; i < x0 - x; i++) //sum from x0 - x - gd to x0-x-1
-					s1 += img->at<unsigned char>(y + y0, i);
-			}
-			if (s - s1 >= th) { //one (x0, y0) pass is ok				
-				pass = true;
-				y0 = yo + 1;
-				break;
-			}
-		}
-		if (!pass)
-			return false;
-
-		pass = false;
-		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
-		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if right side can pass 
-			int s = 0, s1 = 0;
-			for (int y = yc; y < yc + r; y++) {
-				int x = dx[abs(y)];
-				for (int i = x0 + x + 1 - gd; i <= x0 + x; i++) //sum from x0 + x + 1 - gd to x0+x
-					s += img->at<unsigned char>(y + y0, i);
-				for (int i = x0 + x + 1; i <= x0 + x + gd; i++) //sum from x0+x+1 to x0+x+gd
-					s1 += img->at<unsigned char>(y + y0, i);
-			}
-			if (s - s1 >= th) { //one (x0, y0) pass is ok				
-				pass = true;
-				y0 = yo + 1;
-				break;
-			}
-		}
-		if (!pass)
-			return false;
-	}
-
-	for (int xc = -r + 2; xc <= -1; xc++) {
-		bool pass = false;
-		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
-		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if up side can pass 
-			int s = 0, s1 = 0;
-			for (int x = xc; x < xc + r; x++) {
-				int y = dx[abs(x)];
-				for (int i = y0 - y; i < y0 - y + gd; i++) //sum from y0 - y to y0 - y + gd - 1
-					s += img->at<unsigned char>(i, x0 + x);
-				for (int i = y0 - y - gd; i < y0 - y; i++) //sum from y0 - y - gd to y0 - y - 1
-					s1 += img->at<unsigned char>(i, x0 + x);
-			}
-			if (s - s1 >= th) { //one (x0, y0) pass is ok
-				pass = true;
-				y0 = yo + 1;
-				break;
-			}
-		}
-		if (!pass)
-			return false;
-		pass = false;
-		for (int y0 = yo - 1; y0 <= yo + 1; y0++)
-		for (int x0 = xo - 1; x0 <= xo + 1; x0++) { //check if down side can pass 
-			int s = 0, s1 = 0;
-			for (int x = xc; x < xc + r; x++) {
-				int y = dx[abs(x)];
-				for (int i = y0 + y - gd + 1; i <= y0 + y; i++) //sum from y0 + y -gd + 1 to y0+y
-					s += img->at<unsigned char>(i, x0 + x);
-				for (int i = y0 + y + 1; i <= y0 + y + gd; i++) //sum from y0 +y+1 to y0 +y+gd
-					s1 += img->at<unsigned char>(i, x0 + x);
-			}
-			if (s - s1 >= th) { //one (x0, y0) pass is ok
-				pass = true;
-				y0 = yo + 1;
-				break;
-			}
-		}
-		if (!pass)
-			return false;
-	}
-	return true;
-}
-
-/*
-img is image
-xo, yo is via circle center
-r is via circle radius
-gd is pass number percent
-th is grad threshold
-offset0 contain point inside circle
-offset1 contain point outside circle
-*/
-static bool via_double_check2(Mat * img, int xo, int yo, int gd, int th, const vector<vector<int> > & offset0, const vector<vector<int> > & offset1) {
-	CV_Assert(img->type() == CV_8UC1 && offset0.size() == offset1.size());
-	for (int dir = 0; dir < 5; dir++) {
-		int x0 = xo, y0 = yo;
-		if (dir <= 3) {
-			x0 += dxy[dir][1];
-			y0 += dxy[dir][0];
-		}
-		unsigned char * p0 = img->ptr<unsigned char>(y0, x0);
-		int pass_num = 0;
-		for (int i = 0; i < (int)offset0.size(); i++) {
-			int sum0 = 0, sum1 = 0;
-			for (int j = 0; j < (int)offset0[i].size(); j++)
-				sum0 += p0[offset0[i][j]];
-			for (int j = 0; j < (int)offset1[i].size(); j++)
-				sum1 += p0[offset1[i][j]];
-			if (sum0 * offset1[i].size() - sum1 * offset0[i].size() > th * offset0[i].size() * offset1[i].size())
-				pass_num++;
-
-			sum0 = 0, sum1 = 0;
-			for (int j = 0; j < (int)offset0[i].size(); j++)
-				sum0 += p0[-offset0[i][j]];
-			for (int j = 0; j < (int)offset1[i].size(); j++)
-				sum1 += p0[-offset1[i][j]];
-			if (sum0 * offset1[i].size() - sum1 * offset0[i].size() > th * offset0[i].size() * offset1[i].size())
-				pass_num++;
-		}
-		if (pass_num * 50 > offset0.size() * gd)
-			return true;
-	}
-	return false;
-}
-
-static void via_double_check_prepare_offset(Mat * img, int r0, int r1, vector<vector<int> > & offset0, vector<vector<int> > & offset1) {
-	CV_Assert(img->type() == CV_8UC1);
-	offset0.clear();
-	offset1.clear();
-	if (r0 < 2)
-		return;
-	int r02_2 = (r0 - 2) * (r0 - 2);
-	int r0_2 = r0 * r0;
-	int r01_2 = (r0 + 1)* (r0 + 1);
-	int r1_2 = r1 * r1;
-	for (int area = 0; area < 4; area++) {
-		for (int i = 0; i < r1; i++) {
-			Point p1, p2;
-			int y1, y2, x1, x2;
-			switch (area) {
-			case 0:
-				p1 = Point(r1, i);
-				p2 = Point(r1 - i, r1);
-				y1 = 0;
-				y2 = r1;
-				x1 = 0;
-				x2 = r1;
-				break;
-			case 1:
-				p1 = Point(r1 - i, r1);
-				p2 = Point(-i, r1);
-				y1 = 0;
-				y2 = r1;
-				x1 = -r1;
-				x2 = r1;
-				break;
-			case 2:
-				p1 = Point(-i, r1);
-				p2 = Point(-r1, r1 - i);
-				y1 = 0;
-				y2 = r1;
-				x1 = -r1;
-				x2 = 0;
-				break;
-			case 3:
-				p1 = Point(-r1, r1 - i);
-				p2 = Point(-r1, -i);
-				y1 = -r1;
-				y2 = r1;
-				x1 = -r1;
-				x2 = 0;
-				break;
-			}
-			vector<Point> pts; //pts contain 45 degree point in [0.. r1] * [0..r1]
-			vector<int> a0, a1; //a0 contain 45 degree point inside circle, a1 contain 45 degree point outside circle
-			for (int y = y1; y <= y2; y++)
-			for (int x = x1; x <= x2; x++) {
-				Point pt(x, y);
-				if (pt.cross(p1) * pt.cross(p2) <= 0)
-					pts.push_back(pt);
-			}
-			for (int j = 0; j<(int)pts.size(); j++) {
-				int dis = pts[j].x * pts[j].x + pts[j].y * pts[j].y;
-				if (dis < r02_2 || dis > r1_2) //out of range pass
-					continue;
-				if (dis > r0_2 && dis < r01_2) //at the boundary
-					continue;
-				if (dis <= r0_2)
-					a0.push_back((pts[j].y * (int)img->step.p[0] + pts[j].x * (int)img->step.p[1]) / sizeof(char));
-				else
-					a1.push_back((pts[j].y * (int)img->step.p[0] + pts[j].x * (int)img->step.p[1]) / sizeof(char));
-			}
-			offset0.push_back(a0);
-			offset1.push_back(a1);
-		}
-	}
-}
-
+#define SEPERATE_NOT_SEARCH 10000000
 /*
 Input img
 Input o, vertex for up, down, left, right
-Input r, compute cost rect
+Input dir,search rect
 Input right_dir, right dir=1, left dir=-1
-Output c, cost
+Output c, grid cost, cost bit 0 means x or y direction, cost 31..1 means cost
 */
-static void seperate(Mat * img, Point o, Rect r, int right_dir, int grad_th, Mat & c) {
+static void seperate(Mat * img, Point o, int dir, int right_dir, int grad_th, Mat & c) {
 	CV_Assert(c.type() == CV_32SC1);
 	int dy, dx, yend, xend, yi, xi;
-	if (o == r.tl()) {
+	Point tl;
+	if (dir == DIR_DOWNRIGHT) {
 		dy = 1;  //dx, dy is scan direction
 		dx = 1;  
-		yend = r.br().y; //yend, xend is scan end
-		xend = r.br().x;
+		tl = o;
+		yend = o.y + c.rows - 1; //yend, xend is scan end
+		xend = o.x + c.cols - 1;
 		yi = -1;  //yi, xi is image offset to scan
 		xi = -1;
 	} else
-	if (o == r.br()) {
+	if (dir == DIR_UPLEFT) {
 		dy = -1;
 		dx = -1;
-		yend = r.tl().y;
-		xend = r.tl().x;
+		tl = Point(o.x - c.cols + 1, o.y - c.rows + 1);
+		yend = tl.y;
+		xend = tl.x;
 		yi = 0;
 		xi = 0;
 	} else
-	if (o.x == r.x) { //bl
+	if (dir == DIR_UPRIGHT) { //bl
 		dy = -1;
 		dx = 1;
-		yend = r.tl().y;
-		xend = r.br().x;
+		tl = Point(o.x, o.y - c.rows + 1);
+		yend = tl.y;
+		xend = o.x + c.cols - 1;
 		yi = 0;
 		xi = -1;
 	} else
-	if (o.y == r.y) { //tr
+	if (dir == DIR_DOWNLEFT) { //tr
 		dy = 1;
 		dx = -1;
-		yend = r.br().y;
-		xend = r.tl().x;
+		tl = Point(o.x - c.cols + 1, o.y);
+		yend = o.y + c.rows - 1;
+		xend = tl.x;
 		yi = -1;
 		xi = 0;
 	}
 	else
 		CV_Assert(0);
-	Point tl = r.tl();
-	for (int y = o.y; y != yend; y += dy) {
-		int prev_cost = 0;
-		for (int x = o.x + dx; x != xend; x += dx) {
-			int * pc = c.ptr<int>(y - tl.y, x - tl.x);
-			if (pc[0] >= 10000000)
+	for (int y = o.y; y != yend + dy; y += dy) { //scan grid, img[y,x] surround by grid[y,x], grid[y,x+1],grid[y+1,x+1],grid[y+1,x]
+		for (int x = o.x; x != xend + dx; x += dx) {  //yend - tl.y =c.rows -1 or 0, xend - tl.x =c.cols -1 or 0
+			int * pc = c.ptr<int>(y - tl.y, x - tl.x); //start to compute c[y - tl.y, x - tl.x]
+			if (pc[0] >= SEPERATE_NOT_SEARCH)
 				continue;
 			int x_score, y_score;
 			int a = img->at<unsigned char>(y + yi, x + xi);
 			if (y != o.y) {
-				y_score = c.at<int>(y - tl.y - dy, x - tl.x);				
+				y_score = c.at<int>(y - tl.y - dy, x - tl.x) / 2; //c[y - tl.y - dy, x - tl.x] already computed
+				CV_Assert(y_score >= 0);
 				int ay = img->at<unsigned char>(y + yi, x + xi + dx);
 				int grad = (a - ay) * right_dir;
 				if (grad < 0)
@@ -3537,33 +3333,481 @@ static void seperate(Mat * img, Point o, Rect r, int right_dir, int grad_th, Mat
 				
 			}
 			else
-				y_score = 10000000;
-			x_score = c.at<int>(y - tl.y, x - tl.x - dx);
-			int ax = img->at<unsigned char>(y + yi + dy, x + xi);
-			int grad = (a - ax) * right_dir;
-			if (grad < 0)
-				x_score += grad_th - grad * 2;
+				y_score = SEPERATE_NOT_SEARCH; //let c.at<int>(o.y - tl.y, o.x - tl.x) = 0;
+			if (x != o.x) {
+				x_score = c.at<int>(y - tl.y, x - tl.x - dx) / 2; // //c[y - tl.y, x - tl.x - dx] already computed
+				CV_Assert(x_score >= 0);
+				int ax = img->at<unsigned char>(y + yi + dy, x + xi);
+				int grad = (ax - a) * right_dir;
+				if (grad < 0)
+					x_score += grad_th - grad * 2;
+				else
+					x_score += max(grad_th - grad, 0);
+			}
 			else
-				x_score += max(grad_th - grad, 0);
-			pc[0] = min(x_score, y_score);
+				x_score = (y==o.y) ? 0 : SEPERATE_NOT_SEARCH;
+			if (x_score < y_score)
+				pc[0] = 2 * x_score;
+			else
+				pc[0] = 2 * y_score + 1;
 		}
 	}
+#if 1
+	for (int y = 0; y < c.rows; y++) {
+		char sh[200];
+		int j = 0;
+		for (int x = 0; x < c.cols; x++) {
+			int cc = c.at<int>(y, x);
+			if (cc >= SEPERATE_NOT_SEARCH)
+				cc = -1;
+			j += sprintf(&sh[j], "%3d,", cc);
+		}
+		sh[j] = 0;
+		qWarning(sh);
+	}
+	qWarning("**********************************");
+#endif
 }
 
-static void via_double_check_prepare_offset(Mat * img, int xo, int yo, int r0, int r1, int th, Mat & c1, Mat & c2) {
-	c1.create(2 * r1 + 2, 2 * r1 + 2, CV_32SC1); //in img[xo-r1, yo-r1] [xo+r1, yo+r1]
-	c2.create(2 * r1 + 2, 2 * r1 + 2, CV_32SC1);
-	c1 = 0;
-	c2 = 0;
-	for (int y = r1 - r0 + 1; y <= r1 + r0; y++) {
-		c1.at<int>(y, r1 + 1) = 10000000;
-		c2.at<int>(y, r1 + 1) = 10000000;
+//find seperate path
+static void seperate_backward(Point src, Point tgt, Mat c, vector<Point> * vs)
+{
+	int dx, dy;
+	dx = (src.x > tgt.x) ? 1 : -1;
+	dy = (src.y > tgt.y) ? 1 : -1;
+	Point o = tgt;
+	while (o != src) {
+		vs->push_back(o);
+		int dir = c.at<int>(o); //c bit 0 is dir
+		CV_Assert(dir < SEPERATE_NOT_SEARCH);
+		if (dir & 1)
+			o.y += dy;
+		else 
+			o.x += dx;		
 	}
-	for (int x = r1 - r0 + 2; x < r1 + r0; x++) {
-		c1.at<int>(r1 + 1, x) = 10000000;
-		c2.at<int>(r1, x) = 10000000;
+}
+/*
+  Fill Mat c with val around center o radius r
+*/
+static void fill_center(Mat & c, Point o, int r, int val)
+{
+	CV_Assert(c.type() == CV_32SC1);
+	for (int y = max(o.y - r, 0); y <= min(o.y + r, c.rows - 1); y++)
+	for (int x = max(o.x - r + abs(y - o.y), 0); x <= min(o.x + r - abs(y - o.y), c.cols - 1); x++)
+		c.at<int>(y, x) = val;
+}
+
+/*
+Input img
+Input xo, yo, fine_search center
+Input r0, actual via radius, via diameter is 2*r0 or 2*r0+1
+Input r1, search range
+Input th, grad th, bigger than th is score 0
+Input th2, check th
+*/
+static bool via_double_check3(Mat * img, int xo, int yo, int r0, int r1, int th, int th2, vector<Point> * vs)
+{
+	Point o(xo, yo);
+	Mat c1, c2;
+	c1.create(2 * r1 + 1, 2 * r1 + 1, CV_32SC1); //in img[o.x-r1, o.y-r1] [o.x+r1, o.y+r1]
+	c2.create(2 * r1 + 1, 2 * r1 + 1, CV_32SC1); //c1(r1,r1) is img(o)
+	//fill 1st round not-search area, center and 4 corner is not search
+	fill_center(c1, Point(r1, r1), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c1, Point(0, 0), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c1, Point(0, 2 * r1), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c1, Point(2 * r1, 0), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c1, Point(2 * r1, 2 * r1), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(r1, r1), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(0, 0), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(0, 2 * r1), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(2 * r1, 0), 2, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(2 * r1, 2 * r1), 2, SEPERATE_NOT_SEARCH);
+
+	//do 1st round curve seperate
+	seperate(img, o - Point(0, r1), DIR_DOWNRIGHT, 1, th, c1(Rect(r1, 0, r1 + 1, r1 + 2)));
+	CV_Assert(c1.at<int>(0, r1) == 0);
+	seperate(img, o - Point(0, r1), DIR_DOWNLEFT, 1, th, c1(Rect(0, 0, r1 + 1, r1 + 2)));
+	CV_Assert(c1.at<int>(0, r1) == 0);
+	seperate(img, o + Point(0, r1), DIR_UPRIGHT, 1, th, c2(Rect(r1, r1 - 1, r1 + 1, r1 + 2))); //tl = Point(o.x, o.y+r1-r1-1)
+	CV_Assert(c2.at<int>(2 * r1, r1) == 0);
+	seperate(img, o + Point(0, r1), DIR_UPLEFT, 1, th, c2(Rect(0, r1 - 1, r1 + 1, r1 + 2))); //tl = Point(o.x-r1, o.y+r1-r1-1)
+	CV_Assert(c2.at<int>(2 * r1, r1) == 0);
+
+	//search best diameter
+	int best = SEPERATE_NOT_SEARCH;
+	Point d0, d1; //d0 and d1 Mat c zuobian
+	for (int y = r1 - 1; y <= r1 + 1; y++)
+	for (int x = 0; x < r1 - 2; x++) {
+		if (x + 2 * r0 + 1 > 2 * r1)
+			break;
+		int a1 = c1.at<int>(y, x) + c2.at<int>(y,x);
+		int a2 = c1.at<int>(y, x + 2 * r0) + c2.at<int>(y, x + 2 * r0);
+		if (a1 + a2 < best) {
+			best = a1 + a2;
+			d0 = Point(x, y);
+			d1 = Point(x + 2 * r0, y);
+		}
+		a2 = c1.at<int>(y, x + 2 * r0 + 1) + c2.at<int>(y, x + 2 * r0 + 1);
+		if (a1 + a2 < best) {
+			best = a1 + a2;
+			d0 = Point(x, y);
+			d1 = Point(x + 2 * r0 + 1, y);
+		}
 	}
-	//seperate(img, Point(xo, yo - r1), Rect(Point(xo, yo - r1), Point(xo + r1 + 1, yo + 1)), 1, th, c1);
+
+	//fill 2nd round not-search area, center and 4 corner is not search
+	Point oo = d0 + d1;
+	oo.x = oo.x / 2;
+	oo.y = oo.y / 2;
+	fill_center(c1, oo, r0 - 2, 10000000);
+	fill_center(c1, Point(d0.x, d0.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
+	fill_center(c1, Point(d0.x, d0.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
+	fill_center(c1, Point(d1.x, d1.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
+	fill_center(c1, Point(d1.x, d1.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
+	fill_center(c2, oo, r0 - 2, 10000000);
+	fill_center(c2, Point(d0.x, d0.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(d0.x, d0.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(d1.x, d1.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
+	fill_center(c2, Point(d1.x, d1.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
+
+	//do 2nd round curve seperate
+	seperate(img, o - Point(r1, r1) + d0, DIR_DOWNRIGHT, -1, th, c1(Rect(d0.x, d0.y, r0 + 2, r0 + 2)));
+	CV_Assert(c1.at<int>(d0) == 0);
+	seperate(img, o - Point(r1, r1) + d0, DIR_UPRIGHT, -1, th, c1(Rect(d0.x, d0.y - r0 - 1, r0 + 2, r0 + 2)));
+	CV_Assert(c1.at<int>(d0) == 0);
+	seperate(img, o - Point(r1, r1) + d1, DIR_DOWNLEFT, -1, th, c2(Rect(d1.x - r0 - 1, d1.y, r0 + 2, r0 + 2)));
+	CV_Assert(c2.at<int>(d1) == 0);
+	seperate(img, o - Point(r1, r1) + d1, DIR_UPLEFT, -1, th, c2(Rect(d1.x - r0 - 1, d1.y - r0 - 1, r0 + 2, r0 + 2)));
+	CV_Assert(c2.at<int>(d1) == 0);
+
+	//search best diameter
+	best = SEPERATE_NOT_SEARCH;
+	int best_u, best_d, best_l, best_r;
+	Point d2, d3;
+	for (int x = d1.x - r0 - 1; x <= d0.x + r0 + 1; x++)
+	for (int y = d0.y - r0 - 1; y <= d0.y -r0 + 1; y++)
+	{		
+		int a1 = c1.at<int>(y, x) + c2.at<int>(y,x);
+		int a2 = c1.at<int>(y + 2 * r0, x) + c2.at<int>(y + 2 * r0, x);
+		if (a1 + a2 < best) {
+			best = a1 + a2;
+			best_u = a1 / 2;
+			best_d = a2 / 2;
+			best_l = (c1.at<int>(y, x) + c1.at<int>(y + 2 * r0, x)) / 2;
+			best_r = (c2.at<int>(y, x) + c2.at<int>(y + 2 * r0, x)) / 2;
+			d2 = Point(x, y);
+			d3 = Point(x, y + 2 * r0);
+		}
+		if (y + 2 * r0 + 1 > d0.y + r0 + 1)
+			break;
+		a2 = c1.at<int>(y + 2 * r0 + 1, x) + c2.at<int>(y + 2 * r0 + 1, x);
+		if (a1 + a2 < best) {
+			best = a1 + a2;
+			best_u = a1 / 2;
+			best_d = a2 / 2;
+			best_l = (c1.at<int>(y, x) + c1.at<int>(y + 2 * r0 + 1, x)) / 2;
+			best_r = (c2.at<int>(y, x) + c2.at<int>(y + 2 * r0 + 1, x)) / 2;
+			d2 = Point(x, y);
+			d3 = Point(x, y + 2 * r0 + 1);
+		}
+	}
+
+	if (vs != NULL) {
+		vs->clear();
+		seperate_backward(d0, d2, c1, vs);
+		seperate_backward(d0, d3, c1, vs);
+		seperate_backward(d1, d2, c2, vs);
+		seperate_backward(d1, d3, c2, vs);
+		for (int i = 0; i<vs->size(); i++)
+			vs[0][i] += o - Point(r1, r1);
+	}
+
+#if 1
+	qInfo("via double check (x=%d, y=%d), u=%d, d=%d, l=%d, r=%d", xo, yo, best_u, best_d, best_l, best_r);
+#endif
+	if (best_u > (2 * abs(d2.y - d0.y) + d1.x - d0.x) * (th - th2) ||
+		best_d > (2 * abs(d3.y - d0.y) + d1.x - d0.x) * (th - th2) ||
+		best_l > (2 * abs(d2.x - d0.x) + d3.y - d2.y) * (th - th2) ||
+		best_r > (2 * abs(d2.x - d1.x) + d3.y - d2.y) * (th - th2))
+		return false;
+	return true;
+}
+
+class CircleCheck {
+protected:
+	int d0, th, margin;
+	vector<vector<Point> > eo; //eo[i] is one edge, eo[i][0] is edge direction, eo[i][j] is edge point's offset to origin
+	vector<Vec8i> ei; //ei[i] is one octagon, ei[i][j] point to eo[k] index
+	float coef[8][8];
+
+	void init(int _d0, int _th) {
+		if (d0 != _d0) {
+			d0 = _d0;
+			margin = d0 + 1;
+			eo.clear();
+			ei.clear();
+			for (int d1 = d0 - 1; d1 <= d0 + 1; d1++) 
+			for (int d2 = d0 - 1; d2 <= d0 + 1; d2++) {
+				if (abs(d1 - d2) > 1)
+					continue;
+				float r1 = d1 * 0.5f;
+				float r2 = d2 * 0.5f;
+				vector<Point2f> e[8];
+				float minx = 10000, miny = 10000;
+				for (int i = 0; i < 8; i++) {
+					for (float beta = M_PI_4 * (i - 0.51); beta <= M_PI_4 * (i + 0.52); beta += 0.06) {
+						e[i].push_back(Point2f(r1 * cosf(beta), -r2 * sinf(beta)));
+						minx = min(minx, e[i].back().x);
+						miny = min(miny, e[i].back().y);
+					}
+				}
+				Point2f tl(minx, miny);				
+				for (int i = 0; i < 8; i++) {
+					vector<Point> new_eo;
+					switch (i) {
+					case 0:
+						new_eo.push_back(Point(DIR_RIGHT, -9));
+						break;
+					case 1:
+						new_eo.push_back(Point(DIR_UPRIGHT, -9));
+						break;
+					case 2:
+						new_eo.push_back(Point(DIR_UP, -9));
+						break;
+					case 3:
+						new_eo.push_back(Point(DIR_UPLEFT, -9));
+						break;
+					case 4:
+						new_eo.push_back(Point(DIR_LEFT, -9));
+						break;
+					case 5:
+						new_eo.push_back(Point(DIR_DOWNLEFT, -9));
+						break;
+					case 6:
+						new_eo.push_back(Point(DIR_DOWN, -9));
+						break;
+					case 7:
+						new_eo.push_back(Point(DIR_DOWNRIGHT, -9));
+						break;
+					}
+					for (int j = 0; j < (int)e[i].size(); j++) {
+						e[i][j] -= tl;
+						Point p(e[i][j].x + 0.5f, e[i][j].y + 0.5f);
+						CV_Assert(p.x <= margin && p.y <= margin);
+						if (new_eo.back() != p)
+							new_eo.push_back(p);
+					}
+					eo.push_back(new_eo);
+				}
+				int eo_end = (int)eo.size() - 1;
+				ei.push_back(Vec8i(eo_end - 7, eo_end - 6, eo_end - 5, eo_end - 4, eo_end - 3, eo_end - 2, eo_end - 1, eo_end));
+			}
+		}
+		if (th != _th) {
+			th = _th;
+			for (int i = 0; i < 8; i++)
+			for (int j = 0; j < 8; j++) {
+				if (i == j)
+					coef[i][j] = 1;
+				else {
+					int a = dxy[i][0] * dxy[j][0] + dxy[i][1] * dxy[j][1];
+					coef[i][j] = (a > 0) ? 0 : ((a == 0) ? -0.35 : -1);
+					coef[i][j] = coef[i][j] * th / 20;
+				}
+			}
+		}
+		
+	}
+
+public:
+	CircleCheck() {
+		d0 = 0;
+		th = -1;
+	}
+
+	Point check(const Mat * d, const Mat * s, int _d0, int _th, vector<Point> * vs) {
+		if (d0 != _d0 || th != _th)
+			init(_d0, _th);
+		
+		vector<float> es(eo.size()); //edge score
+		float max_score = 0;
+		int max_ei = -1;
+		Point max_o;
+		bool pass = false;
+		float thf = th / 100.0;
+		for (int y = 0; y < d->rows - margin; y++)
+		for (int x = 0; x < d->cols - margin; x++) {
+			Point o(x, y);
+			for (int i = 0; i < (int)eo.size(); i++) { //compute every edge
+				int exp_dir = eo[i][0].x;
+				es[i] = 0;
+				for (int j = 1; j < (int)eo[i].size(); j++) {
+					Vec2b dir = d->at<Vec2b>(o + eo[i][j]);
+					Vec2f score = s->at<Vec2f>(o + eo[i][j]);
+					CV_Assert(exp_dir < 8 && dir[0] < 8 && dir[1] < 8);
+					if (coef[exp_dir][dir[0]] != 0)
+						es[i] += coef[exp_dir][dir[0]] * score[0];
+					else {
+						if (coef[exp_dir][dir[1]] < 0)
+							es[i] += coef[exp_dir][dir[1]] * score[1];
+						else
+							es[i] += coef[exp_dir][dir[1]] * score[1] * 0.6;
+					}
+						
+				}
+				es[i] = es[i] / (eo[i].size() - 1); //-1 because eo[i][0] is for dir
+				if (exp_dir > 3)
+					es[i] = es[i] * 1.1;
+			}
+
+			for (int i = 0; i < (int)ei.size(); i++) {//check every octagon
+				int pass1 = 0, pass0 = 0;
+				float score = 0;
+				for (int j = 0; j < 8; j++) {
+					if (es[ei[i][j]] < 0) {
+						pass0 = 0;
+						break;
+					}
+					if (es[ei[i][j]] > thf)
+						pass1++;
+					if (es[ei[i][j]] > thf / 2)
+						pass0++;
+					score += es[ei[i][j]];
+				}
+				
+				if (pass) {
+					if (pass1 >= 7 && pass0 == 8 && score > max_score) {
+						max_score = score;
+						max_ei = i;
+						max_o = o;
+					}
+				}
+				else {
+					if (score > max_score) {
+						max_score = score;
+						max_ei = i;
+						max_o = o;
+					}
+					if (pass1 >= 7 && pass0 == 8) {
+						pass = true;
+						max_score = score;
+						max_ei = i;
+						max_o = o;
+					}					
+				}
+			}
+		}
+		if (vs != NULL) {
+			vs->clear();
+			for (int j = 0; j < 8; j++) {
+				int idx = ei[max_ei][j];
+				int exp_dir = eo[idx][0].x;
+				for (int k = 1; k < (int)eo[idx].size(); k++) {
+					Vec2b dir = d->at<Vec2b>(max_o + eo[idx][k]);
+					if (exp_dir == dir[0] || coef[exp_dir][dir[0]] == 0 && exp_dir == dir[1])
+						vs->push_back(max_o + eo[idx][k]);
+				}
+			}
+		}
+		if (pass)
+			return max_o + Point(d0 / 2, d0 / 2);
+		else
+			return Point(-1, -1);
+	}
+} circle_check;
+
+static Mat Horizon = (Mat_<char>(5, 5) << -1, -1, 0, 1, 1, -1, -2, 0, 2, 1, -2, -4, 0, 4, 2, -1, -2, 0, 2, 1, -1, -1, 0, 1, 1);
+static Mat Vert = (Mat_<char>(5, 5) << -1, -1, -2, -1, -1, -1, -2, -4, -2, -1, 0, 0, 0, 0, 0, 1, 2, 4, 2, 1, 1, 1, 2, 1, 1);
+static Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -1, -2, 0, -1, -2, -3, 0, 2, -1, -3, 0, 3, 1, -2, 0, 3, 2, 1, 0, 2, 1, 1, 0);
+static Mat Deg135 = (Mat_<char>(5, 5) << 0, 2, 1, 1, 0, -2, 0, 3, 2, 1, -1, -3, 0, 3, 1, -1, -2, -3, 0, 2, 0, -1, -1, -2, 0);
+
+static Point via_double_check4(Mat * img, int xo, int yo, int d0, int r1, int th, int th2, vector<Point> * vs)
+{
+	Mat_<Vec2b> d(r1 * 2 + 1, r1 * 2 + 1);
+	Mat_<Vec2f> s(r1 * 2 + 1, r1 * 2 + 1);
+	th = th * 16;
+
+	for (int y = yo - r1; y <= yo + r1; y++)
+	for (int x = xo - r1; x <= xo + r1; x++) {
+		int sv = 0, sh = 0, s45 = 0, s135 = 0;
+		for (int dy = -2; dy <= 2; dy++) {
+			const uchar * p_img = img->ptr<uchar>(y + dy, x);
+			const char * p_vert = Vert.ptr<char>(dy + 2, 2);
+			const char * p_hori = Horizon.ptr<char>(dy + 2, 2);
+			const char * p_deg45 = Deg45.ptr<char>(dy + 2, 2);
+			const char * p_deg135 = Deg135.ptr<char>(dy + 2, 2);
+			for (int dx = -2; dx <= 2; dx++) {
+				int t = p_img[dx];
+				sv += t * p_vert[dx];
+				sh += t * p_hori[dx];
+				s45 += t * p_deg45[dx];
+				s135 += t * p_deg135[dx];
+			}
+		}
+		int absv = abs(sv), absh = abs(sh);
+		int abs45 = abs(s45), abs135 = abs(s135);
+		float score0, score1; //score0 is bigest, score1 is 2nd big
+        int dir0, dir1; //d0 is best dir, d1 is 2nd
+		int dir = (sv > 0) ? DIR_UP : DIR_DOWN;		
+		score0 = absv;
+        dir0 = dir;
+		
+		dir = (sh > 0) ? DIR_LEFT : DIR_RIGHT;
+		if (absh > score0) {
+			score1 = score0;
+			score0 = absh;
+            dir1 = dir0;
+            dir0 = dir;
+		}
+		else {
+			score1 = absh;
+            dir1 = dir;
+		}
+		
+		dir = (s45 > 0) ? DIR_UPLEFT : DIR_DOWNRIGHT;
+		if (abs45 > score0) {
+			score1 = score0;
+			score0 = abs45;
+            dir1 = dir0;
+            dir0 = dir;
+		} 
+		else 
+		if (abs45 > score1) {
+			score1 = abs45;
+            dir1 = dir;
+		}
+
+		dir = (s135 > 0) ? DIR_DOWNLEFT : DIR_UPRIGHT;
+		if (abs135 > score0) {
+			score1 = score0;
+			score0 = abs135;
+            dir1 = dir0;
+            dir0 = dir;
+		}
+		else
+		if (abs135 > score1) {
+			score1 = abs135;
+            dir1 = dir;
+		}
+		if (score0 > 1.5 * score1) {
+            dir1 = dir0;
+			score1 = score0;
+		}
+		score0 = min(score0 / th, 1.0f);
+		score1 = min(score1 / th, 1.0f);
+		s(y - yo + r1, x - xo + r1) = Vec2f(score0, score1);
+        d(y - yo + r1, x - xo + r1) = Vec2b(dir0, dir1);
+	}
+
+	Point ret = circle_check.check(&d, &s, d0, th2, vs);
+	if (vs != NULL) {
+		for (int i = 0; i < (int)vs->size(); i++)
+			vs[0][i] += Point(xo - r1, yo - r1);
+	}
+	if (ret == Point(-1, -1))
+		return ret;
+	else
+		return ret + Point(xo - r1, yo - r1);
 }
 
 /*
@@ -3572,7 +3816,7 @@ external circle = gray1
 */
 class TwoCircleEECompute : public ViaComputeScore {
 protected:
-	int r, r1;
+	int r, r1, d0;
 	int gray, gray1;
 	int gd;
 	int th;
@@ -3593,16 +3837,16 @@ public:
 		lg = &(d->l[layer].lg);
 		llg = &(d->l[layer].llg);
 		img = &(d->l[layer].img);
-		r = vp.rd0;
-		r1 = vp.rd1;
+		r = vp.rd0 / 2;
+		r1 = vp.rd1 / 2;
+		d0 = vp.rd0;
 		gray = vp.gray0;
 		gray1 = vp.gray1;
 		gd = vp.cgray_d;
 		th = (gray - gray1) * vp.grad / 100;
-		via_double_check_prepare_offset(img, r - 1, r + 1, offset0, offset1);
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCircleEECompute r0=%d,r1=%d,g0=%d,g1=%d,gd=%d,grad=%d,th=%d, gamma=%f,osize=%d", 
-			r, r1, gray, gray1, gd, vp.grad, th, gamma, offset0.size());
+		qInfo("TwoCircleEECompute r0=%d,r1=%d,d0=%d,g0=%d,g1=%d,gd=%d,grad=%d,th=%d, gamma=%f,osize=%d", 
+			r, r1, d0, gray, gray1, gd, vp.grad, th, gamma, offset0.size());
 		if (r >= r1)
 			qCritical("invalid r0 and r1");
 		int n = compute_circle_dx(r, dx);
@@ -3639,8 +3883,20 @@ public:
 		return (score < MIN_SCORE) ? MIN_SCORE : score;
 	}
 
-	bool double_check(int x0, int y0) {
-		return via_double_check2(img, x0, y0, gd, th, offset0, offset1);
+	bool double_check(int & x0, int & y0) {
+		Point ret;
+#ifdef QT_DEBUG
+		ret = via_double_check4(img, x0, y0, d0, d0, th, gd, &vs);
+#else
+		ret = via_double_check4(img, x0, y0, d0, d0, th, gd, NULL);
+#endif
+		if (ret == Point(-1, -1))
+			return false;
+		else {
+			x0 = ret.x;
+			y0 = ret.y;
+			return true;
+		}
 	}
 };
 
@@ -3651,36 +3907,38 @@ external circle <= gray1
 class TwoCirclelBSCompute : public ViaComputeScore {
 protected:
 	TwoCircleEECompute tcc;
-	Mat lg, llg;
+	Mat img, lg, llg;
 
 public:
 	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
 		tcc.layer = _layer;
 		tcc.d = &_d;
-		Mat img, ig, iig;
-		img = _d.l[_layer].img.clone();
+		Mat img0, ig, iig;
+		img0 = _d.l[_layer].img.clone();
 		int m0 = min(vp.gray0, vp.gray1);
 		int m1 = max(vp.gray0, vp.gray1);
-		for (int y = 0; y < img.rows; y++) {
-			unsigned char * p_img = img.ptr<unsigned char>(y);
-			for (int x = 0; x < img.cols; x++)
+		for (int y = 0; y < img0.rows; y++) {
+			unsigned char * p_img = img0.ptr<unsigned char>(y);
+			for (int x = 0; x < img0.cols; x++)
 				p_img[x] = (p_img[x] < m0) ? m0 : ((p_img[x] > m1) ? m1 : p_img[x]);
 		}
 
-		integral_square(img, ig, iig, lg, llg, true);
+		integral_square(img0, ig, iig, lg, llg, true);
 		tcc.lg = &lg;
 		tcc.llg = &llg;
-		tcc.r = vp.rd0;
-		tcc.r1 = vp.rd1;
+		tcc.r = vp.rd0 / 2;
+		tcc.r1 = vp.rd1 / 2;
+		tcc.d0 = vp.rd0;
 		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
-		tcc.img = &_d.l[_layer].img;
 		tcc.gd = vp.cgray_d;
 		tcc.th = (tcc.gray - tcc.gray1) *vp.grad / 100;
-		via_double_check_prepare_offset(tcc.img, tcc.r - 1, tcc.r + 1, tcc.offset0, tcc.offset1);
+
+		img = _d.l[_layer].img;
+
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCirclelBSCompute r0=%d,r1=%d,g0=%d,g1=%d, grad=%d, th=%d,gamma=%f,osize=%d", 
-			tcc.r, tcc.r1, vp.gray0, vp.gray1, vp.grad, tcc.th, gamma, tcc.offset0.size());
+		qInfo("TwoCirclelBSCompute r0=%d,r1=%d,d0=%d,g0=%d,g1=%d, grad=%d, th=%d, th2=%d, gamma=%f,osize=%d", 
+			tcc.r, tcc.r1, tcc.d0, vp.gray0, vp.gray1, vp.grad, tcc.th, tcc.gd, gamma, tcc.offset0.size());
 		if (tcc.r >= tcc.r1)
 			qCritical("invalid r0 and r1");
 		if (vp.gray1 >= vp.gray0)
@@ -3699,8 +3957,21 @@ public:
 	unsigned compute(int x0, int y0) {
 		return tcc.compute(x0, y0);
 	}
-	bool double_check(int xo, int yo) {
-		return tcc.double_check(xo, yo);
+	bool double_check(int & x0, int & y0) {
+		Point ret;
+#ifdef QT_DEBUG
+		ret = via_double_check4(&img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, &vs);
+#else
+		ret = via_double_check4(&img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, NULL);
+#endif
+		if (ret == Point(-1, -1))
+			return false;
+		else {
+			x0 = ret.x;
+			y0 = ret.y;
+			return true;
+		}
+
 	}
 };
 
@@ -3732,9 +4003,9 @@ public:
 		lg = &(d->l[layer].lg);
 		llg = &(d->l[layer].llg);
 		img = &(d->l[layer].img);
-		r = vp.rd0;
-		r1 = vp.rd1;
-		r2 = vp.rd2;
+		r = vp.rd0 / 2;
+		r1 = vp.rd1 / 2;
+		r2 = vp.rd2 / 2;
 		gray = vp.gray0;
 		gray1 = vp.gray1;
 		gray2 = vp.gray2;
@@ -3796,7 +4067,7 @@ public:
 	}
 
 	bool double_check(int x0, int y0) {
-		return via_double_check(img, x0, y0, gd, th, dx1);
+		return true;
 	}
 };
 
@@ -3832,9 +4103,9 @@ public:
 		integral_square(img, ig, iig, lg, llg, true);
 		tcc.lg = &lg;
 		tcc.llg = &llg;
-		tcc.r = vp.rd0;
-		tcc.r1 = vp.rd1;
-		tcc.r2 = vp.rd2;
+		tcc.r = vp.rd0 / 2;
+		tcc.r1 = vp.rd1 / 2;
+		tcc.r2 = vp.rd2 / 2;
 		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
 		tcc.gray2 = vp.gray2;
@@ -3886,10 +4157,10 @@ public:
 		layer = _layer;
 		d = &_d;
 		d->l[layer].validate_ig();
-		r = vp.rd0;
-		r1 = vp.rd1;
-		r2 = vp.rd2;
-		r3 = vp.rd3;
+		r = vp.rd0 / 2;
+		r1 = vp.rd1 / 2;
+		r2 = vp.rd2 / 2;
+		r3 = vp.rd3 / 2;
 		gray = vp.gray0;
 		gray1 = vp.gray1;
 		gray2 = vp.gray2;
@@ -6048,6 +6319,9 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 	int v_guard[MAX_VIA_NUM];
 	int v_pair_d[MAX_VIA_NUM];
 	QScopedPointer<ViaComputeScore> vcs[MAX_VIA_NUM];
+	Mat debug_draw;
+	if (cpara.method & OPT_DEBUG_EN)
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
 
 	for (int i = 0; i < vnum; i++) {
 		ViaParameter via_para;
@@ -6069,7 +6343,7 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 			via_para.gray3 = glv[via_para.gray3];
 		qInfo("%d: fine_via_search type=%d, subtype=%d, pattern=%d, th=%d, g0=%d, g1=%d, g2=%d, g3=%d", i, v_type[i],
 			v_subtype[i], v_pattern[i], v_th[i], via_para.gray0, via_para.gray1, via_para.gray2, via_para.gray3);
-		if (via_para.rd1 >= d.l[layer].compute_border || via_para.rd0 >= d.l[layer].compute_border) {
+		if (via_para.rd1 / 2 >= d.l[layer].compute_border || via_para.rd0 / 2 + 5 >= d.l[layer].compute_border) {
 			qCritical("via_para rd (%d,%d) > compute_border(%d)", via_para.rd0, via_para.rd1, d.l[layer].compute_border);
 			return;
 		}
@@ -6125,7 +6399,18 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 				}
 			}
 			if (pass) {
-				if (!vcs[gi]->double_check(PROB_X(prob0), PROB_Y(prob0)))
+				int x0 = PROB_X(prob0), y0 = PROB_Y(prob0);
+				bool ret = vcs[gi]->double_check(x0, y0);
+				if (ret)
+					prob0 = MAKE_PROB(BRICK_VIA, x0, y0);
+				if (cpara.method & OPT_DEBUG_EN)
+				for (int i = 0; i < (int)vcs[gi]->vs.size(); i++)
+					debug_draw.at<Vec3b>(vcs[gi]->vs[i]) = Vec3b(0, 255, 0);
+				if (ret)
+					circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 1, Scalar(0, 0, 255), 1);
+				else
+					circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 1, Scalar(255, 0, 0), 1);
+				if (!ret)
 					continue;
 				unsigned long long score = prob0;
 				SET_PROB_TYPE(score, v_type[gi]);
@@ -6175,14 +6460,7 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 			}
 		}
 	}
-	Mat debug_draw;
-	if (cpara.method & OPT_DEBUG_EN)
-		debug_draw = img.clone();
-
-	for (int i = 0; i < (int)via_loc.size(); i++) {
-		if (cpara.method & OPT_DEBUG_EN)
-			circle(debug_draw, via_loc[i].xy, 2, Scalar::all(0), 2);
-	}
+	
 	if (cpara.method & OPT_DEBUG_EN) {
 		d.l[layer].check_prob();
 		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_via.jpg", debug_draw);

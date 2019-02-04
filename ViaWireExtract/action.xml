@@ -1384,7 +1384,7 @@
     <gray2>1</gray2>
     <gray3>0</gray3>
     <swide_min>5</swide_min>
-    <grad>25</grad></_>
+    <grad>20</grad></_>
   <_>
     <name>ViaInfo_2</name>
     <debug_opt>192</debug_opt>
