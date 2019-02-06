@@ -3243,13 +3243,20 @@ public:
 	vector<Point> vs;
 	static ViaComputeScore * create_via_compute_score(int _layer, ViaParameter &vp, PipeData &);
 
-	int compute_circle_dx(int r, vector<int> & dx)
+	int compute_circle_dx(int d, vector<Vec3i> & dxy)
 	{
-		dx.resize(r + 1);
+		float r0 = d * 0.5;
+		int r = d / 2;
+		dxy.clear();
 		int n = 0;
-		for (int i = 0; i <= r; i++) {
-			dx[i] = sqrt(r * r - i * i);
-			n += (i == 0) ? dx[i] * 2 + 1 : dx[i] * 4 + 2;
+		for (int y = -r; y <= r; y++) {
+			float x1 = sqrt(r0 * r0 - y * y);
+			float x2 = -x1;
+			if (d % 2 == 0)
+				dxy.push_back(Vec3i(y, x1 + 0.5, x2 - 0.5));
+			else
+				dxy.push_back(Vec3i(y, x1 + 1, x2));
+			n += dxy.back()[1] - dxy.back()[2] + 1;
 		}
 		return n;
 	}
@@ -3537,15 +3544,17 @@ class CircleCheck {
 protected:
 	int d0, th, margin;
 	vector<vector<Point> > eo; //eo[i] is one edge, eo[i][0] is edge direction, eo[i][j] is edge point's offset to origin
-	vector<Vec8i> ei; //ei[i] is one octagon, ei[i][j] point to eo[k] index
-	float coef[8][8];
+	vector<vector<int> > eshift; //eshift is eo's shift, use shift to optimize speed
+	vector<Vec8i> ei; //ei[i] is one octagon, ei[i][j] point to eo or eshift index
+	float coef[8][8]; //index is dir, encourage if dir is same, punish if dir is opposite or orthogonality, 0 if dir is compatible
 
-	void init(int _d0, int _th) {
+	void init(int _d0, int _th, const Mat * d, const Mat * s) {
 		if (d0 != _d0) {
 			d0 = _d0;
 			margin = d0 + 1;
 			eo.clear();
 			ei.clear();
+			eshift.clear();
 			for (int d1 = d0 - 1; d1 <= d0 + 1; d1++) 
 			for (int d2 = d0 - 1; d2 <= d0 + 1; d2++) {
 				if (abs(d1 - d2) > 1)
@@ -3561,9 +3570,11 @@ protected:
 						miny = min(miny, e[i].back().y);
 					}
 				}
-				Point2f tl(minx, miny);				
+				Point2f tl(minx, miny);	
+				Vec8i eo_idx;
 				for (int i = 0; i < 8; i++) {
 					vector<Point> new_eo;
+					vector<int> new_eshift;
 					switch (i) {
 					case 0:
 						new_eo.push_back(Point(DIR_RIGHT, -9));
@@ -3590,17 +3601,32 @@ protected:
 						new_eo.push_back(Point(DIR_DOWNRIGHT, -9));
 						break;
 					}
+					new_eshift.push_back(new_eo[0].x);
 					for (int j = 0; j < (int)e[i].size(); j++) {
 						e[i][j] -= tl;
 						Point p(e[i][j].x + 0.5f, e[i][j].y + 0.5f);
 						CV_Assert(p.x <= margin && p.y <= margin);
-						if (new_eo.back() != p)
+						if (new_eo.back() != p) { //new edge point
 							new_eo.push_back(p);
+							CV_Assert((p.y * (int)d->step.p[0] + p.x * (int)d->step.p[1]) / sizeof(Vec2b) ==
+								(p.y * (int)s->step.p[0] + p.x * (int)s->step.p[1]) / sizeof(Vec2f));
+							new_eshift.push_back((p.y * (int)s->step.p[0] + p.x * (int)s->step.p[1]) / sizeof(Vec2f));
+						}
 					}
-					eo.push_back(new_eo);
+					bool found_same = false;
+					for (int j = 0; j < (int) eo.size(); j++)
+					if (new_eo == eo[j]) {
+						found_same = true;
+						eo_idx[i] = j;
+						break;
+					}
+					if (!found_same) {
+						eo_idx[i] = (int) eo.size();
+						eo.push_back(new_eo);
+						eshift.push_back(new_eshift);
+					}
 				}
-				int eo_end = (int)eo.size() - 1;
-				ei.push_back(Vec8i(eo_end - 7, eo_end - 6, eo_end - 5, eo_end - 4, eo_end - 3, eo_end - 2, eo_end - 1, eo_end));
+				ei.push_back(eo_idx);
 			}
 		}
 		if (th != _th) {
@@ -3608,15 +3634,14 @@ protected:
 			for (int i = 0; i < 8; i++)
 			for (int j = 0; j < 8; j++) {
 				if (i == j)
-					coef[i][j] = 1;
+					coef[i][j] = 1; //same dir
 				else {
 					int a = dxy[i][0] * dxy[j][0] + dxy[i][1] * dxy[j][1];
-					coef[i][j] = (a > 0) ? 0 : ((a == 0) ? -0.35 : -1);
-					coef[i][j] = coef[i][j] * th / 20;
+					coef[i][j] = (a > 0) ? 0 : ((a == 0) ? -0.35 : -1); //a=0, means orthogonality, a<0 means opposite
+					coef[i][j] = coef[i][j] * th / 20; //add more punish when th go higher
 				}
 			}
-		}
-		
+		}		
 	}
 
 public:
@@ -3627,27 +3652,29 @@ public:
 
 	Point check(const Mat * d, const Mat * s, int _d0, int _th, vector<Point> * vs) {
 		if (d0 != _d0 || th != _th)
-			init(_d0, _th);
+			init(_d0, _th, d, s);
 		
 		vector<float> es(eo.size()); //edge score
-		float max_score = 0;
-		int max_ei = -1;
-		Point max_o;
-		bool pass = false;
+		float max_score = 0; //best score
+		int max_ei = -1; //best octagon shape
+		Point max_o; //best location
+		bool pass = false; //pass=true means at least one octagon satisfy
 		float thf = th / 100.0;
 		for (int y = 0; y < d->rows - margin; y++)
 		for (int x = 0; x < d->cols - margin; x++) {
 			Point o(x, y);
+			const Vec2b * pd = d->ptr<Vec2b>(o.y, o.x);
+			const Vec2f * ps = s->ptr<Vec2f>(o.y, o.x);
 			for (int i = 0; i < (int)eo.size(); i++) { //compute every edge
 				int exp_dir = eo[i][0].x;
 				es[i] = 0;
 				for (int j = 1; j < (int)eo[i].size(); j++) {
-					Vec2b dir = d->at<Vec2b>(o + eo[i][j]);
-					Vec2f score = s->at<Vec2f>(o + eo[i][j]);
+					Vec2b dir = pd[eshift[i][j]];
+					Vec2f score = ps[eshift[i][j]];
 					CV_Assert(exp_dir < 8 && dir[0] < 8 && dir[1] < 8);
 					if (coef[exp_dir][dir[0]] != 0)
 						es[i] += coef[exp_dir][dir[0]] * score[0];
-					else {
+					else { //main dir is compatible with exp_dir, check 2nd dir
 						if (coef[exp_dir][dir[1]] < 0)
 							es[i] += coef[exp_dir][dir[1]] * score[1];
 						else
@@ -3657,11 +3684,11 @@ public:
 				}
 				es[i] = es[i] / (eo[i].size() - 1); //-1 because eo[i][0] is for dir
 				if (exp_dir > 3)
-					es[i] = es[i] * 1.1;
+					es[i] = es[i] * 1.1; //increase 45, 135 degree
 			}
 
 			for (int i = 0; i < (int)ei.size(); i++) {//check every octagon
-				int pass1 = 0, pass0 = 0;
+				int pass1 = 0, pass0 = 0; //pass1 means thf pass number, pass0 means half thf pass number
 				float score = 0;
 				for (int j = 0; j < 8; j++) {
 					if (es[ei[i][j]] < 0) {
@@ -3696,6 +3723,13 @@ public:
 					}					
 				}
 			}
+
+			if (pass && abs(max_o.x + d0 / 2 - d->cols / 2) <= 1 && abs(max_o.y + d0 / 2 - d->rows / 2) <= 1 && 
+				y + d0 / 2 > d->rows / 2 + 1) { //Already pass, quit quickly to optimize speed
+				y = d->rows;
+				break;
+			}
+
 		}
 		if (vs != NULL) {
 			vs->clear();
@@ -3705,12 +3739,12 @@ public:
 				for (int k = 1; k < (int)eo[idx].size(); k++) {
 					Vec2b dir = d->at<Vec2b>(max_o + eo[idx][k]);
 					if (exp_dir == dir[0] || coef[exp_dir][dir[0]] == 0 && exp_dir == dir[1])
-						vs->push_back(max_o + eo[idx][k]);
+						vs->push_back(max_o + eo[idx][k]); //push border point
 				}
 			}
 		}
 		if (pass)
-			return max_o + Point(d0 / 2, d0 / 2);
+			return max_o + Point(d0 / 2 + 1, d0 / 2 + 1);
 		else
 			return Point(-1, -1);
 	}
@@ -3721,10 +3755,10 @@ static Mat Vert = (Mat_<char>(5, 5) << -1, -1, -2, -1, -1, -1, -2, -4, -2, -1, 0
 static Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -1, -2, 0, -1, -2, -3, 0, 2, -1, -3, 0, 3, 1, -2, 0, 3, 2, 1, 0, 2, 1, 1, 0);
 static Mat Deg135 = (Mat_<char>(5, 5) << 0, 2, 1, 1, 0, -2, 0, 3, 2, 1, -1, -3, 0, 3, 1, -1, -2, -3, 0, 2, 0, -1, -1, -2, 0);
 
-static Point via_double_check4(Mat * img, int xo, int yo, int d0, int r1, int th, int th2, vector<Point> * vs)
+static Point via_double_check(Mat * img, int xo, int yo, int d0, int r1, int th, int th2, vector<Point> * vs)
 {
-	Mat_<Vec2b> d(r1 * 2 + 1, r1 * 2 + 1);
-	Mat_<Vec2f> s(r1 * 2 + 1, r1 * 2 + 1);
+	Mat_<Vec2b> d(r1 * 2 + 1, r1 * 2 + 1); //vec0 means main dir, vec1 means 2nd dir
+	Mat_<Vec2f> s(r1 * 2 + 1, r1 * 2 + 1); //vec0 means main dir score, vec1 means 2nd dir score
 	th = th * 16;
 
 	for (int y = yo - r1; y <= yo + r1; y++)
@@ -3816,11 +3850,11 @@ external circle = gray1
 */
 class TwoCircleEECompute : public ViaComputeScore {
 protected:
-	int r, r1, d0;
+	int d0, d1;
 	int gray, gray1;
 	int gd;
 	int th;
-	vector<int> dx, dx1;
+	vector<Vec3i> dxy, dxy1;
 	vector<vector<int> > offset0, offset1;
 	float a, a1, b, b1;
 	int layer;
@@ -3837,20 +3871,19 @@ public:
 		lg = &(d->l[layer].lg);
 		llg = &(d->l[layer].llg);
 		img = &(d->l[layer].img);
-		r = vp.rd0 / 2;
-		r1 = vp.rd1 / 2;
 		d0 = vp.rd0;
+		d1 = vp.rd1;
 		gray = vp.gray0;
 		gray1 = vp.gray1;
-		gd = vp.cgray_d;
-		th = (gray - gray1) * vp.grad / 100;
+		gd = vp.grad;
+		th = (gray - gray1) * vp.cgray_d / 100;
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCircleEECompute r0=%d,r1=%d,d0=%d,g0=%d,g1=%d,gd=%d,grad=%d,th=%d, gamma=%f,osize=%d", 
-			r, r1, d0, gray, gray1, gd, vp.grad, th, gamma, offset0.size());
-		if (r >= r1)
-			qCritical("invalid r0 and r1");
-		int n = compute_circle_dx(r, dx);
-		int n1 = compute_circle_dx(r1, dx1);
+		qInfo("TwoCircleEECompute d0=%d,d1=%d, g0=%d,g1=%d, grad=%d, th=%d, gamma=%f,osize=%d", 
+			d0, d1, gray, gray1, vp.grad, th, gamma, offset0.size());
+		if (d0 >= d1)
+			qCritical("invalid d0 and d1");
+		int n = compute_circle_dx(d0, dxy);
+		int n1 = compute_circle_dx(d1, dxy1);
 		a = 1.0 / n;
 		a1 = 1.0 / (n1 - n);
 		b = (float)n / n1;
@@ -3862,15 +3895,19 @@ public:
 
 	unsigned compute(int x0, int y0) {
 		int s = 0, ss = 0, s1 = 0, ss1 = 0;
-		for (int y = -r; y <= r; y++) {
-			int x = dx[abs(y)];
-			s += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x); //sum from x0-x to x0+x
-			ss += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
+		for (int i = 0; i < (int) dxy.size(); i++) {
+			int y = dxy[i][0];
+			int x1 = dxy[i][1];
+			int x2 = dxy[i][2];
+			s += lg->at<int>(y + y0, x0 + x1 + 1) - lg->at<int>(y + y0, x0 + x2); //sum from x0-x to x0+x
+			ss += llg->at<int>(y + y0, x0 + x1 + 1) - llg->at<int>(y + y0, x0 + x2);
 		}
-		for (int y = -r1; y <= r1; y++) {
-			int x = dx1[abs(y)];
-			s1 += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x);
-			ss1 += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
+		for (int i = 0; i < (int) dxy1.size(); i++) {
+			int y = dxy1[i][0];
+			int x1 = dxy1[i][1];
+			int x2 = dxy1[i][2];
+			s1 += lg->at<int>(y + y0, x0 + x1 + 1) - lg->at<int>(y + y0, x0 + x2);
+			ss1 += llg->at<int>(y + y0, x0 + x1 + 1) - llg->at<int>(y + y0, x0 + x2);
 		}
 		float f[4];
 		f[0] = s;
@@ -3886,9 +3923,9 @@ public:
 	bool double_check(int & x0, int & y0) {
 		Point ret;
 #ifdef QT_DEBUG
-		ret = via_double_check4(img, x0, y0, d0, d0, th, gd, &vs);
+		ret = via_double_check(img, x0, y0, d0, d0, th, gd, &vs);
 #else
-		ret = via_double_check4(img, x0, y0, d0, d0, th, gd, NULL);
+		ret = via_double_check(img, x0, y0, d0, d0, th, gd, NULL);
 #endif
 		if (ret == Point(-1, -1))
 			return false;
@@ -3907,7 +3944,7 @@ external circle <= gray1
 class TwoCirclelBSCompute : public ViaComputeScore {
 protected:
 	TwoCircleEECompute tcc;
-	Mat img, lg, llg;
+	Mat lg, llg;
 
 public:
 	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
@@ -3926,25 +3963,23 @@ public:
 		integral_square(img0, ig, iig, lg, llg, true);
 		tcc.lg = &lg;
 		tcc.llg = &llg;
-		tcc.r = vp.rd0 / 2;
-		tcc.r1 = vp.rd1 / 2;
 		tcc.d0 = vp.rd0;
+		tcc.d1 = vp.rd1;
 		tcc.gray = vp.gray0;
 		tcc.gray1 = vp.gray1;
-		tcc.gd = vp.cgray_d;
-		tcc.th = (tcc.gray - tcc.gray1) *vp.grad / 100;
-
-		img = _d.l[_layer].img;
+		tcc.gd = vp.grad;
+		tcc.th = (tcc.gray - tcc.gray1) *vp.cgray_d / 100;
+		tcc.img = &(_d.l[_layer].img);
 
 		float gamma = vp.arfactor / 100.0;
-		qInfo("TwoCirclelBSCompute r0=%d,r1=%d,d0=%d,g0=%d,g1=%d, grad=%d, th=%d, th2=%d, gamma=%f,osize=%d", 
-			tcc.r, tcc.r1, tcc.d0, vp.gray0, vp.gray1, vp.grad, tcc.th, tcc.gd, gamma, tcc.offset0.size());
-		if (tcc.r >= tcc.r1)
+		qInfo("TwoCirclelBSCompute d0=%d,d1=%d, g0=%d,g1=%d, th=%d, th2=%d, gamma=%f,osize=%d", 
+			tcc.d0, tcc.d1, vp.gray0, vp.gray1, tcc.th, tcc.gd, gamma, tcc.offset0.size());
+		if (tcc.d0 >= tcc.d1)
 			qCritical("invalid r0 and r1");
 		if (vp.gray1 >= vp.gray0)
 			qCritical("invalid gray1 >= gray0");
-		int n = compute_circle_dx(tcc.r, tcc.dx);
-		int n1 = compute_circle_dx(tcc.r1, tcc.dx1);
+		int n = compute_circle_dx(tcc.d0, tcc.dxy);
+		int n1 = compute_circle_dx(tcc.d1, tcc.dxy1);
 		tcc.a = 1.0 / n;
 		tcc.a1 = 1.0 / (n1 - n);
 		tcc.b = (float)n / n1;
@@ -3960,9 +3995,9 @@ public:
 	bool double_check(int & x0, int & y0) {
 		Point ret;
 #ifdef QT_DEBUG
-		ret = via_double_check4(&img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, &vs);
+		ret = via_double_check(tcc.img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, &vs);
 #else
-		ret = via_double_check4(&img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, NULL);
+		ret = via_double_check(tcc.img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, NULL);
 #endif
 		if (ret == Point(-1, -1))
 			return false;
@@ -3975,268 +4010,6 @@ public:
 	}
 };
 
-/*
-It require internal circle =gray
-external circle = gray1
-most external circle = gray2
-*/
-class ThreeCircleEEECompute : public ViaComputeScore {
-protected:
-	int r, r1, r2;
-	int gray, gray1, gray2;
-	vector<int> dx, dx1, dx2;
-	float a, a1, a2, b, b1, b2;
-	int layer;
-	int gd;
-	int th;
-	PipeData * d;
-	Mat * lg;
-	Mat * llg;
-	Mat * img;
-
-public:
-	friend class ThreeCircleBSSCompute;
-	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
-		layer = _layer;
-		d = &_d;
-		d->l[layer].validate_ig();
-		lg = &(d->l[layer].lg);
-		llg = &(d->l[layer].llg);
-		img = &(d->l[layer].img);
-		r = vp.rd0 / 2;
-		r1 = vp.rd1 / 2;
-		r2 = vp.rd2 / 2;
-		gray = vp.gray0;
-		gray1 = vp.gray1;
-		gray2 = vp.gray2;
-		gd = vp.cgray_d;
-		th = gd * r1 * (gray1 - gray2) * vp.grad / 100;
-		float gamma = vp.arfactor / 100.0;
-		qInfo("ThreeCircleEEECompute r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d,grad=%d,th=%d,gamma=%f", 
-			r, r1, r2, gray, gray1, gray2, vp.grad, th, gamma);
-		if (r >= r1)
-			qCritical("invalid r0 and r1");
-		if (r1 >= r2)
-			qCritical("invalid r1 and r2");
-		int n = compute_circle_dx(r, dx);
-		int n1 = compute_circle_dx(r1, dx1);
-		int n2 = compute_circle_dx(r2, dx2);
-		a = 1.0 / n;
-		a1 = 1.0 / (n1 - n);
-		a2 = 1.0 / (n2 - n1);
-		b = (float)n / n2;
-		b1 = (float)(n1 - n) / n2;
-		b2 = (float)(n2 - n1) / n2;
-		float arf = pow(n2, 2 * gamma);
-		b = b * arf;
-		b1 = b1 * arf;
-		b2 = b2 * arf;
-	}
-
-	unsigned compute(int x0, int y0) {
-		int s = 0, ss = 0, s1 = 0, ss1 = 0, s2 = 0, ss2 = 0;
-		for (int y = -r; y <= r; y++) {
-			int x = dx[abs(y)];
-			s += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x);
-			ss += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
-		}
-		for (int y = -r1; y <= r1; y++) {
-			int x = dx1[abs(y)];
-			s1 += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x);
-			ss1 += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
-		}
-		for (int y = -r2; y <= r2; y++) {
-			int x = dx2[abs(y)];
-			s2 += lg->at<int>(y + y0, x + x0 + 1) - lg->at<int>(y + y0, x0 - x);
-			ss2 += llg->at<int>(y + y0, x + x0 + 1) - llg->at<int>(y + y0, x0 - x);
-		}
-		float f[6];
-		f[0] = s;
-		f[1] = ss;
-		f[2] = s1 - s;
-		f[3] = ss1 - ss;
-		f[4] = s2 - s1;
-		f[5] = ss2 - ss1;
-		CV_Assert(f[2] >= 0 && f[4] >= 0);
-		CV_Assert(f[1] + 1 >= f[0] * f[0] * a && f[3] + 1 >= f[2] * f[2] * a1 && f[5] + 1 >= f[4] * f[4] * a2);
-		unsigned score = sqrt(((f[1] - f[0] * 2 * gray) * a + gray*gray) * b +
-			((f[3] - f[2] * 2 * gray1) * a1 + gray1*gray1) * b1 +
-			((f[5] - f[4] * 2 * gray2) * a2 + gray2*gray2) * b2);
-		CV_Assert(score < 65536);
-		return (score < MIN_SCORE) ? MIN_SCORE : score;
-	}
-
-	bool double_check(int x0, int y0) {
-		return true;
-	}
-};
-
-/*
-It require internal circle <=gray
-external circle = gray1
-most external circle <= gray
-*/
-class ThreeCircleBSSCompute : public ViaComputeScore {
-protected:
-	ThreeCircleEEECompute tcc;
-	Mat lg, llg;
-
-public:
-	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
-		tcc.layer = _layer;
-		tcc.d = &_d;
-		Mat img, ig, iig;
-		img = _d.l[_layer].img.clone();
-		int m0 = min(min(vp.gray0, vp.gray1), vp.gray2), m1;
-		if (m0 == vp.gray0)
-			m1 = min(vp.gray1, vp.gray2);
-		if (m0 == vp.gray1)
-			m1 = min(vp.gray0, vp.gray2);
-		if (m0 == vp.gray2)
-			m1 = min(vp.gray0, vp.gray1);
-		int m2 = max(max(vp.gray0, vp.gray1), vp.gray2);
-		for (int y = 0; y < img.rows; y++) {
-			unsigned char * p_img = img.ptr<unsigned char>(y);
-			for (int x = 0; x < img.cols; x++)
-				p_img[x] = (p_img[x] < m0) ? m0 : ((p_img[x] < m1) ? m1 : ((p_img[x] > m2) ? m2 : p_img[x]));
-		}
-		integral_square(img, ig, iig, lg, llg, true);
-		tcc.lg = &lg;
-		tcc.llg = &llg;
-		tcc.r = vp.rd0 / 2;
-		tcc.r1 = vp.rd1 / 2;
-		tcc.r2 = vp.rd2 / 2;
-		tcc.gray = vp.gray0;
-		tcc.gray1 = vp.gray1;
-		tcc.gray2 = vp.gray2;
-		tcc.img = &_d.l[_layer].img;
-		tcc.gd = vp.cgray_d;
-		tcc.th = tcc.gd * tcc.r1 * (tcc.gray1 - tcc.gray2) * vp.grad / 100;
-		float gamma = vp.arfactor / 100.0;
-		qInfo("ThreeCirclePrepare r0=%d,r1=%d,r2=%d,g0=%d,g1=%d,g2=%d,grad=%d,th=%d,gamma=%f", 
-			tcc.r, tcc.r1, tcc.r2, vp.gray0, vp.gray1, vp.gray2, vp.grad, tcc.th, gamma);
-		if (tcc.r >= tcc.r1)
-			qCritical("invalid r0 and r1");
-		if (tcc.r1 >= tcc.r2)
-			qCritical("invalid r1 and r2");
-		int n = compute_circle_dx(tcc.r, tcc.dx);
-		int n1 = compute_circle_dx(tcc.r1, tcc.dx1);
-		int n2 = compute_circle_dx(tcc.r2, tcc.dx2);
-		tcc.a = 1.0 / n;
-		tcc.a1 = 1.0 / (n1 - n);
-		tcc.a2 = 1.0 / (n2 - n1);
-		tcc.b = (float)n / n2;
-		tcc.b1 = (float)(n1 - n) / n2;
-		tcc.b2 = (float)(n2 - n1) / n2;
-		float arf = pow(n2, 2 * gamma);
-		tcc.b = tcc.b * arf;
-		tcc.b1 = tcc.b1 * arf;
-		tcc.b2 = tcc.b2 * arf;
-	}
-
-	unsigned compute(int x0, int y0) {
-		return tcc.compute(x0, y0);
-	}
-
-	bool double_check(int x0, int y0) {
-		return tcc.double_check(x0, y0);
-	}
-};
-
-class FourCircleEEEECompute : public ViaComputeScore {
-protected:
-	int r, r1, r2, r3;
-	int gray, gray1, gray2, gray3;
-	vector<int> dx, dx1, dx2, dx3;
-	float a, a1, a2, a3, b, b1, b2, b3;
-	int layer;
-	PipeData * d;
-
-public:
-	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
-		layer = _layer;
-		d = &_d;
-		d->l[layer].validate_ig();
-		r = vp.rd0 / 2;
-		r1 = vp.rd1 / 2;
-		r2 = vp.rd2 / 2;
-		r3 = vp.rd3 / 2;
-		gray = vp.gray0;
-		gray1 = vp.gray1;
-		gray2 = vp.gray2;
-		gray3 = vp.gray3;
-		float gamma = vp.arfactor / 100.0;
-		qInfo("FourCirclePrepare r0=%d,r1=%d,r2=%d,r3=%d,g0=%d,g1=%d,g2=%d,g3=%d, gamma=%f", r, r1, r2, r3, gray, gray1, gray2, gray3, gamma);
-		int n = compute_circle_dx(r, dx);
-		int n1 = compute_circle_dx(r1, dx1);
-		int n2 = compute_circle_dx(r2, dx2);
-		int n3 = compute_circle_dx(r3, dx3);
-		if (r >= r1)
-			qCritical("invalid r0 and r1");
-		if (r1 >= r2)
-			qCritical("invalid r1 and r2");
-		if (r2 >= r3)
-			qCritical("invalid r2 and r3");
-		a = 1.0 / n;
-		a1 = 1.0 / (n1 - n);
-		a2 = 1.0 / (n2 - n1);
-		a3 = 1.0 / (n3 - n2);
-		b = (float)n / n3;
-		b1 = (float)(n1 - n) / n3;
-		b2 = (float)(n2 - n1) / n3;
-		b3 = (float)(n3 - n2) / n3;
-		float arf = pow(n3, 2 * gamma);
-		b = b * arf;
-		b1 = b1 * arf;
-		b2 = b2 * arf;
-		b3 = b3 * arf;
-	}
-
-	unsigned compute(int x0, int y0) {
-		const Mat & lg = d->l[layer].lg;
-		const Mat & llg = d->l[layer].llg;
-		int s = 0, ss = 0, s1 = 0, ss1 = 0;
-		int s2 = 0, ss2 = 0, s3 = 0, ss3 = 0;
-		for (int y = -r; y <= r; y++) {
-			int x = dx[abs(y)];
-			s += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
-			ss += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
-		}
-		for (int y = -r1; y <= r1; y++) {
-			int x = dx1[abs(y)];
-			s1 += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
-			ss1 += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
-		}
-		for (int y = -r2; y <= r2; y++) {
-			int x = dx2[abs(y)];
-			s2 += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
-			ss2 += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
-		}
-		for (int y = -r3; y <= r3; y++) {
-			int x = dx3[abs(y)];
-			s3 += lg.at<int>(y + y0, x + x0 + 1) - lg.at<int>(y + y0, x0 - x);
-			ss3 += llg.at<int>(y + y0, x + x0 + 1) - llg.at<int>(y + y0, x0 - x);
-		}
-		float f[8];
-		f[0] = s;
-		f[1] = ss;
-		f[2] = s1 - s;
-		f[3] = ss1 - ss;
-		f[4] = s2 - s1;
-		f[5] = ss2 - ss1;
-		f[6] = s3 - s2;
-		f[7] = ss3 - ss2;
-		CV_Assert(f[0] >= 0 && f[2] >= 0 && f[4] >= 0);
-		CV_Assert(f[1] + 1 >= f[0] * f[0] * a && f[3] + 1 >= f[2] * f[2] * a1 && f[5] + 1 >= f[4] * f[4] * a2 && f[7] + 1 >= f[6] * f[6] * a3);
-		unsigned score = sqrt(((f[1] - f[0] * 2 * gray) * a + gray*gray) * b +
-			((f[3] - f[2] * 2 * gray1) * a1 + gray1*gray1) * b1 +
-			((f[5] - f[4] * 2 * gray2) * a2 + gray2*gray2) * b2 +
-			((f[7] - f[6] * 2 * gray3) * a3 + gray3*gray3) * b3);
-		CV_Assert(score < 65536);
-		return (score < MIN_SCORE) ? MIN_SCORE : score;
-	}
-};
-
 ViaComputeScore * ViaComputeScore::create_via_compute_score(int _layer, ViaParameter &vp, PipeData & d)
 {
 	ViaComputeScore * vc = NULL;
@@ -4245,22 +4018,12 @@ ViaComputeScore * ViaComputeScore::create_via_compute_score(int _layer, ViaParam
 		vc = new TwoCircleEECompute();
 		vc->prepare(_layer, vp, d);
 		break;
-	case VIA_SUBTYPE_3CIRCLE:
-		vc = new ThreeCircleEEECompute();
-		vc->prepare(_layer, vp, d);
-		break;
-	case VIA_SUBTYPE_4CIRCLE:
-		vc = new FourCircleEEEECompute();
-		vc->prepare(_layer, vp, d);
-		break;
+
 	case VIA_SUBTYPE_2CIRCLEX:
 		vc = new TwoCirclelBSCompute();
 		vc->prepare(_layer, vp, d);
 		break;
-	case VIA_SUBTYPE_3CIRCLEX:
-		vc = new ThreeCircleBSSCompute();
-		vc->prepare(_layer, vp, d);
-		break;
+
 	default:
 		qCritical("ViaComputeScore create failed, subtype=%d", vp.subtype);
 		break;
@@ -6403,13 +6166,14 @@ static void fine_via_search(PipeData & d, ProcessParameter & cpara)
 				bool ret = vcs[gi]->double_check(x0, y0);
 				if (ret)
 					prob0 = MAKE_PROB(BRICK_VIA, x0, y0);
-				if (cpara.method & OPT_DEBUG_EN)
-				for (int i = 0; i < (int)vcs[gi]->vs.size(); i++)
-					debug_draw.at<Vec3b>(vcs[gi]->vs[i]) = Vec3b(0, 255, 0);
-				if (ret)
-					circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 1, Scalar(0, 0, 255), 1);
-				else
-					circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 1, Scalar(255, 0, 0), 1);
+				if (cpara.method & OPT_DEBUG_EN) {
+					for (int i = 0; i < (int)vcs[gi]->vs.size(); i++)
+						debug_draw.at<Vec3b>(vcs[gi]->vs[i]) = Vec3b(0, 255, 0);
+					if (ret)
+						circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 1, Scalar(0, 0, 255), 1);
+					else
+						circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 1, Scalar(255, 0, 0), 1);
+				}
 				if (!ret)
 					continue;
 				unsigned long long score = prob0;
@@ -6617,193 +6381,6 @@ struct WireMaskInfo {
 	int x1, y1, x2, y2, cx, cy;
 	int mask;
 };
-
-/*
-31..24 23..16   15..8   7..0
-opt0:		          clear_mask wnum
-opt1:	cwide	clong	 type	shape
-opt2:					extend	subtype
-opt3:	cwide	clong	 type	shape
-opt4:					extend	subtype
-opt5:	cwide	clong	 type	shape
-opt6:					extend	subtype
-cwide & clong is used for check connect
-For BRICK_I_0, cwide is small (1 or 2), clong need to be bigger than coarse_line_search inc
-method_opt
-0: for search mask output
-This function is called between coarse_line_search and fine_line_search
-*/
-static void hotpoint2fine_search_stmask(PipeData & d, ProcessParameter & cpara)
-{
-	int idx = cpara.method_opt & 0xf;
-	int wnum = cpara.opt0 & 0xff;
-	int layer = cpara.layer;
-
-	Mat & mask = d.l[layer].v[idx].d;
-	Mat & img = d.l[layer].img;
-	d.l[layer].v[idx].type = TYPE_FINE_WIRE_MASK;
-	int hotline_opt = cpara.opt0 >> 8 & 0xff;
-
-	if (hotline_opt & HOTLINE_CLEAR_MASK) {
-		mask.create(img.rows, img.cols, CV_32S);
-		mask = Scalar::all(0);
-	}
-	if (mask.rows != img.rows || mask.cols != img.cols) {
-		qCritical("hotpoint2fine_search_mask, mask.size(%d,%d)!=img.size(%d,%d)", mask.rows, mask.cols, img.rows, img.cols);
-		return;
-	}
-	qInfo("hotpoint2fine_search_mask, l=%d, wnum=%d, hotline_opt=%d", layer, wnum, hotline_opt);
-	if (wnum > 3) {
-		qCritical("hotpoint2fine_search_mask wrong wnum");
-		return;
-	}
-	struct WireMaskInfo wpara[] = {
-		{ cpara.opt1 & 0xffff, cpara.opt1 >> 16 & 0xff, cpara.opt1 >> 24 & 0xff, cpara.opt2 & 0xff, cpara.opt2 >> 8 & 0xff },
-		{ cpara.opt3 & 0xffff, cpara.opt3 >> 16 & 0xff, cpara.opt3 >> 24 & 0xff, cpara.opt4 & 0xff, cpara.opt4 >> 8 & 0xff },
-		{ cpara.opt5 & 0xffff, cpara.opt5 >> 16 & 0xff, cpara.opt5 >> 24 & 0xff, cpara.opt6 & 0xff, cpara.opt6 >> 8 & 0xff }
-	};
-
-	vector <WireMaskInfo> w[2];
-	for (int i = 0; i < wnum; i++) {
-		qInfo("w%d:type=%d, shape=%d, clong=%d, cwide=%d, subtype=%d, extend=%d", i, wpara[i].type_shape >> 8, wpara[i].type_shape & 0xff,
-			wpara[i].clong, wpara[i].cwide, wpara[i].subtype, wpara[i].extend);
-		switch (wpara[i].type_shape & 0xff) {
-		case  BRICK_I_0:
-			wpara[i].cx = wpara[i].cwide;
-			wpara[i].cy = wpara[i].clong;
-			wpara[i].x2 = (wpara[i].cwide - 1) / d.l[layer].gs + 1;
-			wpara[i].x1 = -wpara[i].x2;
-			wpara[i].y1 = 1;
-			wpara[i].y2 = (wpara[i].clong - 1) / d.l[layer].gs + 1;
-			wpara[i].mask = 1 << (wpara[i].type_shape >> 8);
-			w[0].push_back(wpara[i]);
-			break;
-		case BRICK_I_90:
-			wpara[i].cx = wpara[i].clong;
-			wpara[i].cy = wpara[i].cwide;
-			wpara[i].x1 = 1;
-			wpara[i].x2 = (wpara[i].clong - 1) / d.l[layer].gs + 1;
-			wpara[i].y2 = (wpara[i].cwide - 1) / d.l[layer].gs + 1;
-			wpara[i].y1 = -wpara[i].y2;
-			wpara[i].mask = 1 << (wpara[i].type_shape >> 8);
-			w[1].push_back(wpara[i]);
-			break;
-		default:
-			qCritical("Error wrong shape");
-			break;
-		}
-	}
-	Mat & prob = d.l[layer].prob;
-	Mat mark(prob.rows, prob.cols, CV_8UC1);
-	mark = Scalar::all(0);
-	for (int dir = 0; dir < 2; dir++)
-	if (dir == 0) {
-		if (w[dir].empty())
-			continue;
-		for (int y = 0; y < prob.rows; y++) {
-			unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
-			for (int x = 0; x < prob.cols; x++) {
-				int i;
-				for (i = 0; i < w[dir].size(); i++)
-				if (PROB_TYPESHAPE(p_prob[2 * x]) == w[dir][i].type_shape && (mark.at<unsigned char>(y, x) & 1) == 0
-					&& PROB_SCORE(p_prob[2 * x]) >= MIN_SCORE)
-					break;
-				if (i == w[dir].size())
-					continue;
-				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]); //find hotline begining
-				mark.at<unsigned char>(y, x) |= 1;
-				mark_line(mask, Point(x0, y0), Point(x0, max(0, y0 - w[dir][i].extend)), w[dir][i].mask);
-				bool check;
-				do {
-					int x1 = max(x0 / d.l[layer].gs + w[dir][i].x1, 0), x2 = min(x0 / d.l[layer].gs + w[dir][i].x2, prob.cols - 1);
-					int y1 = max(y0 / d.l[layer].gs + w[dir][i].y1, 0), y2 = min(y0 / d.l[layer].gs + w[dir][i].y2, prob.rows - 1);
-					check = false;
-					for (int yy = y1; yy <= y2; yy++) { //search bottom for hotline
-						unsigned long long * p_prob2 = prob.ptr<unsigned long long>(yy);
-						for (int xx = x1; xx <= x2; xx++)
-						if (PROB_TYPESHAPE(p_prob2[2 * xx]) == w[dir][i].type_shape) {
-							if (abs(PROB_X(p_prob2[2 * xx]) - x0) <= w[dir][i].cx &&
-								abs(PROB_Y(p_prob2[2 * xx]) - y0) <= w[dir][i].cy) {
-								if (mark.at<unsigned char>(yy, xx) & 1)
-									qWarning("hotpoint2fine_search_mask intersect dir=0 at (x=%d,y=%d) for (x0=%d,y0=%d), maybe cwide=%d too big",
-									PROB_X(p_prob2[2 * xx]), PROB_Y(p_prob2[2 * xx]), x0, y0, w[dir][i].cx);
-
-								mark.at<unsigned char>(yy, xx) |= 1;
-								check = true;
-								int nx0 = PROB_X(p_prob2[2 * xx]), ny0 = PROB_Y(p_prob2[2 * xx]);
-								mark_line(mask, Point(x0, y0), Point(nx0, ny0), w[dir][i].mask);
-								x0 = nx0, y0 = ny0;
-								xx = x2, yy = y2;
-							}
-						}
-					}
-				} while (check);
-				mark_line(mask, Point(x0, y0), Point(x0, min(mask.rows - 1, y0 + w[dir][i].extend)), w[dir][i].mask);
-			}
-		}
-	}
-	else {
-		if (w[dir].empty())
-			continue;
-		for (int x = 0; x < prob.cols; x++) {
-			for (int y = 0; y < prob.rows; y++) {
-				unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
-				int i;
-				for (i = 0; i < w[dir].size(); i++)
-				if (PROB_TYPESHAPE(p_prob[2 * x]) == w[dir][i].type_shape && (mark.at<unsigned char>(y, x) & 2) == 0
-					&& PROB_SCORE(p_prob[2 * x]) >= MIN_SCORE)
-					break;
-				if (i == w[dir].size())
-					continue;
-				int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]); //find hotline begining
-				mark.at<unsigned char>(y, x) |= 2;
-				mark_line(mask, Point(x0, y0), Point(max(0, x0 - w[dir][i].extend), y0), w[dir][i].mask);
-				bool check;
-				do {
-					int x1 = max(x0 / d.l[layer].gs + w[dir][i].x1, 0), x2 = min(x0 / d.l[layer].gs + w[dir][i].x2, prob.cols - 1);
-					int y1 = max(y0 / d.l[layer].gs + w[dir][i].y1, 0), y2 = min(y0 / d.l[layer].gs + w[dir][i].y2, prob.rows - 1);
-					check = false;
-					for (int xx = x1; xx <= x2; xx++)
-					for (int yy = y1; yy <= y2; yy++) {  //search right for hotline
-						unsigned long long * p_prob2 = prob.ptr<unsigned long long>(yy);
-						if (PROB_TYPESHAPE(p_prob2[2 * xx]) == w[dir][i].type_shape) {
-							if (abs(PROB_X(p_prob2[2 * xx]) - x0) <= w[dir][i].cx &&
-								abs(PROB_Y(p_prob2[2 * xx]) - y0) <= w[dir][i].cy) {
-								if (mark.at<unsigned char>(yy, xx) & 2) {
-									qWarning("hotpoint2fine_search_mask intersect at dir=1 (x=%d,y=%d) for (x0=%d,y0=%d), maybe cwide=%d too big",
-										PROB_X(p_prob2[2 * xx]), PROB_Y(p_prob2[2 * xx]), x0, y0, w[dir][i].cy);
-								}
-								mark.at<unsigned char>(yy, xx) |= 2;
-								check = true;
-								int nx0 = PROB_X(p_prob2[2 * xx]), ny0 = PROB_Y(p_prob2[2 * xx]);
-								mark_line(mask, Point(x0, y0), Point(nx0, ny0), w[dir][i].mask);
-								x0 = nx0, y0 = ny0;
-								xx = x2, yy = y2;
-							}
-						}
-					}
-				} while (check);
-				mark_line(mask, Point(x0, y0), Point(min(mask.cols - 1, x0 + w[dir][i].extend), y0), w[dir][i].mask);
-			}
-		}
-	}
-
-	if (cpara.method & OPT_DEBUG_EN) {
-		Mat debug_draw = img.clone();
-		for (int y = 0; y < mask.rows; y++) {
-			int * p_mask = mask.ptr<int>(y);
-			unsigned char * p_img = debug_draw.ptr<unsigned char>(y);
-			for (int x = 0; x < mask.cols; x++)
-			if (p_mask[x])
-				p_img[x] = 0xff;
-		}
-		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_hotline.jpg", debug_draw);
-		if (cpara.method & OPT_DEBUG_OUT_EN) {
-			int debug_idx = cpara.method >> 12 & 3;
-			d.l[layer].v[debug_idx + 12].d = debug_draw;
-		}
-	}
-}
 
 struct SkinPoint {
 	Point xy; //offset to branch
@@ -7658,7 +7235,6 @@ struct PipeProcess {
 	{ PP_COARSE_VIA_MASK, coarse_via_search_mask },
 	{ PP_FINE_VIA_SEARCH, fine_via_search },
 	{ PP_REMOVE_VIA, remove_via },
-	{ PP_FINE_SEARCH_MASK, hotpoint2fine_search_stmask },
 	{ PP_HOTPOINT_SEARCH, hotpoint_search },
 	{ PP_ASSEMBLE_VIA, assemble_via },
 	{ PP_ASSEMBLE_BRANCH, assemble_branch }
@@ -7739,12 +7315,18 @@ static ProcessTileData process_tile(const ProcessTileData & t)
 		t.d->l[0].img_pixel_x0 + t.d->l[0].raw_img.cols, t.d->l[0].img_pixel_y0 + t.d->l[0].raw_img.rows);
 	for (int i = 0; i < vwp.size(); i++) {
 		int method = vwp[i].method & 0xff;
-		if (process_func[method] == NULL && method != PP_OBJ_PROCESS) {
-			qCritical("process func method %d invalid", method);
-			return t;
+		try {			
+			if (process_func[method] == NULL && method != PP_OBJ_PROCESS) {
+				qCritical("process func method %d invalid", method);
+				return t;
+			}
+			if (process_func[method] != NULL)
+				process_func[method](d, vwp[i]);
 		}
-		if (process_func[method] != NULL)
-			process_func[method](d, vwp[i]);
+		catch (std::exception & e) {
+			qFatal("Error in process_tile  (x=%d,y=%d), method=%d,Exception %s.",
+				t.d->x0, t.d->y0, method, e.what());
+		}
 	}
 	return t;
 }
