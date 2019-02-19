@@ -13,13 +13,11 @@ void yyerror(const char *);
 	char * str;
 }
 
-%type <str> SUBCKT_Action ENDS_Action RLC_Device K_Device IV_Source GE_Source FH_Source X_Device
-%type <str> S_Device W_Device MODEL_Action Diode_Device Bipolar_Device JFET_Device MOSFET_Device
-%type <str> MESFET_Device End Digits Floats Function TC_Special OFF_Special ON_Special IC_Special
-%type <str> TEMP_Special MOS_Special V_Source L_Device Identifier MODEL_Spec Nodes Eol
-%type <str> InputList InputLine DefinitionLine Value Node PairList ExprList Expr ValueList
-%type <str> FH_Node MODEL_Ident DEVICE_List_1 IC_Condition_1 DEVICE_List_2 IC_Condition_2
-%type <str> IC_Condition_3 NodeList DEVICE_List_3 SWITCH_State MODEL_List Subcircuit BeginSub
+%type <str> RLC_Device K_Device IV_Source GE_Source FH_Source X_Device S_Device
+%type <str> W_Device Diode_Device Bipolar_Device JFET_Device MOSFET_Device
+%type <str> MESFET_Device Digits L_Device Identifier Nodes Eol
+%type <str> InputList InputLine DefinitionLine Node
+%type <str> FH_Node NodeList Subcircuit BeginSub
 %type <str> SubBody EndSub SubBodyLine
 
 %%
@@ -49,50 +47,66 @@ DefinitionLine:
 	| GE_Source Node Node Node Node Value Eol
 	| FH_Source FH_Node FH_Node Eol
 	| FH_Source FH_Node FH_Node V_Source Value Eol
-	| MODEL_Action MODEL_Ident MODEL_Spec MODEL_List Eol
+	| MODEL_Action MODEL_Ident MODEL_Spec MODEL_List Eol {$$ = NULL;}
 	| Diode_Device Node Node MODEL_Ident DEVICE_List_1
 	| JFET_Device Node Node Node MODEL_Ident DEVICE_List_2
 	| Bipolar_Device Node Node Node MODEL_Ident DEVICE_List_2 
 	| Bipolar_Device Node Node Node Node MODEL_Ident DEVICE_List_2
-	| MOSFET_Device Node Node Node Node MODEL_Ident DEVICE_List_3
+	| MOSFET_Device Node Node Node Node MODEL_Ident DEVICE_List_3 {
+		printf("%s, n1=%s, n2=%s, n3=%s, n4=%s\n", $1, $2, $3, $4, $5);
+		free($1);
+		free($2);
+		free($3);
+		free($4);
+		free($5);
+	}
 	| MESFET_Device Node Node Node MODEL_Ident DEVICE_List_2
 	| X_Device NodeList Eol
 	| S_Device Node Node Node Node MODEL_Ident SWITCH_State Eol
 	| W_Device Node Node V_Source MODEL_Ident SWITCH_State Eol
 ;
 
-Value: Digits | Floats;
+Value: Digits | 
+	Floats
+;
 
-Node: Digits | Nodes | Identifier;  
+Node: Digits { $$ = $1; } 
+	| Nodes { $$ = $1; }
+	| Identifier {$$ = $1; }
+;
 
-PairList: /* nothing */ { $$ = NULL; }
+PairList: /* nothing */
 	| Identifier Value PairList
-  
-MODEL_Ident: Identifier | MODEL_Spec;  
+;
+MODEL_Ident: Identifier 
+	| MODEL_Spec
+;
 TC_Value_1: TC_Special Value;
 TC_Value_2: TC_Special Value Value;
-ExprList: /* nothing */ { $$ = NULL; }
+ExprList: /* nothing */
 	| Expr ExprList
 ;
-Expr: Function ValueList;
-ValueList: /* nothing */ { $$ = NULL; }
+Expr: Function ValueList
+ValueList: /* nothing */
 	| Value ValueList
 ;
-FH_Node: Node | V_Source;
-DEVICE_List_1: /* nothing */ { $$ = NULL; }
+FH_Node: Node { $$ = $1; }
+	| V_Source { $$ = NULL; }
+;
+DEVICE_List_1: /* nothing */
 	| TEMP_Special Value DEVICE_List_1
 	| Value DEVICE_List_1
 	| OFF_Special DEVICE_List_1
 	| IC_Condition_1 DEVICE_List_1
 ;
-DEVICE_List_2: /* nothing */ { $$ = NULL; }
+DEVICE_List_2: /* nothing */
 	| TEMP_Special Value DEVICE_List_2
 	| Value DEVICE_List_2
 	| OFF_Special DEVICE_List_2
 	| IC_Condition_2 DEVICE_List_2
 	| MOS_Special Value DEVICE_List_2
 ;
-DEVICE_List_3: /* nothing */ { $$ = NULL; }
+DEVICE_List_3: /* nothing */
 	| TEMP_Special Value DEVICE_List_3
 	| MOS_Special Value DEVICE_List_3
 	| Value DEVICE_List_3
@@ -105,15 +119,19 @@ IC_Condition_3: IC_Special Value Value Value;
 NodeList: /* nothing */ { $$ = NULL; }
 	| Node NodeList
 ;
-SWITCH_State: /* nothing */ { $$ = NULL; }
+SWITCH_State: /* nothing */
 	| ON_Special
 	| OFF_Special
 ;	
-MODEL_List: /* nothing */ { $$ = NULL; }
+MODEL_List: /* nothing */
 	| Identifier Value MODEL_List
 ;
 Subcircuit:	BeginSub SubBody EndSub;
-BeginSub: SUBCKT_Action Identifier NodeList Eol;
+BeginSub: SUBCKT_Action Identifier NodeList Eol { 
+	$$ = $2; 
+	printf("Subckt %s", $2);
+	}
+;	
 SubBody: /* nothing */ { $$ = NULL; }
 	| SubBodyLine SubBody 
 ;
@@ -123,8 +141,8 @@ SubBodyLine:
   | Eol
 ;
 EndSub:
-    ENDS_Action
-  | ENDS_Action Identifier
+    ENDS_Action { $$ = NULL; }
+  | ENDS_Action Identifier { $$ = NULL; }
 ;
 %%
 

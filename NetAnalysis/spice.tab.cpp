@@ -487,15 +487,15 @@ static const yytype_int8 yyrhs[] =
 /* YYRLINE[YYN] -- source line where rule number YYN was defined.  */
 static const yytype_uint8 yyrline[] =
 {
-       0,    27,    27,    28,    30,    31,    34,    35,    36,    39,
-      40,    41,    42,    43,    44,    45,    46,    47,    48,    49,
-      50,    51,    52,    53,    54,    55,    56,    57,    58,    59,
-      60,    61,    64,    64,    66,    66,    66,    68,    69,    71,
-      71,    72,    73,    74,    75,    77,    78,    79,    81,    81,
-      82,    83,    84,    85,    86,    88,    89,    90,    91,    92,
-      93,    95,    96,    97,    98,    99,   100,   102,   103,   104,
-     105,   106,   108,   109,   110,   112,   113,   115,   116,   117,
-     118,   121,   122,   123,   126,   127
+       0,    25,    25,    26,    28,    29,    32,    33,    34,    37,
+      38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
+      48,    49,    50,    51,    52,    53,    54,    55,    63,    64,
+      65,    66,    69,    70,    73,    74,    75,    78,    79,    81,
+      82,    84,    85,    86,    87,    89,    90,    91,    93,    94,
+      96,    97,    98,    99,   100,   102,   103,   104,   105,   106,
+     107,   109,   110,   111,   112,   113,   114,   116,   117,   118,
+     119,   120,   122,   123,   124,   126,   127,   129,   130,   135,
+     136,   139,   140,   141,   144,   145
 };
 #endif
 
@@ -1540,84 +1540,108 @@ yyreduce:
         case 4:
 
 /* Line 1455 of yacc.c  */
-#line 30 "spice.ypp"
+#line 28 "spice.ypp"
     { (yyval.str) = NULL; ;}
     break;
 
-  case 37:
+  case 22:
 
 /* Line 1455 of yacc.c  */
-#line 68 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 50 "spice.ypp"
+    {(yyval.str) = NULL;;}
     break;
 
-  case 43:
+  case 27:
+
+/* Line 1455 of yacc.c  */
+#line 55 "spice.ypp"
+    {
+		printf("%s, n1=%s, n2=%s, n3=%s, n4=%s\n", (yyvsp[(1) - (7)].str), (yyvsp[(2) - (7)].str), (yyvsp[(3) - (7)].str), (yyvsp[(4) - (7)].str), (yyvsp[(5) - (7)].str));
+		free((yyvsp[(1) - (7)].str));
+		free((yyvsp[(2) - (7)].str));
+		free((yyvsp[(3) - (7)].str));
+		free((yyvsp[(4) - (7)].str));
+		free((yyvsp[(5) - (7)].str));
+	;}
+    break;
+
+  case 34:
+
+/* Line 1455 of yacc.c  */
+#line 73 "spice.ypp"
+    { (yyval.str) = (yyvsp[(1) - (1)].str); ;}
+    break;
+
+  case 35:
 
 /* Line 1455 of yacc.c  */
 #line 74 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+    { (yyval.str) = (yyvsp[(1) - (1)].str); ;}
     break;
 
-  case 46:
+  case 36:
 
 /* Line 1455 of yacc.c  */
-#line 78 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 75 "spice.ypp"
+    {(yyval.str) = (yyvsp[(1) - (1)].str); ;}
     break;
 
-  case 50:
+  case 48:
 
 /* Line 1455 of yacc.c  */
-#line 82 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 93 "spice.ypp"
+    { (yyval.str) = (yyvsp[(1) - (1)].str); ;}
     break;
 
-  case 55:
+  case 49:
 
 /* Line 1455 of yacc.c  */
-#line 88 "spice.ypp"
-    { (yyval.str) = NULL; ;}
-    break;
-
-  case 61:
-
-/* Line 1455 of yacc.c  */
-#line 95 "spice.ypp"
+#line 94 "spice.ypp"
     { (yyval.str) = NULL; ;}
     break;
 
   case 70:
 
 /* Line 1455 of yacc.c  */
-#line 105 "spice.ypp"
+#line 119 "spice.ypp"
     { (yyval.str) = NULL; ;}
     break;
 
-  case 72:
+  case 78:
 
 /* Line 1455 of yacc.c  */
-#line 108 "spice.ypp"
-    { (yyval.str) = NULL; ;}
-    break;
-
-  case 75:
-
-/* Line 1455 of yacc.c  */
-#line 112 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 130 "spice.ypp"
+    { 
+	(yyval.str) = (yyvsp[(2) - (4)].str); 
+	printf("Subckt %s", (yyvsp[(2) - (4)].str));
+	;}
     break;
 
   case 79:
 
 /* Line 1455 of yacc.c  */
-#line 117 "spice.ypp"
+#line 135 "spice.ypp"
+    { (yyval.str) = NULL; ;}
+    break;
+
+  case 84:
+
+/* Line 1455 of yacc.c  */
+#line 144 "spice.ypp"
+    { (yyval.str) = NULL; ;}
+    break;
+
+  case 85:
+
+/* Line 1455 of yacc.c  */
+#line 145 "spice.ypp"
     { (yyval.str) = NULL; ;}
     break;
 
 
 
 /* Line 1455 of yacc.c  */
-#line 1621 "spice.tab.cpp"
+#line 1645 "spice.tab.cpp"
       default: break;
     }
   YY_SYMBOL_PRINT ("-> $$ =", yyr1[yyn], &yyval, &yyloc);
@@ -1829,7 +1853,7 @@ yyreturn:
 
 
 /* Line 1675 of yacc.c  */
-#line 129 "spice.ypp"
+#line 147 "spice.ypp"
 
 
 void yyerror(const char *s) {
