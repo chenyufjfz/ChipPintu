@@ -1,0 +1,133 @@
+%{
+#include <stdio.h>
+int yylex(void);
+void yyerror(const char *);
+%}
+
+%token SUBCKT_Action ENDS_Action RLC_Device K_Device IV_Source GE_Source FH_Source X_Device
+%token S_Device W_Device MODEL_Action Diode_Device Bipolar_Device JFET_Device MOSFET_Device
+%token MESFET_Device End Digits Floats Function TC_Special OFF_Special ON_Special IC_Special
+%token TEMP_Special MOS_Special V_Source L_Device Identifier MODEL_Spec Nodes Eol
+
+%union {
+	char * str;
+}
+
+%type <str> SUBCKT_Action ENDS_Action RLC_Device K_Device IV_Source GE_Source FH_Source X_Device
+%type <str> S_Device W_Device MODEL_Action Diode_Device Bipolar_Device JFET_Device MOSFET_Device
+%type <str> MESFET_Device End Digits Floats Function TC_Special OFF_Special ON_Special IC_Special
+%type <str> TEMP_Special MOS_Special V_Source L_Device Identifier MODEL_Spec Nodes Eol
+%type <str> InputList InputLine DefinitionLine Value Node PairList ExprList Expr ValueList
+%type <str> FH_Node MODEL_Ident DEVICE_List_1 IC_Condition_1 DEVICE_List_2 IC_Condition_2
+%type <str> IC_Condition_3 NodeList DEVICE_List_3 SWITCH_State MODEL_List Subcircuit BeginSub
+%type <str> SubBody EndSub SubBodyLine
+
+%%
+Input:
+	InputList End
+	| InputList
+;
+InputList: /* nothing */ { $$ = NULL; }
+  	| InputLine InputList
+;  
+InputLine:
+	Subcircuit
+  	| DefinitionLine
+  	| Eol
+;
+DefinitionLine:
+	RLC_Device Node Node Value PairList Eol
+	| RLC_Device Node Node Value MODEL_Ident PairList Eol
+	| RLC_Device Node Node MODEL_Ident Value Eol
+	| RLC_Device Node Node MODEL_Ident PairList Eol
+	| RLC_Device Node Node Value TC_Value_1 Eol
+	| RLC_Device Node Node Value TC_Value_2 Eol 
+	| K_Device L_Device L_Device Value Eol
+	| IV_Source Node Node ExprList Eol
+	| IV_Source Node Node Value ExprList Eol
+	| GE_Source Node Node Eol
+	| GE_Source Node Node Node Node Value Eol
+	| FH_Source FH_Node FH_Node Eol
+	| FH_Source FH_Node FH_Node V_Source Value Eol
+	| MODEL_Action MODEL_Ident MODEL_Spec MODEL_List Eol
+	| Diode_Device Node Node MODEL_Ident DEVICE_List_1
+	| JFET_Device Node Node Node MODEL_Ident DEVICE_List_2
+	| Bipolar_Device Node Node Node MODEL_Ident DEVICE_List_2 
+	| Bipolar_Device Node Node Node Node MODEL_Ident DEVICE_List_2
+	| MOSFET_Device Node Node Node Node MODEL_Ident DEVICE_List_3
+	| MESFET_Device Node Node Node MODEL_Ident DEVICE_List_2
+	| X_Device NodeList Eol
+	| S_Device Node Node Node Node MODEL_Ident SWITCH_State Eol
+	| W_Device Node Node V_Source MODEL_Ident SWITCH_State Eol
+;
+
+Value: Digits | Floats;
+
+Node: Digits | Nodes | Identifier;  
+
+PairList: /* nothing */ { $$ = NULL; }
+	| Identifier Value PairList
+  
+MODEL_Ident: Identifier | MODEL_Spec;  
+TC_Value_1: TC_Special Value;
+TC_Value_2: TC_Special Value Value;
+ExprList: /* nothing */ { $$ = NULL; }
+	| Expr ExprList
+;
+Expr: Function ValueList;
+ValueList: /* nothing */ { $$ = NULL; }
+	| Value ValueList
+;
+FH_Node: Node | V_Source;
+DEVICE_List_1: /* nothing */ { $$ = NULL; }
+	| TEMP_Special Value DEVICE_List_1
+	| Value DEVICE_List_1
+	| OFF_Special DEVICE_List_1
+	| IC_Condition_1 DEVICE_List_1
+;
+DEVICE_List_2: /* nothing */ { $$ = NULL; }
+	| TEMP_Special Value DEVICE_List_2
+	| Value DEVICE_List_2
+	| OFF_Special DEVICE_List_2
+	| IC_Condition_2 DEVICE_List_2
+	| MOS_Special Value DEVICE_List_2
+;
+DEVICE_List_3: /* nothing */ { $$ = NULL; }
+	| TEMP_Special Value DEVICE_List_3
+	| MOS_Special Value DEVICE_List_3
+	| Value DEVICE_List_3
+	| OFF_Special DEVICE_List_3
+	| IC_Condition_3 DEVICE_List_3
+;  
+IC_Condition_1: IC_Special Value;
+IC_Condition_2: IC_Special Value Value;
+IC_Condition_3: IC_Special Value Value Value;
+NodeList: /* nothing */ { $$ = NULL; }
+	| Node NodeList
+;
+SWITCH_State: /* nothing */ { $$ = NULL; }
+	| ON_Special
+	| OFF_Special
+;	
+MODEL_List: /* nothing */ { $$ = NULL; }
+	| Identifier Value MODEL_List
+;
+Subcircuit:	BeginSub SubBody EndSub;
+BeginSub: SUBCKT_Action Identifier NodeList Eol;
+SubBody: /* nothing */ { $$ = NULL; }
+	| SubBodyLine SubBody 
+;
+SubBodyLine:
+  DefinitionLine
+  | Subcircuit
+  | Eol
+;
+EndSub:
+    ENDS_Action
+  | ENDS_Action Identifier
+;
+%%
+
+void yyerror(const char *s) {
+    fprintf(stderr, "Error:%s\n", s);
+}

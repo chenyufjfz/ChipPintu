@@ -3415,7 +3415,7 @@ Input th2, check th
 static bool via_double_check3(Mat * img, int xo, int yo, int r0, int r1, int th, int th2, vector<Point> * vs)
 {
 	Point o(xo, yo);
-	Mat c1, c2;
+	Mat c1, c2, c3;
 	c1.create(2 * r1 + 1, 2 * r1 + 1, CV_32SC1); //in img[o.x-r1, o.y-r1] [o.x+r1, o.y+r1]
 	c2.create(2 * r1 + 1, 2 * r1 + 1, CV_32SC1); //c1(r1,r1) is img(o)
 	//fill 1st round not-search area, center and 4 corner is not search
@@ -3431,13 +3431,17 @@ static bool via_double_check3(Mat * img, int xo, int yo, int r0, int r1, int th,
 	fill_center(c2, Point(2 * r1, 2 * r1), 2, SEPERATE_NOT_SEARCH);
 
 	//do 1st round curve seperate
-	seperate(img, o - Point(0, r1), DIR_DOWNRIGHT, 1, th, c1(Rect(r1, 0, r1 + 1, r1 + 2)));
+	c3 = c1(Rect(r1, 0, r1 + 1, r1 + 2));
+	seperate(img, o - Point(0, r1), DIR_DOWNRIGHT, 1, th, c3);
 	CV_Assert(c1.at<int>(0, r1) == 0);
-	seperate(img, o - Point(0, r1), DIR_DOWNLEFT, 1, th, c1(Rect(0, 0, r1 + 1, r1 + 2)));
+	c3 = c1(Rect(0, 0, r1 + 1, r1 + 2));
+	seperate(img, o - Point(0, r1), DIR_DOWNLEFT, 1, th, c3);
 	CV_Assert(c1.at<int>(0, r1) == 0);
-	seperate(img, o + Point(0, r1), DIR_UPRIGHT, 1, th, c2(Rect(r1, r1 - 1, r1 + 1, r1 + 2))); //tl = Point(o.x, o.y+r1-r1-1)
+	c3 = c2(Rect(r1, r1 - 1, r1 + 1, r1 + 2));
+	seperate(img, o + Point(0, r1), DIR_UPRIGHT, 1, th, c3); //tl = Point(o.x, o.y+r1-r1-1)
 	CV_Assert(c2.at<int>(2 * r1, r1) == 0);
-	seperate(img, o + Point(0, r1), DIR_UPLEFT, 1, th, c2(Rect(0, r1 - 1, r1 + 1, r1 + 2))); //tl = Point(o.x-r1, o.y+r1-r1-1)
+	c3 = c2(Rect(0, r1 - 1, r1 + 1, r1 + 2));
+	seperate(img, o + Point(0, r1), DIR_UPLEFT, 1, th, c3); //tl = Point(o.x-r1, o.y+r1-r1-1)
 	CV_Assert(c2.at<int>(2 * r1, r1) == 0);
 
 	//search best diameter
@@ -3478,13 +3482,17 @@ static bool via_double_check3(Mat * img, int xo, int yo, int r0, int r1, int th,
 	fill_center(c2, Point(d1.x, d1.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
 
 	//do 2nd round curve seperate
-	seperate(img, o - Point(r1, r1) + d0, DIR_DOWNRIGHT, -1, th, c1(Rect(d0.x, d0.y, r0 + 2, r0 + 2)));
+	c3 = c1(Rect(d0.x, d0.y, r0 + 2, r0 + 2));
+	seperate(img, o - Point(r1, r1) + d0, DIR_DOWNRIGHT, -1, th, c3);
 	CV_Assert(c1.at<int>(d0) == 0);
-	seperate(img, o - Point(r1, r1) + d0, DIR_UPRIGHT, -1, th, c1(Rect(d0.x, d0.y - r0 - 1, r0 + 2, r0 + 2)));
+	c3 = c1(Rect(d0.x, d0.y - r0 - 1, r0 + 2, r0 + 2));
+	seperate(img, o - Point(r1, r1) + d0, DIR_UPRIGHT, -1, th, c3);
 	CV_Assert(c1.at<int>(d0) == 0);
-	seperate(img, o - Point(r1, r1) + d1, DIR_DOWNLEFT, -1, th, c2(Rect(d1.x - r0 - 1, d1.y, r0 + 2, r0 + 2)));
+	c3 = c2(Rect(d1.x - r0 - 1, d1.y, r0 + 2, r0 + 2));
+	seperate(img, o - Point(r1, r1) + d1, DIR_DOWNLEFT, -1, th, c3);
 	CV_Assert(c2.at<int>(d1) == 0);
-	seperate(img, o - Point(r1, r1) + d1, DIR_UPLEFT, -1, th, c2(Rect(d1.x - r0 - 1, d1.y - r0 - 1, r0 + 2, r0 + 2)));
+	c3 = c2(Rect(d1.x - r0 - 1, d1.y - r0 - 1, r0 + 2, r0 + 2));
+	seperate(img, o - Point(r1, r1) + d1, DIR_UPLEFT, -1, th, c3);
 	CV_Assert(c2.at<int>(d1) == 0);
 
 	//search best diameter

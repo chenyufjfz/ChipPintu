@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>410</width>
-    <height>318</height>
+    <width>412</width>
+    <height>352</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -16,9 +16,9 @@
   <widget class="QDialogButtonBox" name="buttonBox">
    <property name="geometry">
     <rect>
-     <x>30</x>
-     <y>270</y>
-     <width>341</width>
+     <x>150</x>
+     <y>310</y>
+     <width>221</width>
      <height>32</height>
     </rect>
    </property>
@@ -117,7 +117,7 @@
      <x>209</x>
      <y>30</y>
      <width>171</width>
-     <height>169</height>
+     <height>227</height>
     </rect>
    </property>
    <layout class="QGridLayout" name="gridLayout_2">
@@ -162,16 +162,19 @@
       </property>
      </widget>
     </item>
-    <item row="0" column="1">
-     <widget class="QLineEdit" name="max_lr_xshift"/>
-    </item>
     <item row="2" column="1">
      <widget class="QLineEdit" name="max_ud_xshift"/>
+    </item>
+    <item row="0" column="1">
+     <widget class="QLineEdit" name="max_lr_xshift"/>
     </item>
     <item row="4" column="1">
      <widget class="QLineEdit" name="init_offset_x"/>
     </item>
-    <item row="5" column="0">
+    <item row="6" column="1">
+     <widget class="QLineEdit" name="init_offset_y"/>
+    </item>
+    <item row="6" column="0">
      <widget class="QLabel" name="label_11">
       <property name="text">
        <string>InitOffetY</string>
@@ -179,15 +182,32 @@
      </widget>
     </item>
     <item row="5" column="1">
-     <widget class="QLineEdit" name="init_offset_y"/>
+     <widget class="QLineEdit" name="init_offset_lry"/>
+    </item>
+    <item row="5" column="0">
+     <widget class="QLabel" name="label_12">
+      <property name="text">
+       <string>InitOffsetlry</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="1">
+     <widget class="QLineEdit" name="init_offset_udx"/>
+    </item>
+    <item row="7" column="0">
+     <widget class="QLabel" name="label_14">
+      <property name="text">
+       <string>InitOffsetudx</string>
+      </property>
+     </widget>
     </item>
    </layout>
   </widget>
   <widget class="QWidget" name="layoutWidget">
    <property name="geometry">
     <rect>
-     <x>20</x>
-     <y>230</y>
+     <x>30</x>
+     <y>270</y>
      <width>351</width>
      <height>24</height>
     </rect>
@@ -208,8 +228,8 @@
   <widget class="QCheckBox" name="new_layer">
    <property name="geometry">
     <rect>
-     <x>20</x>
-     <y>260</y>
+     <x>30</x>
+     <y>310</y>
      <width>81</width>
      <height>17</height>
     </rect>

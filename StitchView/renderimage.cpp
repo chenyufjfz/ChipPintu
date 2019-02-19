@@ -864,6 +864,7 @@ Return src map x, y
 */
 Point find_src_map(const ConfigPara & cpara, const Point & p, const Size & wh, int method)
 {
+	/*
 	int start_x = min(p.x / wh.width, cpara.img_num_w - 1);
 	start_x = max(start_x, 0);
     int end_x = min(cpara.img_num_w - (cpara.right_bound() - p.x) / wh.width + 5, cpara.img_num_w);
@@ -872,7 +873,11 @@ Point find_src_map(const ConfigPara & cpara, const Point & p, const Size & wh, i
 	start_y = max(start_y, 0);
     int end_y = min(cpara.img_num_h - (cpara.bottom_bound() - p.y) / wh.height + 5, cpara.img_num_h);
 	end_y = max(end_y, 1);
-
+	*/
+	int start_x = 0;
+	int end_x = cpara.img_num_w;
+	int start_y = 0;
+	int end_y = cpara.img_num_h;
 	if (method != 0) {
 		for (int y = start_y; y < end_y; y++)
 		for (int x = start_x; x < end_x; x++) {

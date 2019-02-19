@@ -9,4 +9,5 @@ SUBDIRS += \
     ICLayerLib \
     Compare \
     DBextract \
-    PreProcess
+    PreProcess \
+    NetAnalysis

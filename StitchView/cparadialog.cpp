@@ -26,6 +26,8 @@ CparaDialog::CparaDialog(ConfigPara _cpara, bool _new_layer, QWidget *parent) :
 		ui->new_layer->setChecked(new_layer);
 		ui->init_offset_x->setText(QString::number(cpara.offset(0, 1)[1] - cpara.offset(0, 0)[1]));
 		ui->init_offset_y->setText(QString::number(cpara.offset(1, 0)[0] - cpara.offset(0, 0)[0]));
+		ui->init_offset_udx->setText(QString::number(0));
+		ui->init_offset_lry->setText(QString::number(0));
 	}
 	else {
 		ui->clip_l->setEnabled(false);
@@ -38,6 +40,8 @@ CparaDialog::CparaDialog(ConfigPara _cpara, bool _new_layer, QWidget *parent) :
 		ui->new_layer->setEnabled(false);
 		ui->init_offset_x->setEnabled(false);
 		ui->init_offset_y->setEnabled(false);
+		ui->init_offset_udx->setEnabled(false);
+		ui->init_offset_lry->setEnabled(false);
 	}
 
 }
@@ -64,7 +68,9 @@ void CparaDialog::on_buttonBox_accepted()
 		cpara.img_num_h = ui->img_num_h->text().toInt();
 		cpara.img_path = ui->img_path->text().toStdString();
 		cpara.offset(0, 1)[1] = ui->init_offset_x->text().toInt() + cpara.offset(0, 0)[1];
+		cpara.offset(0, 1)[0] = ui->init_offset_lry->text().toInt() + cpara.offset(0, 0)[0];
 		cpara.offset(1, 0)[0] = ui->init_offset_y->text().toInt() + cpara.offset(0, 0)[0];
+		cpara.offset(1, 0)[1] = ui->init_offset_udx->text().toInt() + cpara.offset(0, 0)[1];
 		new_layer = ui->new_layer->isChecked();
 	}
 }
