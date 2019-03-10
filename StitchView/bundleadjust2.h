@@ -10,7 +10,9 @@
 #define COST_BIGER_THAN_AVG 50000
 #define COST_BOUNDARY		(2 * COST_BIGER_THAN_AVG)
 
-struct Edge2 {
+class Edge2 {
+public:
+	static int image_width, image_height;
 	const EdgeDiff * diff;
 	Mat_<float> cost;
 	float hard_score; //higher means not easy to move
@@ -43,8 +45,21 @@ struct Edge2 {
 			Point pos = idea_pos - diff->offset;
 			pos.x = pos.x / scale;
 			pos.y = pos.y / scale;
-			if (abs(o.y - pos.y) <= valid_y && abs(o.x - pos.x) <= valid_x)
-				return 0;
+			if (abs(o.y - pos.y) <= valid_y && abs(o.x - pos.x) <= valid_x) {
+				Point pos1 = o * scale + diff->offset; //change point o to offset 
+				if (EDGE_E(diff->edge_idx)) {
+					if (pos1.x >= image_width || abs(pos1.y) >= image_height /4)
+						return COST_BOUNDARY * 2;
+					else
+						return 0;
+				}
+				else {
+					if (pos1.y >= image_height || abs(pos1.x) >= image_width /4 )
+						return COST_BOUNDARY * 2;
+					else
+						return 0;
+				}
+			}				
 			else
 				return COST_BIND;
 		}
@@ -208,7 +223,7 @@ protected:
 	FourCorner * get_4corner(int idx);
 	void compute_edge_cost(Edge2 * pe, float alpha, bool weak);
 	void print_4corner_stat();
-	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool week_border);
+	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border);
 	void undo(const UndoPatch & patch);
 	void adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, vector<SourceInfo> & source, int change_id, UndoPatch * patch, float cost_th, bool border_is_source);
 	void relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, vector<SourceInfo> & source, UndoPatch * patch, float cost_th, bool border_is_source);
@@ -232,7 +247,7 @@ public:
 	Mat_<unsigned long long> get_corner() {
 		return corner_info.clone();
 	}
-	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool week_border);
+	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border);
 };
 
 #endif // BUNDLEADJUST2_H

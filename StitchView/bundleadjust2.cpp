@@ -21,6 +21,9 @@ const int dxy[4][2] = {
 
 #define SGN(x) ((x)>0 ? 1 : ((x<0) ? -1 : 0))
 
+int Edge2::image_width;
+int Edge2::image_height;
+
 struct BundleShape {
 	int len;
 	int d[4][2];
@@ -377,11 +380,14 @@ void BundleAdjust2::print_4corner_stat()
 		statx[5], statx[6], statx[7], statx[8], statx[9]);
 }
 
-void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool week_border)
+void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border)
 {
 	ConfigPara cpara = fet.get_config_para();
+	Edge2::image_width = s.width;
+	Edge2::image_height = s.height;
 	img_num_h = _img_num_h >= 0 ? _img_num_h : cpara.img_num_h;
 	img_num_w = _img_num_w >= 0 ? _img_num_w : cpara.img_num_w;
+	qInfo("Init img_height=%d, image_width=%d, img_num_h=%d, img_num_w=%d", s.height, s.width, img_num_h, img_num_w);
 	scale = cpara.rescale;
 	//1 Init edge diff, mls, idea_pos, flag
 	double avg[2] = { 0, 0 };
@@ -514,7 +520,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		}
 		compute_edge_cost(&eds[i][j], avg[i], weak);
 	}
-
+	
 	//3 init best offset
 	best_offset.create(img_num_h, img_num_w);
 	for (int y = 0; y < img_num_h; y++)
@@ -774,6 +780,16 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 				if (dcost > 0.000001 && new_edge_cost < COST_BIND / 2) { //update pc1, check >0.000001 is to avoid double add error
 					pc1->cs[i][j].cost = pc->cs[i][j].cost + delta_cost;
 					pc1->cs[i][j].fa = pc->idx;
+/*
+//for debug purpose enable following
+					if (i == 0 && j == 8 && pc->idx == 0x000c001a && pc1->idx == 0x000c0019) {
+						pc->cs[i][j].update_num = pc->cs[i][j].update_num * 2 - pc->cs[i][j].update_num;
+					}
+					if (i == 0 && j == 8 && pc1->idx == 0x000c001a && pc->idx == 0x000d001a) {
+						pc->cs[i][j].update_num = pc->cs[i][j].update_num * 2 - pc->cs[i][j].update_num;
+					}
+
+*/
 					if (pc1->cs[i][j].update_state != 2) //if pc1 state is 2, should still hold as 2
 						pc1->cs[i][j].update_state = 1;
 					pc1->cs[i][j].update_num++;
@@ -816,6 +832,8 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 					CV_Assert(pc->bd != 0);
 				if (pc1->cs[i][j].update_state == 2 || pc1->cs[i][j].fa == 0xffffffff)
 					continue;
+				if (!border_is_source && pc1->bd == 0)
+					continue;
 				if (pc1->cs[i][j].fa == pc->idx) {
 					CV_Assert(0);
 				}
@@ -838,6 +856,16 @@ void BundleAdjust2::relax(FourCorner * pc, const Rect & range, queue<unsigned> &
 					pc->cs[i][j].cost = pc1->cs[i][j].cost + delta_cost;
 					pc->cs[i][j].fa = pc1->idx;
 					pc->cs[i][j].update_num++;
+/*
+//for debug purpose enable following
+					if (i == 0 && j == 8 && pc1->idx == 0x000c001a && pc->idx == 0x000c0019) {
+						pc->cs[i][j].update_num = pc->cs[i][j].update_num * 2 - pc->cs[i][j].update_num;
+					}
+					if (i == 0 && j == 8 && pc->idx == 0x000c001a && pc1->idx == 0x000d001a) {
+						pc->cs[i][j].update_num = pc->cs[i][j].update_num * 2 - pc->cs[i][j].update_num;
+					}
+
+*/
 				}
 			}
 		}
@@ -2008,6 +2036,7 @@ void BundleAdjust2::output()
 			}
 		}
 	}
+
 	for (int j = 0; j < need_visit.size(); j++)
 	if (need_visit[j] == 1) {
 		queue<int> search_queue;
@@ -2076,9 +2105,9 @@ void BundleAdjust2::output()
 		eds[i][j].flag &= 0x7fffffff;
 }
 
-int BundleAdjust2::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, bool week_border)
+int BundleAdjust2::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border)
 {
-	init(fet, _img_num_h, _img_num_w, fe, week_border);
+	init(fet, _img_num_h, _img_num_w, fe, s, week_border);
 	merge_bundles();
 	merge_all();
 	unsigned center_corner = MAKE_CORNER_IDX(img_num_w / 2, img_num_h / 2);

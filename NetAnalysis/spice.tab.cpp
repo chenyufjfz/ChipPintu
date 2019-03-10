@@ -71,12 +71,19 @@
 #line 1 "spice.ypp"
 
 #include <stdio.h>
+#include <vector>
+using namespace std;
+#include "circuit.h"
+#define YYDEBUG 1
 int yylex(void);
 void yyerror(const char *);
+Circuit * ccc;
+vector<char *> nodes_list;
+string yy_filename;
 
 
 /* Line 189 of yacc.c  */
-#line 80 "spice.tab.cpp"
+#line 87 "spice.tab.cpp"
 
 /* Enabling traces.  */
 #ifndef YYDEBUG
@@ -145,14 +152,15 @@ typedef union YYSTYPE
 {
 
 /* Line 214 of yacc.c  */
-#line 12 "spice.ypp"
+#line 19 "spice.ypp"
 
 	char * str;
+	vector<char *> * str_list;
 
 
 
 /* Line 214 of yacc.c  */
-#line 156 "spice.tab.cpp"
+#line 164 "spice.tab.cpp"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
@@ -164,7 +172,7 @@ typedef union YYSTYPE
 
 
 /* Line 264 of yacc.c  */
-#line 168 "spice.tab.cpp"
+#line 176 "spice.tab.cpp"
 
 #ifdef short
 # undef short
@@ -485,17 +493,17 @@ static const yytype_int8 yyrhs[] =
 };
 
 /* YYRLINE[YYN] -- source line where rule number YYN was defined.  */
-static const yytype_uint8 yyrline[] =
+static const yytype_uint16 yyrline[] =
 {
-       0,    25,    25,    26,    28,    29,    32,    33,    34,    37,
-      38,    39,    40,    41,    42,    43,    44,    45,    46,    47,
-      48,    49,    50,    51,    52,    53,    54,    55,    63,    64,
-      65,    66,    69,    70,    73,    74,    75,    78,    79,    81,
-      82,    84,    85,    86,    87,    89,    90,    91,    93,    94,
-      96,    97,    98,    99,   100,   102,   103,   104,   105,   106,
-     107,   109,   110,   111,   112,   113,   114,   116,   117,   118,
-     119,   120,   122,   123,   124,   126,   127,   129,   130,   135,
-     136,   139,   140,   141,   144,   145
+       0,    32,    32,    33,    35,    36,    39,    40,    41,    44,
+      50,    56,    62,    68,    74,    80,    86,    92,    98,   104,
+     112,   119,   126,   127,   133,   140,   147,   155,   163,   170,
+     177,   185,   193,   194,   197,   198,   199,   202,   203,   205,
+     206,   208,   209,   210,   211,   213,   214,   215,   217,   218,
+     220,   221,   222,   223,   224,   226,   227,   228,   229,   230,
+     231,   233,   234,   235,   236,   237,   238,   240,   241,   242,
+     243,   244,   246,   247,   248,   250,   251,   253,   254,   262,
+     263,   266,   267,   268,   271,   274
 };
 #endif
 
@@ -1537,26 +1545,132 @@ yyreduce:
   YY_REDUCE_PRINT (yyn);
   switch (yyn)
     {
-        case 4:
+        case 9:
 
 /* Line 1455 of yacc.c  */
-#line 28 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 44 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+	;}
     break;
 
-  case 22:
+  case 10:
 
 /* Line 1455 of yacc.c  */
 #line 50 "spice.ypp"
-    {(yyval.str) = NULL;;}
+    {
+		ccc->new_device((yyvsp[(1) - (7)].str), (yyvsp[(2) - (7)].str), (yyvsp[(3) - (7)].str));
+		free((yyvsp[(1) - (7)].str));
+		free((yyvsp[(2) - (7)].str));
+		free((yyvsp[(3) - (7)].str));
+	;}
     break;
 
-  case 27:
+  case 11:
 
 /* Line 1455 of yacc.c  */
-#line 55 "spice.ypp"
+#line 56 "spice.ypp"
     {
-		printf("%s, n1=%s, n2=%s, n3=%s, n4=%s\n", (yyvsp[(1) - (7)].str), (yyvsp[(2) - (7)].str), (yyvsp[(3) - (7)].str), (yyvsp[(4) - (7)].str), (yyvsp[(5) - (7)].str));
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+	;}
+    break;
+
+  case 12:
+
+/* Line 1455 of yacc.c  */
+#line 62 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+	;}
+    break;
+
+  case 13:
+
+/* Line 1455 of yacc.c  */
+#line 68 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+	;}
+    break;
+
+  case 14:
+
+/* Line 1455 of yacc.c  */
+#line 74 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+	;}
+    break;
+
+  case 15:
+
+/* Line 1455 of yacc.c  */
+#line 80 "spice.ypp"
+    {
+		yyerror("KDevice not support");
+		free((yyvsp[(1) - (5)].str));
+		free((yyvsp[(2) - (5)].str));
+		free((yyvsp[(3) - (5)].str));
+	;}
+    break;
+
+  case 16:
+
+/* Line 1455 of yacc.c  */
+#line 86 "spice.ypp"
+    {
+		yyerror("IV_Source not support");
+		free((yyvsp[(1) - (5)].str));
+		free((yyvsp[(2) - (5)].str));
+		free((yyvsp[(3) - (5)].str));
+	;}
+    break;
+
+  case 17:
+
+/* Line 1455 of yacc.c  */
+#line 92 "spice.ypp"
+    {
+		yyerror("IV_Source not support");
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+	;}
+    break;
+
+  case 18:
+
+/* Line 1455 of yacc.c  */
+#line 98 "spice.ypp"
+    {
+		yyerror("GE_Source not support");
+		free((yyvsp[(1) - (4)].str));
+		free((yyvsp[(2) - (4)].str));
+		free((yyvsp[(3) - (4)].str));
+	;}
+    break;
+
+  case 19:
+
+/* Line 1455 of yacc.c  */
+#line 104 "spice.ypp"
+    {
+		yyerror("GE_Source not support");
 		free((yyvsp[(1) - (7)].str));
 		free((yyvsp[(2) - (7)].str));
 		free((yyvsp[(3) - (7)].str));
@@ -1565,83 +1679,262 @@ yyreduce:
 	;}
     break;
 
+  case 20:
+
+/* Line 1455 of yacc.c  */
+#line 112 "spice.ypp"
+    {
+		free((yyvsp[(1) - (4)].str));
+		if ((yyvsp[(2) - (4)].str))
+			free((yyvsp[(2) - (4)].str));
+		if ((yyvsp[(3) - (4)].str))
+			free((yyvsp[(3) - (4)].str));
+	;}
+    break;
+
+  case 21:
+
+/* Line 1455 of yacc.c  */
+#line 119 "spice.ypp"
+    {
+		free((yyvsp[(1) - (6)].str));
+		if ((yyvsp[(2) - (6)].str))
+			free((yyvsp[(2) - (6)].str));
+		if ((yyvsp[(3) - (6)].str))
+			free((yyvsp[(3) - (6)].str));
+	;}
+    break;
+
+  case 23:
+
+/* Line 1455 of yacc.c  */
+#line 127 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (5)].str), (yyvsp[(2) - (5)].str), (yyvsp[(3) - (5)].str));
+		free((yyvsp[(1) - (5)].str));
+		free((yyvsp[(2) - (5)].str));
+		free((yyvsp[(3) - (5)].str));
+	;}
+    break;
+
+  case 24:
+
+/* Line 1455 of yacc.c  */
+#line 133 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str), (yyvsp[(4) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+		free((yyvsp[(4) - (6)].str));
+	;}
+    break;
+
+  case 25:
+
+/* Line 1455 of yacc.c  */
+#line 140 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str), (yyvsp[(4) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+		free((yyvsp[(4) - (6)].str));
+	;}
+    break;
+
+  case 26:
+
+/* Line 1455 of yacc.c  */
+#line 147 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (7)].str), (yyvsp[(2) - (7)].str), (yyvsp[(3) - (7)].str), (yyvsp[(4) - (7)].str), (yyvsp[(5) - (7)].str));
+		free((yyvsp[(1) - (7)].str));
+		free((yyvsp[(2) - (7)].str));
+		free((yyvsp[(3) - (7)].str));
+		free((yyvsp[(4) - (7)].str));
+		free((yyvsp[(5) - (7)].str));
+	;}
+    break;
+
+  case 27:
+
+/* Line 1455 of yacc.c  */
+#line 155 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (7)].str), (yyvsp[(2) - (7)].str), (yyvsp[(3) - (7)].str), (yyvsp[(4) - (7)].str), (yyvsp[(5) - (7)].str));
+		free((yyvsp[(1) - (7)].str));
+		free((yyvsp[(2) - (7)].str));
+		free((yyvsp[(3) - (7)].str));
+		free((yyvsp[(4) - (7)].str));
+		free((yyvsp[(5) - (7)].str));
+	;}
+    break;
+
+  case 28:
+
+/* Line 1455 of yacc.c  */
+#line 163 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (6)].str), (yyvsp[(2) - (6)].str), (yyvsp[(3) - (6)].str), (yyvsp[(4) - (6)].str));
+		free((yyvsp[(1) - (6)].str));
+		free((yyvsp[(2) - (6)].str));
+		free((yyvsp[(3) - (6)].str));
+		free((yyvsp[(4) - (6)].str));
+	;}
+    break;
+
+  case 29:
+
+/* Line 1455 of yacc.c  */
+#line 170 "spice.ypp"
+    {
+		ccc->new_device((yyvsp[(1) - (3)].str), *(yyvsp[(2) - (3)].str_list));
+		free((yyvsp[(1) - (3)].str));
+		for (int i=0; i<(int)(yyvsp[(2) - (3)].str_list)->size(); i++)
+			free((yyvsp[(2) - (3)].str_list)[0][i]);
+		(yyvsp[(2) - (3)].str_list)->clear();
+	;}
+    break;
+
+  case 30:
+
+/* Line 1455 of yacc.c  */
+#line 177 "spice.ypp"
+    {
+		yyerror("S_DEVICE not support");
+		free((yyvsp[(1) - (8)].str));
+		free((yyvsp[(2) - (8)].str));
+		free((yyvsp[(3) - (8)].str));
+		free((yyvsp[(4) - (8)].str));
+		free((yyvsp[(5) - (8)].str));
+	;}
+    break;
+
+  case 31:
+
+/* Line 1455 of yacc.c  */
+#line 185 "spice.ypp"
+    {
+		yyerror("W_DEVICE not support");
+		free((yyvsp[(1) - (7)].str));
+		free((yyvsp[(2) - (7)].str));
+		free((yyvsp[(3) - (7)].str));
+	;}
+    break;
+
+  case 32:
+
+/* Line 1455 of yacc.c  */
+#line 193 "spice.ypp"
+    {free((yyvsp[(1) - (1)].str));;}
+    break;
+
   case 34:
 
 /* Line 1455 of yacc.c  */
-#line 73 "spice.ypp"
+#line 197 "spice.ypp"
     { (yyval.str) = (yyvsp[(1) - (1)].str); ;}
     break;
 
   case 35:
 
 /* Line 1455 of yacc.c  */
-#line 74 "spice.ypp"
+#line 198 "spice.ypp"
     { (yyval.str) = (yyvsp[(1) - (1)].str); ;}
     break;
 
   case 36:
 
 /* Line 1455 of yacc.c  */
-#line 75 "spice.ypp"
+#line 199 "spice.ypp"
     {(yyval.str) = (yyvsp[(1) - (1)].str); ;}
+    break;
+
+  case 38:
+
+/* Line 1455 of yacc.c  */
+#line 203 "spice.ypp"
+    { free((yyvsp[(1) - (3)].str));;}
+    break;
+
+  case 39:
+
+/* Line 1455 of yacc.c  */
+#line 205 "spice.ypp"
+    {free((yyvsp[(1) - (1)].str));;}
     break;
 
   case 48:
 
 /* Line 1455 of yacc.c  */
-#line 93 "spice.ypp"
+#line 217 "spice.ypp"
     { (yyval.str) = (yyvsp[(1) - (1)].str); ;}
     break;
 
   case 49:
 
 /* Line 1455 of yacc.c  */
-#line 94 "spice.ypp"
+#line 218 "spice.ypp"
     { (yyval.str) = NULL; ;}
     break;
 
   case 70:
 
 /* Line 1455 of yacc.c  */
-#line 119 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 243 "spice.ypp"
+    { nodes_list.clear(); (yyval.str_list) = &nodes_list;  ;}
+    break;
+
+  case 71:
+
+/* Line 1455 of yacc.c  */
+#line 244 "spice.ypp"
+    { (yyval.str_list) = (yyvsp[(2) - (2)].str_list); (yyvsp[(2) - (2)].str_list)->insert((yyvsp[(2) - (2)].str_list)->begin(), (yyvsp[(1) - (2)].str)); ;}
+    break;
+
+  case 76:
+
+/* Line 1455 of yacc.c  */
+#line 251 "spice.ypp"
+    { free((yyvsp[(1) - (3)].str));;}
     break;
 
   case 78:
 
 /* Line 1455 of yacc.c  */
-#line 130 "spice.ypp"
+#line 254 "spice.ypp"
     { 
-	(yyval.str) = (yyvsp[(2) - (4)].str); 
-	printf("Subckt %s", (yyvsp[(2) - (4)].str));
+		ccc = ccc->new_subckt((yyvsp[(2) - (4)].str), *(yyvsp[(3) - (4)].str_list));
+		for (int i=0; i<(int)(yyvsp[(3) - (4)].str_list)->size(); i++)
+			free((yyvsp[(3) - (4)].str_list)[0][i]);
+		(yyvsp[(3) - (4)].str_list)->clear();
+		free((yyvsp[(2) - (4)].str));
 	;}
-    break;
-
-  case 79:
-
-/* Line 1455 of yacc.c  */
-#line 135 "spice.ypp"
-    { (yyval.str) = NULL; ;}
     break;
 
   case 84:
 
 /* Line 1455 of yacc.c  */
-#line 144 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 271 "spice.ypp"
+    {
+		ccc = ccc->get_parent_ckt();
+	;}
     break;
 
   case 85:
 
 /* Line 1455 of yacc.c  */
-#line 145 "spice.ypp"
-    { (yyval.str) = NULL; ;}
+#line 274 "spice.ypp"
+    {
+		ccc = ccc->get_parent_ckt();
+	;}
     break;
 
 
 
 /* Line 1455 of yacc.c  */
-#line 1645 "spice.tab.cpp"
+#line 1938 "spice.tab.cpp"
       default: break;
     }
   YY_SYMBOL_PRINT ("-> $$ =", yyr1[yyn], &yyval, &yyloc);
@@ -1853,9 +2146,9 @@ yyreturn:
 
 
 /* Line 1675 of yacc.c  */
-#line 147 "spice.ypp"
+#line 278 "spice.ypp"
 
 
 void yyerror(const char *s) {
-    fprintf(stderr, "Error:%s\n", s);
+    fprintf(stderr, "Error in file %s, line %d:%s\n", yy_filename.c_str(), yylineno - 1, s);
 }

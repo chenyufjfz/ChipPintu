@@ -35,9 +35,9 @@ string thread_generate_diff(FeatExt * feature, string project_path, int layer)
 	return filename;
 }
 
-void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<Vec2i> * c_info, vector<FixEdge> * fe, bool weak_border)
+void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<Vec2i> * c_info, vector<FixEdge> * fe, Size s, bool weak_border)
 {
-	ba->arrange(*feature, -1, -1, fe, weak_border);
+	ba->arrange(*feature, -1, -1, fe, s, weak_border);
 	*offset = ba->get_best_offset();
 	Mat_<unsigned long long> corner = ba->get_corner();
 	c_info->create(corner.rows, corner.cols);
@@ -1403,7 +1403,7 @@ int StitchView::optimize_offset(int _layer, bool weak_border)
 			}
 		}
 	}
-	thread_bundle_adjust(ba, &lf[_layer]->feature, &adjust_offset, &lf[_layer]->corner_info, &fe, weak_border);
+	thread_bundle_adjust(ba, &lf[_layer]->feature, &adjust_offset, &lf[_layer]->corner_info, &fe, ri.get_src_img_size(layer), weak_border);
 	lf[_layer]->cpara.offset = adjust_offset;
 	adjust_offset.release();
 	lf[_layer]->compute_unsure_corner();

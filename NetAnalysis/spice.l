@@ -1,10 +1,15 @@
 %{
-#include "spice.tab.hpp"
+#include <vector>
 #include <string>
-#include <string.h>
 #include <stdio.h>
-#define YY_NEVER_INTERACTIVE 1
+#include <string.h>
 using namespace std;
+#include "spice.tab.hpp"
+#include "circuit.h"
+
+#define YY_NEVER_INTERACTIVE 1
+extern Circuit * ccc;
+extern string yy_filename;
 %}
 
 WS       [ \t]
@@ -23,7 +28,7 @@ FLOAT3   [+-]?{DIGIT}+"."
 NUMBER   ({INT}|{FLOAT1}|{FLOAT2}|{FLOAT3}){SFX}?{UNIT}?
 SFX      ([tT]|[gG]|[mM]|[kK]|[uU]|[nN]|[pP]|[fF]|[mM][iI][lL]|[mM][eE][gG])
 UNIT     ([sS]|[vV]|[aA]|[oO][hH][mM]|[mM][hH][oO]|[fF]|[hH])
-NODE     ([A-Za-z0-9_#\+-]+|[\+]|[-])
+NODE     (([A-Za-z0-9_#\+-]|"["|"]")+|[\+]|[-])
 EOL      \r*\n
 CSFX     [A-Za-z0-9_]*
 
@@ -51,7 +56,7 @@ POLY     [pP][oO][lL][yY]
 
 %x COMMENT STARTUP SUBCKT RLCPROP LREF FUNREF GEVALS FHVALS VSWITCH ISWITCH DEVPROP IGNORE 
 %x MODREF1 MODREF2
-
+%option yylineno
 %%
 <STARTUP,INITIAL>^"*" 	{ /* ignored region begins here */  BEGIN(COMMENT);  }
 <STARTUP,INITIAL,DEVPROP,LREF,MODREF1,MODREF2,IGNORE,FUNREF,ISWITCH,VSWITCH,GEVALS,SUBCKT,RLCPROP,FHVALS>[\*\$] {
@@ -270,11 +275,13 @@ POLY     [pP][oO][lL][yY]
 				}
 %%
 
-int prepare(string filename) {
+int prepare(string filename, Circuit * c) {
     if ( (yyin = fopen(filename.c_str(),"r")) == 0 ) {
         perror(filename.c_str());
         exit(1);
     }
+	yy_filename = filename;
+	ccc = c;
     return 0;
 }
 

@@ -655,7 +655,7 @@ Edge * BundleAdjust::pick_mq_edge()
 	CV_Assert(me != NULL);
 	return me;
 }
-int BundleAdjust::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> *, bool)
+int BundleAdjust::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> *, Size, bool)
 {
 	int merge_num = 0;
     unsigned long long cost = 0, min_cost;

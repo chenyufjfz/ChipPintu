@@ -81,14 +81,15 @@ typedef union YYSTYPE
 {
 
 /* Line 1676 of yacc.c  */
-#line 12 "spice.ypp"
+#line 19 "spice.ypp"
 
 	char * str;
+	vector<char *> * str_list;
 
 
 
 /* Line 1676 of yacc.c  */
-#line 92 "spice.tab.hpp"
+#line 93 "spice.tab.hpp"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
