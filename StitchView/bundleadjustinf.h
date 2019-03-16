@@ -9,6 +9,10 @@
 #define FIX_EDGE_BINDY(e) ((e) & BIND_Y_MASK)
 #define MAKE_FIX_EDGE(xy, s) ((s) << 2 | (xy))
 
+#define BUNDLE_ADJUST_WEAK_ORDER		1
+#define BUNDLE_ADJUST_SPEED_FAST		0
+#define BUNDLE_ADJUST_SPEED_NORMAL		0x2
+#define BUNDLE_ADJUST_SPEED_SLOW		0x4
 struct FixEdge {
 	int idx;
 	Point shift;
@@ -26,7 +30,7 @@ public:
     /*input fet, fet.diff
     input _img_num_h, if < 0, img_num_h = fet.cpara.img_num_h
     input _img_num_w, if < 0, img_num_w = fet.cpara.img_num_w*/
-    virtual int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool weak_border) = 0;
+    virtual int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, int weak_border) = 0;
     virtual ~BundleAdjustInf() {}
 };
 

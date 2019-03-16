@@ -1344,3 +1344,8 @@ RenderImage::RenderImage()
 	postmap_cache.set_size(30);
 }
 
+RenderImage::~RenderImage()
+{
+	for (int i = 0; i < (int)mapxy.size(); i++)
+		delete mapxy[i];
+}

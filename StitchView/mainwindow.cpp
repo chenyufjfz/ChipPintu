@@ -47,6 +47,11 @@ MainWindow::MainWindow(QWidget *parent) :
 	connect(stitch_view, SIGNAL(MouseChange(QString)), this, SLOT(mouse_change(QString)));
 	connect(stitch_view, SIGNAL(notify_progress(float)), this, SLOT(notify_progress(float)));
 	connect(stitch_view, SIGNAL(title_change(QString)), this, SLOT(title_change(QString)));
+
+	speed = BUNDLE_ADJUST_SPEED_NORMAL;
+	ui->actionFast_But_Bad->setChecked(false);
+	ui->actionMiddle_And_Normal->setChecked(true);
+	ui->actionSlow_And_Good->setChecked(false);
 }
 
 MainWindow::~MainWindow()
@@ -123,8 +128,8 @@ void MainWindow::on_actionConfig_Para_triggered()
 			stitch_view->set_config_para(stitch_view->get_layer_num(), cpara);
 			stitch_view->set_current_layer(stitch_view->get_layer_num() - 1);
 			string filename = cpara.img_path;
-			int loc = filename.find_last_of("\\/");
-			int loc2 = filename.find_last_of("\\/", loc - 1);
+			int loc = (int) filename.find_last_of("\\/");
+			int loc2 = (int) filename.find_last_of("\\/", loc - 1);
 			string layer_name = filename.substr(loc2 + 1, loc - loc2 - 1);
 			stitch_view->set_layer_name(-1, layer_name);
 		}
@@ -203,7 +208,7 @@ void MainWindow::on_actionQuick_Load_triggered()
 void MainWindow::on_actionOptimize_Offset_triggered()
 {
 	qInfo("UI: optimize offset");
-    stitch_view->optimize_offset(-1, false);
+    stitch_view->optimize_offset(-1, speed);
 }
 
 void MainWindow::on_actionTransForm_triggered()
@@ -321,5 +326,29 @@ void MainWindow::on_actionClear_Fix_Edge_triggered()
 void MainWindow::on_actionOptimize_Offset_NB_triggered()
 {
 	qInfo("UI: optimize offset neglect border");
-	stitch_view->optimize_offset(-1, true);
+	stitch_view->optimize_offset(-1, speed | BUNDLE_ADJUST_WEAK_ORDER);
+}
+
+void MainWindow::on_actionFast_But_Bad_triggered()
+{
+	speed = BUNDLE_ADJUST_SPEED_FAST;
+	ui->actionFast_But_Bad->setChecked(true);
+	ui->actionMiddle_And_Normal->setChecked(false);
+	ui->actionSlow_And_Good->setChecked(false);
+}
+
+void MainWindow::on_actionMiddle_And_Normal_triggered()
+{
+	speed = BUNDLE_ADJUST_SPEED_NORMAL;
+	ui->actionFast_But_Bad->setChecked(false);
+	ui->actionMiddle_And_Normal->setChecked(true);
+	ui->actionSlow_And_Good->setChecked(false);
+}
+
+void MainWindow::on_actionSlow_And_Good_triggered()
+{
+	speed = BUNDLE_ADJUST_SPEED_SLOW;
+	ui->actionFast_But_Bad->setChecked(false);
+	ui->actionMiddle_And_Normal->setChecked(false);
+	ui->actionSlow_And_Good->setChecked(true);
 }

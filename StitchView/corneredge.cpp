@@ -67,6 +67,7 @@ CornerEdge::CornerEdge(QWidget *parent) :
 	connect(ui->corner_tbl1, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(corner1_double_click(int, int)));
 	connect(ui->edge_tb0, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(edge0_double_click(int, int)));
 	connect(ui->edge_tbl1, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(edge1_double_click(int, int)));
+
 	for (int i = 0; i < 2; i++)
 		corner1_idx[i] = 0xffffffff;
 	for (int i = 0; i < 4; i++)
@@ -189,14 +190,17 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 	//same as compute_unsure_corner
 	for (int y = 0; y < lf->corner_info.rows; y++) {
 		for (int x = 0; x < lf->corner_info.cols; x++) {
-			int info = lf->corner_info(y, x)[0];
+			unsigned long long info = lf->corner_info(y, x)[1];
+			info = info << 32 | (unsigned long) lf->corner_info(y, x)[0];
+			unsigned long long c = info >> 32 & 0xffff;
 			short val0, val1;
 			val0 = info & 0xffff;
+			val0 = val0 / lf->cpara.rescale;
+			val0 = max(min(val0, (short) 127), (short)-127);
 			val1 = info >> 16 & 0xffff;
-			unsigned long long c = (abs(val0) + abs(val1)) / lf->cpara.rescale;
-			if (c > 255)
-				c = 255;
-			c = c << 24 | (int)(val1 & 0xfff) << 12 | val0 & 0xfff;
+			val1 = val1 / lf->cpara.rescale;
+			val1 = max(min(val1, (short) 127), (short)-127);
+			c = c << 16 | (int)(val1 & 0xff) << 8 | val0 & 0xff;
 			ce_set.push_back(c << 32 | MAKE_CORNER_IDX(x, y));
 		}
 	}
@@ -208,12 +212,17 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 		char str[100];
 		sprintf(str, "%d,%d", CORNER_X(corner_idx[i]), CORNER_Y(corner_idx[i]));
 		ui->corner_tbl0->setItem(i, 0, new QTableWidgetItem(QString::fromLocal8Bit(str)));
-		int val0 = (ce_set[i] >> 32) & 0xfff;
-		int val1 = (ce_set[i] >> 44) & 0xfff;
-		val0 = val0 > 0x7ff ? val0 - 0x1000 : val0;
-		val1 = val1 > 0x7ff ? val1 - 0x1000 : val1;
+		int val0 = (ce_set[i] >> 32) & 0xff;
+		int val1 = (ce_set[i] >> 40) & 0xff;
+		val0 = val0 > 0x7f ? val0 - 0x100 : val0;
+		val1 = val1 > 0x7f ? val1 - 0x100 : val1;
+		val0 = val0 * lf->cpara.rescale;
+		val1 = val1 * lf->cpara.rescale;
 		sprintf(str, "%d,%d", val0, val1);
 		ui->corner_tbl0->setItem(i, 1, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		int cost = (ce_set[i] >> 48) & 0xffff;
+		sprintf(str, "%d", cost);
+		ui->corner_tbl0->setItem(i, 2, new QTableWidgetItem(QString::fromLocal8Bit(str)));
 	}
 
 	ce_set.clear();

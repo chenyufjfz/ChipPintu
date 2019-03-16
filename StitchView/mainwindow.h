@@ -64,6 +64,12 @@ private slots:
 
     void on_actionOptimize_Offset_NB_triggered();
 
+    void on_actionFast_But_Bad_triggered();
+
+    void on_actionMiddle_And_Normal_triggered();
+
+    void on_actionSlow_And_Good_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;
@@ -71,6 +77,7 @@ private:
     StitchView * stitch_view;
 	NavigateView * nview;
 	CornerEdge * ce_dlg;
+	int speed;
 };
 
 #endif // MAINWINDOW_H

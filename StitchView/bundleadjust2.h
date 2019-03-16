@@ -247,7 +247,7 @@ public:
 	Mat_<unsigned long long> get_corner() {
 		return corner_info.clone();
 	}
-	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border);
+	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, int week_border);
 };
 
 #endif // BUNDLEADJUST2_H

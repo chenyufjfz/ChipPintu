@@ -103,7 +103,7 @@ public:
 		Mat_<unsigned long long> corner(best_offset.size());
 		return corner;
 	}
-	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size, bool);
+	int arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size, int);
 };
 
 #endif // BUNDLEADJUST_H

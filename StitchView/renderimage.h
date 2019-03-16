@@ -537,6 +537,7 @@ public:
 	//Output: imgs is dst QImage
 	void render_img(const vector<MapID> & map_id, vector<QImage> & imgs, const vector<MapID> & draw_order);
     RenderImage();
+	~RenderImage();
 };
 
 #endif // RENDERIMAGE_H

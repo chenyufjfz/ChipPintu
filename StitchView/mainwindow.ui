@@ -36,9 +36,18 @@
     <property name="title">
      <string>Iteration</string>
     </property>
+    <widget class="QMenu" name="menuOptimize_Speed">
+     <property name="title">
+      <string>Optimize Speed</string>
+     </property>
+     <addaction name="actionFast_But_Bad"/>
+     <addaction name="actionMiddle_And_Normal"/>
+     <addaction name="actionSlow_And_Good"/>
+    </widget>
     <addaction name="actionConfig_Para"/>
     <addaction name="actionTune_Para"/>
     <addaction name="actionPrepare_Next_Iter"/>
+    <addaction name="menuOptimize_Speed"/>
     <addaction name="actionOptimize_Offset"/>
     <addaction name="actionClear_Fix_Edge"/>
     <addaction name="actionOptimize_Offset_NB"/>
@@ -171,6 +180,30 @@
   <action name="actionOptimize_Offset_NB">
    <property name="text">
     <string>Optimize Offset NB</string>
+   </property>
+  </action>
+  <action name="actionFast_But_Bad">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Fast But Bad</string>
+   </property>
+  </action>
+  <action name="actionMiddle_And_Normal">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Middle And Normal</string>
+   </property>
+  </action>
+  <action name="actionSlow_And_Good">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Slow And Good</string>
    </property>
   </action>
  </widget>

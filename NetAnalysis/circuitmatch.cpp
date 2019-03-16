@@ -33,7 +33,7 @@ void CircuitMatch::predef_match_subckt(vector<string> subckt_name)
 
 /*
 Input: node is idx in cir->nodes
-Return: node index if found, else -1
+Return: nm index if found, else -1
 Notes: node index is same with other CircuitMatch
 */
 int CircuitMatch::search_node(int node)
@@ -317,7 +317,8 @@ bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod
 			break;
         if (dp.size() == 0)
 			return false;
-		vector<int> node0, node1;
+		//now we have match device in dp[0]
+		vector<int> node0, node1; //dp[0] adj node
         cm0->add_match_device(dp[0].first.dev_idx(), node0);
         cm1->add_match_device(dp[0].second.dev_idx(), node1);
 		Q_ASSERT(node0.size() == node1.size());
@@ -328,7 +329,7 @@ bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod
 				return false;
 			break;
 		case MATCH_SUBCKT:
-			if (cm0->cir->nodes[node0[i]].cd.size() < cm1->cir->nodes[node1[i]].cd.size())
+			if (cm0->cir->nodes[node0[i]].cd.size() < cm1->cir->nodes[node1[i]].cd.size()) //connect device num must >=
 				return false;
 			if (!cm1->cir->is_port(node1[i])) //internal nodes device num must ==
 			if (cm0->cir->nodes[node0[i]].cd.size() != cm1->cir->nodes[node1[i]].cd.size())

@@ -146,13 +146,9 @@ struct LayerFeature {
 		for (int y = 0; y < corner_info.rows; y++) {
 			for (int x = 0; x < corner_info.cols; x++) {
 				unsigned long long info = corner_info(y, x)[1];
-				info = info << 32 | corner_info(y, x)[0];
-				short val0, val1;
-				val0 = info & 0xffff;
-				val1 = info >> 16 & 0xffff;
-				unsigned long long c = abs(val0) + abs(val1);
-				if (c > cpara.rescale)
-					corner_set.push_back(c << 32 | y << 16 | x);				
+				info = info << 32 | (unsigned long) corner_info(y, x)[0];
+				unsigned long long c = info >> 32;
+				corner_set.push_back(c << 32 | y << 16 | x);				
 			}
 		}
 		
@@ -304,7 +300,7 @@ protected:
 	QPoint center;
 	int edge_cost;
 	Point minloc_shift;
-	RenderImage ri;
+	RenderImage * ri;
 	int draw_corner;
 	//upper is for drawing layer and rect
 	
@@ -368,7 +364,7 @@ public:
 	//From cpara, tpara, generate new FeatExt. if _layer==-1, means get tune of current layer
 	int compute_new_feature(int _layer);
 	//From FeatExt, compute new cpara.offset
-	int optimize_offset(int _layer, bool weak_border);
+	int optimize_offset(int _layer, int optimize_option);
 	int get_layer_num() { return (int)lf.size(); }
 	void goto_xy(int x, int y);
     void clear_fix_edge(int _layer);

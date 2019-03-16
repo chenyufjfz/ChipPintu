@@ -1,4 +1,4 @@
-QT += core
+QT += core concurrent
 
 TARGET = DBextract
 CONFIG += console

@@ -191,7 +191,7 @@ int Circuit::new_device(string name, vector<char *> nodes_name)
 			}
 		}
 		if (devs.back().type == DEVICE_X) {
-			qWarning("unknow subckt, in file %s, line %d:%s, reserve subck name %s", yy_filename.c_str(), 
+			qWarning("unknow subckt, in file %s, line %d, reserve subck name %s", yy_filename.c_str(), 
 				yylineno - 1, nodes_name.back());
 			new_subckt(nodes_name.back(), vector<char*>());
 			devs.back().type = search_subckt(nodes_name.back()).second;

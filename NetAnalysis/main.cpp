@@ -188,6 +188,9 @@ int main(int argc, char *argv[])
 	nodes.push_back("GND");
 	nodes.push_back("VCC");
 	c0.predef_match_nodes(nodes);
+	nodes.clear();
+	nodes.push_back("GND");
+	nodes.push_back("UNKNOWN");
 	c1.predef_match_nodes(nodes);	
 	subckt.push_back("V50_NAND2_24_14");
 	subckt.push_back("V50_INV_24_14");

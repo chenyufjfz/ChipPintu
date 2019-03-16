@@ -38,6 +38,11 @@
         <string>Bias</string>
        </property>
       </column>
+      <column>
+       <property name="text">
+        <string>Cost</string>
+       </property>
+      </column>
      </widget>
     </item>
     <item>
