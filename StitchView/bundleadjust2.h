@@ -17,8 +17,8 @@ public:
 	Mat_<float> cost;
 	float hard_score; //higher means not easy to move
 	int mls[2]; //min location shift, mls0 for y, mls1 for x
-	int flag; //scale, BIND_X_MASK, BIND_Y_MASK
-	Point idea_pos;
+	int flagb; //scale, BIND_X_MASK, BIND_Y_MASK
+	Point idea_pos;//it is nearby image top-left point - base image top-left point
 	void get_4corner_idx(unsigned & idx1, unsigned & idx2) {
 		unsigned edge_idx = diff->edge_idx;
 		if (edge_idx & 0x80000000) {
@@ -33,14 +33,14 @@ public:
 
 	float get_point_cost(Point o, int scale) {
 		if (o.x < 0 || o.x >= cost.cols || o.y < 0 || o.y >= cost.rows) {
-			if (flag == 0)
+			if (!FIX_EDGE_ISBIND(flagb))
 				return COST_BOUNDARY;
-			int nearby = FIX_EDGE_SCALE(flag) / scale;
-			int valid_x = FIX_EDGE_BINDX(flag) ? nearby / 2 : 10000;
-			int valid_y = FIX_EDGE_BINDY(flag) ? nearby / 2 : 10000;
+			int nearby = FIX_EDGE_SCALE(flagb) / scale;
+			int valid_x = FIX_EDGE_BINDX(flagb) ? nearby / 2 : 100000;
+			int valid_y = FIX_EDGE_BINDY(flagb) ? nearby / 2 : 100000;
 			if (diff->img_num == 0) { //img_num==0 same as free move
-				valid_x = 10000;
-				valid_y = 10000;
+				valid_x = 100000;
+				valid_y = 100000;
 			}
 			Point pos = idea_pos - diff->offset;
 			pos.x = pos.x / scale;

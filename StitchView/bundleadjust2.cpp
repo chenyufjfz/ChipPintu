@@ -221,13 +221,12 @@ Compute pe->cost and pe->hard_score
 void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 {
 	float mind = pe->diff->mind;
-	float min2 = (pe->diff->mind + pe->diff->submind) / 2;
 	float area = pe->diff->dif.rows * pe->diff->dif.cols;
 	float beta = (area < 30) ? 1 : ((area >= 130) ? 0.7 : 1 - (area - 30) * 0.003);
 	float avg = pe->diff->avg * beta + pe->diff->submind * (1 - beta);
-	float alpha = (avg - mind < 9) ? 0 : 10 * sqrt(pe->diff->avg / global_avg);
+	float alpha = (avg - mind < 29) ? 0 : sqrt(pe->diff->avg / global_avg);
 
-	if (avg - mind < 9) {
+	if (avg - mind < 29) {
 		qWarning("edge(%x) cost is all 0 because avg(%f) - mind(%f) is small", pe->diff->edge_idx, avg, mind);
 		avg = pe->diff->avg + 20; //make avg bigger to let cost all zero
 	}
@@ -237,10 +236,10 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 		avg = mind + VALID_COST_DIFF;
 	}
 	pe->cost.create(pe->diff->dif.size());
-	int nearby = FIX_EDGE_SCALE(pe->flag) / scale;
-	int valid_x = FIX_EDGE_BINDX(pe->flag) ? nearby / 2 : 10000;
-	int valid_y = FIX_EDGE_BINDY(pe->flag) ? nearby / 2 : 10000;
-	if (pe->flag) { //make fix edge cost euqal to nearly 0
+	int nearby = FIX_EDGE_SCALE(pe->flagb) / scale;
+	int valid_x = FIX_EDGE_BINDX(pe->flagb) ? nearby / 2 : 100000;
+	int valid_y = FIX_EDGE_BINDY(pe->flagb) ? nearby / 2 : 100000;
+	if (FIX_EDGE_ISBIND(pe->flagb)) { //make fix edge cost euqal to nearly 0
 		alpha = alpha / 8;
 		avg = pe->diff->avg * 2;
 	}
@@ -252,19 +251,18 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 	Point idea_pos = pe->idea_pos - pe->diff->offset;
 	idea_pos.x = idea_pos.x / scale;
 	idea_pos.y = idea_pos.y / scale;
-
-	/*if (idea_pos.y < 0 || idea_pos.y >= pe->cost.rows || idea_pos.x < 0 || idea_pos.x >= pe->cost.cols) {
-	qCritical("edge (x=%d,y=%d,e=%d), idea_pos (x=%d, y=%d), x or y error", EDGE_X(pe->diff->edge_idx),
-	EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), idea_pos.x, idea_pos.y);
-	CV_Assert(0);
-	}*/
-
+	
 	pe->hard_score = COST_BIND;
 	for (int y = 0; y < pe->cost.rows; y++) {
+		const int * pdif_1 = (y>0) ? pe->diff->dif.ptr<int>(y - 1) : NULL;
 		const int * pdif = pe->diff->dif.ptr<int>(y);
+		const int * pdif1 = (y + 1 < pe->cost.rows) ? pe->diff->dif.ptr<int>(y + 1) : NULL;
 		float * pcost = pe->cost.ptr<float>(y);
 		for (int x = 0; x < pe->cost.cols; x++) {
 			float z = pdif[x];
+			if (abs(y - idea_pos.y) <= nearby / 2 && abs(x - idea_pos.x) <= nearby / 2)
+				pcost[x] = 0;
+			else
 			if (abs(y - idea_pos.y) >valid_y || abs(x - idea_pos.x) > valid_x)
 				pcost[x] = COST_BIND + z;
 			else
@@ -273,14 +271,20 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 				pcost[x] = min(pcost[x], (float)COST_BOUNDARY - 2);
 			}
 			else {
-				pcost[x] = alpha * (z - mind) * (z - min2) / ((avg - mind) * (avg - z));
+				pcost[x] = alpha * (z - mind) / (avg - z);
 				pcost[x] = min(pcost[x], (float)COST_BIGER_THAN_AVG);
-				if (pcost[x] > 0.001) //z!=mind
-					pe->hard_score = min(pe->hard_score, pcost[x]);
 			}
+			if (y > 0 && x > 0 && y + 1 < pe->cost.rows && x + 1 < pe->cost.cols && pdif[x] != mind &&
+				pdif[x] < pdif_1[x] && pdif[x] < pdif1[x] && pdif[x] < pdif[x - 1] && pdif[x] < pdif[x + 1] &&
+				pdif[x] < pdif_1[x - 1] && pdif[x] < pdif_1[x + 1] && pdif[x] < pdif1[x - 1] && pdif[x] < pdif1[x + 1])
+				pe->hard_score = min(pe->hard_score, pcost[x]);
 		}
 	}
 	if (pe->hard_score >= COST_BIND - 10)
+		pe->hard_score = alpha;
+	if (FIX_EDGE_ISBIND(pe->flagb) && FIX_EDGE_BINDX(pe->flagb) && FIX_EDGE_BINDY(pe->flagb))
+		pe->hard_score = COST_BIGER_THAN_AVG;
+	if (FIX_EDGE_ISBIND(pe->flagb) && !FIX_EDGE_BINDX(pe->flagb) && !FIX_EDGE_BINDY(pe->flagb))
 		pe->hard_score = 0;
 	return;
 }
@@ -399,7 +403,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		pe->diff = fet.get_edge(0, y, x);
 		pe->mls[0] = 0;
 		pe->mls[1] = 0;
-		pe->flag = 0;
+		pe->flagb = 0;
 		pe->idea_pos = pe->diff->minloc * scale + pe->diff->offset;
 		CV_Assert(pe->idea_pos.x % scale == 0 && pe->idea_pos.y % scale == 0);
 		avg[0] += pe->diff->avg;
@@ -414,7 +418,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 		pe->diff = fet.get_edge(1, y, x);
 		pe->mls[0] = 0;
 		pe->mls[1] = 0;
-		pe->flag = 0;
+		pe->flagb = 0;
 		pe->idea_pos = pe->diff->minloc * scale + pe->diff->offset;
 		CV_Assert(pe->idea_pos.x % scale == 0 && pe->idea_pos.y % scale == 0);
 		avg[1] += pe->diff->avg;
@@ -427,7 +431,7 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 			qInfo("BundleAdjust2 apply fixedge ix=%d,iy=%d,e=%d, offset=(%d,%d), bind=%d", EDGE_X(vfe[i].idx),
 				EDGE_Y(vfe[i].idx), EDGE_E(vfe[i].idx), vfe[i].shift.x, vfe[i].shift.y, vfe[i].bind_flag);
 			Edge2 * pe = get_edge(vfe[i].idx);
-			pe->flag = vfe[i].bind_flag;
+			pe->flagb = vfe[i].bind_flag;
 			Point idea_pos = vfe[i].shift - pe->diff->offset;
 			CV_Assert(idea_pos.x % scale == 0 && idea_pos.y % scale == 0);
 			pe->idea_pos = idea_pos + pe->diff->offset;
@@ -454,19 +458,19 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 					res_sft += pe->idea_pos;
 				else
 					res_sft -= pe->idea_pos;
-				if (pe->flag) {
-					if (!FIX_EDGE_BINDX(pe->flag))
+				if (FIX_EDGE_ISBIND(pe->flagb)) {
+					if (!FIX_EDGE_BINDX(pe->flagb))
 						bind_mask |= BIND_X_MASK;
-					if (!FIX_EDGE_BINDY(pe->flag))
+					if (!FIX_EDGE_BINDY(pe->flagb))
 						bind_mask |= BIND_Y_MASK;
 				}
 			}
 			corner_info(y, x) = (res_sft.x & 0xffff) | (res_sft.y & 0xffff) << 16;
-			if (bind_mask & BIND_X_MASK) //has at least one green fix x
+			/*if (bind_mask & BIND_X_MASK) //has at least one green fix x
 				corner_info(y, x) = res_sft.y << 16;
 			if (bind_mask & BIND_Y_MASK)
-				corner_info(y, x) = res_sft.x & 0xffff; //has at least one green fix y
-			corner_info(y, x) &= 0x00000000ffffffff;
+				corner_info(y, x) = res_sft.x & 0xffff; //has at least one green fix y*/
+			corner_info(y, x) &= 0xffffffff;
 		}
 		else {
 			if (y < img_num_h && x < img_num_w)
@@ -499,6 +503,8 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 					corner_info(CORNER_Y(pc1->idx), CORNER_X(pc1->idx)) = 0;
 					pc1->res_sft[0] = 0;
 					pc1->res_sft[1] = 0;
+					pc1->change_x = 0;
+					pc1->change_y = 0;
 					bd_update.push(pc1);
 					qInfo("Add new border x=%d, y=%d", CORNER_X(pc1->idx), CORNER_Y(pc1->idx));
 				}
@@ -646,15 +652,15 @@ void BundleAdjust2::adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, 
 				patch->add_patch(pt->idx, pt);
 			pt->change_id = change_id;
 			if (source[sidx].isx) {
-				if (ps->res_sft[1] != 0)
+				if (ps->res_sft[1] != 0 && ps->change_x)
 					ps->change_x = change_id;
-				if (pt->res_sft[1] != 0)
+				if (pt->res_sft[1] != 0 && pt->change_x)
 					pt->change_x = change_id;
 			}
 			else {
-				if (ps->res_sft[0] != 0)
+				if (ps->res_sft[0] != 0 && ps->change_y)
 					ps->change_y = change_id;
-				if (pt->res_sft[0] != 0)
+				if (pt->res_sft[0] != 0 && pt->change_y)
 					pt->change_y = change_id;
 			}
 		}
@@ -950,7 +956,7 @@ void BundleAdjust2::check_fix_edge()
 {
 	for (int i = 0; i < 2; i++)
 	for (int j = 0; j < eds[i].size(); j++)
-	if (eds[i][j].flag) {
+	if (FIX_EDGE_ISBIND(eds[i][j].flagb)) {
 		Edge2 * pe = &eds[i][j];
 		Point cur_edge_point = pe->get_current_point(scale);
 		float cur_edge_cost = pe->get_point_cost(cur_edge_point, scale);
@@ -959,7 +965,7 @@ void BundleAdjust2::check_fix_edge()
 			pos.x = pos.x / scale;
 			pos.y = pos.y / scale;
 			qCritical("internal error, edge (x=%d,y=%d,e=%d,f=0x%x), idea (%d,%d), actual (%d,%d)", EDGE_X(pe->diff->edge_idx),
-				EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), pe->flag, pos.x, pos.y, cur_edge_point.x, cur_edge_point.y);
+				EDGE_Y(pe->diff->edge_idx), EDGE_E(pe->diff->edge_idx), pe->flagb, pos.x, pos.y, cur_edge_point.x, cur_edge_point.y);
 		}
 	}
 }
@@ -1525,15 +1531,15 @@ bool BundleAdjust2::merge_one_bundle(Bundle b)
 		dx += pc1->res_sft[1];
 		dy += pc1->res_sft[0];
 		if (xok) {
-			if (pc0->res_sft[1] != 0)
+			if (pc0->res_sft[1] != 0 && pc0->change_x)
 				pc0->change_x = change_id;
-			if (pc1->res_sft[1] != 0)
+			if (pc1->res_sft[1] != 0 && pc1->change_x)
 				pc1->change_x = change_id;
 		}
 		if (yok) {
-			if (pc0->res_sft[0] != 0)
+			if (pc0->res_sft[0] != 0 && pc0->change_y)
 				pc0->change_y = change_id;
-			if (pc1->res_sft[0] != 0)
+			if (pc1->res_sft[0] != 0 && pc1->change_y)
 				pc1->change_y = change_id;
 		}
 		if (bundle_shape[shape].c[j] == 0) {
@@ -1783,6 +1789,7 @@ void BundleAdjust2::merge_all()
 		for (int j = 0; j < ms.size(); j++)
 			thread_merge_square(ms[j]);
 #endif
+		change_id++;
 	}
 }
 
@@ -2005,6 +2012,7 @@ void BundleAdjust2::output()
 	for (int j = 0; j < fc.size(); j++)
 	if (fc[j].bd > 0) {
 		Point res_sft(0, 0);
+		int bind_mask = 0;
 		for (int dir = 0; dir < 4; dir++) {
 			Edge2 * pe = get_edge(fc[j].get_edge_idx(dir));
 			CV_Assert(pe != NULL);
@@ -2012,8 +2020,25 @@ void BundleAdjust2::output()
 				res_sft += pe->idea_pos + Point(pe->mls[1], pe->mls[0]) * scale;
 			else
 				res_sft -= pe->idea_pos + Point(pe->mls[1], pe->mls[0]) * scale;
+			if (FIX_EDGE_ISBIND(pe->flagb)) {
+				if (!FIX_EDGE_BINDX(pe->flagb))
+					bind_mask |= BIND_X_MASK;
+				if (!FIX_EDGE_BINDY(pe->flagb))
+					bind_mask |= BIND_Y_MASK;
+			}		
 		}
 		CV_Assert(res_sft.x == fc[j].res_sft[1] * scale && res_sft.y == fc[j].res_sft[0] * scale);
+		int y = CORNER_Y(fc[j].idx);
+		int x = CORNER_X(fc[j].idx);
+		if (bind_mask & BIND_X_MASK) { //has at least one green fix x
+			corner_info(y, x) &= 0xffff0000; //overwrite with res_sft.x
+			corner_info(y, x) |= res_sft.x & 0xffff; 
+		}
+		if (bind_mask & BIND_Y_MASK) {//has at least one green fix y
+			corner_info(y, x) &= 0x0000ffff; //overwrite with res_sft.y
+			corner_info(y, x) |= res_sft.y << 16;
+		}
+		corner_info(y, x) &= 0xffffffff;
 		sft(CORNER_Y(fc[j].idx), CORNER_X(fc[j].idx)) = min(2, abs(res_sft.x) + abs(res_sft.y));
 		abs_err += abs(res_sft.x) + abs(res_sft.y);
 	}
@@ -2022,129 +2047,153 @@ void BundleAdjust2::output()
 	CV_Assert(corner_info.rows == img_num_h && corner_info.cols == img_num_w);
 
 	//1 compute each edge cost
-	vector<unsigned long long> edge_cost;
-	for (int i = 0; i < 2; i++)
-	for (int j = 0; j < (int)eds[i].size(); j++) {
-		unsigned long long e = eds[i][j].diff->edge_idx;
-		Point cur_edge_point = eds[i][j].get_current_point(scale);
-		float cur_edge_cost = eds[i][j].get_point_cost(cur_edge_point, scale);
-		
-		if (cur_edge_cost == 0 && FIX_EDGE_BINDX(eds[i][j].flag) && FIX_EDGE_BINDY(eds[i][j].flag))
-			cur_edge_cost = 0; //for red fix edge, sort it in front of edge_cost
-		else {
-			if (eds[i][j].diff->img_num == 0)
-				cur_edge_cost = COST_BIND; //for black image, sort it at back of edge_cost
-			else
-				cur_edge_cost = cur_edge_cost * 32 + 1;
+	for (int compute_dir = 0; compute_dir < 2; compute_dir++) {
+		vector<pair<float, unsigned>> edge_cost;
+		for (int i = 0; i < 2; i++)
+		for (int j = 0; j < (int)eds[i].size(); j++) {
+			Point cur_edge_point = eds[i][j].get_current_point(scale);
+			float cur_edge_cost = eds[i][j].get_point_cost(cur_edge_point, scale);
+			float cur_hard_score = eds[i][j].hard_score;
+			int bind = (compute_dir == DIR_UP) ? FIX_EDGE_BINDY(eds[i][j].flagb) : FIX_EDGE_BINDX(eds[i][j].flagb);
+			if (bind)
+				cur_hard_score = COST_BOUNDARY; //for red fix edge, sort it in front of edge_cost
+			else {
+				if (eds[i][j].diff->img_num == 0)
+					cur_hard_score = -COST_BOUNDARY; //for black image, sort it at back of edge_cost
+				else
+				if (FIX_EDGE_ISBIND(eds[i][j].flagb) && !bind)
+					cur_hard_score = -COST_BOUNDARY; //for green fix edge, sort it at back of edge_cost
+			}
+			cur_edge_cost -= cur_hard_score;
+			edge_cost.push_back(make_pair(cur_edge_cost, eds[i][j].diff->edge_idx));
 		}
-		unsigned long long cur_edge_cost_i = min(cur_edge_cost, 100000000.0f);
-		e |= cur_edge_cost_i << 32;
-		edge_cost.push_back(e);
-	}
-	//sort edge_cost from small to big
-	sort(edge_cost.begin(), edge_cost.end());
-	vector<int> imgfa(img_num_h * img_num_w);
+		//sort edge_cost from small to big
+		sort(edge_cost.begin(), edge_cost.end());
+		vector<int> imgfa(img_num_h * img_num_w);
 #define IMGFA(img_idx) imgfa[IMG_Y(img_idx) * img_num_w + IMG_X(img_idx)]
 #define IMGROOT(img_idx, img_root) do {\
-	img_root = img_idx; \
-	while (1) { \
-	unsigned fa = IMGFA(img_root); \
-	if (fa == img_root) \
-	break; \
-	else \
-	img_root = fa; \
-	}} while (0)
+		img_root = img_idx; \
+		while (1) {		\
+		unsigned fa = IMGFA(img_root); \
+		if (fa == img_root) \
+		break; \
+		else \
+		img_root = fa; \
+		}} while (0)
 
-	for (int y = 0; y < img_num_h; y++)
-	for (int x = 0; x < img_num_w; x++)
-		imgfa[y * img_num_w + x] = MAKE_IMG_IDX(x, y);
+		for (int y = 0; y < img_num_h; y++)
+		for (int x = 0; x < img_num_w; x++)
+			imgfa[y * img_num_w + x] = MAKE_IMG_IDX(x, y);
 
-	//2 pick img_num_h * img_num_w -1 edge which satisfy lowest cost and no loop, like minimum span-tree
-	int connect_num = 0;
-	double total_cost = 0;
-	for (int i = 0; i < (int)edge_cost.size(); i++) {
-		Edge2 * pe = get_edge(edge_cost[i] & 0xffffffff);
-		unsigned img0, img1, img0_root, img1_root;
-		pe->diff->get_img_idx(img0, img1);
-		IMGROOT(img0, img0_root); //find root to check if img0 and img1 belong to same root
-		IMGROOT(img1, img1_root);
-		if (img0_root == img1_root) //img0 and img1 belong to different set
-			continue;
-		else { //pick pe, and bind img0 and img1 to same set
-			total_cost += edge_cost[i] >> 32;
-			pe->flag |= 0x80000000;
-			if (img0_root < img1_root)
-				IMGFA(img1_root) = img0_root;
-			else
-				IMGFA(img0_root) = img1_root;
-			connect_num++;
-			if (connect_num == img_num_h * img_num_w - 1) {
-				CV_Assert(img0_root == 0 || img1_root == 0);
+		//2 pick img_num_h * img_num_w -1 edge which satisfy lowest cost and no loop, like minimum span-tree
+		int connect_num = 0;
+		double total_cost = 0;
+		int check_state = 0; //only for check print, red fix edge is in front of normal edge, normal edge is in front of green fix edge
+		for (int i = 0; i < (int)edge_cost.size(); i++) {
+			Edge2 * pe = get_edge(edge_cost[i].second);
+			int bind = (compute_dir == DIR_UP) ? FIX_EDGE_BINDY(pe->flagb) : FIX_EDGE_BINDX(pe->flagb);
+			switch (check_state) {
+			case 0: //0 means red fix edge
+				if (FIX_EDGE_ISBIND(pe->flagb) == 0)
+					check_state = 1;
 				break;
-			}				
-		}
-	}
-	qInfo("BundleAdjust2 total_cost=%f", total_cost / 32);
-	//3 connect all selected edge
-	vector<unsigned> search_queue;
-	search_queue.push_back(0);
-	while (!search_queue.empty()) {
-		int idx = search_queue.back();
-		search_queue.pop_back();
-		connect_num--;
-		int y0 = IMG_Y(idx);
-		int x0 = IMG_X(idx);
-		for (int dir = 0; dir < 4; dir++) {
-			int y = y0 + dxy[dir][0];
-			int x = x0 + dxy[dir][1];
-			if (x >= 0 && y >= 0 && x < img_num_w && y < img_num_h) {
-				Edge2 * pe;
-				Point offset;
-				switch (dir) {
-				case DIR_UP:
-					pe = get_edge(0, y0 - 1, x0);
-					if (pe->diff->img_num == 0) //black edge
-						offset = -pe->idea_pos - Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
-					else
-						offset = -pe->idea_pos - Point(pe->mls[1], pe->mls[0]) * scale;
+			case 1:
+				if (bind)
+					qCritical("Red fix edge cost=%f is behind normal edge.", edge_cost[i].first);
+				if (FIX_EDGE_ISBIND(pe->flagb) && !bind)
+					check_state = 2;
+				break;
+			case 2:
+				if (FIX_EDGE_ISBIND(pe->flagb) == 0 || bind)
+					qCritical("normal edge cost=%f is behind green fix", edge_cost[i].first);
+				break;
+			}
+			unsigned img0, img1, img0_root, img1_root;
+			pe->diff->get_img_idx(img0, img1);
+			IMGROOT(img0, img0_root); //find root to check if img0 and img1 belong to same root
+			IMGROOT(img1, img1_root);
+			if (img0_root == img1_root) //img0 and img1 belong to different set
+				continue;
+			else { //pick pe, and bind img0 and img1 to same set
+				total_cost += edge_cost[i].first;
+				pe->flagb |= 0x80000000;
+				if (img0_root < img1_root)
+					IMGFA(img1_root) = img0_root;
+				else
+					IMGFA(img0_root) = img1_root;
+				connect_num++;
+				if (connect_num == img_num_h * img_num_w - 1) {
+					CV_Assert(img0_root == 0 || img1_root == 0);
 					break;
-				case DIR_DOWN:
-					pe = get_edge(0, y0, x0);
-					if (pe->diff->img_num == 0)
-						offset = pe->idea_pos + Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
-					else
-						offset = pe->idea_pos + Point(pe->mls[1], pe->mls[0]) * scale;
-					break;
-				case DIR_LEFT:
-					pe = get_edge(1, y0, x0 - 1);
-					if (pe->diff->img_num == 0)
-						offset = -pe->idea_pos - Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
-					else
-						offset = -pe->idea_pos - Point(pe->mls[1], pe->mls[0]) * scale;
-					break;
-				case DIR_RIGHT:
-					pe = get_edge(1, y0, x0);
-					if (pe->diff->img_num == 0)
-						offset = pe->idea_pos + Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
-					else
-						offset = pe->idea_pos + Point(pe->mls[1], pe->mls[0]) * scale;
-					break;
-				}
-				if (pe->flag & 0x80000000) {
-					pe->flag &= 0x7fffffff;
-					offset.y += best_offset(y0, x0)[0];
-					offset.x += best_offset(y0, x0)[1];
-					search_queue.push_back(MAKE_IMG_IDX(x, y));
-					best_offset(y, x) = Vec2i(offset.y, offset.x);
 				}
 			}
 		}
+		qInfo("BundleAdjust2 total_cost=%f", total_cost / 32);
+		//3 connect all selected edge
+		vector<unsigned> search_queue;
+		search_queue.push_back(0);
+		while (!search_queue.empty()) {
+			int idx = search_queue.back();
+			search_queue.pop_back();
+			connect_num--;
+			int y0 = IMG_Y(idx);
+			int x0 = IMG_X(idx);
+			for (int dir = 0; dir < 4; dir++) {
+				int y = y0 + dxy[dir][0];
+				int x = x0 + dxy[dir][1];
+				if (x >= 0 && y >= 0 && x < img_num_w && y < img_num_h) {
+					Edge2 * pe;
+					Point offset;
+					switch (dir) {
+					case DIR_UP:
+						pe = get_edge(0, y0 - 1, x0);
+						if (pe->diff->img_num == 0) //black edge
+							offset = -pe->idea_pos - Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
+						else
+							offset = -pe->idea_pos - Point(pe->mls[1], pe->mls[0]) * scale;
+						break;
+					case DIR_DOWN:
+						pe = get_edge(0, y0, x0);
+						if (pe->diff->img_num == 0)
+							offset = pe->idea_pos + Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
+						else
+							offset = pe->idea_pos + Point(pe->mls[1], pe->mls[0]) * scale;
+						break;
+					case DIR_LEFT:
+						pe = get_edge(1, y0, x0 - 1);
+						if (pe->diff->img_num == 0)
+							offset = -pe->idea_pos - Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
+						else
+							offset = -pe->idea_pos - Point(pe->mls[1], pe->mls[0]) * scale;
+						break;
+					case DIR_RIGHT:
+						pe = get_edge(1, y0, x0);
+						if (pe->diff->img_num == 0)
+							offset = pe->idea_pos + Point(pe->diff->dif.cols / 2, pe->diff->dif.rows / 2) * scale;
+						else
+							offset = pe->idea_pos + Point(pe->mls[1], pe->mls[0]) * scale;
+						break;
+					}
+					if (pe->flagb & 0x80000000) {
+						pe->flagb &= 0x7fffffff;						
+						search_queue.push_back(MAKE_IMG_IDX(x, y));
+						if (compute_dir == DIR_UP) {
+							offset.y += best_offset(y0, x0)[0];
+							best_offset(y, x)[0] = offset.y;
+						}
+						else {
+							offset.x += best_offset(y0, x0)[1];
+							best_offset(y, x)[1] = offset.x;
+						}						
+					}
+				}
+			}
+		}
+		CV_Assert(connect_num == -1);
+		for (int i = 0; i < 2; i++)
+		for (int j = 0; j < eds[i].size(); j++)
+			CV_Assert((eds[i][j].flagb & 0x80000000) == 0);
 	}
-	CV_Assert(connect_num == -1);
-	for (int i = 0; i < 2; i++)
-	for (int j = 0; j < eds[i].size(); j++)
-		CV_Assert((eds[i][j].flag & 0x80000000) == 0);
-
 	//4 compute cost
 	for (int y = 0; y < img_num_h; y++)
 	for (int x = 0; x < img_num_w; x++) {
@@ -2154,7 +2203,7 @@ void BundleAdjust2::output()
 		val0 = corner_info(y, x) & 0xffff;
 		val1 = corner_info(y, x) >> 16 & 0xffff;
 		int res = max(abs(val0) / scale, abs(val1) / scale);
-		cost += min(res, 2) * 1000;
+		cost += min(res, 3) * 2000;
 		/*if (pc->bd > 0) {
 			Point pos0(best_offset(y - 1, x - 1)[1], best_offset(y - 1, x - 1)[0]);
 			Point pos1(best_offset(y - 1, x)[1], best_offset(y - 1, x)[0]);
@@ -2185,7 +2234,6 @@ int BundleAdjust2::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, 
 	merge_bundles();
 	if (need_merge_all)
 		merge_all();
-	unsigned center_corner = MAKE_CORNER_IDX(img_num_w / 2, img_num_h / 2);
 	if (need_optimize_corner)
 		optimize_corner(10, 10);
 	output();

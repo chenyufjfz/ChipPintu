@@ -35,7 +35,7 @@ MainWindow::MainWindow(QWidget *parent) :
 	stitch_view->setFocus();
 
 	status_label = new QLabel();
-    status_label->setMaximumSize(500, 20);
+    status_label->setMaximumSize(800, 20);
 	ui->statusBar->addWidget(status_label);
 
 	pProgressBar = new QProgressBar();

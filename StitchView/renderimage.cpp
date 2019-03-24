@@ -141,7 +141,7 @@ void compute_trans(const vector<pair<Point, Point> > & nail, Mat & t)
 {
 	t.create(2, 3, CV_64FC1);
 	Mat c1, c2;
-	Mat_<double> a(nail.size(), 3), b(nail.size(), 1);
+	Mat_<double> a((int)nail.size(), 3), b((int)nail.size(), 1);
 	for (int i = 0; i < (int)nail.size(); i++) {
 		a(i, 0) = nail[i].second.x;
 		a(i, 1) = nail[i].second.y;
@@ -769,8 +769,8 @@ double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
 			ns.push_back(make_pair(nail[0].first, nail[0].second));
 			return 0;
 		}
-		s.create(ny.size(), 2);
-		d.create(ny.size(), 2);
+		s.create((int) ny.size(), 2);
+		d.create((int) ny.size(), 2);
 		for (int i = 0; i < ny.size(); i++) {
 			s(i, 0) = Vec2d(ny[i].second, nx[0].second);
 			d(i, 0) = Vec2d(ny[i].first, nx[0].first);
@@ -789,8 +789,8 @@ double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
 			ns.push_back(make_pair(nail[0].first, nail[0].second));
 			return 0;
 		}
-		s.create(2, nx.size());
-		d.create(2, nx.size());
+		s.create(2, (int) nx.size());
+		d.create(2, (int) nx.size());
 		for (int i = 0; i < nx.size(); i++) {
 			s(0, i) = Vec2d(ny[0].second, nx[i].second);
 			d(0, i) = Vec2d(ny[0].first, nx[i].first);
@@ -800,7 +800,7 @@ double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
 		return 0;
 	}
 	//2 create normal s and d (ny * nx), d is standard grid, s is use nearest 4 point trans estimate 
-	s.create(ny.size(), nx.size());
+	s.create((int) ny.size(), (int) nx.size());
 	for (int i = 0; i < (int)ny.size(); i++)
 	for (int j = 0; j < (int)nx.size(); j++) {
 		Point_<double> dst(nx[j].first, ny[i].first);
@@ -817,7 +817,7 @@ double MapXY1::recompute(const vector<pair<Point, Point> > & nail)
 		s(i, j) = Vec2d(src.y, src.x);
 	}
 	ns.clear();
-	d.create(ny.size(), nx.size());
+	d.create((int) ny.size(), (int) nx.size());
 	for (int i = 0; i < (int)ny.size(); i++)
 	for (int j = 0; j < (int)nx.size(); j++)
 		d(i, j) = Vec2d(ny[i].first, nx[j].first);

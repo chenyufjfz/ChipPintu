@@ -48,7 +48,7 @@ struct LayerFeature {
 	string feature_file; //feature file name in disk
     string layer_name;
 	Mat_<Vec2i> corner_info; //y_bias is in vec0 31..16, x_bias is in vec0 15..0
-	Mat_<int> fix_edge[2];
+	Mat_<int> flagb[2];
 	vector<Point> unsure_corner;
 	vector<Point> unsure_edge;
 	int find_next[3];
@@ -63,25 +63,25 @@ struct LayerFeature {
 			queue.pop_back();
 			int y = IMG_Y(idx);
 			int x = IMG_X(idx);
-			if (y > 0 && fix_edge[0](y - 1, x) & bind_flag) { 
+			if (y > 0 && flagb[0](y - 1, x) & bind_flag) { 
 				unsigned idx1 = MAKE_IMG_IDX(x, y - 1);
 				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
 					find(queue.begin(), queue.end(), idx1) == queue.end())
 					queue.push_back(idx1);
 			}
-			if (y + 1 < cpara.img_num_h && fix_edge[0](y, x) & bind_flag) {
+			if (y + 1 < cpara.img_num_h && flagb[0](y, x) & bind_flag) {
 				unsigned idx1 = MAKE_IMG_IDX(x, y + 1);
 				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
 					find(queue.begin(), queue.end(), idx1) == queue.end())
 					queue.push_back(idx1);
 			}
-			if (x > 0 && fix_edge[1](y, x - 1) & bind_flag) {
+			if (x > 0 && flagb[1](y, x - 1) & bind_flag) {
 				unsigned idx1 = MAKE_IMG_IDX(x - 1, y);
 				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
 					find(queue.begin(), queue.end(), idx1) == queue.end())
 					queue.push_back(idx1);
 			}
-			if (x + 1 < cpara.img_num_w && fix_edge[1](y, x) & bind_flag) {
+			if (x + 1 < cpara.img_num_w && flagb[1](y, x) & bind_flag) {
 				unsigned idx1 = MAKE_IMG_IDX(x + 1, y);
 				if (find(ret.begin(), ret.end(), idx1) == ret.end() &&
 					find(queue.begin(), queue.end(), idx1) == queue.end())
@@ -95,7 +95,7 @@ struct LayerFeature {
 	1: x<0
 	2: x>bound
 	4: y<0
-	8: y>bound*/
+	8: y>bound
 	int check_edge(unsigned edge_idx) {
 		int ret = 0;
 		if (!feature.is_valid())
@@ -130,6 +130,7 @@ struct LayerFeature {
 
 		return ret;
 	}
+
 	int check_img_offset(unsigned img_idx) {
 		if (check_edge(img_idx) || check_edge(img_idx | 0x80000000))
 			return 1;
@@ -140,7 +141,7 @@ struct LayerFeature {
 		if (x > 0 && check_edge(MAKE_EDGE_IDX(x - 1, y, 1)))
 			return 1;
 		return 0;
-	}
+	}*/
 	void compute_unsure_corner() {
 		vector<unsigned long long> corner_set;
 		for (int y = 0; y < corner_info.rows; y++) {
@@ -183,16 +184,19 @@ struct LayerFeature {
 				src_edge_center[i].y = src_edge_center[i].y / 2;
 				int fe = 0;
 				if (y > 0 && i == 0)
-					fe = fix_edge[i](y - 1, x);
+					fe = flagb[i](y - 1, x);
 				if (x > 0 && i == 1)
-					fe = fix_edge[i](y, x - 1);
+					fe = flagb[i](y, x - 1);
 				const EdgeDiff * ed = (i == 0) ? feature.get_edge(0, y - 1, x) :
 					feature.get_edge(1, y, x - 1);
 				if (ed && ed->img_num > 0) {
 					Point src_corner3 = (i == 0) ? Point(cpara.offset(y - 1, x)[1], cpara.offset(y - 1, x)[0]) :
 						Point(cpara.offset(y, x - 1)[1], cpara.offset(y, x - 1)[0]);
 					Point oo = src_corner - src_corner3;
-					Point shift = oo - ed->offset - ed->minloc * cpara.rescale;
+					Point idea_pos = (FIX_EDGE_IDEA_POS(fe)) ?
+						ed->offset + Point(FIX_EDGE_IDEA_DX(fe), FIX_EDGE_IDEA_DY(fe)) * cpara.rescale :
+						ed->offset + ed->minloc * cpara.rescale;
+					Point shift = oo - idea_pos;
 					int val_x = fe ? 0 : shift.x;
 					int val_y = fe ? 0 : shift.y;
 					if (abs(val_x) > cpara.rescale || abs(val_y) > cpara.rescale) {

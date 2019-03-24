@@ -68,6 +68,11 @@ CornerEdge::CornerEdge(QWidget *parent) :
 	connect(ui->edge_tb0, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(edge0_double_click(int, int)));
 	connect(ui->edge_tbl1, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(edge1_double_click(int, int)));
 
+	ui->corner_tbl0->resizeColumnsToContents();
+	ui->corner_tbl1->resizeColumnsToContents();
+	ui->edge_tb0->resizeColumnsToContents();
+	ui->edge_tbl1->resizeColumnsToContents();
+
 	for (int i = 0; i < 2; i++)
 		corner1_idx[i] = 0xffffffff;
 	for (int i = 0; i < 4; i++)
@@ -191,7 +196,7 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 	for (int y = 0; y < lf->corner_info.rows; y++) {
 		for (int x = 0; x < lf->corner_info.cols; x++) {
 			unsigned long long info = lf->corner_info(y, x)[1];
-			info = info << 32 | (unsigned long) lf->corner_info(y, x)[0];
+			info = info << 32 | (unsigned) lf->corner_info(y, x)[0];
 			unsigned long long c = info >> 32 & 0xffff;
 			short val0, val1;
 			val0 = info & 0xffff;
@@ -200,7 +205,7 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 			val1 = info >> 16 & 0xffff;
 			val1 = val1 / lf->cpara.rescale;
 			val1 = max(min(val1, (short) 127), (short)-127);
-			c = c << 16 | (int)(val1 & 0xff) << 8 | val0 & 0xff;
+			c = c << 16 | ((unsigned)val1 & 0xff) << 8 | (unsigned)val0 & 0xff;
 			ce_set.push_back(c << 32 | MAKE_CORNER_IDX(x, y));
 		}
 	}
@@ -232,16 +237,19 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 		Point src_corner(lf->cpara.offset(y, x)[1], lf->cpara.offset(y, x)[0]);
 		int fe = 0;
 		if (y > 0 && i == 0)
-			fe = lf->fix_edge[i](y - 1, x);
+			fe = lf->flagb[i](y - 1, x);
 		if (x > 0 && i == 1)
-			fe = lf->fix_edge[i](y, x - 1);
+			fe = lf->flagb[i](y, x - 1);
 		const EdgeDiff * ed = (i == 0) ? lf->feature.get_edge(0, y - 1, x) :
 			lf->feature.get_edge(1, y, x - 1);
 		if (ed && ed->img_num > 0) {
 			Point src_corner3 = (i == 0) ? Point(lf->cpara.offset(y - 1, x)[1], lf->cpara.offset(y - 1, x)[0]) :
 				Point(lf->cpara.offset(y, x - 1)[1], lf->cpara.offset(y, x - 1)[0]);
 			Point oo = src_corner - src_corner3;
-			Point shift = oo - ed->offset - ed->minloc * lf->cpara.rescale;
+			Point idea_pos = (FIX_EDGE_IDEA_POS(fe)) ?
+				ed->offset + Point(FIX_EDGE_IDEA_DX(fe), FIX_EDGE_IDEA_DY(fe)) * lf->cpara.rescale :
+				ed->offset + ed->minloc * lf->cpara.rescale;
+			Point shift = oo - idea_pos;
 			int val_x = fe ? 0 : shift.x;
 			int val_y = fe ? 0 : shift.y;
 			unsigned long long c = (abs(val_x) + abs(val_y)) / lf->cpara.rescale;

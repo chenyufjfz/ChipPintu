@@ -211,16 +211,22 @@ void StitchView::paintEvent(QPaintEvent *)
 					dst_edge_center = (dst_edge_center - view_rect.topLeft()) / scale;
 					int fe = 0;
 					if (y > 0 && i == 0)
-						fe = lf[layer]->fix_edge[i](y - 1, x);
+						fe = lf[layer]->flagb[i](y - 1, x);
 					if (x > 0 && i == 1)
-						fe = lf[layer]->fix_edge[i](y, x - 1);
+						fe = lf[layer]->flagb[i](y, x - 1);
 					//draw fix edge
 					if (fe) {
+						if (FIX_EDGE_IDEA_POS(fe))
+							painter.setPen(QPen(Qt::yellow, 1));
+						else
 						if (FIX_EDGE_BINDY(fe))
 							painter.setPen(QPen(Qt::red, 1));
 						else
 							painter.setPen(QPen(Qt::green, 1));
 						painter.drawLine(dst_edge_center - QPoint(0, 5), dst_edge_center + QPoint(0, 5));
+						if (FIX_EDGE_IDEA_POS(fe))
+							painter.setPen(QPen(Qt::yellow, 1));
+						else
 						if (FIX_EDGE_BINDX(fe))
 							painter.setPen(QPen(Qt::red, 1));
 						else
@@ -234,10 +240,13 @@ void StitchView::paintEvent(QPaintEvent *)
 							Point src_corner3 = (i == 0) ? Point(lf[layer]->cpara.offset(y - 1, x)[1], lf[layer]->cpara.offset(y - 1, x)[0]) :
 								Point(lf[layer]->cpara.offset(y, x - 1)[1], lf[layer]->cpara.offset(y, x - 1)[0]);
 							Point oo = src_corner - src_corner3;
-							Point shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
+							Point idea_pos = (FIX_EDGE_IDEA_POS(fe)) ? 
+								ed->offset + Point(FIX_EDGE_IDEA_DX(fe), FIX_EDGE_IDEA_DY(fe)) * lf[layer]->cpara.rescale :
+								ed->offset + ed->minloc * lf[layer]->cpara.rescale;
+							Point shift = oo - idea_pos;
 							int cost = ed->get_dif(oo, lf[layer]->cpara.rescale) - ed->mind;
-							int val_x = shift.x;
-							int val_y = shift.y;
+							int val_x = FIX_EDGE_BINDX(fe) ? 0 : shift.x;
+							int val_y = FIX_EDGE_BINDY(fe) ? 0 : shift.y;
 							char val[50];
 							Point t = oo - ed->offset;
 							t.y = t.y / lf[layer]->cpara.rescale;
@@ -399,7 +408,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
         if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER  &&
                 abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
-			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
+			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK | IDEA_POS_MASK);
 			for (int i = 0; i < (int) imgs.size(); i++)
 				lf[layer]->cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[1] -= lf[layer]->cpara.rescale;
 			ri->invalidate_cache(layer);
@@ -419,7 +428,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
         if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER &&
                 abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
-			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
+			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK | IDEA_POS_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
 				lf[layer]->cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[0] -= lf[layer]->cpara.rescale;
 			ri->invalidate_cache(layer);
@@ -439,7 +448,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
         if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER &&
                 abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
-			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK);
+			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_X_MASK | IDEA_POS_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
 				lf[layer]->cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[1] += lf[layer]->cpara.rescale;
 			ri->invalidate_cache(layer);
@@ -459,7 +468,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
         if (QApplication::queryKeyboardModifiers() == Qt::ShiftModifier && layer != ABS_LAYER &&
                 abs(may_choose.x()) < 10000000) {
 			vector <unsigned> imgs;
-			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK);
+			imgs = lf[layer]->get_fix_img(MAKE_IMG_IDX(may_choose.x(), may_choose.y()), BIND_Y_MASK | IDEA_POS_MASK);
 			for (int i = 0; i < (int)imgs.size(); i++)
 				lf[layer]->cpara.offset(IMG_Y(imgs[i]), IMG_X(imgs[i]))[0] += lf[layer]->cpara.rescale;
 			ri->invalidate_cache(layer);
@@ -476,6 +485,17 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	case Qt::Key_PageDown:
 		if (scale > 0.4999)
 			scale = scale / 2;
+		break;
+	case Qt::Key_Z:
+		if (QApplication::keyboardModifiers() == Qt::ShiftModifier) {
+			if (scale < max_scale)
+				scale = scale * 2;
+		}
+		else
+		if (QApplication::keyboardModifiers() == Qt::ControlModifier) {
+			if (scale > 0.4999)
+				scale = scale / 2;
+		}
 		break;
 	case Qt::Key_0:
 		layer = ABS_LAYER;
@@ -540,6 +560,21 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		if (lf.size() > 14)
 			layer = 14;
 		break;
+	case Qt::Key_Minus:
+		if (layer > 0 && layer != ABS_LAYER)
+			layer--;
+		else
+		if (layer == 0)
+			layer = ABS_LAYER;
+		break;
+	case Qt::Key_Plus:
+	case Qt::Key_Equal:
+		if (layer == ABS_LAYER)
+			layer = 0;
+		else
+		if (layer + 1 < lf.size())
+			layer++;
+		break;	
 	case Qt::Key_F1:
 		if (layer != ABS_LAYER)
 			draw_corner = 1 - draw_corner;
@@ -651,6 +686,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 
 void StitchView::mouseMoveEvent(QMouseEvent *event)
 {
+	static Point oo;
 	if (lf.empty())
 		return;
 	QPoint mouse_point(event->localPos().x(), event->localPos().y());
@@ -671,15 +707,15 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 				lf[layer]->cpara.offset(may_choose.y(), may_choose.x())[0]);
 			Point o1(lf[layer]->cpara.offset(prev_may_choose.y(), prev_may_choose.x())[1],
 				lf[layer]->cpara.offset(prev_may_choose.y(), prev_may_choose.x())[0]);
-			Point oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
+			oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
 			minloc_shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
 			edge_cost = ed->get_dif(oo, lf[layer]->cpara.rescale) - ed->mind;
 		}
 	}
 	char info[200];
-    sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d", 
+    sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,ox=%d,oy=%d,mx=%d,my=%d,c=%d", 
 		mouse_point.x(), mouse_point.y(), src_point.x, src_point.y,
-        may_choose.x() + 1, may_choose.y() + 1, minloc_shift.x, minloc_shift.y, edge_cost);
+		may_choose.x() + 1, may_choose.y() + 1, oo.x, oo.y, minloc_shift.x, minloc_shift.y, edge_cost);
 	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
 }
@@ -788,41 +824,54 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 				switch (choose) {
 				case 0:
 					if (x > 0) {
-						new_fix = lf[layer]->fix_edge[1](y, x - 1);
+						new_fix = lf[layer]->flagb[1](y, x - 1);
 						edge_idx = MAKE_EDGE_IDX(x - 1, y, 1);
-						lf[layer]->fix_edge[1](y, x - 1) = 0;
+						lf[layer]->flagb[1](y, x - 1) = 0;
 					}
 					break;
 				case 1:
 					if (y > 0) {
-						new_fix = lf[layer]->fix_edge[0](y - 1, x);
+						new_fix = lf[layer]->flagb[0](y - 1, x);
 						edge_idx = MAKE_EDGE_IDX(x, y - 1, 0);
-						lf[layer]->fix_edge[0](y - 1, x) = 0;
+						lf[layer]->flagb[0](y - 1, x) = 0;
 					}
 					break;
 				case 2:
-					new_fix = lf[layer]->fix_edge[0](y, x);
+					new_fix = lf[layer]->flagb[0](y, x);
 					edge_idx = MAKE_EDGE_IDX(x, y, 0);
-					lf[layer]->fix_edge[0](y, x) = 0;
+					lf[layer]->flagb[0](y, x) = 0;
 					break;
 				case 3:
-					new_fix = lf[layer]->fix_edge[1](y, x);
+					new_fix = lf[layer]->flagb[1](y, x);
 					edge_idx = MAKE_EDGE_IDX(x, y, 1);
-					lf[layer]->fix_edge[1](y, x) = 0;
+					lf[layer]->flagb[1](y, x) = 0;
 					break;
 				}
 				if (edge_idx == 0xffffffff)
 					break;
 				//now nearest edge is alrady found
-				if (new_fix == 0)
-					new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale);
+				if (new_fix == 0) {
+					const EdgeDiff * ed = lf[layer]->feature.get_edge(edge_idx);
+					unsigned i0, i1;
+					ed->get_img_idx(i0, i1);
+					Point img0(lf[layer]->cpara.offset(IMG_Y(i0), IMG_X(i0))[1], lf[layer]->cpara.offset(IMG_Y(i0), IMG_X(i0))[0]);
+					Point img1(lf[layer]->cpara.offset(IMG_Y(i1), IMG_X(i1))[1], lf[layer]->cpara.offset(IMG_Y(i1), IMG_X(i1))[0]);
+					Point shift = img1 - img0;
+					shift -= ed->offset;
+					new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale, 1, shift.x / lf[layer]->cpara.rescale, shift.y / lf[layer]->cpara.rescale);
+				}
 				else {
-					new_fix = new_fix + 1;
-					if ((new_fix & 3) == 0)
+					if (FIX_EDGE_IDEA_POS(new_fix))
+						new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale, 0, 0, 0);
+					else 
+					if (!FIX_EDGE_BINDX(new_fix) || !FIX_EDGE_BINDY(new_fix))
+						new_fix++;
+					else
 						new_fix = 0;
+					
 				}
 				qInfo("change fix_edge, l=%d, e=%d, x=%d, y=%d to %d", layer, EDGE_E(edge_idx), EDGE_X(edge_idx), EDGE_Y(edge_idx), new_fix);
-				lf[layer]->fix_edge[EDGE_E(edge_idx)](EDGE_Y(edge_idx), EDGE_X(edge_idx)) = new_fix;
+				lf[layer]->flagb[EDGE_E(edge_idx)](EDGE_Y(edge_idx), EDGE_X(edge_idx)) = new_fix;
 			}
 			else { //ControlModifier
 				const EdgeDiff * ed;
@@ -845,7 +894,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 				unsigned i0, i1;
 				ed->get_img_idx(i0, i1);
 				vector <unsigned> imgs;
-				imgs = lf[layer]->get_fix_img(i1, BIND_X_MASK | BIND_Y_MASK);
+				imgs = lf[layer]->get_fix_img(i1, BIND_X_MASK | BIND_Y_MASK | IDEA_POS_MASK);
 				if (std::find(imgs.begin(), imgs.end(), i0) != imgs.end())
 					return;
 				Point img0(lf[layer]->cpara.offset(IMG_Y(i0), IMG_X(i0))[1], lf[layer]->cpara.offset(IMG_Y(i0), IMG_X(i0))[0]);
@@ -1202,24 +1251,24 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 			layer_feature->tpara = lf[0]->tpara;		
 		layer_feature->cpara = _cpara;
 		layer_feature->cpara.offset = _cpara.offset.clone();
-		layer_feature->fix_edge[0].create(_cpara.offset.rows - 1, _cpara.offset.cols);
-		layer_feature->fix_edge[0] = 0;
-		layer_feature->fix_edge[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
-		layer_feature->fix_edge[1] = 0;
+		layer_feature->flagb[0].create(_cpara.offset.rows - 1, _cpara.offset.cols);
+		layer_feature->flagb[0] = 0;
+		layer_feature->flagb[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
+		layer_feature->flagb[1] = 0;
 		lf.push_back(layer_feature);		
 	}
 	else {
 		if (lf[_layer]->cpara.img_path == _cpara.img_path && lf[_layer]->cpara.img_num_w == _cpara.img_num_w &&
 			lf[_layer]->cpara.img_num_h == _cpara.img_num_h) {
-			if (lf[_layer]->cpara.rescale > _cpara.rescale) { //only inherit free-move fix edge
+			if (lf[_layer]->cpara.rescale > _cpara.rescale) { //only inherit free-move fix edge, call in prepare_next_iter 
 				for (int y = 0; y < _cpara.offset.rows - 1; y++)
 				for (int x = 0; x < _cpara.offset.cols; x++) 
-				if ((lf[_layer]->fix_edge[0](y, x) & 3) != 0)
-					lf[_layer]->fix_edge[0](y, x) = 0;
+				if (FIX_EDGE_BINDX(lf[_layer]->flagb[0](y, x)) || FIX_EDGE_BINDY(lf[_layer]->flagb[0](y, x)))
+					lf[_layer]->flagb[0](y, x) = 0;
 				for (int y = 0; y < _cpara.offset.rows; y++)
 				for (int x = 0; x < _cpara.offset.cols - 1; x++)
-				if ((lf[_layer]->fix_edge[1](y, x) & 3) != 0)
-					lf[_layer]->fix_edge[1](y, x) = 0;
+				if (FIX_EDGE_BINDX(lf[_layer]->flagb[1](y, x)) || FIX_EDGE_BINDY(lf[_layer]->flagb[1](y, x)))
+					lf[_layer]->flagb[1](y, x) = 0;
 			}
 			lf[_layer]->cpara = _cpara;
 			lf[_layer]->cpara.offset = _cpara.offset.clone();
@@ -1227,10 +1276,10 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 		else {
 			lf[_layer]->cpara = _cpara;
 			lf[_layer]->cpara.offset = _cpara.offset.clone();
-			lf[_layer]->fix_edge[0].create(_cpara.offset.rows - 1, _cpara.offset.cols);
-			lf[_layer]->fix_edge[0] = 0;
-			lf[_layer]->fix_edge[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
-			lf[_layer]->fix_edge[1] = 0;
+			lf[_layer]->flagb[0].create(_cpara.offset.rows - 1, _cpara.offset.cols);
+			lf[_layer]->flagb[0] = 0;
+			lf[_layer]->flagb[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
+			lf[_layer]->flagb[1] = 0;
 		}
 	}
 	ri->set_cfg_para(_layer, &lf[_layer]->cpara);
@@ -1394,20 +1443,39 @@ int StitchView::optimize_offset(int _layer, int optimize_option)
 		convert_nails(nails, nails, 0);
 	vector<FixEdge> fe;
 	for (int i = 0; i < 2; i++) {
-		for (int y = 0; y < lf[_layer]->fix_edge[i].rows; y++)
-		for (int x = 0; x < lf[_layer]->fix_edge[i].cols; x++) {
-			int a = lf[_layer]->fix_edge[i](y, x);
+		for (int y = 0; y < lf[_layer]->flagb[i].rows; y++)
+		for (int x = 0; x < lf[_layer]->flagb[i].cols; x++) {
+			int a = lf[_layer]->flagb[i](y, x);
 			if (a != 0) {
 				FixEdge new_fe;
 				new_fe.idx = MAKE_EDGE_IDX(x, y, i);
 				new_fe.bind_flag = a;
-				if (i == 0) {
-					new_fe.shift.y = lf[_layer]->cpara.offset(y + 1, x)[0] - lf[_layer]->cpara.offset(y, x)[0];
-					new_fe.shift.x = lf[_layer]->cpara.offset(y + 1, x)[1] - lf[_layer]->cpara.offset(y, x)[1];
+				const EdgeDiff * ped = lf[_layer]->feature.get_edge(new_fe.idx);
+				Point idea_pos = ped->offset + ped->minloc * lf[layer]->cpara.rescale;
+				if (FIX_EDGE_IDEA_POS(a)) {					
+					new_fe.shift = ped->offset + Point(FIX_EDGE_IDEA_DX(a), FIX_EDGE_IDEA_DY(a)) * lf[_layer]->cpara.rescale;
 				}
 				else {
-					new_fe.shift.y = lf[_layer]->cpara.offset(y, x + 1)[0] - lf[_layer]->cpara.offset(y, x)[0];
-					new_fe.shift.x = lf[_layer]->cpara.offset(y, x + 1)[1] - lf[_layer]->cpara.offset(y, x)[1];
+					if (i == 0) {
+						if (FIX_EDGE_BINDY(a))
+							new_fe.shift.y = lf[_layer]->cpara.offset(y + 1, x)[0] - lf[_layer]->cpara.offset(y, x)[0];
+						else
+							new_fe.shift.y = idea_pos.y;
+						if (FIX_EDGE_BINDX(a))
+							new_fe.shift.x = lf[_layer]->cpara.offset(y + 1, x)[1] - lf[_layer]->cpara.offset(y, x)[1];
+						else
+							new_fe.shift.x = idea_pos.x;
+					}
+					else {
+						if (FIX_EDGE_BINDY(a))
+							new_fe.shift.y = lf[_layer]->cpara.offset(y, x + 1)[0] - lf[_layer]->cpara.offset(y, x)[0];
+						else
+							new_fe.shift.y = idea_pos.y;
+						if (FIX_EDGE_BINDX(a))
+							new_fe.shift.x = lf[_layer]->cpara.offset(y, x + 1)[1] - lf[_layer]->cpara.offset(y, x)[1];
+						else
+							new_fe.shift.x = idea_pos.x;
+					}
 				}
 				fe.push_back(new_fe);
 			}
@@ -1442,8 +1510,8 @@ void StitchView::clear_fix_edge(int _layer)
     if (_layer >= lf.size() || _layer < 0)
         return;
 	qInfo("clear_fix_edge l=%d", _layer);
-	lf[_layer]->fix_edge[0] = 0;
-    lf[_layer]->fix_edge[1] = 0;
+	lf[_layer]->flagb[0] = 0;
+    lf[_layer]->flagb[1] = 0;
 }
 
 int StitchView::set_current_layer(int _layer) {
@@ -1683,9 +1751,9 @@ void StitchView::write_file(string file_name)
 		sprintf(name, "mapxy%d", i);
 		fs << name << *get_mapxy(i);
 		sprintf(name, "fixedge%d_0", i);
-		fs << name << lf[i]->fix_edge[0];
+		fs << name << lf[i]->flagb[0];
 		sprintf(name, "fixedge%d_1", i);
-		fs << name << lf[i]->fix_edge[1];
+		fs << name << lf[i]->flagb[1];
 		sprintf(name, "name%d", i);
 		fs << name << lf[i]->layer_name;
 		sprintf(name, "corner%d", i);
@@ -1789,16 +1857,16 @@ int StitchView::read_file(string file_name)
 			mxy->copy_base(mxy0);
 			ri->set_mapxy(i, mxy.data());
 			sprintf(name, "fixedge%d_0", i);
-			fs[name] >> lf[i]->fix_edge[0];
-			if (lf[i]->fix_edge[0].empty()) {
-				lf[i]->fix_edge[0].create(lf[i]->cpara.offset.rows - 1, lf[i]->cpara.offset.cols);
-				lf[i]->fix_edge[0] = 0;
+			fs[name] >> lf[i]->flagb[0];
+			if (lf[i]->flagb[0].empty()) {
+				lf[i]->flagb[0].create(lf[i]->cpara.offset.rows - 1, lf[i]->cpara.offset.cols);
+				lf[i]->flagb[0] = 0;
 			}
 			sprintf(name, "fixedge%d_1", i);
-			fs[name] >> lf[i]->fix_edge[1];
-			if (lf[i]->fix_edge[1].empty()) {
-				lf[i]->fix_edge[1].create(lf[i]->cpara.offset.rows, lf[i]->cpara.offset.cols - 1);
-				lf[i]->fix_edge[1] = 0;
+			fs[name] >> lf[i]->flagb[1];
+			if (lf[i]->flagb[1].empty()) {
+				lf[i]->flagb[1].create(lf[i]->cpara.offset.rows, lf[i]->cpara.offset.cols - 1);
+				lf[i]->flagb[1] = 0;
 			}
 			sprintf(name, "name%d", i);
 			fs[name] >> lf[i]->layer_name;

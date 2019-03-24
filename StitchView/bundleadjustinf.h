@@ -2,12 +2,18 @@
 #define BUNDLEADJUSTINF_H
 #include "featext.h"
 
+//BIND_X_MASK & BIND_Y_MASK can't be change, because in stitchview.cpp new_fix = new_fix + 1;
 #define BIND_X_MASK		2
 #define BIND_Y_MASK		1
-#define FIX_EDGE_SCALE(e) ((e) >> 2)
+#define IDEA_POS_MASK	0x80
+#define FIX_EDGE_SCALE(e) ((e) >> 2 & 0x1f)
 #define FIX_EDGE_BINDX(e) (((e) & BIND_X_MASK) >> 1)
 #define FIX_EDGE_BINDY(e) ((e) & BIND_Y_MASK)
-#define MAKE_FIX_EDGE(xy, s) ((s) << 2 | (xy))
+#define FIX_EDGE_IDEA_POS(e) (((e) & IDEA_POS_MASK) >> 7)
+#define FIX_EDGE_ISBIND(e) ((e) & 0x7f)
+#define FIX_EDGE_IDEA_DX(e) ((e) >> 8 & 0x7ff)
+#define FIX_EDGE_IDEA_DY(e) ((e) >> 19 & 0x7ff)
+#define MAKE_FIX_EDGE(bxy, s, idea, idx, idy) ((s) << 2 & 0x7c | (bxy) & 3 | (idea) << 7 & 0x80 | ((idx) & 0x7ff) << 8 | ((idy) & 0x7ff) << 19)
 
 #define BUNDLE_ADJUST_WEAK_ORDER		1
 #define BUNDLE_ADJUST_SPEED_FAST		0
