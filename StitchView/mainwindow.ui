@@ -44,12 +44,20 @@
      <addaction name="actionMiddle_And_Normal"/>
      <addaction name="actionSlow_And_Good"/>
     </widget>
+    <widget class="QMenu" name="menuClear_Fix_Edge">
+     <property name="title">
+      <string>Clear Fix Edge</string>
+     </property>
+     <addaction name="actionClear_All_Fix_Edge"/>
+     <addaction name="actionClear_Red_Fix_edge"/>
+     <addaction name="actionClear_Yellow_Fix_Edge"/>
+    </widget>
     <addaction name="actionConfig_Para"/>
     <addaction name="actionTune_Para"/>
     <addaction name="actionPrepare_Next_Iter"/>
     <addaction name="menuOptimize_Speed"/>
     <addaction name="actionOptimize_Offset"/>
-    <addaction name="actionClear_Fix_Edge"/>
+    <addaction name="menuClear_Fix_Edge"/>
     <addaction name="actionOptimize_Offset_NB"/>
    </widget>
    <widget class="QMenu" name="menuPostProcess">
@@ -172,11 +180,6 @@
     <string>Layer Down</string>
    </property>
   </action>
-  <action name="actionClear_Fix_Edge">
-   <property name="text">
-    <string>Clear Fix Edge</string>
-   </property>
-  </action>
   <action name="actionOptimize_Offset_NB">
    <property name="text">
     <string>Optimize Offset NB</string>
@@ -204,6 +207,21 @@
    </property>
    <property name="text">
     <string>Slow And Good</string>
+   </property>
+  </action>
+  <action name="actionClear_All_Fix_Edge">
+   <property name="text">
+    <string>Clear All Fix Edge</string>
+   </property>
+  </action>
+  <action name="actionClear_Red_Fix_edge">
+   <property name="text">
+    <string>Clear Red Fix Edge</string>
+   </property>
+  </action>
+  <action name="actionClear_Yellow_Fix_Edge">
+   <property name="text">
+    <string>Clear Yellow Fix Edge</string>
    </property>
   </action>
  </widget>

@@ -1072,7 +1072,7 @@ void ICLayerWr::create(const string file, bool _read, int _cache_size, int type)
 	QMutexLocker locker(&mutex);
 	close();	
 	file_name = file;
-	qInfo("layer file %s is opened for %s", file_name.c_str(), _read ? "read" : "write");	
+	qInfo("layer file %s is opened for %s, cache_size=%d", file_name.c_str(), _read ? "read" : "write", _cache_size);	
 	read_write = _read;	
 	if (!_read) {
 		remove(file.c_str());

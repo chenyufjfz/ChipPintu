@@ -72,6 +72,10 @@ CornerEdge::CornerEdge(QWidget *parent) :
 	ui->corner_tbl1->resizeColumnsToContents();
 	ui->edge_tb0->resizeColumnsToContents();
 	ui->edge_tbl1->resizeColumnsToContents();
+	ui->corner_tbl0->setSelectionBehavior(QAbstractItemView::SelectRows);
+	ui->corner_tbl1->setSelectionBehavior(QAbstractItemView::SelectRows);
+	ui->edge_tb0->setSelectionBehavior(QAbstractItemView::SelectRows);
+	ui->edge_tbl1->setSelectionBehavior(QAbstractItemView::SelectRows);
 
 	for (int i = 0; i < 2; i++)
 		corner1_idx[i] = 0xffffffff;
@@ -279,6 +283,27 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 		sprintf(str, "%d,%d", val_x, val_y);
 		ui->edge_tb0->setItem(i, 1, new QTableWidgetItem(QString::fromLocal8Bit(str)));
 	}
-
+	ui->corner_tbl0->resizeColumnsToContents();
+	ui->edge_tb0->resizeColumnsToContents();
 	update();
+}
+
+void CornerEdge::goto_next_corner()
+{
+	int row = ui->corner_tbl0->currentRow();
+	row++;
+	if (row == ui->corner_tbl0->rowCount())
+		row = 0;
+	ui->corner_tbl0->setCurrentCell(row, 0);
+	emit goto_corner(corner_idx[row]);
+}
+
+void CornerEdge::goto_next_edge()
+{
+	int row = ui->edge_tb0->currentRow();
+	row++;
+	if (row == ui->edge_tb0->rowCount())
+		row = 0;
+	ui->edge_tb0->setCurrentCell(row, 0);
+	emit goto_edge(edge_idx[row]);
 }

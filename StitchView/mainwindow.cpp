@@ -318,11 +318,6 @@ void MainWindow::on_actionLayer_Down_triggered()
 	stitch_view->layer_down(-1);
 }
 
-void MainWindow::on_actionClear_Fix_Edge_triggered()
-{
-    stitch_view->clear_fix_edge(-1);
-}
-
 void MainWindow::on_actionOptimize_Offset_NB_triggered()
 {
 	qInfo("UI: optimize offset neglect border");
@@ -351,4 +346,19 @@ void MainWindow::on_actionSlow_And_Good_triggered()
 	ui->actionFast_But_Bad->setChecked(false);
 	ui->actionMiddle_And_Normal->setChecked(false);
 	ui->actionSlow_And_Good->setChecked(true);
+}
+
+void MainWindow::on_actionClear_All_Fix_Edge_triggered()
+{
+    stitch_view->clear_fix_edge(-1);
+}
+
+void MainWindow::on_actionClear_Red_Fix_edge_triggered()
+{
+    stitch_view->clear_red_fix_edge(-1);
+}
+
+void MainWindow::on_actionClear_Yellow_Fix_Edge_triggered()
+{
+    stitch_view->clear_yellow_fix_edge(-1);
 }

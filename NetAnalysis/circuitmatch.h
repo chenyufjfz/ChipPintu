@@ -9,7 +9,7 @@ class DeviceInstData : public QSharedData {
 public:
 	HASH_TYPE hash;
 	vector<int> port_net; //port_net[0] is for type, port_net[1] is for port0
-	int dev_idx;
+	int dev_idx; //index in Circuit.devs
 	DeviceInstData() {}
 	DeviceInstData(const DeviceInstData & o) : QSharedData(o){
 		hash = o.hash;
@@ -44,6 +44,9 @@ public:
 		if (type == DEVICE_R || type == DEVICE_L || type == DEVICE_C)
 			hashid = type ^ (d->port_net[1] ^ d->port_net[2]) << 8;
 		else
+		if (type == DEVICE_MOSFET)
+			hashid = type ^ (d->port_net[1] ^ d->port_net[3]) << 8 ^ d->port_net[2] << 16 ^ d->port_net[4] << 24;
+		else
 		for (int i = 0; i < (int)d->port_net.size(); i++)
 			hashid ^= (HASH_TYPE)d->port_net[i] << (i % sizeof(HASH_TYPE)* 8);
 		d->hash = hashid;
@@ -65,6 +68,11 @@ public:
 			return (type == o.d->port_net[0] &&
 			(d->port_net[1] == o.d->port_net[1] && d->port_net[2] == o.d->port_net[2] ||
 			d->port_net[1] == o.d->port_net[2] && d->port_net[2] == o.d->port_net[1]));
+		else 
+		if (type == DEVICE_MOSFET)
+			return (type == o.d->port_net[0] && d->port_net[2] == o.d->port_net[2] && d->port_net[4] == o.d->port_net[4] &&
+			(d->port_net[1] == o.d->port_net[1] && d->port_net[3] == o.d->port_net[3] ||
+			d->port_net[3] == o.d->port_net[1] && d->port_net[1] == o.d->port_net[3]));
 		else {
 			for (int i = 0; i < (int) d->port_net.size(); i++)
 			if (d->port_net[i] != o.d->port_net[i])

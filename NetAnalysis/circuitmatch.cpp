@@ -154,6 +154,8 @@ pair<QSharedPointer<DeviceInst>, QSharedPointer<DeviceInst> > CircuitMatch::find
 */
 
 /*
+Input: o, other Circuit
+Outpput: dp matched device pair
 Notes: pick minimum equal dev, minimum can reduce time
 */
 void CircuitMatch::pick_dev(const CircuitMatch * o, vector<pair<DeviceInst, DeviceInst > > & dp)
@@ -286,8 +288,25 @@ void CircuitMatch::add_match_device(int d, vector<int> & nodes)
 	int type = cir->devs[d].type;
 	if (type == DEVICE_R || type == DEVICE_L || type == DEVICE_C) {
 		for (int i = 0; i < (int)cn.size(); i++)
-		if (dm.back().get_port_net(i) == -1)
+		if (dm.back().get_port_net(i + 1) == -1)
 			nodes.push_back(cn[i]);
+	} 
+	else
+	if (type == DEVICE_MOSFET) {
+		if (dm.back().get_port_net(1) == -1 && dm.back().get_port_net(3) == -1) {
+			for (int i = 0; i < (int)cn.size(); i++)
+			if (i != 0 && i != 2)
+				nodes.push_back(cn[i]);
+		}
+		else {
+			if (dm.back().get_port_net(1) == -1)
+				nodes.push_back(cn[0]);
+			else
+				nodes.push_back(cn[2]);
+			for (int i = 0; i < (int)cn.size(); i++)
+			if (i != 0 && i != 2)
+				nodes.push_back(cn[i]);
+		}
 	}
 	else
 		for (int i = 0; i < (int)cn.size(); i++)
@@ -343,7 +362,7 @@ bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod
 		//add match node
 		for (int i = 0; i < node0.size(); i++) {
 			int is_match = cm0->search_node(node0[i]);
-			if (cm0->search_node(node0[i]) != cm1->search_node(node1[i]))
+			if (is_match != cm1->search_node(node1[i]))
 				return false;
 			if (is_match >= 0) //node already match
 				continue;

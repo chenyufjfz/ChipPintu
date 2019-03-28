@@ -17,6 +17,8 @@ public:
     explicit CornerEdge(QWidget *parent = 0);
     ~CornerEdge();
 	void set_layer_info(LayerFeature * _lf);
+	void goto_next_corner();
+	void goto_next_edge();
 
 public slots:
 	void corner0_click(int row, int column);

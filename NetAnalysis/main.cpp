@@ -182,22 +182,22 @@ int main(int argc, char *argv[])
 	qInstallMessageHandler(myMessageOutput);
 
 	CircuitMatch c0, c1;
-	c0.read_circuit("osc1.cdl");
+	c0.read_circuit("top.cdl");
 	c1.read_circuit("osc.cdl");
 	vector<string> nodes, subckt;
 	nodes.push_back("GND");
-	nodes.push_back("VCC");
+	nodes.push_back("VDD");
 	c0.predef_match_nodes(nodes);
 	nodes.clear();
 	nodes.push_back("GND");
-	nodes.push_back("UNKNOWN");
+	nodes.push_back("VCC");
 	c1.predef_match_nodes(nodes);	
 	subckt.push_back("V50_NAND2_24_14");
 	subckt.push_back("V50_INV_24_14");
 	c0.predef_match_subckt(subckt);
 	c1.predef_match_subckt(subckt);	
 	vector<MatchResult> result;
-	match(c0, c1, "V50_NAND2_24_14", "V50_NAND2_24_14", MATCH_PART, result);
+	match(c0, c1, "TOP", "OSC", MATCH_PART, result);
     return 0;
 }
 

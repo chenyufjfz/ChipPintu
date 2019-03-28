@@ -60,8 +60,6 @@ private slots:
 
     void on_actionLayer_Down_triggered();
 
-    void on_actionClear_Fix_Edge_triggered();
-
     void on_actionOptimize_Offset_NB_triggered();
 
     void on_actionFast_But_Bad_triggered();
@@ -69,6 +67,12 @@ private slots:
     void on_actionMiddle_And_Normal_triggered();
 
     void on_actionSlow_And_Good_triggered();
+
+    void on_actionClear_All_Fix_Edge_triggered();
+
+    void on_actionClear_Red_Fix_edge_triggered();
+
+    void on_actionClear_Yellow_Fix_Edge_triggered();
 
 private:
     Ui::MainWindow *ui;

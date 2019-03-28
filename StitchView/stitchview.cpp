@@ -594,21 +594,15 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				vector<Nail> ns;
 				get_one_layer_nails(lf[layer], ns);
 				if (ns.size() > 0) {
-					lf[layer]->find_next[0] = lf[layer]->find_next[0] % ns.size();
-					loc = ns[lf[layer]->find_next[0]].p0;
+					lf[layer]->find_next = lf[layer]->find_next % ns.size();
+					loc = ns[lf[layer]->find_next].p0;
 					loc = ri->src2dst(layer, loc);
-					lf[layer]->find_next[0]++;
+					lf[layer]->find_next++;
 				}
 			}
 			else 
 			if (draw_corner > 0) {
-				if (lf[layer]->unsure_corner.size() > 0) {
-					lf[layer]->find_next[1] = lf[layer]->find_next[1] % lf[layer]->unsure_corner.size();
-					loc = lf[layer]->unsure_corner[lf[layer]->find_next[1]];
-					lf[layer]->find_next[1]++;
-					Point src_corner(lf[layer]->cpara.offset(loc.y, loc.x)[1], lf[layer]->cpara.offset(loc.y, loc.x)[0]);
-					loc = ri->src2dst(layer, src_corner);
-				}
+				ceview->goto_next_corner();
 			}
 			if (loc.x > 0)
 				goto_xy(loc.x, loc.y);
@@ -619,9 +613,9 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 				vector<Nail> ns;
 				get_absolute_nails(ns);
 				if (ns.size() > 0) {
-					lf[0]->find_next[0] = lf[0]->find_next[0] % ns.size();
-					loc = ns[lf[0]->find_next[0]].p1;
-					lf[0]->find_next[0]++;
+					lf[0]->find_next = lf[0]->find_next % ns.size();
+					loc = ns[lf[0]->find_next].p1;
+					lf[0]->find_next++;
 				}
 			}
 			if (loc.x > 0)
@@ -630,16 +624,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		break;
 	case Qt::Key_F4:	
 		if (layer != ABS_LAYER) {
-			//found edge which shift is bigger than rescale
-			Point loc(-1, -1);
-			if (lf[layer]->unsure_edge.size() > 0) {
-				lf[layer]->find_next[2] = lf[layer]->find_next[2] % lf[layer]->unsure_edge.size();
-				loc = lf[layer]->unsure_edge[lf[layer]->find_next[2]];
-				lf[layer]->find_next[2]++;
-				loc = ri->src2dst(layer, loc);
-			}
-			if (loc.x > 0)
-				goto_xy(loc.x, loc.y);
+			ceview->goto_next_edge();
 		}
 		break;
 	case Qt::Key_F5:
@@ -858,7 +843,11 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 					Point img1(lf[layer]->cpara.offset(IMG_Y(i1), IMG_X(i1))[1], lf[layer]->cpara.offset(IMG_Y(i1), IMG_X(i1))[0]);
 					Point shift = img1 - img0;
 					shift -= ed->offset;
-					new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale, 1, shift.x / lf[layer]->cpara.rescale, shift.y / lf[layer]->cpara.rescale);
+					if (shift.x >= 0 && shift.y >= 0 && shift.x / lf[layer]->cpara.rescale < ed->dif.cols 
+						&& shift.y / lf[layer]->cpara.rescale < ed->dif.rows)
+						new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale, 1, shift.x / lf[layer]->cpara.rescale, shift.y / lf[layer]->cpara.rescale);
+					else
+						new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale, 0, 0, 0);
 				}
 				else {
 					if (FIX_EDGE_IDEA_POS(new_fix))
@@ -1514,6 +1503,41 @@ void StitchView::clear_fix_edge(int _layer)
     lf[_layer]->flagb[1] = 0;
 }
 
+void StitchView::clear_red_fix_edge(int _layer)
+{
+    if (_layer == -1)
+        _layer = layer;
+    if (_layer >= lf.size() || _layer < 0)
+        return;
+    qInfo("clear_red_fix_edge l=%d", _layer);
+	for (int i = 0; i < 2; i++) {
+		for (int y = 0; y < lf[_layer]->flagb[i].rows; y++)
+		for (int x = 0; x < lf[_layer]->flagb[i].cols; x++) {
+			int a = lf[_layer]->flagb[i](y, x);
+			if (FIX_EDGE_BINDX(a) || FIX_EDGE_BINDY(a))
+				lf[_layer]->flagb[i](y, x) = 0;
+		}
+	}
+}
+
+void StitchView::clear_yellow_fix_edge(int _layer)
+{
+    if (_layer == -1)
+        _layer = layer;
+    if (_layer >= lf.size() || _layer < 0)
+        return;
+    qInfo("clear_yellow_fix_edge l=%d", _layer);
+	for (int i = 0; i < 2; i++) {
+		for (int y = 0; y < lf[_layer]->flagb[i].rows; y++)
+		for (int x = 0; x < lf[_layer]->flagb[i].cols; x++) {
+			int a = lf[_layer]->flagb[i](y, x);
+			if (FIX_EDGE_IDEA_POS(a))
+				lf[_layer]->flagb[i](y, x) = 0;
+		}
+	}
+
+}
+
 int StitchView::set_current_layer(int _layer) {
 	if (_layer < get_layer_num() && _layer >= 0)
 		layer = _layer;
@@ -1879,8 +1903,7 @@ int StitchView::read_file(string file_name)
 			}
 			else {
 				lf[i]->compute_unsure_corner();
-				for (int j = 0; j < sizeof(lf[i]->find_next) / sizeof(lf[i]->find_next[0]); j++)
-					lf[i]->find_next[j] = 0;
+				lf[i]->find_next = 0;
 			}
 		}
 		int dst_w;
