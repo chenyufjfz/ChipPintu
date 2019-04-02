@@ -79,6 +79,14 @@ string Circuit::get_subckt_name(int idx)
 		return "";
 }
 
+int Circuit::get_subckt_num()
+{
+	if (parent)
+		return parent->get_subckt_num();
+	else
+		return subckts.size();
+}
+
 Circuit * Circuit::get_parent_ckt()
 {
     return parent;

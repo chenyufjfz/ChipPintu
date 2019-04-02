@@ -114,6 +114,7 @@ public:
 	pair<Circuit *, int> search_subckt(string name);
 	int search_dev(string name);
 	string get_subckt_name(int idx);
+	int get_subckt_num();
 	Circuit * get_parent_ckt();	
 	int search_node(string node_name);
 	int new_device(string name, char * nname1, char * nname2);

@@ -8,7 +8,7 @@ typedef unsigned HASH_TYPE;
 class DeviceInstData : public QSharedData {
 public:
 	HASH_TYPE hash;
-	vector<int> port_net; //port_net[0] is for type, port_net[1] is for port0
+	vector<int> port_net; //port_net[0] is for type, port_net[1] is for port0 index in nm
 	int dev_idx; //index in Circuit.devs
 	DeviceInstData() {}
 	DeviceInstData(const DeviceInstData & o) : QSharedData(o){
@@ -98,11 +98,14 @@ struct DeviceInstCmp
 	}
 };
 
-enum MatchMethod {
+enum {
 	MATCH_ALL,
 	MATCH_SUBCKT,
 	MATCH_PART,
+	SUBCKT_SAME_NAME = 0x10000
 };
+
+typedef int MatchMethod;
 
 struct MatchResult {
 	vector<pair<string, string> > mdev, mnodes;
@@ -143,7 +146,7 @@ protected:
 	int add_match_node(int n, vector<int> & affect_dm);
 	void add_match_device(int d, vector<int> & nodes);
     void init();
-	static bool try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod method);
+	static bool try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod method, int depth=0);
 	friend MatchResult try_match_node(const TryMatchNode & tm);
 
 public:
@@ -151,7 +154,7 @@ public:
 	void read_circuit(string filename);
 	void predef_match_nodes(vector<string> node_name);
 	void predef_match_subckt(vector<string> subckt_name);
-	friend void match(CircuitMatch & one, CircuitMatch & other, string subckt_name, string other_subckt_name, MatchMethod method, vector<MatchResult> result);
+	friend void match(CircuitMatch & one, CircuitMatch & other, string subckt_name, string other_subckt_name, MatchMethod method, vector<MatchResult> & result);
 };
 
 #endif // CIRCUITMATCH_H

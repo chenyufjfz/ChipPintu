@@ -1,5 +1,7 @@
 #include "circuitmatch.h" 
 #include <stdio.h>
+#define DUMP_RESULT 0
+#define DEBUG_PRINT 1
 
 CircuitMatch::CircuitMatch()
 {
@@ -302,7 +304,8 @@ void CircuitMatch::add_match_device(int d, vector<int> & nodes)
 			if (dm.back().get_port_net(1) == -1)
 				nodes.push_back(cn[0]);
 			else
-				nodes.push_back(cn[2]);
+				if (dm.back().get_port_net(3) == -1)
+					nodes.push_back(cn[2]);
 			for (int i = 0; i < (int)cn.size(); i++)
 			if (i != 0 && i != 2)
 				nodes.push_back(cn[i]);
@@ -319,44 +322,85 @@ void CircuitMatch::init()
 	dm.clear();
 	nm.clear();
 	sm.clear();
-	for (int i = 0; i < (int)predef_nm.size(); i++)
+	for (int i = 0; i < (int)predef_nm.size(); i++) {
+		qInfo("Predefine node %s for ckt %s", predef_nm[i].c_str(), cir->name.c_str());
 		nm.push_back(cir->search_node(predef_nm[i]));
-	for (int i = 0; i < (int)predef_sm.size(); i++)
+	}
+	for (int i = 0; i < (int)predef_sm.size(); i++) {
+		qInfo("Predefine subckt %s for ckt %s", predef_sm[i].c_str(), cir->name.c_str());
 		sm.push_back(cir->search_subckt(predef_sm[i]).second);
+	}
 }
 
-bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod method)
+bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod method, int depth)
 {
 	vector<pair<DeviceInst, DeviceInst > > dp;
 	for (;;) {
-		if (cm1->wait_pick.empty())
-			return true;        
+		if (cm1->wait_pick.empty()) {
+#if DEBUG_PRINT
+			qDebug("try_match:%d success", depth);
+#endif
+			return true;
+		}
         cm0->pick_dev(cm1, dp);
         if (dp.size() > 1)
 			break;
-        if (dp.size() == 0)
+		if (dp.size() == 0) {
+#if DEBUG_PRINT
+			qDebug("try_match:%d fail, no match device", depth);
+#endif
 			return false;
+		}
 		//now we have match device in dp[0]
 		vector<int> node0, node1; //dp[0] adj node
+#if DEBUG_PRINT
+		qDebug("try_match:%d add_match_device, %s=%s", depth, 
+			cm0->cir->devs[dp[0].first.dev_idx()].name.c_str(),
+			cm1->cir->devs[dp[0].second.dev_idx()].name.c_str());
+#endif
         cm0->add_match_device(dp[0].first.dev_idx(), node0);
         cm1->add_match_device(dp[0].second.dev_idx(), node1);
 		Q_ASSERT(node0.size() == node1.size());
 		for (int i = 0; i < (int)node0.size(); i++) //check node match
 		switch (method) {
 		case MATCH_ALL:
-			if (cm0->cir->nodes[node0[i]].cd.size() != cm1->cir->nodes[node1[i]].cd.size()) //connect device num must ==
+			if (cm0->cir->nodes[node0[i]].cd.size() != cm1->cir->nodes[node1[i]].cd.size()) { //connect device num must ==
+#if DEBUG_PRINT
+				qDebug("try_match:%d fail, node %s!=%s", depth,
+					cm0->cir->nodes[node0[i]].name.c_str(),
+					cm1->cir->nodes[node1[i]].name.c_str());
+#endif
 				return false;
+			}
 			break;
 		case MATCH_SUBCKT:
-			if (cm0->cir->nodes[node0[i]].cd.size() < cm1->cir->nodes[node1[i]].cd.size()) //connect device num must >=
+			if (cm0->cir->nodes[node0[i]].cd.size() < cm1->cir->nodes[node1[i]].cd.size()) { //connect device num must >=
+#if DEBUG_PRINT
+				qDebug("try_match:%d fail, node %s!=%s", depth,
+					cm0->cir->nodes[node0[i]].name.c_str(),
+					cm1->cir->nodes[node1[i]].name.c_str());
+#endif
 				return false;
+			}
 			if (!cm1->cir->is_port(node1[i])) //internal nodes device num must ==
-			if (cm0->cir->nodes[node0[i]].cd.size() != cm1->cir->nodes[node1[i]].cd.size())
+			if (cm0->cir->nodes[node0[i]].cd.size() != cm1->cir->nodes[node1[i]].cd.size()) {
+#if DEBUG_PRINT
+				qDebug("try_match:%d fail, node %s!=%s", depth,
+					cm0->cir->nodes[node0[i]].name.c_str(),
+					cm1->cir->nodes[node1[i]].name.c_str());
+#endif
 				return false;
+			}
 			break;
 		case MATCH_PART:
-			if (cm0->cir->nodes[node0[i]].cd.size() < cm1->cir->nodes[node1[i]].cd.size()) //connect device num must >=
+			if (cm0->cir->nodes[node0[i]].cd.size() < cm1->cir->nodes[node1[i]].cd.size()) {//connect device num must >=
+#if DEBUG_PRINT
+				qDebug("try_match:%d fail, node %s!=%s", depth,
+					cm0->cir->nodes[node0[i]].name.c_str(),
+					cm1->cir->nodes[node1[i]].name.c_str());
+#endif
 				return false;
+			}
 			break;
 		}
 		//add match node
@@ -367,22 +411,42 @@ bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod
 			if (is_match >= 0) //node already match
 				continue;
 			vector<int> adm0, adm1;
+#if DEBUG_PRINT
+			qDebug("try_match:%d, add_match_node %s=%s", depth,
+				cm0->cir->nodes[node0[i]].name.c_str(),
+				cm1->cir->nodes[node1[i]].name.c_str());
+#endif
 			cm0->add_match_node(node0[i], adm0);
 			cm1->add_match_node(node1[i], adm1);
 			//check affect device still match
-			if (adm0.size() != adm1.size())
+			if (adm0.size() != adm1.size()) {
+#if DEBUG_PRINT
+				qDebug("try_match:%d fail, adm size not equal");
+#endif
 				return false;
+			}				
 			for (int i = 0; i < (int)adm0.size(); i++)
-			if (!(cm0->dm[adm0[i]].equal(cm1->dm[adm1[i]])))
+			if (!(cm0->dm[adm0[i]].equal(cm1->dm[adm1[i]]))) {
+#if DEBUG_PRINT
+				qDebug("try_match:%d fail, adm %s!=%s", depth,
+					cm0->cir->devs[cm0->dm[adm0[i]].dev_idx()].name.c_str(),
+					cm1->cir->devs[cm1->dm[adm1[i]].dev_idx()].name.c_str());
+#endif
 				return false;
+			}
 		}
 	}
 	CircuitMatch cm0_back = *cm0, cm1_back = *cm1;
-	for (int i = 0; i < (int)dp.size(); i++) {
+	for (int k = 0; k < (int)dp.size(); k++) {
 		bool check = true;
 		vector<int> node0, node1;
-		cm0->add_match_device(dp[i].first.dev_idx(), node0);
-		cm1->add_match_device(dp[i].second.dev_idx(), node1);
+#if DEBUG_PRINT
+		qDebug("try_match:%d try to add_match_device, %s=%s", depth,
+			cm0->cir->devs[dp[k].first.dev_idx()].name.c_str(),
+			cm1->cir->devs[dp[k].second.dev_idx()].name.c_str());
+#endif
+		cm0->add_match_device(dp[k].first.dev_idx(), node0);
+		cm1->add_match_device(dp[k].second.dev_idx(), node1);
 		Q_ASSERT(node0.size() == node1.size());
 		for (int i = 0; check && i < (int)node0.size(); i++) //check node match
 		switch (method) {
@@ -403,6 +467,7 @@ bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod
 			break;
 		}
 		//add match node
+		if (check)
 		for (int i = 0; i < node0.size(); i++) {
 			int is_match = cm0->search_node(node0[i]);
 			if (cm0->search_node(node0[i]) != cm1->search_node(node1[i])) {
@@ -425,11 +490,33 @@ bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod
 				break;
 			}
 		}
-		if (check)
-			check = try_match(cm0, cm1, method);
-		if (check)
-			return true;
+		if (check) {
+#if DEBUG_PRINT
+			qDebug("try_match:%d next depth %d", depth, depth + 1);
+#endif
+			check = try_match(cm0, cm1, method, depth + 1);
+		}
 		else {
+#if DEBUG_PRINT
+			qDebug("try_match:%d try add_match_device fail, %s!=%s", depth,
+				cm0->cir->devs[dp[k].first.dev_idx()].name.c_str(),
+				cm1->cir->devs[dp[k].second.dev_idx()].name.c_str());
+#endif
+		}
+#if 1
+		if (cm0_back.dm.empty())
+			k = k * 2 - k;
+#endif
+		if (check) {
+#if DEBUG_PRINT
+			qDebug("try_match:%d return success from depth %d", depth, depth + 1);
+#endif
+			return true;
+		}
+		else {
+#if DEBUG_PRINT
+			qDebug("try_match:%d roll back", depth);
+#endif
 			*cm0 = cm0_back;
 			*cm1 = cm1_back;
 		}
@@ -442,6 +529,11 @@ MatchResult try_match_node(const TryMatchNode & tm)
 	CircuitMatch cm0 = *tm.cm0, cm1 = *tm.cm1;
 	vector<int> adm0, adm1;
 	MatchResult result;
+#if DEBUG_PRINT
+	qDebug("try_match_node, add_match_node %s=%s", 
+		cm0.cir->get_node_name(tm.n0).c_str(),
+		cm1.cir->get_node_name(tm.n1).c_str());
+#endif
 	cm0.add_match_node(tm.n0, adm0);
 	cm1.add_match_node(tm.n1, adm1);
 	Q_ASSERT(adm0.empty() && adm1.empty());
@@ -459,8 +551,20 @@ MatchResult try_match_node(const TryMatchNode & tm)
 	if (check) {
 		//self check circuit match
 		for (int i = 0; i < (int)cm0.dm.size(); i++) {
-			Q_ASSERT(cm0.dm[i].get_port_net_num() == cm1.dm[i].get_port_net_num());			
-			for (int j = 0; j < cm0.dm[i].get_port_net_num(); j++)
+			Q_ASSERT(cm0.dm[i].get_port_net_num() == cm1.dm[i].get_port_net_num());	
+			if (cm0.dm[i].get_port_net(0) == DEVICE_MOSFET)
+				Q_ASSERT(cm0.dm[i].get_port_net(0) == cm1.dm[i].get_port_net(0) && 
+					cm0.dm[i].get_port_net(2) == cm1.dm[i].get_port_net(2) &&
+					cm0.dm[i].get_port_net(4) == cm1.dm[i].get_port_net(4) &&
+					(cm0.dm[i].get_port_net(1) == cm1.dm[i].get_port_net(1) && cm0.dm[i].get_port_net(3) == cm1.dm[i].get_port_net(3) ||
+					cm0.dm[i].get_port_net(1) == cm1.dm[i].get_port_net(3) && cm0.dm[i].get_port_net(3) == cm1.dm[i].get_port_net(1)));
+			else
+			if (cm0.dm[i].get_port_net(0) == DEVICE_C || cm0.dm[i].get_port_net(0) == DEVICE_R || cm0.dm[i].get_port_net(0) == DEVICE_L)
+				Q_ASSERT(cm0.dm[i].get_port_net(0) == cm1.dm[i].get_port_net(0) &&
+				(cm0.dm[i].get_port_net(1) == cm1.dm[i].get_port_net(1) && cm0.dm[i].get_port_net(2) == cm1.dm[i].get_port_net(2) ||
+				cm0.dm[i].get_port_net(1) == cm1.dm[i].get_port_net(2) && cm0.dm[i].get_port_net(2) == cm1.dm[i].get_port_net(1)));
+			else
+			for (int j = 0; j < cm0.dm[i].get_port_net_num(); j++)				
 				Q_ASSERT(cm0.dm[i].get_port_net(j) == cm1.dm[i].get_port_net(j));
 			for (int j = 0; j < cm0.dm[i].get_port_net_num() - 1; j++) {
 				Q_ASSERT(cm0.cir->get_dev_cn(cm0.dm[i].dev_idx(), j) == cm0.nm[cm0.dm[i].get_port_net(j + 1)]);
@@ -477,15 +581,42 @@ static void merge_result(vector<MatchResult> & result, const MatchResult & t)
 		result.push_back(t);
 }
 
-void match(CircuitMatch & one, CircuitMatch & other, string subckt_name, string other_subckt_name, MatchMethod method, vector<MatchResult> result)
+void match(CircuitMatch & one, CircuitMatch & other, string subckt_name, string other_subckt_name, MatchMethod method, vector<MatchResult> & result)
 {
 	result.clear();
-	if (one.root_cir == NULL || other.root_cir == NULL)
+	if (one.root_cir == NULL) {
+		qCritical("circuit one is null");
 		return;
+	}
+	if (other.root_cir == NULL) {
+		qCritical("circuit other is null");
+		return;
+	}
+	if (one.predef_nm.size() != other.predef_nm.size()) {
+		qCritical("circuit one predef_nm=%d, other predef_nm=%d, not equal", one.predef_nm.size(), other.predef_nm.size());
+		return;
+	}
+	if (one.predef_sm.size() != other.predef_sm.size()) {
+		qCritical("circuit one predef_sm=%d, other predef_sm=%d, not equal", one.predef_sm.size(), other.predef_sm.size());
+		return;
+	}
 	one.cir = one.root_cir->search_subckt(subckt_name).first;
 	other.cir = other.root_cir->search_subckt(other_subckt_name).first;
 	if (one.cir == NULL || other.cir == NULL)
 		return;
+	if (method & SUBCKT_SAME_NAME) {
+		int cs0 = one.cir->get_subckt_num();
+		for (int i = DEVICE_X + 1; i <= DEVICE_X + cs0; i++) {
+			string cs0_name = one.cir->get_subckt_name(i);
+			if (cs0_name !="" && find(one.predef_sm.begin(), one.predef_sm.end(), cs0_name) == one.predef_sm.end() &&
+				find(other.predef_sm.begin(), other.predef_sm.end(), cs0_name) == other.predef_sm.end()) {
+				if (other.cir->search_subckt(cs0_name).first) {
+					one.predef_sm.push_back(cs0_name);
+					other.predef_sm.push_back(cs0_name);
+				}
+			}
+		}
+	}
 	one.init();
 	other.init();
 	vector<int> sn0, sn1;
@@ -511,7 +642,7 @@ void match(CircuitMatch & one, CircuitMatch & other, string subckt_name, string 
 		MatchResult t = try_match_node(tms[i]);
 		merge_result(result, t);
 	}
-
+#if DUMP_RESULT
 	FILE * fp = fopen("match_result.txt", "w");
 	for (int i = 0; i < (int)result.size(); i++) {
 		fprintf(fp, "Match %d for %s and %s, Nodes\n", i + 1, subckt_name.c_str(), other_subckt_name.c_str());
@@ -522,4 +653,5 @@ void match(CircuitMatch & one, CircuitMatch & other, string subckt_name, string 
 			fprintf(fp, "%20s --> %20s\n", result[i].mdev[j].first.c_str(), result[i].mdev[j].second.c_str());
 	}
 	fclose(fp);
+#endif
 }

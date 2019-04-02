@@ -636,6 +636,8 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 			switch (mouse_state) {
 			case PutSecondNail:
 				generate_mapxy();
+				if (layer != ABS_LAYER)
+					notify_nail_info(layer);
 			case PutFirstNail:
 			case ChangeNail:
 				cur_nail = Nail();
@@ -649,8 +651,10 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 		QWidget::keyPressEvent(e);
 		return;
 	}
-	if (prev_layer != layer && layer != ABS_LAYER)
+	if (prev_layer != layer && layer != ABS_LAYER) {
 		ceview->set_layer_info(lf[layer]);
+		notify_nail_info(layer);
+	}
 	update_title();
 	qDebug("Key=%d press, l=%d, s=%d, center=(%d,%d)", e->key(), layer, scale, center.x(), center.y());
 	update();
@@ -671,6 +675,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 
 void StitchView::mouseMoveEvent(QMouseEvent *event)
 {
+	setFocus();
 	static Point oo;
 	if (lf.empty())
 		return;
@@ -1073,11 +1078,23 @@ void StitchView::goto_edge(unsigned edge_idx)
 	}
 	Point src_edge_center[2] = { src_corner + src_corner2, src_corner + src_corner1 };
 	int e = EDGE_E(edge_idx);
-	goto_xy(src_edge_center[e].x / 2, src_edge_center[e].y / 2);
+	Point loc = ri->src2dst(layer, Point(src_edge_center[e].x / 2, src_edge_center[e].y / 2));
+	goto_xy(loc.x, loc.y);
 	QPoint ce(size().width()*scale / 2, size().height()*scale / 2);
 	QSize s(size().width()*scale, size().height()*scale);
 	view_rect = QRect(center - ce, s);
 	nview->set_viewrect(view_rect);
+}
+
+void StitchView::goto_nail(unsigned nail_idx)
+{
+	vector<Nail> ns;
+	get_one_layer_nails(lf[layer], ns);
+	if (ns.size() > nail_idx) {
+		Point loc = ri->src2dst(layer, ns[nail_idx].p0);
+		goto_xy(loc.x, loc.y);
+        nview->set_viewrect(view_rect);
+	}
 }
 
 bool StitchView::add_nail(Nail nail)
@@ -1089,6 +1106,8 @@ bool StitchView::add_nail(Nail nail)
 		j += sprintf(a + j, "k%d=%7f,", i, slope[i]);	
 	QMessageBox::information(this, "Add nail slope", QLatin1String(a));
 	update_nview();
+	if (layer != ABS_LAYER)
+		notify_nail_info(layer);
 	return true;
 }
 
@@ -1112,19 +1131,35 @@ void StitchView::get_absolute_nails(vector<Nail> &ns)
 void StitchView::get_one_layer_nails(LayerFeature * lf, vector<Nail> &ns)
 {
 	ns.clear();
-	for (int i = 0; i < (int)nails.size(); i++) {
-		if (nails[i].lf0 == lf)
-			ns.push_back(nails[i]);
+    vector<Nail> n0, n1, n2;
+    int l0 = which_layer(lf);
+    for (int i = 0; i < (int)nails.size(); i++) {
+        Nail n;
+        int l1;
+        if (nails[i].lf0 == lf) {
+            n = nails[i];
+            l1 = which_layer(nails[i].lf1);
+        }
 		else
 		if (nails[i].lf1 == lf) {
-			Nail n;
 			n.lf0 = nails[i].lf1;
 			n.lf1 = nails[i].lf0;
 			n.p0 = nails[i].p1;
 			n.p1 = nails[i].p0;
-			ns.push_back(n);
-		}
+            l1 = which_layer(nails[i].lf0);
+        }
+        if (n.lf0) {
+            if (l0 == l1)
+                n0.push_back(n);
+            if (l0 > l1)
+                n1.push_back(n);
+            if (l0 < l1)
+                n2.push_back(n);
+        }
 	}
+    ns.insert(ns.end(), n0.begin(), n0.end());
+    ns.insert(ns.end(), n1.begin(), n1.end());
+    ns.insert(ns.end(), n2.begin(), n2.end());
 }
 
 void StitchView::del_one_layer_nails(LayerFeature * lf)
@@ -1133,7 +1168,41 @@ void StitchView::del_one_layer_nails(LayerFeature * lf)
 	if (nails[i].lf0 == lf || nails[i].lf1 == lf) {
 		nails[i] = nails.back();
 		nails.pop_back();
+        i--;
 	}	
+}
+
+void StitchView::notify_nail_info(int layer)
+{
+	vector<Nail> ns;
+	get_one_layer_nails(lf[layer], ns);
+	vector<Point2f> nail;
+	vector<Point> bias;
+	vector<int> dir;
+	for (int i = 0; i < (int)ns.size(); i++) {
+		Point2d nxy = ri->src2dst(layer, ns[i].p0);
+		Point2d nxy1;
+		if (layer > 0 && lf[layer - 1] == ns[i].lf1) {
+			dir.push_back(1);
+			nxy1 = ri->src2dst(layer - 1, ns[i].p1);
+		}
+		else
+		if (ns[i].lf0 == ns[i].lf1) {
+			dir.push_back(2);
+			nxy1 = ns[i].p1;
+		}
+		else {
+			CV_Assert(lf[layer + 1] == ns[i].lf1);
+			dir.push_back(0);
+			nxy1 = ri->src2dst(layer + 1, ns[i].p1);
+		}
+		bias.push_back(nxy1 - nxy);
+		Point2f nxy0;
+		nxy0.x = (double) ns[i].p0.x / lf[layer]->cpara.right_bound();
+		nxy0.y = (double) ns[i].p0.y / lf[layer]->cpara.bottom_bound();
+		nail.push_back(nxy0);
+	}
+	ceview->set_nail_info(nail, bias, dir);
 }
 
 Nail StitchView::search_nail(LayerFeature * lf, Point p, int range)
@@ -1412,6 +1481,7 @@ int StitchView::compute_new_feature(int _layer)
 
 int StitchView::optimize_offset(int _layer, int optimize_option)
 {
+	Mat_<Vec2i> adjust_offset;
 	if (_layer == -1)
 		_layer = layer;
 	if (_layer >= lf.size() || _layer < 0)
@@ -1473,14 +1543,15 @@ int StitchView::optimize_offset(int _layer, int optimize_option)
 	thread_bundle_adjust(ba, &lf[_layer]->feature, &adjust_offset, &lf[_layer]->corner_info, &fe, ri->get_src_img_size(layer), optimize_option);
 	lf[_layer]->cpara.offset = adjust_offset;
 	adjust_offset.release();
-	lf[_layer]->compute_unsure_corner();
 	if (!ns.empty()) {
 		convert_nails(nails, nails, 1);
 		generate_mapxy();
 	}
 	ri->invalidate_cache(_layer);
-	if (_layer == layer)
+	if (_layer == layer) {
 		ceview->set_layer_info(lf[layer]);
+		notify_nail_info(layer);
+	}
 	update();
 	return 0;
 }
@@ -1579,6 +1650,7 @@ void StitchView::set_ceview(CornerEdge * _ceview) {
 	ceview = _ceview;
 	connect(ceview, SIGNAL(goto_corner(unsigned)), this, SLOT(goto_corner(unsigned)));
 	connect(ceview, SIGNAL(goto_edge(unsigned)), this, SLOT(goto_edge(unsigned)));
+	connect(ceview, SIGNAL(goto_nail(unsigned)), this, SLOT(goto_nail(unsigned)));
 }
 
 void StitchView::to_state_add_nail() {
@@ -1598,14 +1670,19 @@ int StitchView::output_layer(int _layer, string pathname) {
 	if (_layer >= lf.size() || _layer < 0)
 		return -1;
 	string filename = pathname + "/" + lf[_layer]->layer_name + ".db";
-	qInfo("output_layer l=%d, file=%s", _layer, filename.c_str());
 	ICLayerWrInterface *ic = ICLayerWrInterface::create(filename, false, 1, 1, 0, 0, 0, 0, 0);
 	ICLayerInterface *icl = ic->get_iclayer_inf();
 
 	int dst_w = ri->get_dst_wide();
-	Point bd = ri->src2dst(layer, Point(lf[layer]->cpara.right_bound(), lf[layer]->cpara.bottom_bound()));
-	int end_x = bd.x / dst_w + 1;
-	int end_y = bd.y / dst_w + 1;
+	Point max_bd(0, 0);
+	for (int l = 0; l < lf.size(); l++) {
+		Point bd = ri->src2dst(l, Point(lf[l]->cpara.right_bound(), lf[l]->cpara.bottom_bound()));
+		max_bd.x = max(bd.x, max_bd.x);
+		max_bd.y = max(bd.y, max_bd.y);
+	}
+	int end_x = max_bd.x / dst_w + 1;
+	int end_y = max_bd.y / dst_w + 1;
+	qInfo("output_layer l=%d, file=%s, x=%d, y=%d", _layer, filename.c_str(), end_x, end_y);
 	icl->putBlockNumWidth(end_x, end_y, dst_w);
 	vector<MapID> map_id;
 	vector<MapID> draw_order;
@@ -1666,6 +1743,7 @@ int StitchView::delete_layer(int _layer)
 	if (layer >= _layer && layer >= 0) {
 		layer--;
 		update_nview();
+        notify_nail_info(layer);
 	}
 	update_title();
 	update();	
@@ -1782,6 +1860,10 @@ void StitchView::write_file(string file_name)
 		fs << name << lf[i]->layer_name;
 		sprintf(name, "corner%d", i);
 		fs << name << lf[i]->corner_info;
+		sprintf(name, "check_edge0_%d", i);
+		fs << name << lf[i]->checked_edge_offset[0];
+		sprintf(name, "check_edge1_%d", i);
+		fs << name << lf[i]->checked_edge_offset[1];
 	}
 	fs << "dst_w" << ri->get_dst_wide();
 	fs << "Nails" << "[";
@@ -1902,9 +1984,12 @@ int StitchView::read_file(string file_name)
 				lf[i]->corner_info = 0;
 			}
 			else {
-				lf[i]->compute_unsure_corner();
 				lf[i]->find_next = 0;
 			}
+			sprintf(name, "check_edge0_%d", i);
+			fs[name] >> lf[i]->checked_edge_offset[0];
+			sprintf(name, "check_edge1_%d", i);
+			fs[name] >> lf[i]->checked_edge_offset[1];
 		}
 		int dst_w;
 		fs["dst_w"] >> dst_w;
@@ -1952,8 +2037,10 @@ int StitchView::read_file(string file_name)
 		QSize s(size().width()*scale, size().height()*scale);
 		view_rect = QRect(center - ce, s);
 		update_nview();
-		if (layer != ABS_LAYER)
+		if (layer != ABS_LAYER) {
 			ceview->set_layer_info(lf[layer]);
+			notify_nail_info(layer);
+		}
 		return 0;
 	}
 	return -1;

@@ -49,6 +49,7 @@ struct LayerFeature {
     string layer_name;
 	Mat_<Vec2i> corner_info; //y_bias is in vec0 31..16, x_bias is in vec0 15..0
 	Mat_<int> flagb[2];
+	Mat_<Vec2i> checked_edge_offset[2];  //used by corneredge
 	int find_next;
 	vector<unsigned> get_fix_img(unsigned img_idx, int bind_flag) {
 		vector<unsigned> ret;
@@ -140,8 +141,6 @@ struct LayerFeature {
 			return 1;
 		return 0;
 	}*/
-	void compute_unsure_corner() {
-	}
 	LayerFeature() {
 		find_next = 0;
 	}
@@ -206,6 +205,7 @@ public slots:
 	void update_center(QPoint center);
 	void goto_corner(unsigned corner_idx);
 	void goto_edge(unsigned edge_idx);
+	void goto_nail(unsigned nail_idx);
 
 protected:
     void paintEvent(QPaintEvent *e);
@@ -247,7 +247,6 @@ protected:
 
 	//Following is for bundleadjust
 	BundleAdjustInf * ba;
-	Mat_<Vec2i> adjust_offset;
 	int auto_save;
 	//upper is for bundleadjust
 
@@ -258,6 +257,7 @@ protected:
 	void get_absolute_nails(vector<Nail> &ns);
 	void get_one_layer_nails(LayerFeature * lf, vector<Nail> &ns);
 	void del_one_layer_nails(LayerFeature * lf);
+	void notify_nail_info(int layer);
 	Nail search_nail(LayerFeature * lf, Point p, int range);
 	vector<double> generate_mapxy();
 	int which_layer(LayerFeature * l);

@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>288</width>
+    <width>270</width>
     <height>750</height>
    </rect>
   </property>
@@ -55,38 +55,9 @@
      </widget>
     </item>
     <item>
-     <widget class="QTableWidget" name="edge_tbl1">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>16777215</width>
-        <height>170</height>
-       </size>
-      </property>
-      <property name="focusPolicy">
-       <enum>Qt::NoFocus</enum>
-      </property>
-      <column>
-       <property name="text">
-        <string>Corner's Edge</string>
-       </property>
-      </column>
-      <column>
-       <property name="text">
-        <string>Bias</string>
-       </property>
-      </column>
-     </widget>
-    </item>
-    <item>
      <widget class="QTableWidget" name="edge_tb0">
       <property name="sizePolicy">
-       <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+       <sizepolicy hsizetype="Minimum" vsizetype="MinimumExpanding">
         <horstretch>0</horstretch>
         <verstretch>0</verstretch>
        </sizepolicy>
@@ -107,7 +78,10 @@
      </widget>
     </item>
     <item>
-     <widget class="QTableWidget" name="corner_tbl1">
+     <widget class="QTableWidget" name="nail_tbl0">
+      <property name="enabled">
+       <bool>true</bool>
+      </property>
       <property name="sizePolicy">
        <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
         <horstretch>0</horstretch>
@@ -117,7 +91,7 @@
       <property name="maximumSize">
        <size>
         <width>16777215</width>
-        <height>100</height>
+        <height>300</height>
        </size>
       </property>
       <property name="focusPolicy">
@@ -125,12 +99,17 @@
       </property>
       <column>
        <property name="text">
-        <string>Edge's Corner</string>
+        <string>Nail</string>
        </property>
       </column>
       <column>
        <property name="text">
         <string>Bias</string>
+       </property>
+      </column>
+      <column>
+       <property name="text">
+        <string>Dir</string>
        </property>
       </column>
      </widget>

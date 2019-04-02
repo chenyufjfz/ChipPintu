@@ -53,34 +53,23 @@ CornerEdge::CornerEdge(QWidget *parent) :
     ui->setupUi(this);
 
 	ui->corner_tbl0->setEditTriggers(QAbstractItemView::NoEditTriggers);
-	ui->corner_tbl1->setEditTriggers(QAbstractItemView::NoEditTriggers);
 	ui->edge_tb0->setEditTriggers(QAbstractItemView::NoEditTriggers);
-	ui->edge_tbl1->setEditTriggers(QAbstractItemView::NoEditTriggers);
-	ui->corner_tbl1->setRowCount(2);
-	ui->edge_tbl1->setRowCount(4);
+	ui->nail_tbl0->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
 	connect(ui->corner_tbl0, SIGNAL(cellClicked(int, int)), this, SLOT(corner0_click(int, int)));
-	connect(ui->corner_tbl1, SIGNAL(cellClicked(int, int)), this, SLOT(corner1_click(int, int)));
 	connect(ui->edge_tb0, SIGNAL(cellClicked(int, int)), this, SLOT(edge0_click(int, int)));
-	connect(ui->edge_tbl1, SIGNAL(cellClicked(int, int)), this, SLOT(edge1_click(int, int)));
-	connect(ui->corner_tbl0, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(corner0_double_click(int, int)));
-	connect(ui->corner_tbl1, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(corner1_double_click(int, int)));
-	connect(ui->edge_tb0, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(edge0_double_click(int, int)));
-	connect(ui->edge_tbl1, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(edge1_double_click(int, int)));
+    //connect(ui->corner_tbl0, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(corner0_double_click(int, int)));
+    //connect(ui->edge_tb0, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(edge0_double_click(int, int)));
+	connect(ui->nail_tbl0, SIGNAL(cellClicked(int, int)), this, SLOT(nail0_click(int, int)));
 
 	ui->corner_tbl0->resizeColumnsToContents();
-	ui->corner_tbl1->resizeColumnsToContents();
 	ui->edge_tb0->resizeColumnsToContents();
-	ui->edge_tbl1->resizeColumnsToContents();
+	ui->nail_tbl0->resizeColumnsToContents();
 	ui->corner_tbl0->setSelectionBehavior(QAbstractItemView::SelectRows);
-	ui->corner_tbl1->setSelectionBehavior(QAbstractItemView::SelectRows);
 	ui->edge_tb0->setSelectionBehavior(QAbstractItemView::SelectRows);
-	ui->edge_tbl1->setSelectionBehavior(QAbstractItemView::SelectRows);
-
-	for (int i = 0; i < 2; i++)
-		corner1_idx[i] = 0xffffffff;
-	for (int i = 0; i < 4; i++)
-		edge1_idx[i] = 0xffffffff;
+	ui->nail_tbl0->setSelectionBehavior(QAbstractItemView::SelectRows);
+	reviewed_corner_idx = 0xffffffff;
+	reviewed_edge_idx = 0xffffffff;
 }
 
 CornerEdge::~CornerEdge()
@@ -88,92 +77,69 @@ CornerEdge::~CornerEdge()
     delete ui;
 }
 
-void CornerEdge::corner0_click(int row, int col)
+void CornerEdge::corner0_click(int row, int )
 {
-	qInfo("corner0 click %d, %d", row, col);
-	unsigned idx = corner_idx[row];
-	for (int dir = 0; dir < 4; dir++) {
-		unsigned e_idx = get_edge_idx(idx, dir);
-		int row = find_edge(e_idx);
-		if (row == 0xffffffff)
-			continue;
-		ui->edge_tbl1->setItem(dir, 0, ui->edge_tb0->item(row, 0)->clone());
-		ui->edge_tbl1->setItem(dir, 1, ui->edge_tb0->item(row, 1)->clone());
-		edge1_idx[dir] = e_idx;
-	}
+    bool shift_on = QApplication::queryKeyboardModifiers() == Qt::ShiftModifier;
+    qInfo("corner0 click %d, shift=%d", row, shift_on);
+	emit goto_corner(corner_idx[row]);
+    if (shift_on && reviewed_corner_idx == corner_idx[row]) {
+        review_corner(reviewed_corner_idx);
+        ui->corner_tbl0->item(row, 0)->setForeground(QBrush(QColor(0, 0, 0)));
+        ui->corner_tbl0->item(row, 1)->setForeground(QBrush(QColor(0, 0, 0)));
+        ui->corner_tbl0->item(row, 2)->setForeground(QBrush(QColor(0, 0, 0)));
+    }
+	reviewed_corner_idx = corner_idx[row];
 	update();
 }
 
-void CornerEdge::corner1_click(int row, int col)
+void CornerEdge::edge0_click(int row, int )
 {
-	qInfo("corner1 click %d, %d", row, col);
-	unsigned idx = corner1_idx[row];
-	for (int dir = 0; dir < 4; dir++) {
-		unsigned e_idx = get_edge_idx(idx, dir);
-		int row = find_edge(e_idx);
-		if (row == 0xffffffff)
-			continue;
-		ui->edge_tbl1->setItem(dir, 0, ui->edge_tb0->item(row, 0)->clone());
-		ui->edge_tbl1->setItem(dir, 1, ui->edge_tb0->item(row, 1)->clone());
-		edge1_idx[dir] = e_idx;
-	}
-	update();
-}
-
-void CornerEdge::edge0_click(int row, int col)
-{
-	qInfo("edge0 click %d, %d", row, col);
-	unsigned idx = edge_idx[row];
-	for (int dir = 0; dir < 2; dir++) {
-		unsigned c_idx = get_corner_idx(idx, dir);
-		int row = find_corner(c_idx);
-		if (row == 0xffffffff)
-			continue;
-		ui->corner_tbl1->setItem(dir, 0, ui->corner_tbl0->item(row, 0)->clone());
-		ui->corner_tbl1->setItem(dir, 1, ui->corner_tbl0->item(row, 1)->clone());
-		corner1_idx[dir] = c_idx;
-	}
-	update();
-}
-
-void CornerEdge::edge1_click(int row, int col)
-{
-	qInfo("edge1 click %d, %d", row, col);
-	unsigned idx = edge1_idx[row];
-	for (int dir = 0; dir < 2; dir++) {
-		unsigned c_idx = get_corner_idx(idx, dir);
-		int row = find_corner(c_idx);
-		if (row == 0xffffffff)
-			continue;
-		ui->corner_tbl1->setItem(dir, 0, ui->corner_tbl0->item(row, 0)->clone());
-		ui->corner_tbl1->setItem(dir, 1, ui->corner_tbl0->item(row, 1)->clone());
-		corner1_idx[dir] = c_idx;
-	}
+    bool shift_on = QApplication::queryKeyboardModifiers() == Qt::ShiftModifier;
+    qInfo("edge0 click %d, shift=%d", row, shift_on);
+	emit goto_edge(edge_idx[row]);
+    if (shift_on && reviewed_edge_idx == edge_idx[row]) {
+        review_edge(reviewed_edge_idx);
+        ui->edge_tb0->item(row, 0)->setForeground(QBrush(QColor(0, 0, 0)));
+		ui->edge_tb0->item(row, 1)->setForeground(QBrush(QColor(0, 0, 0)));
+    }
+	reviewed_edge_idx = edge_idx[row];
 	update();
 }
 
 void CornerEdge::corner0_double_click(int row, int col)
 {
 	qInfo("corner0 double click %d, %d", row, col);
+	if (reviewed_corner_idx != 0xffffffff) {
+		review_corner(reviewed_corner_idx);
+		int review_row = find_corner(reviewed_corner_idx);
+		ui->corner_tbl0->item(review_row, 0)->setForeground(QBrush(QColor(0, 0, 0)));
+		ui->corner_tbl0->item(review_row, 1)->setForeground(QBrush(QColor(0, 0, 0)));
+		ui->corner_tbl0->item(review_row, 2)->setForeground(QBrush(QColor(0, 0, 0)));
+	}
 	emit goto_corner(corner_idx[row]);
-}
-
-void CornerEdge::corner1_double_click(int row, int col)
-{
-	qInfo("corner1 double click %d, %d", row, col);
-	emit goto_corner(corner1_idx[row]);
+	reviewed_corner_idx = corner_idx[row];
+	update();
 }
 
 void CornerEdge::edge0_double_click(int row, int col)
 {
 	qInfo("edge0 double click %d, %d", row, col);
+	if (reviewed_edge_idx != 0xffffffff) {
+		review_edge(reviewed_edge_idx);
+		int review_row = find_edge(reviewed_edge_idx);
+		ui->edge_tb0->item(review_row, 0)->setForeground(QBrush(QColor(0, 0, 0)));
+		ui->edge_tb0->item(review_row, 1)->setForeground(QBrush(QColor(0, 0, 0)));
+		ui->edge_tb0->item(review_row, 2)->setForeground(QBrush(QColor(0, 0, 0)));
+	}
 	emit goto_edge(edge_idx[row]);
+	reviewed_edge_idx = edge_idx[row];
+	update();
 }
 
-void CornerEdge::edge1_double_click(int row, int col)
+void CornerEdge::nail0_click(int row, int col)
 {
-	qInfo("edge1 double click %d, %d", row, col);
-	emit goto_edge(edge1_idx[row]);
+	qInfo("nail0 click %d, %d", row, col);
+	emit goto_nail(row);
 }
 
 int CornerEdge::find_edge(unsigned idx)
@@ -186,19 +152,67 @@ int CornerEdge::find_edge(unsigned idx)
 
 int CornerEdge::find_corner(unsigned idx)
 {
-	for (int i = 0; i < (int)edge_idx.size(); i++)
+	for (int i = 0; i < (int)corner_idx.size(); i++)
 	if (corner_idx[i] == idx)
 		return i;
 	return 0xffffffff;
 }
 
+bool CornerEdge::is_edge_changed(unsigned idx)
+{
+	int e = EDGE_E(idx);
+	int x = EDGE_X(idx);
+	int y = EDGE_Y(idx);
+	int flagb = lf->flagb[e](y, x);
+	if (FIX_EDGE_ISBIND(flagb))
+		return false;
+	Vec2i oo = e ? lf->cpara.offset(y, x + 1) - lf->cpara.offset(y, x):
+		lf->cpara.offset(y + 1, x) - lf->cpara.offset(y, x);
+	Vec2i review_oo = lf->checked_edge_offset[e](y, x);
+	int err = abs(review_oo[0] - oo[0]) + abs(review_oo[1] - oo[1]);
+	return err > lf->cpara.rescale;
+}
+
+bool CornerEdge::is_corner_changed(unsigned idx)
+{	
+	return is_edge_changed(get_edge_idx(idx, DIR_UP)) || 
+		is_edge_changed(get_edge_idx(idx, DIR_LEFT)) ||
+		is_edge_changed(get_edge_idx(idx, DIR_DOWN)) || 
+		is_edge_changed(get_edge_idx(idx, DIR_RIGHT));
+}
+
+void CornerEdge::review_edge(unsigned idx)
+{
+	int e = EDGE_E(idx);
+	int x = EDGE_X(idx);
+	int y = EDGE_Y(idx);
+	Vec2i oo = e ? lf->cpara.offset(y, x + 1) - lf->cpara.offset(y, x) :
+		lf->cpara.offset(y + 1, x) - lf->cpara.offset(y, x);
+	lf->checked_edge_offset[e](y, x) = oo;
+}
+
+void CornerEdge::review_corner(unsigned idx)
+{
+	review_edge(get_edge_idx(idx, DIR_UP));
+	review_edge(get_edge_idx(idx, DIR_LEFT));
+	review_edge(get_edge_idx(idx, DIR_DOWN));
+	review_edge(get_edge_idx(idx, DIR_RIGHT));
+}
+
 void CornerEdge::set_layer_info(LayerFeature * _lf)
 {
-	lf =  _lf;
+	lf = _lf;
+	if (lf->checked_edge_offset[0].empty() || lf->checked_edge_offset[0].rows != lf->cpara.img_num_h - 1
+		|| lf->checked_edge_offset[0].cols != lf->cpara.img_num_w) {
+		lf->checked_edge_offset[0].create(lf->cpara.img_num_h - 1, lf->cpara.img_num_w);
+		lf->checked_edge_offset[0] = 0;
+		lf->checked_edge_offset[1].create(lf->cpara.img_num_h, lf->cpara.img_num_w - 1);
+		lf->checked_edge_offset[1] = 0;
+	}
 	vector<unsigned long long> ce_set;
 	//same as compute_unsure_corner
-	for (int y = 0; y < lf->corner_info.rows; y++) {
-		for (int x = 0; x < lf->corner_info.cols; x++) {
+	for (int y = 1; y < lf->corner_info.rows; y++) {
+		for (int x = 1; x < lf->corner_info.cols; x++) {
 			unsigned long long info = lf->corner_info(y, x)[1];
 			info = info << 32 | (unsigned) lf->corner_info(y, x)[0];
 			unsigned long long c = info >> 32 & 0xffff;
@@ -218,9 +232,12 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 	ui->corner_tbl0->setRowCount((int) ce_set.size());
 	for (int i = 0; i < (int)corner_idx.size(); i++) {
 		corner_idx[i] = ce_set[i] & 0xffffffff;
+		bool use_red = is_corner_changed(corner_idx[i]);
+		QBrush mybrush(QColor(use_red ? 255 : 0, 0, 0));
 		char str[100];
 		sprintf(str, "%d,%d", CORNER_X(corner_idx[i]), CORNER_Y(corner_idx[i]));
 		ui->corner_tbl0->setItem(i, 0, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		ui->corner_tbl0->item(i, 0)->setForeground(mybrush);
 		int val0 = (ce_set[i] >> 32) & 0xff;
 		int val1 = (ce_set[i] >> 40) & 0xff;
 		val0 = val0 > 0x7f ? val0 - 0x100 : val0;
@@ -229,9 +246,11 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 		val1 = val1 * lf->cpara.rescale;
 		sprintf(str, "%d,%d", val0, val1);
 		ui->corner_tbl0->setItem(i, 1, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		ui->corner_tbl0->item(i, 1)->setForeground(mybrush);
 		int cost = (ce_set[i] >> 48) & 0xffff;
 		sprintf(str, "%d", cost);
 		ui->corner_tbl0->setItem(i, 2, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		ui->corner_tbl0->item(i, 2)->setForeground(mybrush);
 	}
 
 	ce_set.clear();
@@ -254,8 +273,8 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 				ed->offset + Point(FIX_EDGE_IDEA_DX(fe), FIX_EDGE_IDEA_DY(fe)) * lf->cpara.rescale :
 				ed->offset + ed->minloc * lf->cpara.rescale;
 			Point shift = oo - idea_pos;
-			int val_x = fe ? 0 : shift.x;
-			int val_y = fe ? 0 : shift.y;
+			int val_x = FIX_EDGE_BINDX(fe) ? 0 : shift.x;
+			int val_y = FIX_EDGE_BINDY(fe) ? 0 : shift.y;
 			unsigned long long c = (abs(val_x) + abs(val_y)) / lf->cpara.rescale;
 			if (c > 255)
 				c = 255;
@@ -273,18 +292,41 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 	ui->edge_tb0->setRowCount((int) ce_set.size());
 	for (int i = 0; i < (int)edge_idx.size(); i++) {
 		edge_idx[i] = ce_set[i] & 0xffffffff;
+		bool use_red = is_edge_changed(edge_idx[i]);
+		QBrush mybrush(QColor(use_red ? 255 : 0, 0, 0));
 		char str[100];
 		sprintf(str, "%d,%d,%d", EDGE_X(edge_idx[i]), EDGE_Y(edge_idx[i]), EDGE_E(edge_idx[i]));
 		ui->edge_tb0->setItem(i, 0, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		ui->edge_tb0->item(i, 0)->setForeground(mybrush);
 		int val_x = (ce_set[i] >> 32) & 0xfff;
 		int val_y = (ce_set[i] >> 44) & 0xfff;
 		val_x = val_x > 0x7ff ? val_x - 0x1000 : val_x;
 		val_y = val_y > 0x7ff ? val_y - 0x1000 : val_y;
 		sprintf(str, "%d,%d", val_x, val_y);
 		ui->edge_tb0->setItem(i, 1, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		ui->edge_tb0->item(i, 1)->setForeground(mybrush);
 	}
 	ui->corner_tbl0->resizeColumnsToContents();
 	ui->edge_tb0->resizeColumnsToContents();
+	update();
+	reviewed_corner_idx = 0xffffffff;
+	reviewed_edge_idx = 0xffffffff;
+}
+
+void CornerEdge::set_nail_info(vector<Point2f> ns, vector<Point> bias, vector<int> dir)
+{
+	CV_Assert(ns.size() == bias.size() && ns.size() == dir.size());
+	ui->nail_tbl0->setRowCount((int) ns.size());
+	for (int i = 0; i < (int)ns.size(); i++) {
+		char str[100];
+		sprintf(str, "%5.3f,%5.3f", ns[i].x, ns[i].y);
+		ui->nail_tbl0->setItem(i, 0, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		sprintf(str, "%d,%d", bias[i].x, bias[i].y);
+		ui->nail_tbl0->setItem(i, 1, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+		sprintf(str, "%c", dir[i]==2 ? '=' : (dir[i] ? '!' : '^'));
+		ui->nail_tbl0->setItem(i, 2, new QTableWidgetItem(QString::fromLocal8Bit(str)));
+	}
+	ui->nail_tbl0->resizeColumnsToContents();
 	update();
 }
 
@@ -295,7 +337,7 @@ void CornerEdge::goto_next_corner()
 	if (row == ui->corner_tbl0->rowCount())
 		row = 0;
 	ui->corner_tbl0->setCurrentCell(row, 0);
-	emit goto_corner(corner_idx[row]);
+    corner0_click(row, 0);
 }
 
 void CornerEdge::goto_next_edge()
@@ -305,5 +347,5 @@ void CornerEdge::goto_next_edge()
 	if (row == ui->edge_tb0->rowCount())
 		row = 0;
 	ui->edge_tb0->setCurrentCell(row, 0);
-	emit goto_edge(edge_idx[row]);
+    edge0_click(row, 0);
 }

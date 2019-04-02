@@ -185,19 +185,27 @@ int main(int argc, char *argv[])
 	c0.read_circuit("top.cdl");
 	c1.read_circuit("osc.cdl");
 	vector<string> nodes, subckt;
-	nodes.push_back("GND");
-	nodes.push_back("VDD");
+	/*nodes.push_back("GND");
 	c0.predef_match_nodes(nodes);
 	nodes.clear();
 	nodes.push_back("GND");
-	nodes.push_back("VCC");
 	c1.predef_match_nodes(nodes);	
 	subckt.push_back("V50_NAND2_24_14");
 	subckt.push_back("V50_INV_24_14");
 	c0.predef_match_subckt(subckt);
-	c1.predef_match_subckt(subckt);	
+	c1.predef_match_subckt(subckt);	*/
 	vector<MatchResult> result;
-	match(c0, c1, "TOP", "OSC", MATCH_PART, result);
+	match(c0, c1, "TOP", "OSC", MATCH_PART | SUBCKT_SAME_NAME, result);
+
+	FILE * fp = fopen("result.txt", "w");
+	for (int i = 0; i < (int)result.size(); i++) {
+		for (int j = 0; (int)j < result[i].mnodes.size(); j++)
+			fprintf(fp, "%20s --> %20s\n", result[i].mnodes[j].first.c_str(), result[i].mnodes[j].second.c_str());
+		fprintf(fp, "Devices\n");
+		for (int j = 0; (int)j < result[i].mdev.size(); j++)
+			fprintf(fp, "%20s --> %20s\n", result[i].mdev[j].first.c_str(), result[i].mdev[j].second.c_str());
+	}
+	fclose(fp);
     return 0;
 }
 
