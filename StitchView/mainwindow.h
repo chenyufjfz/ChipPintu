@@ -74,6 +74,8 @@ private slots:
 
     void on_actionClear_Yellow_Fix_Edge_triggered();
 
+    void on_actionGoto_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

@@ -82,13 +82,14 @@ void CornerEdge::corner0_click(int row, int )
     bool shift_on = QApplication::queryKeyboardModifiers() == Qt::ShiftModifier;
     qInfo("corner0 click %d, shift=%d", row, shift_on);
 	emit goto_corner(corner_idx[row]);
+    reviewed_corner_idx = corner_idx[row];
     if (shift_on && reviewed_corner_idx == corner_idx[row]) {
         review_corner(reviewed_corner_idx);
         ui->corner_tbl0->item(row, 0)->setForeground(QBrush(QColor(0, 0, 0)));
         ui->corner_tbl0->item(row, 1)->setForeground(QBrush(QColor(0, 0, 0)));
         ui->corner_tbl0->item(row, 2)->setForeground(QBrush(QColor(0, 0, 0)));
     }
-	reviewed_corner_idx = corner_idx[row];
+    //reviewed_corner_idx = corner_idx[row];
 	update();
 }
 
@@ -97,12 +98,13 @@ void CornerEdge::edge0_click(int row, int )
     bool shift_on = QApplication::queryKeyboardModifiers() == Qt::ShiftModifier;
     qInfo("edge0 click %d, shift=%d", row, shift_on);
 	emit goto_edge(edge_idx[row]);
+    reviewed_edge_idx = edge_idx[row];
     if (shift_on && reviewed_edge_idx == edge_idx[row]) {
         review_edge(reviewed_edge_idx);
         ui->edge_tb0->item(row, 0)->setForeground(QBrush(QColor(0, 0, 0)));
 		ui->edge_tb0->item(row, 1)->setForeground(QBrush(QColor(0, 0, 0)));
     }
-	reviewed_edge_idx = edge_idx[row];
+    //reviewed_edge_idx = edge_idx[row];
 	update();
 }
 

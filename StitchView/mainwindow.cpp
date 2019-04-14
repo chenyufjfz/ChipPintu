@@ -4,6 +4,7 @@
 #include "tparadialog.h"
 #include "mapxydialog.h"
 #include "griddialog.h"
+#include "xydialog.h"
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QScopedPointer>
@@ -361,4 +362,12 @@ void MainWindow::on_actionClear_Red_Fix_edge_triggered()
 void MainWindow::on_actionClear_Yellow_Fix_Edge_triggered()
 {
     stitch_view->clear_yellow_fix_edge(-1);
+}
+
+void MainWindow::on_actionGoto_triggered()
+{
+    XYDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        stitch_view->goto_xy(dlg.x, dlg.y);
+    }
 }

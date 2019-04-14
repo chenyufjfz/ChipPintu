@@ -28,7 +28,8 @@ SOURCES += main.cpp\
     $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.cpp \
     griddialog.cpp \
     navigateview.cpp \
-    corneredge.cpp
+    corneredge.cpp \
+    xydialog.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -44,14 +45,16 @@ HEADERS  += mainwindow.h \
     $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.h \
     griddialog.h \
     navigateview.h \
-    corneredge.h
+    corneredge.h \
+    xydialog.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \
     tparadialog.ui \
     mapxydialog.ui \
     griddialog.ui \
-    corneredge.ui
+    corneredge.ui \
+    xydialog.ui
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/

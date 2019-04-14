@@ -80,6 +80,7 @@
     <addaction name="separator"/>
     <addaction name="actionOutput_layer"/>
     <addaction name="actionOutput_all"/>
+    <addaction name="actionGoto"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuConfig"/>
@@ -222,6 +223,11 @@
   <action name="actionClear_Yellow_Fix_Edge">
    <property name="text">
     <string>Clear Yellow Fix Edge</string>
+   </property>
+  </action>
+  <action name="actionGoto">
+   <property name="text">
+    <string>Goto</string>
    </property>
   </action>
  </widget>

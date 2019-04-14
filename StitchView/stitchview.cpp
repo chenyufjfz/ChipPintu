@@ -1035,10 +1035,6 @@ void StitchView::update_center(QPoint center)
 	if (lf.empty())
 		return;
 	goto_xy(center.x(), center.y());
-	QPoint ce(size().width()*scale / 2, size().height()*scale / 2);
-	QSize s(size().width()*scale, size().height()*scale);
-	view_rect = QRect(center - ce, s);
-	nview->set_viewrect(view_rect);
 }
 
 void StitchView::goto_corner(unsigned corner_idx)
@@ -1048,10 +1044,6 @@ void StitchView::goto_corner(unsigned corner_idx)
 	Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
 	Point loc = ri->src2dst(layer, src_corner);
 	goto_xy(loc.x, loc.y);
-	QPoint ce(size().width()*scale / 2, size().height()*scale / 2);
-	QSize s(size().width()*scale, size().height()*scale);
-	view_rect = QRect(center - ce, s);
-	nview->set_viewrect(view_rect);
 }
 
 void StitchView::goto_edge(unsigned edge_idx)
@@ -1080,10 +1072,6 @@ void StitchView::goto_edge(unsigned edge_idx)
 	int e = EDGE_E(edge_idx);
 	Point loc = ri->src2dst(layer, Point(src_edge_center[e].x / 2, src_edge_center[e].y / 2));
 	goto_xy(loc.x, loc.y);
-	QPoint ce(size().width()*scale / 2, size().height()*scale / 2);
-	QSize s(size().width()*scale, size().height()*scale);
-	view_rect = QRect(center - ce, s);
-	nview->set_viewrect(view_rect);
 }
 
 void StitchView::goto_nail(unsigned nail_idx)
@@ -1093,7 +1081,6 @@ void StitchView::goto_nail(unsigned nail_idx)
 	if (ns.size() > nail_idx) {
 		Point loc = ri->src2dst(layer, ns[nail_idx].p0);
 		goto_xy(loc.x, loc.y);
-        nview->set_viewrect(view_rect);
 	}
 }
 
@@ -1561,6 +1548,10 @@ void StitchView::goto_xy(int x, int y)
 	center = QPoint(x, y);
 	qDebug("Goto s=%6.3f, c=(%d,%d), l=%d", scale, center.x(), center.y(), layer);
 	update();
+    QPoint ce(size().width()*scale / 2, size().height()*scale / 2);
+    QSize s(size().width()*scale, size().height()*scale);
+    view_rect = QRect(center - ce, s);
+    nview->set_viewrect(view_rect);
 }
 
 void StitchView::clear_fix_edge(int _layer)
