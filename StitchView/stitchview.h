@@ -261,6 +261,7 @@ protected:
 	Nail search_nail(LayerFeature * lf, Point p, int range);
 	vector<double> generate_mapxy();
 	int which_layer(LayerFeature * l);
+	void self_check_offset(int _layer);
 	Nail cur_nail;
 	//Upper is for nail
 
@@ -317,7 +318,7 @@ public:
 	void update_title();
 	QPoint point2choose(QPoint mouse_point);
 	void write_file(string file_name);
-	int read_file(string file_name);
+	int read_file(string file_name, bool import=false);
 };
 
 #endif // STITCHVIEW_H

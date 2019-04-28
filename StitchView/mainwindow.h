@@ -76,6 +76,8 @@ private slots:
 
     void on_actionGoto_triggered();
 
+    void on_actionImport_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

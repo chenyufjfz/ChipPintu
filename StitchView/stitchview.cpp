@@ -25,7 +25,7 @@ string thread_generate_diff(FeatExt * feature, string project_path, int layer)
 {
 	feature->generate_feature_diff();
 	QDateTime current = QDateTime::currentDateTime();
-	string filename = current.toString("yy_MM_dd-hh.mm.ss-l").toStdString();
+	string filename = current.toString("yy_MM_dd-hh.mm.ss.zzz-l").toStdString();
 	char l = '0' + layer;
 	filename = filename + l;
 	filename = filename + ".xml";
@@ -391,6 +391,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	int prev_layer = layer;
 	QPoint may_choose = point2choose(cur_mouse_point);
 	int step;
+	qInfo("StitchView press key %x, modifier=%x", e->key(), QApplication::queryKeyboardModifiers());
 	switch (e->key()) {
 	case Qt::Key_Left:		
         if (QApplication::queryKeyboardModifiers() == Qt::ControlModifier && layer != ABS_LAYER &&
@@ -663,7 +664,7 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	QSize s(size().width()*scale, size().height()*scale);
 	view_rect = QRect(center - ce, s);
 	update_nview();
-
+	self_check_offset(layer);
 	char info[200];
 	QPoint mouse_point = cur_mouse_point * scale + view_rect.topLeft();
 	Point src_point = ri->dst2src(layer, TOPOINT(mouse_point));
@@ -1179,9 +1180,9 @@ void StitchView::notify_nail_info(int layer)
 			nxy1 = ns[i].p1;
 		}
 		else {
-			CV_Assert(lf[layer + 1] == ns[i].lf1);
+			int l = which_layer(ns[i].lf1);
 			dir.push_back(0);
-			nxy1 = ri->src2dst(layer + 1, ns[i].p1);
+			nxy1 = ri->src2dst(l, ns[i].p1);
 		}
 		bias.push_back(nxy1 - nxy);
 		Point2f nxy0;
@@ -1254,6 +1255,22 @@ int StitchView::which_layer(LayerFeature * l)
 	return -1;
 }
 
+void StitchView::self_check_offset(int _layer)
+{
+	if (_layer == -1)
+		_layer = layer;
+	if (_layer == ABS_LAYER)
+		return;
+	for (int y = 0; y < lf[_layer]->cpara.offset.rows; y++)
+	for (int x = 0; x < lf[_layer]->cpara.offset.cols; x++)
+	if (lf[_layer]->cpara.offset(y, x)[0] % lf[_layer]->cpara.rescale != 0 ||
+		lf[_layer]->cpara.offset(y, x)[1] % lf[_layer]->cpara.rescale != 0) {
+		qCritical("offset[%d, %d] s=%d, (y=%d, x=%d) wrong!", y, x, lf[_layer]->cpara.rescale, 
+			lf[_layer]->cpara.offset(y, x)[0], lf[_layer]->cpara.offset(y, x)[1]);
+		CV_Assert(0);
+	}
+}
+
 //if _layer==-1, means current layer
 int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 {
@@ -1300,7 +1317,8 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 		layer_feature->flagb[0] = 0;
 		layer_feature->flagb[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
 		layer_feature->flagb[1] = 0;
-		lf.push_back(layer_feature);		
+		lf.push_back(layer_feature);
+		self_check_offset(lf.size() - 1);
 	}
 	else {
 		if (lf[_layer]->cpara.img_path == _cpara.img_path && lf[_layer]->cpara.img_num_w == _cpara.img_num_w &&
@@ -1326,6 +1344,7 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 			lf[_layer]->flagb[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
 			lf[_layer]->flagb[1] = 0;
 		}
+		self_check_offset(_layer);
 	}
 	ri->set_cfg_para(_layer, &lf[_layer]->cpara);
 	convert_nails(nails, nails, 1);
@@ -1529,6 +1548,7 @@ int StitchView::optimize_offset(int _layer, int optimize_option)
 	}
 	thread_bundle_adjust(ba, &lf[_layer]->feature, &adjust_offset, &lf[_layer]->corner_info, &fe, ri->get_src_img_size(layer), optimize_option);
 	lf[_layer]->cpara.offset = adjust_offset;
+	self_check_offset(_layer);
 	adjust_offset.release();
 	if (!ns.empty()) {
 		convert_nails(nails, nails, 1);
@@ -1656,6 +1676,10 @@ void StitchView::to_state_change_nail() {
 }
 
 int StitchView::output_layer(int _layer, string pathname) {
+	if (compute_feature.isRunning()) {
+		QMessageBox::information(this, "Info", "Prepare is running, can't output layer");
+		return -2;
+	}
 	if (_layer == -1)
 		_layer = layer;
 	if (_layer >= lf.size() || _layer < 0)
@@ -1821,6 +1845,10 @@ QPoint StitchView::point2choose(QPoint mouse_point)
 
 void StitchView::write_file(string file_name)
 {	
+	if (compute_feature.isRunning()) {
+		QMessageBox::information(this, "Info", "Prepare is running, can't write file");
+		return;
+	}
 	int loc = (int) file_name.find_last_of("\\/");
 	string path = file_name.substr(0, loc);
 	QFile file(QString::fromStdString(path));
@@ -1886,25 +1914,37 @@ void StitchView::write_file(string file_name)
 	fs.release();
 }
 
-int StitchView::read_file(string file_name)
+int StitchView::read_file(string file_name, bool import)
 {
 	qInfo("read_file name=%s", file_name.c_str());
 	FileStorage fs(file_name, FileStorage::READ);
 	if (fs.isOpened()) {
 		int loc = (int) file_name.find_last_of("\\/");
 		int loc2 = (int) file_name.find_last_of("\\/", loc - 1);
-		project_path = file_name.substr(0, loc2);
+		if (!import)
+			project_path = file_name.substr(0, loc2);
+		else
+		if (project_path != file_name.substr(0, loc2))
+			return -1;
 		int layer_num;
-		for (int i = 0; i < lf.size(); i++)
-			delete lf[i];
 		layer_num = (int)fs["layer_num"];
-		lf.resize(layer_num);
-		delete ri;
-		ri = new RenderImage();
-		for (int i = 0; i < (int)lf.size(); i++) {
+		int begin_layer;
+		if (!import) {	
+			for (int i = 0; i < lf.size(); i++)
+				delete lf[i];			
+			lf.resize(layer_num);
+			delete ri;
+			ri = new RenderImage();
+			begin_layer = 0;
+		}
+		else {
+			begin_layer = (int) lf.size();
+			lf.resize(layer_num + lf.size());
+		}
+		for (int i = begin_layer; i < (int)lf.size(); i++) {
 			lf[i] = new LayerFeature();
 			char name[30];
-			sprintf(name, "cpara%d", i);
+			sprintf(name, "cpara%d", i - begin_layer);
 			fs[name] >> lf[i]->cpara;
 			if (!lf[i]->cpara.img_path.empty()) {
 				int loc = (int) lf[i]->cpara.img_path.find_last_of("\\/");
@@ -1925,9 +1965,10 @@ int StitchView::read_file(string file_name)
 				}
 			}
 			ri->set_cfg_para(i, &lf[i]->cpara);
-			sprintf(name, "tpara%d", i);
+			self_check_offset(i);
+			sprintf(name, "tpara%d", i - begin_layer);
 			fs[name] >> lf[i]->tpara;
-			sprintf(name, "diff_file%d", i);
+			sprintf(name, "diff_file%d", i - begin_layer);
 			fs[name] >> lf[i]->feature_file;
 			if (!lf[i]->feature_file.empty()) {
 				QFile file(QString::fromStdString(lf[i]->feature_file));
@@ -1948,27 +1989,27 @@ int StitchView::read_file(string file_name)
 			}
 				
 			MapXY0 mxy0;
-			sprintf(name, "mapxy%d", i);
+			sprintf(name, "mapxy%d", i - begin_layer);
 			fs[name] >> mxy0;
 			QScopedPointer<MapXY> mxy(MapXY::create_mapxy()); //stupid method, but what else I can do?
 			mxy->copy_base(mxy0);
 			ri->set_mapxy(i, mxy.data());
-			sprintf(name, "fixedge%d_0", i);
+			sprintf(name, "fixedge%d_0", i - begin_layer);
 			fs[name] >> lf[i]->flagb[0];
 			if (lf[i]->flagb[0].empty()) {
 				lf[i]->flagb[0].create(lf[i]->cpara.offset.rows - 1, lf[i]->cpara.offset.cols);
 				lf[i]->flagb[0] = 0;
 			}
-			sprintf(name, "fixedge%d_1", i);
+			sprintf(name, "fixedge%d_1", i - begin_layer);
 			fs[name] >> lf[i]->flagb[1];
 			if (lf[i]->flagb[1].empty()) {
 				lf[i]->flagb[1].create(lf[i]->cpara.offset.rows, lf[i]->cpara.offset.cols - 1);
 				lf[i]->flagb[1] = 0;
 			}
-			sprintf(name, "name%d", i);
+			sprintf(name, "name%d", i - begin_layer);
 			fs[name] >> lf[i]->layer_name;
 
-			sprintf(name, "corner%d", i);
+			sprintf(name, "corner%d", i - begin_layer);
 			fs[name] >> lf[i]->corner_info;			
 			if (lf[i]->corner_info.empty()) {
 				lf[i]->corner_info.create(lf[i]->cpara.offset.rows, lf[i]->cpara.offset.cols);
@@ -1977,9 +2018,9 @@ int StitchView::read_file(string file_name)
 			else {
 				lf[i]->find_next = 0;
 			}
-			sprintf(name, "check_edge0_%d", i);
+			sprintf(name, "check_edge0_%d", i - begin_layer);
 			fs[name] >> lf[i]->checked_edge_offset[0];
-			sprintf(name, "check_edge1_%d", i);
+			sprintf(name, "check_edge1_%d", i - begin_layer);
 			fs[name] >> lf[i]->checked_edge_offset[1];
 		}
 		int dst_w;
@@ -1994,7 +2035,7 @@ int StitchView::read_file(string file_name)
 			int p0y = (int)(*it)["p0y"];
 			int p1x = (int)(*it)["p1x"];
 			int p1y = (int)(*it)["p1y"];
-			nails.push_back(Nail(lf[l0], lf[l1], Point(p0x, p0y), Point(p1x, p1y)));
+			nails.push_back(Nail(lf[l0 + begin_layer], lf[l1 + begin_layer], Point(p0x, p0y), Point(p1x, p1y)));
 		}		
 		vector<double> slope = generate_mapxy();
         char text[300];
@@ -2004,6 +2045,8 @@ int StitchView::read_file(string file_name)
 		Point ce0, ce1, ce2, ct;
 		int nview_visible;
 		fs["layer"] >> layer;
+		if (layer != ABS_LAYER)
+			layer += begin_layer;
 		fs["nview_visble"] >> nview_visible;
 		fs["scale"] >> scale;
 		fs["center"] >> ct;

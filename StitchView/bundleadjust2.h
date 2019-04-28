@@ -42,6 +42,11 @@ public:
 				valid_x = 100000;
 				valid_y = 100000;
 			}
+			int ret = 0;
+			if (valid_x == 100000 && (o.x < -1 || o.x >= cost.cols + 1)) //even for blue fix, we hope it in range
+				ret = COST_BOUNDARY;
+			if (valid_y == 100000 && (o.y < -1 || o.y >= cost.rows + 1)) //even for blue fix, we hope it in range
+				ret = COST_BOUNDARY;
 			Point pos = idea_pos - diff->offset;
 			pos.x = pos.x / scale;
 			pos.y = pos.y / scale;
@@ -51,13 +56,13 @@ public:
 					if (pos1.x >= image_width || abs(pos1.y) >= image_height /4)
 						return COST_BOUNDARY * 2;
 					else
-						return 0;
+						return ret;
 				}
 				else {
 					if (pos1.y >= image_height || abs(pos1.x) >= image_width /4 )
 						return COST_BOUNDARY * 2;
 					else
-						return 0;
+						return ret;
 				}
 			}				
 			else

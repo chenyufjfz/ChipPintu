@@ -31,6 +31,7 @@
     <addaction name="actionQuick_Load"/>
     <addaction name="actionSave_as"/>
     <addaction name="actionLoad"/>
+    <addaction name="actionImport"/>
    </widget>
    <widget class="QMenu" name="menuConfig">
     <property name="title">
@@ -228,6 +229,11 @@
   <action name="actionGoto">
    <property name="text">
     <string>Goto</string>
+   </property>
+  </action>
+  <action name="actionImport">
+   <property name="text">
+    <string>Import</string>
    </property>
   </action>
  </widget>

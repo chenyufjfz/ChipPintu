@@ -14,6 +14,9 @@ HEADERS += $$_PRO_FILE_PWD_/../ViaWireExtract/iclayer.h
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 
+QMAKE_CXXFLAGS_RELEASE = $$QMAKE_CFLAGS_RELEASE_WITH_DEBUGINFO
+QMAKE_LFLAGS_RELEASE = $$QMAKE_LFLAGS_RELEASE_WITH_DEBUGINFO
+
 Release:LIBS += -L$$_PRO_FILE_PWD_/../lib/release
 Release:LIBS += -lopencv_core249 -lopencv_highgui249 -lopencv_imgproc249
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/

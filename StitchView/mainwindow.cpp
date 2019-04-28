@@ -240,7 +240,7 @@ void MainWindow::on_actionLoad_triggered()
 		tr("Project (*.xml)"));
 	if (!filename.isEmpty()) {
 		qInfo("UI: load %s", filename.toStdString().c_str());
-		stitch_view->read_file(filename.toStdString());
+        stitch_view->read_file(filename.toStdString(), false);
 	}
 }
 
@@ -369,5 +369,17 @@ void MainWindow::on_actionGoto_triggered()
     XYDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) {
         stitch_view->goto_xy(dlg.x, dlg.y);
+    }
+}
+
+void MainWindow::on_actionImport_triggered()
+{
+    QString dirname = QString::fromStdString(stitch_view->get_project_path() + "/WorkData/");
+    QString filename = QFileDialog::getOpenFileName(this, tr("Open File"),
+        dirname,
+        tr("Project (*.xml)"));
+    if (!filename.isEmpty()) {
+        qInfo("UI: load %s", filename.toStdString().c_str());
+        stitch_view->read_file(filename.toStdString(), true);
     }
 }

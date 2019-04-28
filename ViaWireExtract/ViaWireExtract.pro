@@ -27,6 +27,9 @@ DESTDIR = $$_PRO_FILE_PWD_/../app
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/
 Debug:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/debug/
 
+QMAKE_CXXFLAGS_RELEASE = $$QMAKE_CFLAGS_RELEASE_WITH_DEBUGINFO
+QMAKE_LFLAGS_RELEASE = $$QMAKE_LFLAGS_RELEASE_WITH_DEBUGINFO
+
 win32 {
 Release:LIBS += -L$$_PRO_FILE_PWD_/../lib/release
 Release:LIBS += -lopencv_calib3d249 -lopencv_contrib249 -lopencv_core249 -lopencv_features2d249 -lopencv_flann249

@@ -821,6 +821,7 @@ Mat VWExtractAnt::prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect re
 			bottom_hit = true;
 		if ((src.width() >> scale) == 0 || (src.height() >> scale) == 0)
 			continue;
+		CV_Assert(raw_img.type() == img.type());
 		raw_img(Rect(src.left() >> scale, src.top() >> scale, src.width() >> scale, src.height() >> scale)).copyTo(
 			img(Rect(tgt.left() >> scale, tgt.top() >> scale, tgt.width() >> scale, tgt.height() >> scale)));
 	}

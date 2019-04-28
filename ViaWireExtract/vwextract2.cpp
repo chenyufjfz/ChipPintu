@@ -749,7 +749,7 @@ struct LinkPoint {
 			ano_bra = _branch;
 		}
 	}
-	bool operator< (const LinkPoint & lp) {
+	bool operator< (const LinkPoint & lp) const {
 		return len < lp.len;
 	}
 };
@@ -3404,150 +3404,7 @@ static void fill_center(Mat & c, Point o, int r, int val)
 		c.at<int>(y, x) = val;
 }
 
-/*
-Input img
-Input xo, yo, fine_search center
-Input r0, actual via radius, via diameter is 2*r0 or 2*r0+1
-Input r1, search range
-Input th, grad th, bigger than th is score 0
-Input th2, check th
-*/
-static bool via_double_check3(Mat * img, int xo, int yo, int r0, int r1, int th, int th2, vector<Point> * vs)
-{
-	Point o(xo, yo);
-	Mat c1, c2, c3;
-	c1.create(2 * r1 + 1, 2 * r1 + 1, CV_32SC1); //in img[o.x-r1, o.y-r1] [o.x+r1, o.y+r1]
-	c2.create(2 * r1 + 1, 2 * r1 + 1, CV_32SC1); //c1(r1,r1) is img(o)
-	//fill 1st round not-search area, center and 4 corner is not search
-	fill_center(c1, Point(r1, r1), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c1, Point(0, 0), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c1, Point(0, 2 * r1), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c1, Point(2 * r1, 0), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c1, Point(2 * r1, 2 * r1), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(r1, r1), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(0, 0), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(0, 2 * r1), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(2 * r1, 0), 2, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(2 * r1, 2 * r1), 2, SEPERATE_NOT_SEARCH);
-
-	//do 1st round curve seperate
-	c3 = c1(Rect(r1, 0, r1 + 1, r1 + 2));
-	seperate(img, o - Point(0, r1), DIR_DOWNRIGHT, 1, th, c3);
-	CV_Assert(c1.at<int>(0, r1) == 0);
-	c3 = c1(Rect(0, 0, r1 + 1, r1 + 2));
-	seperate(img, o - Point(0, r1), DIR_DOWNLEFT, 1, th, c3);
-	CV_Assert(c1.at<int>(0, r1) == 0);
-	c3 = c2(Rect(r1, r1 - 1, r1 + 1, r1 + 2));
-	seperate(img, o + Point(0, r1), DIR_UPRIGHT, 1, th, c3); //tl = Point(o.x, o.y+r1-r1-1)
-	CV_Assert(c2.at<int>(2 * r1, r1) == 0);
-	c3 = c2(Rect(0, r1 - 1, r1 + 1, r1 + 2));
-	seperate(img, o + Point(0, r1), DIR_UPLEFT, 1, th, c3); //tl = Point(o.x-r1, o.y+r1-r1-1)
-	CV_Assert(c2.at<int>(2 * r1, r1) == 0);
-
-	//search best diameter
-	int best = SEPERATE_NOT_SEARCH;
-	Point d0, d1; //d0 and d1 Mat c zuobian
-	for (int y = r1 - 1; y <= r1 + 1; y++)
-	for (int x = 0; x < r1 - 2; x++) {
-		if (x + 2 * r0 + 1 > 2 * r1)
-			break;
-		int a1 = c1.at<int>(y, x) + c2.at<int>(y,x);
-		int a2 = c1.at<int>(y, x + 2 * r0) + c2.at<int>(y, x + 2 * r0);
-		if (a1 + a2 < best) {
-			best = a1 + a2;
-			d0 = Point(x, y);
-			d1 = Point(x + 2 * r0, y);
-		}
-		a2 = c1.at<int>(y, x + 2 * r0 + 1) + c2.at<int>(y, x + 2 * r0 + 1);
-		if (a1 + a2 < best) {
-			best = a1 + a2;
-			d0 = Point(x, y);
-			d1 = Point(x + 2 * r0 + 1, y);
-		}
-	}
-
-	//fill 2nd round not-search area, center and 4 corner is not search
-	Point oo = d0 + d1;
-	oo.x = oo.x / 2;
-	oo.y = oo.y / 2;
-	fill_center(c1, oo, r0 - 2, 10000000);
-	fill_center(c1, Point(d0.x, d0.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
-	fill_center(c1, Point(d0.x, d0.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
-	fill_center(c1, Point(d1.x, d1.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
-	fill_center(c1, Point(d1.x, d1.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
-	fill_center(c2, oo, r0 - 2, 10000000);
-	fill_center(c2, Point(d0.x, d0.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(d0.x, d0.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(d1.x, d1.y - r0 - 1), 3, SEPERATE_NOT_SEARCH);
-	fill_center(c2, Point(d1.x, d1.y + r0 + 1), 3, SEPERATE_NOT_SEARCH);
-
-	//do 2nd round curve seperate
-	c3 = c1(Rect(d0.x, d0.y, r0 + 2, r0 + 2));
-	seperate(img, o - Point(r1, r1) + d0, DIR_DOWNRIGHT, -1, th, c3);
-	CV_Assert(c1.at<int>(d0) == 0);
-	c3 = c1(Rect(d0.x, d0.y - r0 - 1, r0 + 2, r0 + 2));
-	seperate(img, o - Point(r1, r1) + d0, DIR_UPRIGHT, -1, th, c3);
-	CV_Assert(c1.at<int>(d0) == 0);
-	c3 = c2(Rect(d1.x - r0 - 1, d1.y, r0 + 2, r0 + 2));
-	seperate(img, o - Point(r1, r1) + d1, DIR_DOWNLEFT, -1, th, c3);
-	CV_Assert(c2.at<int>(d1) == 0);
-	c3 = c2(Rect(d1.x - r0 - 1, d1.y - r0 - 1, r0 + 2, r0 + 2));
-	seperate(img, o - Point(r1, r1) + d1, DIR_UPLEFT, -1, th, c3);
-	CV_Assert(c2.at<int>(d1) == 0);
-
-	//search best diameter
-	best = SEPERATE_NOT_SEARCH;
-	int best_u, best_d, best_l, best_r;
-	Point d2, d3;
-	for (int x = d1.x - r0 - 1; x <= d0.x + r0 + 1; x++)
-	for (int y = d0.y - r0 - 1; y <= d0.y -r0 + 1; y++)
-	{		
-		int a1 = c1.at<int>(y, x) + c2.at<int>(y,x);
-		int a2 = c1.at<int>(y + 2 * r0, x) + c2.at<int>(y + 2 * r0, x);
-		if (a1 + a2 < best) {
-			best = a1 + a2;
-			best_u = a1 / 2;
-			best_d = a2 / 2;
-			best_l = (c1.at<int>(y, x) + c1.at<int>(y + 2 * r0, x)) / 2;
-			best_r = (c2.at<int>(y, x) + c2.at<int>(y + 2 * r0, x)) / 2;
-			d2 = Point(x, y);
-			d3 = Point(x, y + 2 * r0);
-		}
-		if (y + 2 * r0 + 1 > d0.y + r0 + 1)
-			break;
-		a2 = c1.at<int>(y + 2 * r0 + 1, x) + c2.at<int>(y + 2 * r0 + 1, x);
-		if (a1 + a2 < best) {
-			best = a1 + a2;
-			best_u = a1 / 2;
-			best_d = a2 / 2;
-			best_l = (c1.at<int>(y, x) + c1.at<int>(y + 2 * r0 + 1, x)) / 2;
-			best_r = (c2.at<int>(y, x) + c2.at<int>(y + 2 * r0 + 1, x)) / 2;
-			d2 = Point(x, y);
-			d3 = Point(x, y + 2 * r0 + 1);
-		}
-	}
-
-	if (vs != NULL) {
-		vs->clear();
-		seperate_backward(d0, d2, c1, vs);
-		seperate_backward(d0, d3, c1, vs);
-		seperate_backward(d1, d2, c2, vs);
-		seperate_backward(d1, d3, c2, vs);
-		for (int i = 0; i<vs->size(); i++)
-			vs[0][i] += o - Point(r1, r1);
-	}
-
-#if 1
-	qInfo("via double check (x=%d, y=%d), u=%d, d=%d, l=%d, r=%d", xo, yo, best_u, best_d, best_l, best_r);
-#endif
-	if (best_u > (2 * abs(d2.y - d0.y) + d1.x - d0.x) * (th - th2) ||
-		best_d > (2 * abs(d3.y - d0.y) + d1.x - d0.x) * (th - th2) ||
-		best_l > (2 * abs(d2.x - d0.x) + d3.y - d2.y) * (th - th2) ||
-		best_r > (2 * abs(d2.x - d1.x) + d3.y - d2.y) * (th - th2))
-		return false;
-	return true;
-}
-
+//CircleCheck use octagon to approximate circle, use grad accumulation to judge every edge
 class CircleCheck {
 protected:
 	int d0, th, margin;
@@ -3831,7 +3688,7 @@ static Point via_double_check(Mat * img, int xo, int yo, int d0, int r1, int th,
 			score1 = abs135;
             dir1 = dir;
 		}
-		if (score0 > 1.5 * score1) {
+		if (score0 > 1.5 * score1) { //main grad is very biger than 2nd grad, then no 2nd grad
             dir1 = dir0;
 			score1 = score0;
 		}
@@ -4620,25 +4477,70 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	}
 }
 
-struct WireKeyPoint {
-	Point offset[8];
-	int * p_ig[8];
-	int *p_iig[8];
-	int type;
-	int shape1, shape2, shape3, shape4;
-	float a0, a1, a2;
-	float arf;
-};
-
-struct WireDetectInfo {
-	int w_subtype;
-	int w_pattern;
-	int w_dir;
-	int w_type;
-	int w_wide;
-	int i_wide;
-	float gamma;
-};
+static void compute_grad(Mat & m, Mat & g)
+{
+	CV_Assert(m.type() == CV_8U);
+	g.create(m.rows, m.cols, CV_16U);
+	for (int y = 2; y < m.rows - 2; y++) {
+		const uchar * p_img_2 = m.ptr<uchar>(y - 2);
+		const uchar * p_img_1 = m.ptr<uchar>(y - 1);
+		const uchar * p_img = m.ptr<uchar>(y);
+		const uchar * p_img1 = m.ptr<uchar>(y + 1);
+		const uchar * p_img2 = m.ptr<uchar>(y + 2);
+		ushort * pg = g.ptr<ushort>(y);
+		for (int x = 2; x < m.cols - 2; x++) {
+			int m00 = p_img_2[x - 2];
+			int m01 = p_img_2[x - 1];
+			int m02 = p_img_2[x];
+			int m03 = p_img_2[x + 1];
+			int m04 = p_img_2[x + 2];
+			int m10 = p_img_1[x - 2];
+			int m11 = p_img_1[x - 1];
+			int m12 = p_img_1[x];
+			int m13 = p_img_1[x + 1];
+			int m14 = p_img_1[x + 2];
+			int m20 = p_img[x - 2];
+			int m21 = p_img[x - 1];
+			int m23 = p_img[x + 1];
+			int m24 = p_img[x + 2];
+			int m30 = p_img1[x - 2];
+			int m31 = p_img1[x - 1];
+			int m32 = p_img1[x];
+			int m33 = p_img1[x + 1];
+			int m34 = p_img1[x + 2];
+			int m40 = p_img2[x - 2];
+			int m41 = p_img2[x - 1];
+			int m42 = p_img2[x];
+			int m43 = p_img2[x + 1];
+			int m44 = p_img2[x + 2];
+			int sv = m40 - m00 + m41 - m01 + 2 * (m42 - m02) + m43 - m03 + m44 - m04 +
+				m30 - m10 + 2 * (m31 - m11) + 4 * (m32 - m12) + 2 * (m33 - m13) + m34 - m14;
+			int sh = m04 - m00 + m14 - m10 + 2 * (m24 - m20) + m34 - m30 + m44 - m40 +
+				m03 - m01 + 2 * (m13 - m11) + 4 * (m23 - m21) + 2 * (m33 - m31) + m43 - m41;
+			int s45 = m34 - m01 + m43 - m10 + m24 - m02 + 2 * (m33 - m11) + m42 - m20 +
+				2 * (m14 - m03) + 3 * (m23 - m12) + 3 * (m32 - m21) + 2 * (m41 - m30);
+			int s135 = m03 - m30 + m14 - m41 + m02 - m20 + 2 * (m13 - m31) + m24 - m42 +
+				2 * (m01 - m10) + 3 * (m12 - m21) + 3 * (m23 - m32) + 2 * (m34 - m43);
+			int absv = abs(sv), absh = abs(sh);
+			int abs45 = abs(s45), abs135 = abs(s135);
+			int score0 = absv;
+			int dir0 = (sv > 0) ? DIR_UP : DIR_DOWN;
+			if (absh > score0) {
+				score0 = absh;
+				dir0 = (sh > 0) ? DIR_LEFT : DIR_RIGHT;
+			}
+			if (abs45 > score0) {
+				score0 = abs45;
+				dir0 = (s45 > 0) ? DIR_UPLEFT : DIR_DOWNRIGHT;
+			}
+			if (abs135 > score0) {
+				score0 = abs135;
+				dir0 = (s135 > 0) ? DIR_DOWNLEFT : DIR_UPRIGHT;
+			}
+			pg[x] = (score0 << 3) + dir0;
+		}
+	}
+}
 
 /*		31..24  23..16   15..8   7..0
 opt0:		    ed_guard ed_long detect_opt
@@ -5579,6 +5481,27 @@ static void image_enhance(PipeData & d, ProcessParameter & cpara)
 	}
 
 }
+
+
+struct WireKeyPoint {
+	Point offset[8];
+	int * p_ig[8];
+	int *p_iig[8];
+	int type;
+	int shape1, shape2, shape3, shape4;
+	float a0, a1, a2;
+	float arf;
+};
+
+struct WireDetectInfo {
+	int w_subtype;
+	int w_pattern;
+	int w_dir;
+	int w_type;
+	int w_wide;
+	int i_wide;
+	float gamma;
+};
 
 /*     31..24 23..16   15..8   7..0
 opt0:   inc1   inc0   w_long1 w_long0
