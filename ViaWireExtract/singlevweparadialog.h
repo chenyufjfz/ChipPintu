@@ -16,8 +16,9 @@ public:
     unsigned opt, gray_th, sep;
     unsigned gray_w, gray_i, w_wide;
     double w_wide1, i_wide;
+	int shape_mask;
     explicit SingleVWEParaDialog(QWidget *parent, unsigned _wmin, unsigned _wmax, unsigned _gray_th, unsigned _sep,
-             unsigned _opt, unsigned _gw, unsigned _gi, unsigned _ww, double _ww1, double _iw);
+		unsigned _opt, unsigned _gw, unsigned _gi, unsigned _ww, double _ww1, double _iw, int _shape_mask);
     ~SingleVWEParaDialog();
 
 private slots:

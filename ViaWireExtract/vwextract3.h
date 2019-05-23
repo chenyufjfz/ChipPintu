@@ -5,7 +5,8 @@
 struct DetectWirePara {
 	int w_min, w_max; //in non-scale pixel unit
 	int gray_i, gray_w;
-	int dir_mask;
+	int dir_mask; //means move abs_org0 up, down, left, right
+	int shape_mask; //1 means allow BRICK_I, 2 means allow BRICK_I_90
 	int i_high; //scale image pixel
 	int gray_th; //0~100
 	int channel; //0~3

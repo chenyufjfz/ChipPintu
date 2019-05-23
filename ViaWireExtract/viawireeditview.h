@@ -13,6 +13,7 @@ struct SingleWireExtParam {
 	int wmin;
 	int wmax;
 	int opt;
+	int shape_mask;
 	int sep;
 	int gray_th;
 };
@@ -53,8 +54,8 @@ public:
     void extract();
 	void show_debug(unsigned _mark_mask, bool _show_debug_en);
 	void set_wire_para(ExtractParam * ep, string action_name);
-    void set_single_wire_ext_para(int wmin, int wmax, int opt, int gray_th, int sep);
-    void get_single_wire_ext_para(int &wmin, int &wmax, int &opt, int &gray_th, int &sep);
+    void set_single_wire_ext_para(int wmin, int wmax, int opt, int gray_th, int sep, int shape_mask);
+    void get_single_wire_ext_para(int &wmin, int &wmax, int &opt, int &gray_th, int &sep, int & shape_mask);
 	void get_brick_shape_ext_para(int &ww, double &iw, double &ww1, int &gi, int &gw);
 	void set_brick_shape_ext_para(int ww, double iw, double ww1, int gi, int gw);
     void set_scale(int _scale);

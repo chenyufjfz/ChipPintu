@@ -26,8 +26,8 @@ CparaDialog::CparaDialog(ConfigPara _cpara, bool _new_layer, QWidget *parent) :
 		ui->new_layer->setChecked(new_layer);
 		ui->init_offset_x->setText(QString::number(cpara.offset(0, 1)[1] - cpara.offset(0, 0)[1]));
 		ui->init_offset_y->setText(QString::number(cpara.offset(1, 0)[0] - cpara.offset(0, 0)[0]));
-		ui->init_offset_udx->setText(QString::number(0));
-		ui->init_offset_lry->setText(QString::number(0));
+		ui->init_offset_udx->setText(QString::number(cpara.offset(1, 0)[1] - cpara.offset(0, 0)[1]));
+		ui->init_offset_lry->setText(QString::number(cpara.offset(0, 1)[0] - cpara.offset(0, 0)[0]));
 	}
 	else {
 		ui->clip_l->setEnabled(false);

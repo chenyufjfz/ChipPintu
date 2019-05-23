@@ -109,6 +109,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	swe_param.opt = 3;
 	swe_param.gray_th = 50;
 	swe_param.sep = 5;
+	swe_param.shape_mask = 0xff;
 	bse_param.gray_i = 0;
 	bse_param.gray_w = 100;
 	bse_param.w_wide = 0;
@@ -331,22 +332,24 @@ void ViaWireEditView::set_scale(int _scale)
 	}
 }
 
-void ViaWireEditView::set_single_wire_ext_para(int wmin, int wmax, int opt, int gray_th, int sep)
+void ViaWireEditView::set_single_wire_ext_para(int wmin, int wmax, int opt, int gray_th, int sep, int shape_mask)
 {
 	swe_param.wmin = wmin;
 	swe_param.wmax = wmax;
 	swe_param.opt = opt;
     swe_param.gray_th = gray_th;
     swe_param.sep = sep;
+	swe_param.shape_mask = shape_mask;
 }
 
-void ViaWireEditView::get_single_wire_ext_para(int &wmin, int &wmax, int &opt, int &gray_th, int &sep)
+void ViaWireEditView::get_single_wire_ext_para(int &wmin, int &wmax, int &opt, int &gray_th, int &sep, int & shape_mask)
 {
 	wmin = swe_param.wmin;
 	wmax = swe_param.wmax;
 	opt = swe_param.opt;
     gray_th = swe_param.gray_th;
     sep = swe_param.sep;
+	shape_mask = swe_param.shape_mask;
 }
 
 void ViaWireEditView::get_brick_shape_ext_para(int &ww, double &iw, double &ww1, int &gi, int &gw)
@@ -548,7 +551,7 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 		QPoint point = event->pos() / scale;
 		vwe_single->set_extract_param(layer, 0, swe_param.wmax << 16 | swe_param.wmin, 
 			swe_param.gray_th << 16 | swe_param.opt << 8 | swe_param.sep, 
-			0, 0, 0, 0, 0, 0);
+			0, swe_param.shape_mask, 0, 0, 0, 0);
 		string file_name(img_name);
 		file_name[file_name.length() - 5] = layer + '0';
 		vector<MarkObj> objs;

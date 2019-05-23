@@ -470,7 +470,7 @@ bool CircuitMatch::try_match(CircuitMatch * cm0, CircuitMatch * cm1, MatchMethod
 		if (check)
 		for (int i = 0; i < node0.size(); i++) {
 			int is_match = cm0->search_node(node0[i]);
-			if (cm0->search_node(node0[i]) != cm1->search_node(node1[i])) {
+			if (is_match != cm1->search_node(node1[i])) {
 				check = false;
 				break;
 			}

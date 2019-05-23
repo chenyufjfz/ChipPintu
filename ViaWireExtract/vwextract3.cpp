@@ -133,17 +133,14 @@ struct WireParameter3 {
 		i_wide = 0;
 		i_high = 0;
 	}
-	WireParameter3(int w, int gw, int gi, int _type=-1) {
+	WireParameter3(int w, int gw, int gi, int _type) {
 		w_high = w;
 		w_wide = w;
 		i_high = 4;
 		i_wide = 4;
 		w_high1 = 4;
 		w_wide1 = 4;
-		if (_type < 0)
-			type = w;
-		else
-			type = _type;
+		type = (_type == 0) ? 0xff: _type;
 		gray_i = gi;
 		gray_w = gw;
 	}
@@ -218,6 +215,12 @@ public:
 			stats.push_back(stat);
 		}
 		for (int j = 0; j < sizeof(wire_25_shape) / sizeof(wire_25_shape[0]); j++) {
+			if ((wire_25_shape[j].shape == BRICK_I_0 || wire_25_shape[j].shape == BRICK_II_0 ||
+				wire_25_shape[j].shape == BRICK_II_180) && (wp.type & 1) == 0)
+				continue;
+			if ((wire_25_shape[j].shape == BRICK_I_90 || wire_25_shape[j].shape == BRICK_II_90 ||
+				wire_25_shape[j].shape == BRICK_II_270) && (wp.type & 2) == 0)
+				continue;
 			ShapeDeviation3 sd;
 			sd.w25_shape_idx = j;
 			for (int k = 0; k < 25; k++) { //following add wire_25_shape[j] part stat to shape sd
@@ -467,7 +470,7 @@ unsigned detect_wire_para(Mat & ig, Mat & iig, const DetectWirePara & dw, int & 
 	const Point &org = dw.abs_org0;
 	Wire_25RectCompute3 wc;
 	for (int w = dw.w_min; w <= dw.w_max; w+=3) {		
-		WireParameter3 wp(w, dw.gray_w, dw.gray_i, 1);
+		WireParameter3 wp(w, dw.gray_w, dw.gray_i, dw.shape_mask);
 		wc.prepare(wp, ig, iig);
 		for (int dir = 0; dir < 8; dir++) {
 			if (dw.dir_mask >> dir & 1)
@@ -486,7 +489,7 @@ unsigned detect_wire_para(Mat & ig, Mat & iig, const DetectWirePara & dw, int & 
 		int w0 = w_best - 1, w1 = w_best + 1;
 		Point org_b = org_best;
 		for (int w = w0; w <= w1; w += 2) {
-			WireParameter3 wp(w, dw.gray_w, dw.gray_i, 1);
+			WireParameter3 wp(w, dw.gray_w, dw.gray_i, dw.shape_mask);
 			wc.prepare(wp, ig, iig);
 			for (int dir = 0; dir < 8; dir++) {
 				if (dw.dir_mask >> dir & 1)
@@ -874,8 +877,9 @@ Mat VWExtractAnt::prepare_img(ICLayerWrInterface * ic_layer, int scale, QRect re
 pi1       w_max     w_min
 pi2 channel gray_th search_opt i_high
 pi3			cg		cr	scale
+pi4						shape_mask
 */
-int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, int , int, int, int, float)
+int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, int pi4, int, int, int, float)
 {
 	dw0.w_min = pi1 & 0xffff;
 	dw0.w_max = pi1 >> 16 & 0xffff;
@@ -893,6 +897,7 @@ int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, i
 	dw0.scale = pi3 & 0xff;
     dw0.cr = pi3 >> 8 & 0xff;
     dw0.cg = pi3 >> 16 & 0xff;
+	dw0.shape_mask = pi4 & 0xff;
     if (dw0.cr >= 128)
         dw0.cr = -dw0.cr;
     if (dw0.cg >= 128)
@@ -911,8 +916,8 @@ int VWExtractAnt::set_extract_param(int layer, int, int pi1, int pi2, int pi3, i
 		img_bufs.clear();
 		layer0 = layer;
 	}
-    qInfo("VWExtractAnt set param: w_min=%d, w_max=%d, channel=%d, dir_mask=0x%x, gray_th=%d, i_high=%d, scale=%d, cr=%d,cg=%d,cb=%d",
-          dw0.w_min, dw0.w_max, dw0.channel, dw0.dir_mask, dw0.gray_th, dw0.i_high, dw0.scale, dw0.cr, dw0.cg, dw0.cb);
+    qInfo("VWExtractAnt set param: w_min=%d, w_max=%d, channel=%d, dir_mask=0x%x, gray_th=%d, i_high=%d, scale=%d, cr=%d,cg=%d,cb=%d,sm=%d",
+          dw0.w_min, dw0.w_max, dw0.channel, dw0.dir_mask, dw0.gray_th, dw0.i_high, dw0.scale, dw0.cr, dw0.cg, dw0.cb, dw0.shape_mask);
 	return 0;
 }
 

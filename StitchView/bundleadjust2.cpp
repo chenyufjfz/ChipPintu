@@ -114,6 +114,7 @@ struct BundleShape {
 #define MERGE_ALL_GRID2 22
 #define PARALLEL 1
 #define VALID_COST_DIFF 50
+#define GREEN_EDGE_CORNER_RES 0
 
 struct MergeSquarePara {
 	BundleAdjust2 * ba;
@@ -245,8 +246,8 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 	}
 	else
 	if (weak) { //make cost smaller
-		alpha = alpha * 0.7;
-		avg = pe->diff->avg * 1.1;
+		alpha = alpha / 6;
+		avg = pe->diff->avg * 2;
 	}
 	Point idea_pos = pe->idea_pos - pe->diff->offset;
 	idea_pos.x = idea_pos.x / scale;
@@ -2028,6 +2029,7 @@ void BundleAdjust2::output()
 			}		
 		}
 		CV_Assert(res_sft.x == fc[j].res_sft[1] * scale && res_sft.y == fc[j].res_sft[0] * scale);
+#if GREEN_EDGE_CORNER_RES
 		int y = CORNER_Y(fc[j].idx);
 		int x = CORNER_X(fc[j].idx);
 		if (bind_mask & BIND_X_MASK) { //has at least one green fix x
@@ -2039,6 +2041,7 @@ void BundleAdjust2::output()
 			corner_info(y, x) |= res_sft.y << 16;
 		}
 		corner_info(y, x) &= 0xffffffff;
+#endif
 		sft(CORNER_Y(fc[j].idx), CORNER_X(fc[j].idx)) = min(2, abs(res_sft.x) + abs(res_sft.y));
 		abs_err += abs(res_sft.x) + abs(res_sft.y);
 	}

@@ -3617,8 +3617,8 @@ public:
 
 static Mat Horizon = (Mat_<char>(5, 5) << -1, -1, 0, 1, 1, -1, -2, 0, 2, 1, -2, -4, 0, 4, 2, -1, -2, 0, 2, 1, -1, -1, 0, 1, 1);
 static Mat Vert = (Mat_<char>(5, 5) << -1, -1, -2, -1, -1, -1, -2, -4, -2, -1, 0, 0, 0, 0, 0, 1, 2, 4, 2, 1, 1, 1, 2, 1, 1);
-static Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -1, -2, 0, -1, -2, -3, 0, 2, -1, -3, 0, 3, 1, -2, 0, 3, 2, 1, 0, 2, 1, 1, 0);
-static Mat Deg135 = (Mat_<char>(5, 5) << 0, 2, 1, 1, 0, -2, 0, 3, 2, 1, -1, -3, 0, 3, 1, -1, -2, -3, 0, 2, 0, -1, -1, -2, 0);
+static Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -2, -1, 0, -1, -2, -3, 0, 1, -2, -3, 0, 3, 2, -1, 0, 3, 2, 1, 0, 1, 2, 1, 0);
+static Mat Deg135 = (Mat_<char>(5, 5) << 0, 1, 2, 1, 0, -1, 0, 3, 2, 1, -2, -3, 0, 3, 2, -1, -2, -3, 0, 1, 0, -1, -2, -1, 0);
 
 static Point via_double_check(Mat * img, int xo, int yo, int d0, int r1, int th, int th2, vector<Point> * vs)
 {
@@ -4477,7 +4477,11 @@ static void imgpp_adjust_gray_lvl(PipeData & d, ProcessParameter & cpara)
 	}
 }
 
-static void compute_grad(Mat & m, Mat & g)
+/*
+Input m, image
+output g, grad contain both magnitude and dir
+*/
+static void compute_grad(const Mat & m, Mat & g)
 {
 	CV_Assert(m.type() == CV_8U);
 	g.create(m.rows, m.cols, CV_16U);
@@ -4517,10 +4521,10 @@ static void compute_grad(Mat & m, Mat & g)
 				m30 - m10 + 2 * (m31 - m11) + 4 * (m32 - m12) + 2 * (m33 - m13) + m34 - m14;
 			int sh = m04 - m00 + m14 - m10 + 2 * (m24 - m20) + m34 - m30 + m44 - m40 +
 				m03 - m01 + 2 * (m13 - m11) + 4 * (m23 - m21) + 2 * (m33 - m31) + m43 - m41;
-			int s45 = m34 - m01 + m43 - m10 + m24 - m02 + 2 * (m33 - m11) + m42 - m20 +
-				2 * (m14 - m03) + 3 * (m23 - m12) + 3 * (m32 - m21) + 2 * (m41 - m30);
-			int s135 = m03 - m30 + m14 - m41 + m02 - m20 + 2 * (m13 - m31) + m24 - m42 +
-				2 * (m01 - m10) + 3 * (m12 - m21) + 3 * (m23 - m32) + 2 * (m34 - m43);
+			int s45 = m34 - m01 + m43 - m10 + 2 * (m24 - m02) + 2 * (m33 - m11) + 2 * (m42 - m20) +
+				(m14 - m03) + 3 * (m23 - m12) + 3 * (m32 - m21) + (m41 - m30);
+			int s135 = m03 - m30 + m14 - m41 + 2 * (m02 - m20) + 2 * (m13 - m31) + 2 * (m24 - m42) +
+				(m01 - m10) + 3 * (m12 - m21) + 3 * (m23 - m32) + (m34 - m43);
 			int absv = abs(sv), absh = abs(sh);
 			int abs45 = abs(s45), abs135 = abs(s135);
 			int score0 = absv;
@@ -4537,11 +4541,484 @@ static void compute_grad(Mat & m, Mat & g)
 				score0 = abs135;
 				dir0 = (s135 > 0) ? DIR_DOWNLEFT : DIR_UPRIGHT;
 			}
-			pg[x] = (score0 << 3) + dir0;
+			pg[x] = (score0 << 3) + dir0; //high is magnitude and low is dir
 		}
+		pg[1] = ((pg[2] >> 4) << 3) + (pg[2] & 0x7); //left bounder grad, reduce half
+		pg[0] = ((pg[1] >> 4) << 3) + (pg[1] & 0x7);
+		pg[m.cols - 2] = ((pg[m.cols - 3] >> 4) << 3) + (pg[m.cols - 3] & 0x7); //right bounder grad
+		pg[m.cols - 1] = ((pg[m.cols - 2] >> 4) << 3) + (pg[m.cols - 2] & 0x7);
+	}
+	//following compute up and down bounder grad
+	ushort * pg0 = g.ptr<ushort>(0);
+	ushort * pg1 = g.ptr<ushort>(1);
+	ushort * pg2 = g.ptr<ushort>(2);
+	for (int x = 0; x < m.cols; x++) {
+		pg1[x] = ((pg2[x] >> 4) << 3) + (pg2[x] & 0x7);
+		pg0[x] = ((pg1[x] >> 4) << 3) + (pg1[x] & 0x7);
+	}
+	pg0 = g.ptr<ushort>(m.rows - 1);
+	pg1 = g.ptr<ushort>(m.rows - 2);
+	pg2 = g.ptr<ushort>(m.rows - 3);
+	for (int x = 0; x < m.cols; x++) {
+		pg1[x] = ((pg2[x] >> 4) << 3) + (pg2[x] & 0x7);
+		pg0[x] = ((pg1[x] >> 4) << 3) + (pg1[x] & 0x7);
 	}
 }
 
+static uchar path0[][7] = {
+	//edge_grad,prev loc,prev grad, next loc,   next grad
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWN, DIR_DOWN },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWN, DIR_DOWN },
+
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWN },
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWN },
+
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
+
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN },
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+
+	{ DIR_DOWNLEFT, DIR_UP, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UP, DIR_LEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UP, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UP, DIR_DOWNLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+};
+class EdgeRouter {
+protected:
+	uchar path_mask[4096];
+	void put_path(int edge_grad, int prev_loc, int prev_grad, int next_loc, int next_grad) {
+		path_mask[get_path_idx(edge_grad, prev_loc, prev_grad, next_loc)] |= 1 << next_grad;
+	}
+	int t(int dir) {
+		return dir_2[dir];
+	}
+	int m(int dir) {
+		switch (dir) {
+		case DIR_DOWN:
+			return DIR_DOWN;
+		case DIR_LEFT:
+			return DIR_RIGHT;
+		case DIR_UP:
+			return DIR_UP;
+		case DIR_RIGHT:
+			return DIR_LEFT;
+		case DIR_DOWNLEFT:
+			return DIR_DOWNRIGHT;
+		case DIR_UPLEFT:
+			return DIR_UPRIGHT;
+		case DIR_UPRIGHT:
+			return DIR_UPLEFT;
+		case DIR_DOWNRIGHT:
+			return DIR_DOWNLEFT;
+		}
+	}
+public:
+	int get_path_idx(int edge_grad, int prev_loc, int prev_grad, int next_loc) {
+		return edge_grad << 9 | prev_loc << 6 | prev_grad << 3 | next_loc;
+	}
+	int path_ok(int edge_grad, int prev_loc, int prev_grad, int next_loc, int next_grad) {
+		return (path_mask[get_path_idx(edge_grad, prev_loc, prev_grad, next_loc)] >> next_grad) & 1;
+	}
+	EdgeRouter() {
+		memset(path_mask, 0, sizeof(path_mask));
+		for (int i = 0; i < sizeof(path0) / sizeof(path0[0]); i++) {
+			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][4]);
+			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][5]);
+			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][6]);
+			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][4]));
+			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][5]));
+			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][6]));
+			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][4])));
+			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][5])));
+			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][6])));
+			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][4]))));
+			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][5]))));
+			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][6]))));
+
+			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][4]));
+			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][5]));
+			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][6]));
+			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][4])));
+			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][5])));
+			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][6])));
+			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][4]))));
+			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][5]))));
+			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][6]))));
+			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][4])))));
+			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][5])))));
+			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][6])))));
+		}
+	}
+} edge_router;
+
+/*
+Input g, compute_grad output
+Input gl, gr, gu, gd, grad threshold
+Input valid_len_th, valid chain length threshold
+Input search_len_th, seed search length threshold
+Output edge
+*/
+#define EDGE_SEED	0x8
+#define EDGE_LEFT	0x10
+#define EDGE_RIGHT  0x20
+#define EDGE_SEARCH 0x40
+static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid_len_th, int search_len_th, Mat & edge)
+{
+	CV_Assert(g.type() == CV_16U);
+	edge.create(g.rows, g.cols, CV_8U);
+	edge = Scalar::all(0);
+	gl = gl * 16 * 8; //*16 is because grad filter coef sum, * 8 because less 3 bit is dir 
+	gr = gr * 16 * 8;
+	gu = gu * 16 * 8;
+	gd = gd * 16 * 8;
+	//1 find seed point
+	for (int y = 2; y < g.rows - 2; y++) {
+		const ushort * pg_2 = g.ptr<ushort>(y - 2);
+		const ushort * pg_1 = g.ptr<ushort>(y - 1);
+		const ushort * pg = g.ptr<ushort>(y);
+		const ushort * pg1 = g.ptr<ushort>(y + 1);
+		const ushort * pg2 = g.ptr<ushort>(y + 2);
+		uchar * p_edge = edge.ptr<uchar>(y);
+		for (int x = 2; x < g.cols - 2; x++) {
+			bool pass = true;
+			//following make sure seed magnitude is bigger than nearby point
+			switch (pg[x] & 7) {
+			case DIR_UP:
+				if (gu > pg[x] || pg_1[x] > pg[x] || pg_2[x] > pg[x] || pg1[x] >= pg[x] || pg2[x] >= pg[x] ||
+					pg_2[x - 1] > pg[x] || pg_2[x + 1] > pg[x] || pg2[x - 1] >= pg[x] || pg2[x + 1] >= pg[x])
+					pass = false;
+				break;
+			case DIR_DOWN:
+				if (gd > pg[x] || pg_1[x] >= pg[x] || pg_2[x] >= pg[x] || pg1[x] > pg[x] || pg2[x] > pg[x] ||
+					pg_2[x - 1] >= pg[x] || pg_2[x + 1] >= pg[x] || pg2[x - 1] > pg[x] || pg2[x + 1] > pg[x])
+					pass = false;
+				break;
+			case DIR_LEFT:
+				if (gl > pg[x] || pg[x - 1] > pg[x] || pg[x - 2] > pg[x] || pg[x + 1] >= pg[x] || pg[x + 2] >= pg[x] ||
+					pg_1[x - 2] > pg[x] || pg1[x - 2] > pg[x] || pg_1[x + 2] >= pg[x] || pg1[x + 2] >= pg[x])
+					pass = false;
+				break;
+			case DIR_RIGHT:
+				if (gr > pg[x] || pg[x + 1] > pg[x] || pg[x + 2] > pg[x] || pg[x - 1] >= pg[x] || pg[x - 2] >= pg[x] ||
+					pg_1[x - 2] >= pg[x] || pg1[x - 2] >= pg[x] || pg_1[x + 2] > pg[x] || pg1[x + 2] > pg[x])
+					pass = false;
+				break;
+			default:
+				pass = false;
+				break;
+			}
+			if (pass) {
+#define IS_GOOD(a, b) (a > b || (a&7) == (b&7))
+				if (IS_GOOD(pg[x], pg_1[x]) && IS_GOOD(pg[x], pg1[x]) &&
+					IS_GOOD(pg[x], pg[x - 1]) && IS_GOOD(pg[x], pg[x + 1]) &&
+					IS_GOOD(pg[x], pg1[x - 1]) && IS_GOOD(pg[x], pg1[x + 1]) &&
+					IS_GOOD(pg[x], pg_1[x - 1]) && IS_GOOD(pg[x], pg_1[x + 1]))
+					p_edge[x] = EDGE_SEED | (pg[x] & 7);
+#undef IS_GOOD
+			}
+		}
+	}
+	
+	//2 link seed point left and right to generate edge
+	for (int y = 2; y < g.rows - 2; y++) {
+		uchar * p_edge = edge.ptr<uchar>(y);
+		for (int x = 2; x < g.cols - 2; x++) 
+		if (p_edge[x] & EDGE_SEED) {
+			int y1, y2, x1, x2; //[y1,y2]*[x1,x2] is search range
+			int m0, m1; //m0 means look for left or right seed for (x,y), m1 is reverse of m0 
+			int dir = p_edge[x] & 7;
+			switch (dir) {
+			case DIR_UP:
+			case DIR_DOWN:
+				x1 = x + 1; //look for next seed point in right 3*2 rect
+				x2 = x + 2;
+				y1 = y - 1;
+				y2 = y + 1;
+				if (dir == DIR_UP) {
+					m0 = EDGE_RIGHT;
+					m1 = EDGE_LEFT;
+				}
+				else {
+					m0 = EDGE_LEFT;
+					m1 = EDGE_RIGHT;
+				}
+				for (int xx = x1; xx <= x2; xx++)
+				for (int yy = y1; yy <= y2; yy++) {
+					uchar e = edge.at<uchar>(yy, xx);
+					if ((e & 7) == dir && e & EDGE_SEED) {
+						//find next seed, link
+						p_edge[x] |= m0;
+						edge.at<uchar>(yy, xx) = e | m1;
+						if (xx != x1)
+							edge.at<uchar>(y, x1) = EDGE_LEFT | EDGE_RIGHT | dir; //all path mark LEFT & RIGHT						
+						xx = x2;
+						break;
+					}
+					else
+					if (e) {
+						//find seed with different dir, break
+						xx = x2;
+						break;
+					}
+				}
+				break;
+			case DIR_LEFT:
+			case DIR_RIGHT:
+				y1 = y + 1; //look for next seed point in bottom 2*3 rect
+				y2 = y + 2;
+				x1 = x - 1;
+				x2 = x + 1;
+				if (dir == DIR_RIGHT) {
+					m0 = EDGE_RIGHT;
+					m1 = EDGE_LEFT;
+				}
+				else {
+					m0 = EDGE_LEFT;
+					m1 = EDGE_RIGHT;
+				}
+				for (int yy = y1; yy <= y2; yy++)
+				for (int xx = x1; xx <= x2; xx++) {
+					uchar e = edge.at<uchar>(yy, xx);
+					if ((e & 7) == dir && e & EDGE_SEED) {
+						//find next seed, link
+						p_edge[x] |= m0;
+						edge.at<uchar>(yy, xx) = e | m1;
+						if (yy != y1)
+							edge.at<uchar>(y1, x) = EDGE_LEFT | EDGE_RIGHT | dir; //all path mark LEFT & RIGHT
+						
+						yy = y2;
+						break;
+					}
+					else
+					if (e) {
+						//find seed with different dir, break
+						yy = y2;
+						break;
+					}
+				}
+				break;
+			}
+		}
+	}
+
+	//3 find unlink seed
+	vector<Point> unlink_seed[2];
+	for (int y = 2; y < g.rows - 2; y++) {
+		uchar * p_edge = edge.ptr<uchar>(y);
+		for (int x = 2; x < g.cols - 2; x++)
+		if (p_edge[x] & EDGE_SEED && (p_edge[x] & (EDGE_LEFT | EDGE_RIGHT)) != (EDGE_LEFT | EDGE_RIGHT))  {
+			//find a seed without left or right link
+			int d = g.at<ushort>(y, x) & 7;
+			int sd[3]; //search dir
+			if (!(p_edge[x] & EDGE_LEFT)) {// missing left seed
+				sd[0] = dir_3[d];
+				sd[1] = dir_2[d];
+				sd[2] = dir_3[dir_2[d]];
+			}
+			else { // missing right seed
+				sd[0] = dir_1[dir_3[d]];
+				sd[1] = dir_1[dir_2[d]];
+				sd[2] = dir_3[dir_1[dir_2[d]]];
+			}
+			int x0 = x, y0 = y;
+			int find = 1;
+			vector<Point> link_chain;
+			link_chain.push_back(Point(x, y));
+			while (link_chain.size() < valid_len_th && find) {
+				if (x0 <= 2 || y0 <= 2 || x0 >= g.cols - 3 || y0 >= g.rows - 3)
+					break;
+				find = 0;
+				for (int dir = 0; dir < 3; dir++) {
+					int yy = y0 + dxy[sd[dir]][0];
+					int xx = x0 + dxy[sd[dir]][1];
+					if (edge.at<uchar>(yy, xx) & (EDGE_LEFT | EDGE_RIGHT)) {
+						find++;
+						link_chain.push_back(Point(xx, yy));
+					}
+				}
+				CV_Assert(find <= 1);
+				y0 = link_chain.back().y;
+				x0 = link_chain.back().x;
+			}
+			if (link_chain.size() >= valid_len_th) {
+				if (!(p_edge[x] & EDGE_LEFT))
+					unlink_seed[0].push_back(Point(x, y));
+				else
+					unlink_seed[1].push_back(Point(x, y));
+			}
+			else {
+				for (int i = 0; i < (int)link_chain.size(); i++) {
+					edge.at<uchar>(link_chain[i]) = 0;
+				}
+			}
+		}
+	}
+	return;
+	priority_queue<uint64> q;
+	vector<uint64> reach;
+//s means score, l means length to seed, pd means parent dir, pg means parent grad dir, x,y means location
+#define MAKE_QUEUE_ITEM(s, l, pd, pg, x, y) ((uint64)(s) << 48 | (uint64)(l) << 38 | (uint64)(pd) << 35 | (uint64)(pg) << 32 | (y) << 16 | (x))
+#define ITEM_X(item) ((int)(item & 0xffff))
+#define ITEM_Y(item) ((int)((item) >> 16 & 0xffff))
+#define ITEM_PG(item) ((int)((item) >> 32 & 0x7))
+#define ITEM_PD(item) ((int)((item) >> 35 & 0x7))
+#define ITEM_LEN(item) ((int)((item) >> 38 & 0xff))
+
+	int grad_th[] = { gu / 4, gr / 4, gd / 4, gl / 4, (gr + gu) / 8, (gr + gd) / 8, (gl + gd) / 8, (gl + gu) / 8};
+	for (int y = 2; y < g.rows - 2; y++) {
+		uchar * p_edge = edge.ptr<uchar>(y);
+		for (int x = 2; x < g.cols - 2; x++)
+		if (p_edge[x] & EDGE_SEED && (p_edge[x] & (EDGE_LEFT | EDGE_RIGHT)) != (EDGE_LEFT | EDGE_RIGHT))  {
+			//find a seed without left or right link
+			int d = g.at<ushort>(y, x) & 7;
+			if (!(p_edge[x] & EDGE_LEFT)) { // missing left seed
+				q.push(MAKE_QUEUE_ITEM(1, 0, dir_2[d], d, x, y));
+				p_edge[x] |= EDGE_LEFT;				
+			}
+			else {// missing right seed
+				q.push(MAKE_QUEUE_ITEM(1, 0, dir_2[dir_1[d]], d, x, y));
+				p_edge[x] |= EDGE_RIGHT;
+			}
+			bool finish = false;
+			while (!q.empty() && !finish) {
+				uint64 item = q.top();
+				reach.push_back(item);
+				q.pop();
+				int len = ITEM_LEN(item);
+				int x0 = ITEM_X(item);
+				int y0 = ITEM_Y(item);
+				int pg = ITEM_PG(item);
+				int pd = ITEM_PD(item);
+				int cg = g.at<ushort>(y0, x0) & 7;
+				for (int dir = 0; dir < 8; dir++) {
+					int y1 = y0 + dxy[dir][0];
+					int x1 = x0 + dxy[dir][1];
+					ushort score = g.at<ushort>(y1, x1);
+					int ng = score & 7;
+					if (edge_router.path_ok(cg, pd, pg, dir, ng)) {
+						uchar * pe = edge.ptr<uchar>(y1, x1);
+						if (pe[0] & EDGE_SEARCH)
+							continue; //already searched
+						if (y1 <= 1 || x1 <= 1 || y1 >= g.rows - 2 || x1 >= g.cols - 2)
+							continue; //out of range
+						if (pe[0] & (EDGE_SEED | EDGE_LEFT | EDGE_RIGHT)) { //find, fill path
+							finish = true;
+							while (x != x0 || y != y0) {
+								int fa = edge.at<uchar>(y0, x0) & 7; //here edge(y0, x0) point to father
+								edge.at<uchar>(y0, x0) = EDGE_LEFT | EDGE_RIGHT | cg;
+								y0 += dxy[fa][0];
+								x0 += dxy[fa][1];
+								cg = g.at<ushort>(y0, x0) & 7;
+							}
+							break;
+						}
+                        if (len >= search_len_th) //too long
+							continue;
+
+						if (grad_th[dir] >= score)
+							continue;
+						q.push(MAKE_QUEUE_ITEM(score, len + 1, dir_1[dir], cg, x1, y1));
+						pe[0] = EDGE_SEARCH | dir_1[dir]; //here edge(y1, x1) point to father
+					}
+				}
+			}
+			while (!q.empty()) {
+				uint64 item = q.top();
+				reach.push_back(item);
+				q.pop();
+			}
+			for (int i = 0; i < (int)reach.size(); i++) {
+				int x0 = ITEM_X(reach[i]);
+				int y0 = ITEM_Y(reach[i]);
+				uchar * pe = edge.ptr<uchar>(y0, x0);
+				if (pe[0] & EDGE_SEARCH) {
+					CV_Assert((pe[0] & (EDGE_SEED | EDGE_LEFT | EDGE_RIGHT)) == 0);
+					pe[0] = 0;
+				}
+			}
+			reach.clear();
+			x--;
+		}
+	}
+#undef MAKE_QUEUE_ITEM
+#undef ITEM_X
+#undef ITEM_Y
+#undef ITEM_PG
+#undef ITEM_PD
+#undef ITEM_LEN
+}
+
+/*		31..24   23..16    15..8   7..0
+opt0:grad_low_u grad_low_r search_len_th detect_opt
+opt1:            valid_len_th grad_low_l grad_low_d
+method_opt
+0: for edge detect output
+*/
+static void edge_detect2(PipeData & d, ProcessParameter & cpara)
+{
+	int layer = cpara.layer;
+	Mat & img = d.l[layer].img;
+	int idx = cpara.method_opt & 0xf;
+	int detect_opt = cpara.opt0 & 0xff;
+	int search_len_th = cpara.opt0 >> 8 & 0xff;
+	int grad_low_r = cpara.opt0 >> 16 & 0xff;
+	int grad_low_u = cpara.opt0 >> 24 & 0xff;
+	int grad_low_d = cpara.opt1 & 0xff;
+	int grad_low_l = cpara.opt1 >> 8 & 0xff;
+	int valid_len_th = cpara.opt1 >> 16 & 0xff;
+	Mat & edge = d.l[layer].v[idx].d;
+	Mat grad;
+	compute_grad(img, grad);
+	search_edge(grad, grad_low_l, grad_low_r, grad_low_u, grad_low_d, valid_len_th, search_len_th, edge);
+	if (cpara.method & OPT_DEBUG_EN) {
+		Mat debug_draw;		
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			uchar * p_draw = debug_draw.ptr<uchar>(y);
+			uchar * p_edge = edge.ptr<uchar>(y);
+			for (int x = 0; x < debug_draw.cols; x++) 
+			if (p_edge[x]) {
+				if (p_edge[x] & EDGE_SEED) {
+					if (p_edge[x] & EDGE_LEFT)
+						p_draw[3 * x + 2] = 255;
+					if (p_edge[x] & EDGE_RIGHT)
+						p_draw[3 * x] = 255;
+				}
+				else
+					p_draw[3 * x + 1] = 255;
+			}
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_edgedet.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw;
+		}
+	}
+}
 /*		31..24  23..16   15..8   7..0
 opt0:		    ed_guard ed_long detect_opt
 opt1: grad_low_l grad_high_l gi_high_l gw_low_l
@@ -7141,8 +7618,8 @@ static ObjProcessHook obj_process_translate(ProcessParameter & cpara)
 #define PP_COARSE_VIA_MASK		5
 #define PP_FINE_VIA_SEARCH		6
 #define PP_REMOVE_VIA			7
-#define PP_FINE_SEARCH_MASK		8
-#define PP_FINE_LINE_SEARCH		9
+#define PP_EDGE_DETECT2			8
+#define PP_IMAGE_ENHANCE2		9
 #define PP_ASSEMBLE				10
 #define PP_HOTPOINT_SEARCH		12
 #define PP_ASSEMBLE_VIA			13
@@ -7162,6 +7639,7 @@ struct PipeProcess {
 	{ PP_ADJUST_GRAY_LVL, imgpp_adjust_gray_lvl },
 	{ PP_COARSE_LINE_SEARCH, coarse_line_search },
 	{ PP_EDGE_DETECT, edge_detect },
+	{ PP_EDGE_DETECT2, edge_detect2 },
 	{ PP_IMAGE_ENHANCE, image_enhance },
 	{ PP_COARSE_VIA_MASK, coarse_via_search_mask },
 	{ PP_FINE_VIA_SEARCH, fine_via_search },

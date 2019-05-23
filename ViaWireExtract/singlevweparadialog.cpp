@@ -2,7 +2,7 @@
 #include "ui_singlevweparadialog.h"
 
 SingleVWEParaDialog::SingleVWEParaDialog(QWidget *parent, unsigned _wmin, unsigned _wmax, unsigned _gray_th, unsigned _sep,
-                                         unsigned _opt, unsigned _gw, unsigned _gi, unsigned _ww, double _ww1, double _iw) :
+	unsigned _opt, unsigned _gw, unsigned _gi, unsigned _ww, double _ww1, double _iw, int _shape_mask) :
     QDialog(parent),
     ui(new Ui::SingleVWEParaDialog)
 {
@@ -16,6 +16,7 @@ SingleVWEParaDialog::SingleVWEParaDialog(QWidget *parent, unsigned _wmin, unsign
     ui->i_wide->setText(QString::number(_iw));
     ui->gray_th->setText(QString::number(_gray_th));
     ui->sep->setText(QString::number(_sep));
+	ui->shape_mask->setText(QString::number(_shape_mask));
     switch (_opt) {
     case 0:
         ui->straight_ext->setChecked(true);
@@ -41,6 +42,7 @@ void SingleVWEParaDialog::on_buttonBox_accepted()
     gray_i = ui->gray_i->text().toInt();
     gray_w = ui->gray_w->text().toInt();
     w_wide = ui->w_wide->text().toInt();
+	shape_mask = ui->shape_mask->text().toInt();
     w_wide1 = ui->w_wide1->text().toDouble();
     i_wide = ui->i_wide->text().toDouble();
 	if (ui->straight_ext->isChecked())
