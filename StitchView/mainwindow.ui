@@ -60,6 +60,7 @@
     <addaction name="actionOptimize_Offset"/>
     <addaction name="menuClear_Fix_Edge"/>
     <addaction name="actionOptimize_Offset_NB"/>
+    <addaction name="actionAlign_IdeaPos"/>
    </widget>
    <widget class="QMenu" name="menuPostProcess">
     <property name="title">
@@ -234,6 +235,11 @@
   <action name="actionImport">
    <property name="text">
     <string>Import</string>
+   </property>
+  </action>
+  <action name="actionAlign_IdeaPos">
+   <property name="text">
+    <string>Align IdeaPos</string>
    </property>
   </action>
  </widget>

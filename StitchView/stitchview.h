@@ -90,57 +90,6 @@ struct LayerFeature {
 		return ret;
 	}
 
-	/*if fix edge is in bound return 0, else return direction
-	1: x<0
-	2: x>bound
-	4: y<0
-	8: y>bound
-	int check_edge(unsigned edge_idx) {
-		int ret = 0;
-		if (!feature.is_valid())
-			return 0;
-		int x = EDGE_X(edge_idx);
-		int y = EDGE_Y(edge_idx);
-		int e = EDGE_E(edge_idx);
-		if (e == 0 && (y >= cpara.img_num_h - 1 || x >= cpara.img_num_w))
-			return 0;
-		if (e == 1 && (y >= cpara.img_num_h || x >= cpara.img_num_w - 1))
-			return 0;
-		if (fix_edge[e](y, x) == 0)
-			return 0;
-		Point o0(cpara.offset(y, x)[1], cpara.offset(y, x)[0]);
-		Point o1(cpara.offset(y + 1, x)[1], cpara.offset(y + 1, x)[0]);
-		Point o2(cpara.offset(y, x + 1)[1], cpara.offset(y, x + 1)[0]);
-		Point oo = (e == 0) ? o1 - o0 : o2 - o0;
-		const EdgeDiff * ed = (e == 0) ? feature.get_edge(y, x, y + 1, x) : feature.get_edge(y, x, y, x + 1);
-		Point shift = oo - ed->offset;
-		CV_Assert(shift.x % cpara.rescale == 0 && shift.y % cpara.rescale == 0);
-		shift.x = shift.x / cpara.rescale;
-		shift.y = shift.y / cpara.rescale;
-
-		if (shift.x < 0)
-			ret |= 1;
-		if (shift.x >= ed->dif.cols)
-			ret |= 2;
-		if (shift.y < 0)
-			ret |= 4;
-		if (shift.y >= ed->dif.rows)
-			ret |= 8;
-
-		return ret;
-	}
-
-	int check_img_offset(unsigned img_idx) {
-		if (check_edge(img_idx) || check_edge(img_idx | 0x80000000))
-			return 1;
-		int x = IMG_X(img_idx);
-		int y = IMG_Y(img_idx);
-		if (y > 0 && check_edge(MAKE_EDGE_IDX(x, y - 1, 0)))
-			return 1;
-		if (x > 0 && check_edge(MAKE_EDGE_IDX(x - 1, y, 1)))
-			return 1;
-		return 0;
-	}*/
 	LayerFeature() {
 		find_next = 0;
 	}
@@ -216,7 +165,7 @@ protected:
 	void timerEvent(QTimerEvent *e);
 	void update_nview();
 	void convert_nails(vector<Nail> & nsrc, vector<Nail> & nimg, int method);
-
+	
 protected:
 	string project_path;
 	int choose_edge;
@@ -315,6 +264,7 @@ public:
 	int delete_layer(int _layer);
 	int layer_up(int _layer);
 	int layer_down(int _layer);
+	double refilter_edge(int _layer, int w0, int w1);
 	void update_title();
 	QPoint point2choose(QPoint mouse_point);
 	void write_file(string file_name);

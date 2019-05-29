@@ -5,6 +5,7 @@
 #include "mapxydialog.h"
 #include "griddialog.h"
 #include "xydialog.h"
+#include "alignideaposdialog.h"
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QScopedPointer>
@@ -97,7 +98,7 @@ void MainWindow::on_actionConfig_Para_triggered()
 		cpara.offset(0, 0) = Vec2i(0, 0);
 		cpara.offset(0, 1) = Vec2i(0, 1817);
 		cpara.offset(1, 0) = Vec2i(1558, 0);
-		cpara.offset(0, 1) = Vec2i(1558, 1817);
+		cpara.offset(1, 1) = Vec2i(1558, 1817);
 	}
 	cpara.rescale = 4;
 
@@ -108,23 +109,6 @@ void MainWindow::on_actionConfig_Para_triggered()
 			return;
 		}
 		cpara = para_dlg.cpara;
-		int init_offset_x = cpara.offset(0, 1)[1] - cpara.offset(0, 0)[1];
-		int init_offset_lry = cpara.offset(0, 1)[0] - cpara.offset(0, 0)[0];
-		int init_offset_y = cpara.offset(1, 0)[0] - cpara.offset(0, 0)[0];
-		int init_offset_udx = cpara.offset(1, 0)[1] - cpara.offset(0, 0)[1];
-		init_offset_x = (init_offset_x + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
-		init_offset_lry = (init_offset_lry + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
-		init_offset_y = (init_offset_y + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
-		init_offset_udx = (init_offset_udx + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
-		qInfo("UI: config init, path=%s, ox=%d,oy=%d, nw=%d, nh=%d", cpara.img_path.c_str(), 
-			init_offset_x, init_offset_y, cpara.img_num_w, cpara.img_num_h);
-		cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
-		for (int y = 0; y < cpara.img_num_h; y++) {
-			for (int x = 0; x < cpara.img_num_w; x++) {
-				cpara.offset(y, x)[1] = init_offset_x * x + init_offset_udx * y;
-				cpara.offset(y, x)[0] = init_offset_y * y + init_offset_lry * x;
-			}
-		}
 		if (para_dlg.new_layer) {
 			stitch_view->set_config_para(stitch_view->get_layer_num(), cpara);
 			stitch_view->set_current_layer(stitch_view->get_layer_num() - 1);
@@ -381,5 +365,21 @@ void MainWindow::on_actionImport_triggered()
     if (!filename.isEmpty()) {
         qInfo("UI: load %s", filename.toStdString().c_str());
         stitch_view->read_file(filename.toStdString(), true);
+    }
+}
+
+void MainWindow::on_actionAlign_IdeaPos_triggered()
+{
+    AlignIdeaPosDialog dlg(this, 2, 2);
+    if (dlg.exec() == QDialog::Accepted) {
+        qInfo("Align Ideapos w0=%d, w1=%d", dlg.w0, dlg.w1);
+		double ret = stitch_view->refilter_edge(-1, dlg.w0, dlg.w1);
+		if (ret >= 0) {
+			char message[50];
+			sprintf(message, "Align success, err=%6.3f", ret);
+			QMessageBox::information(this, "Info", message);
+		}
+        else
+            QMessageBox::information(this, "Info", "Align fail");
     }
 }

@@ -29,7 +29,8 @@ SOURCES += main.cpp\
     griddialog.cpp \
     navigateview.cpp \
     corneredge.cpp \
-    xydialog.cpp
+    xydialog.cpp \
+    alignideaposdialog.cpp
 
 HEADERS  += mainwindow.h \
     stitchview.h \
@@ -46,7 +47,8 @@ HEADERS  += mainwindow.h \
     griddialog.h \
     navigateview.h \
     corneredge.h \
-    xydialog.h
+    xydialog.h \
+    alignideaposdialog.h
 
 FORMS    += mainwindow.ui \
     cparadialog.ui \
@@ -54,7 +56,8 @@ FORMS    += mainwindow.ui \
     mapxydialog.ui \
     griddialog.ui \
     corneredge.ui \
-    xydialog.ui
+    xydialog.ui \
+    alignideaposdialog.ui
 
 DESTDIR = $$_PRO_FILE_PWD_/../app
 Release:INCLUDEPATH += $$_PRO_FILE_PWD_/../cvinclude/release/

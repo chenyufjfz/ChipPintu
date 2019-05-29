@@ -78,6 +78,8 @@ private slots:
 
     void on_actionImport_triggered();
 
+    void on_actionAlign_IdeaPos_triggered();
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

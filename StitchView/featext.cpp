@@ -1,3 +1,4 @@
+#define FEATEXT_C
 #include "featext.h"
 #include <iostream>
 #include <vector>
@@ -16,6 +17,18 @@
 
 #define PARALLEL 1
 #define TOTAL_PROP 500
+
+int dxy[8][2] = {
+	//y , x
+	{ -1, 0 }, //up
+	{ 0, 1 }, //right
+	{ 1, 0 }, //down
+	{ 0, -1 }, //left
+	{ -1, 1 }, //upright
+	{ 1, 1 }, //downright
+	{ 1, -1 }, //downleft
+	{ -1, -1 } //upleft
+};
 
 struct ImageData {
 	string filename;
@@ -555,6 +568,103 @@ void FeatExt::set_cfg_para(const ConfigPara & _cpara)
 	CV_Assert(_cpara.img_num_h == _cpara.offset.rows && _cpara.img_num_w == _cpara.offset.cols);
 	cpara = _cpara;
 	cpara.offset = cpara.offset.clone();
+}
+
+int FeatExt::filter_edge_diff(const FeatExt & fe1, int w0, int w1)
+{
+	*this = fe1;
+	int row = edge[0][0].dif.rows;
+	int col = edge[0][0].dif.cols;
+#define PICK(x1, x, xmin, xmax) (((x1) >= (xmin) && (x1) <=(xmax)) ? (x1) : (x))
+	float a0, a1, a2, a3, a4;
+	const int * p0, *p1, *p2, *p3, *p4;
+	int *p;
+	switch (w0) {
+	case 0:
+		a0 = a4 = a1 = a3 = 0;
+		a2 = 1;
+		break;
+	case 1:
+		a0 = a4 = 0.07;
+		a1 = a3 = 0.18;
+		a2 = 0.5;
+		break;
+	case 2:
+		a0 = a4 = 0.1;
+		a1 = a3 = 0.2;
+		a2 = 0.4;
+		break;
+	default:
+		a0 = a4 = 0.15;
+		a1 = a3 = 0.2;
+		a2 = 0.3;
+		break;
+	}
+	for (int y = 0; y < cpara.img_num_h - 1; y++) //up down edge
+	for (int x = 0; x < cpara.img_num_w; x++) {
+		edge[0][y*cpara.img_num_w + x].dif = fe1.edge[0][y*cpara.img_num_w + x].dif.clone();
+		Point offset = edge[0][y*cpara.img_num_w + x].offset - edge[0][y*cpara.img_num_w].offset;
+		if (abs(offset.x) > 4 || abs(offset.y) > 4)
+			return -1;
+		for (int yy = 0; yy < row; yy++) {
+			p0 = fe1.edge[0][y * cpara.img_num_w + PICK(x - 2, x, 1, cpara.img_num_w - 2)].dif.ptr<int>(yy);
+			p1 = fe1.edge[0][y * cpara.img_num_w + PICK(x - 1, x, 1, cpara.img_num_w - 2)].dif.ptr<int>(yy);
+			p2 = fe1.edge[0][y * cpara.img_num_w + x].dif.ptr<int>(yy);
+			p3 = fe1.edge[0][y * cpara.img_num_w + PICK(x + 1, x, 1, cpara.img_num_w - 2)].dif.ptr<int>(yy);
+			p4 = fe1.edge[0][y * cpara.img_num_w + PICK(x + 2, x, 1, cpara.img_num_w - 2)].dif.ptr<int>(yy);
+			p = edge[0][y * cpara.img_num_w + x].dif.ptr<int>(yy);
+			for (int xx = 0; xx < col; xx++)
+				p[xx] = a0 * p0[xx] + a1 * p1[xx] + a2 * p2[xx] + a3 * p3[xx] + a4 * p4[xx];
+		}
+		edge[0][y * cpara.img_num_w + x].compute_score();
+		if (edge[0][y * cpara.img_num_w + x].avg <= 1)
+			edge[0][y * cpara.img_num_w + x].img_num = 0;
+	}
+
+	row = edge[1][0].dif.rows;
+	col = edge[1][0].dif.cols;
+	switch (w1) {
+	case 0:
+		a0 = a4 = a1 = a3 = 0;
+		a2 = 1;
+		break;
+	case 1:
+		a0 = a4 = 0.05;
+		a1 = a3 = 0.2;
+		a2 = 0.5;
+		break;
+	case 2:
+		a0 = a4 = 0.1;
+		a1 = a3 = 0.2;
+		a2 = 0.4;
+		break;
+	default:
+		a0 = a4 = 0.12;
+		a1 = a3 = 0.2;
+		a2 = 0.36;
+		break;
+	}
+	for (int x = 0; x < cpara.img_num_w - 1; x++) //left right edge
+	for (int y = 0; y < cpara.img_num_h; y++) {
+		edge[1][y*(cpara.img_num_w - 1) + x].dif = fe1.edge[1][y*(cpara.img_num_w - 1) + x].dif.clone();
+		Point offset = edge[1][y*(cpara.img_num_w - 1) + x].offset - edge[1][x].offset;
+		if (abs(offset.x) > 4 || abs(offset.y) > 4)
+			return -1;
+		for (int yy = 0; yy < row; yy++) {
+			p0 = fe1.edge[1][PICK(y - 2, y, 1, cpara.img_num_h - 2) * (cpara.img_num_w - 1) + x].dif.ptr<int>(yy);
+			p1 = fe1.edge[1][PICK(y - 1, y, 1, cpara.img_num_h - 2) * (cpara.img_num_w - 1) + x].dif.ptr<int>(yy);
+			p2 = fe1.edge[1][y * (cpara.img_num_w - 1) + x].dif.ptr<int>(yy);
+			p3 = fe1.edge[1][PICK(y + 1, y, 1, cpara.img_num_h - 2) * (cpara.img_num_w - 1) + x].dif.ptr<int>(yy);
+			p4 = fe1.edge[1][PICK(y + 2, y, 1, cpara.img_num_h - 2) * (cpara.img_num_w - 1) + x].dif.ptr<int>(yy);
+			p = edge[1][y * (cpara.img_num_w - 1) + x].dif.ptr<int>(yy);
+			for (int xx = 0; xx < col; xx++)
+				p[xx] = a0 * p0[xx] + a1 * p1[xx] + a2 * p2[xx] + a3 * p3[xx] + a4 * p4[xx];
+		}
+		edge[1][y * (cpara.img_num_w - 1) + x].compute_score();
+		if (edge[1][y * (cpara.img_num_w - 1) + x].avg <= 1)
+			edge[1][y * (cpara.img_num_w - 1) + x].img_num = 0;
+	}
+	return 0;
 }
 
 void FeatExt::generate_feature_diff(int start_x, int start_y, int debug_en)

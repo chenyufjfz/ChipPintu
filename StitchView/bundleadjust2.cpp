@@ -11,14 +11,6 @@ enum {
 	BAD_4CORNER_NO_MATE
 };
 
-const int dxy[4][2] = {
-	//y , x
-	{ -1, 0 }, //up
-	{ 0, 1 }, //right
-	{ 1, 0 }, //down
-	{ 0, -1 }, //left
-};
-
 #define SGN(x) ((x)>0 ? 1 : ((x<0) ? -1 : 0))
 
 int Edge2::image_width;
@@ -225,7 +217,7 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 	float area = pe->diff->dif.rows * pe->diff->dif.cols;
 	float beta = (area < 30) ? 1 : ((area >= 130) ? 0.7 : 1 - (area - 30) * 0.003);
 	float avg = pe->diff->avg * beta + pe->diff->submind * (1 - beta);
-	float alpha = (avg - mind < 29) ? 0 : sqrt(pe->diff->avg / global_avg);
+	float alpha = (avg - mind < 30) ? 0 : sqrt(pe->diff->avg / global_avg);
 
 	if (avg - mind < 29) {
 		qWarning("edge(%x) cost is all 0 because avg(%f) - mind(%f) is small", pe->diff->edge_idx, avg, mind);

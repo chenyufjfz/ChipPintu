@@ -15,6 +15,11 @@ using namespace std;
 #define DIR_DOWN			2
 #define DIR_LEFT			3
 
+#ifndef FEATEXT_C
+extern int dxy[8][2];
+#endif
+
+
 #define DIFF_NOT_CONTACT			100000000
 class TuningPara {
 public:
@@ -369,6 +374,7 @@ public:
     FeatExt();
 	void set_tune_para(const TuningPara & _tpara);
 	void set_cfg_para(const ConfigPara & _cpara);
+	int filter_edge_diff(const FeatExt & fe1, int w0, int w1);
 	bool is_valid() {
 		return (cpara.img_num_h != 0 && cpara.img_num_w != 0 && !cpara.offset.empty());
 	}

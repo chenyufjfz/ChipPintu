@@ -35,7 +35,340 @@ string thread_generate_diff(FeatExt * feature, string project_path, int layer)
 	return filename;
 }
 
-void thread_bundle_adjust(BundleAdjustInf * ba, FeatExt * feature, Mat_<Vec2i> *offset, Mat_<Vec2i> * c_info, vector<FixEdge> * fe, Size s, int option)
+//Compute corner info same as BundleAdjust2::init
+double compute_feature_cornerinfo(LayerFeature * lf)
+{	
+	const FeatExt * feature = &(lf->feature);
+	Mat_<Vec2i> & c_info = lf->corner_info;
+	c_info.create(lf->cpara.img_num_h, lf->cpara.img_num_w);
+	int scale = lf->cpara.rescale;
+	int sum = 0;
+	for (int y = 0; y < c_info.rows; y++)
+	for (int x = 0; x < c_info.cols; x++) {
+		Point res_sft(0, 0);
+		if (y > 0 && x > 0) {
+			for (int i = 0; i < 4; i++) {
+				unsigned idx = MAKE_CORNER_IDX(x, y);
+				switch (i) {
+				case DIR_LEFT:
+					if (idx >= 0x10001)
+						idx = idx - 0x10001;
+					break;
+				case DIR_UP:
+					if (idx >= 0x10001)
+						idx = (idx - 0x10001) | 0x80000000;
+					break;
+				case DIR_RIGHT:
+					if (idx >= 0x10000)
+						idx = idx - 0x10000;
+					break;
+
+				case DIR_DOWN:
+					if (idx >= 1)
+						idx = (idx - 1) | 0x80000000;
+					break;
+				}
+				const EdgeDiff * ed = feature->get_edge(idx);
+				CV_Assert(ed != NULL);
+				if (i < 2)
+					res_sft += ed->minloc;
+				else
+					res_sft -= ed->minloc;
+			}
+			res_sft *= scale;
+			sum += abs(res_sft.x) + abs(res_sft.y);
+			c_info(y, x) = Vec2i((res_sft.x & 0xffff) | (res_sft.y & 0xffff) << 16, 0);
+		}
+		else
+			c_info(y, x) = Vec2i(0, 0);
+	}
+	return (double)sum / ((c_info.rows - 1) * (c_info.cols - 1));
+}
+
+/*Compute edge center for row or col
+Input pos_z, if edge(y,x) is black, pos_z(y,x) = 1
+Input pos, edge(y,x) offset
+Input row_mode, row or column
+Output center, edge center for row or column average value
+Input scale
+Output err, err distribute
+*/
+void compute_center(const Mat_<uchar> & pos_z, const Mat_<Vec2i> & pos, vector<Point> & center, int row_mode, int scale, Point * err)
+{
+	CV_Assert(pos_z.size() == pos.size());
+	vector<int> err_statx(200, 0), err_staty(200, 0);
+	int total = 0;
+	if (row_mode) {
+		center.resize(pos.rows);		
+		for (int y = 0; y < pos.rows; y++) {
+			Point2d c(0, 0);
+			int num = 0;
+			for (int x = 0; x < pos.cols; x++)
+			if (!pos_z(y, x)) {
+				c += Point2d(pos(y, x)[1], pos(y, x)[0]);
+				num++;
+			}
+			if (num!=0) //center is average of valid row edge offset
+				center[y] = c * (1.0 / num);
+			else
+				center[y] = Point2d(pos(y, 0)[1], pos(y, 0)[0]);
+			for (int x = 0; x < pos.cols; x++) 
+			if (!pos_z(y, x)) { //accumulate err stat
+				int errx = min(abs((pos(y, x)[1] - center[y].x) / scale), (int)err_statx.size() - 1);
+				int erry = min(abs((pos(y, x)[0] - center[y].y) / scale), (int)err_staty.size() - 1);
+				err_statx[errx]++;
+				err_staty[erry]++;
+				total++;
+			}
+		}
+	}
+	else {
+		center.resize(pos.cols);
+		for (int x = 0; x < pos.cols; x++) {
+			Point2d c(0, 0);
+			int num = 0;
+			for (int y = 0; y < pos.rows; y++)
+			if (!pos_z(y, x)) {
+				c += Point2d(pos(y, x)[1], pos(y, x)[0]);
+				num++;
+			}
+			if (num != 0) //center is average of valid row edge offset
+				center[x] = c * (1.0 / num);
+			else
+				center[x] = Point2d(pos(0, x)[1], pos(0, x)[0]);
+			for (int y = 0; y < pos.rows; y++)
+			if (!pos_z(y, x)) {
+				int errx = min(abs((pos(y, x)[1] - center[x].x) / scale), (int)err_statx.size() - 1);
+				int erry = min(abs((pos(y, x)[0] - center[x].y) / scale), (int)err_staty.size() - 1);
+				err_statx[errx]++;
+				err_staty[erry]++;
+				total++;
+			}
+		}
+	}
+	//ths is for err threshold
+	int ths[] = { total * 0.9, total * 0.95, total * 0.97, total * 0.98, total * 0.99, total };
+	int idx = 0, th = ths[0];
+	for (int i = 0; i < (int)err_statx.size(); i++) {
+		th -= err_statx[i];
+		while (th <= 0) {
+			err[idx++].x = (i + 1) * scale;
+			th += ths[idx] - ths[idx - 1];
+			if (idx > 5) {
+				i = (int) err_statx.size();
+				break;
+			}
+		}
+	}
+	idx = 0, th = ths[0];
+	for (int i = 0; i < (int)err_staty.size(); i++) {
+		th -= err_staty[i];
+		while (th <= 0) {
+			err[idx++].y = (i + 1) * scale;
+			th += ths[idx] - ths[idx - 1];
+			if (idx > 5) {
+				i = (int) err_staty.size();
+				break;
+			}
+		}
+	}
+}
+
+void write_edge_corner(const LayerFeature * lf, string project_path)
+{
+	static int ec_save = 0;
+	char file_no[10];
+	FILE * fp;
+	do {
+		sprintf(file_no, "%d", ec_save);
+		string filename = file_no;
+		ec_save = (ec_save + 1) % 6;
+		filename = project_path + "/WorkData/ec" + filename + ".csv";
+		fp = fopen(filename.c_str(), "wt");
+	} while (fp == NULL);
+	const FeatExt * feature = &(lf->feature);
+	int img_num_h = lf->cpara.img_num_h, img_num_w = lf->cpara.img_num_w;
+	vector<Point> col_minxy(img_num_w), row_minxy(img_num_h), col_maxxy(img_num_w), row_maxxy(img_num_h);
+	Mat_<uchar> pos_z;
+	Mat_<Vec2i> pos;
+	vector<Point> center;
+	Point err[6];
+#define PRINT_COMPLEX(z, x, y) \
+	if (z) \
+		fprintf(fp, "%c0%d%c%di,", (x >= 0) ? '+' : '-', abs(x), (y >= 0) ? '+' : '-', abs(y)); \
+	else \
+		fprintf(fp, "%c%d%c%di,", (x >= 0) ? '+' : '-', abs(x), (y >= 0) ? '+' : '-', abs(y))
+
+	Point base = Point(lf->cpara.offset(0, 1)[1] - lf->cpara.offset(0, 0)[1],
+		lf->cpara.offset(0, 1)[0] - lf->cpara.offset(0, 0)[0]);
+	fprintf(fp, "img_num, w=%d h=%d s=%d\n", img_num_w, img_num_h, lf->cpara.rescale);
+	PRINT_COMPLEX(0, base.x, base.y);
+	fprintf(fp, "edge left right\n");
+	pos_z.create(img_num_h, img_num_w - 1);
+	pos.create(img_num_h, img_num_w - 1);
+	for (int y = 0; y < img_num_h + 2; y++)
+	if (y < img_num_h) {
+		for (int x = 0; x < img_num_w - 1; x++) {
+			Point src_corner(lf->cpara.offset(y, x)[1], lf->cpara.offset(y, x)[0]);
+			Point src_corner1(lf->cpara.offset(y, x + 1)[1], lf->cpara.offset(y, x + 1)[0]);
+			const EdgeDiff * ed = feature->get_edge(1, y, x);
+			Point idea_pos = ed->offset + ed->minloc * lf->cpara.rescale;
+			//idea_pos = src_corner1 - src_corner - idea_pos;			
+			PRINT_COMPLEX(ed->avg - ed->submind <30, idea_pos.x, idea_pos.y); //output idea pos
+			if (ed->img_num>0) {
+				col_minxy[x].x = (y == 0) ? idea_pos.x : min(col_minxy[x].x, idea_pos.x);
+				col_minxy[x].y = (y == 0) ? idea_pos.y : min(col_minxy[x].y, idea_pos.y);
+				col_maxxy[x].x = (y == 0) ? idea_pos.x : max(col_maxxy[x].x, idea_pos.x);
+				col_maxxy[x].y = (y == 0) ? idea_pos.y : max(col_maxxy[x].y, idea_pos.y);
+				row_minxy[y].x = (x == 0) ? idea_pos.x : min(row_minxy[y].x, idea_pos.x);
+				row_minxy[y].y = (x == 0) ? idea_pos.y : min(row_minxy[y].y, idea_pos.y);
+				row_maxxy[y].x = (x == 0) ? idea_pos.x : max(row_maxxy[y].x, idea_pos.x);
+				row_maxxy[y].y = (x == 0) ? idea_pos.y : max(row_maxxy[y].y, idea_pos.y);
+			}
+			if (ed->img_num == 0 || x == 0 || y == 0 || y + 1 == img_num_h || x + 2 == img_num_w || ed->avg - ed->submind <30)
+				pos_z(y, x) = 1;
+			else
+				pos_z(y, x) = 0;
+			pos(y, x) = Vec2i(idea_pos.y, idea_pos.x);
+		}
+		PRINT_COMPLEX(0, row_minxy[y].x, row_minxy[y].y);
+		PRINT_COMPLEX(0, row_maxxy[y].x, row_maxxy[y].y);
+		fprintf(fp, "\n");
+	}
+	else {
+		Point minmax;
+		if (y == img_num_h) {
+			minmax = Point(100000, 100000);
+			for (int x = 0; x < img_num_w - 1; x++) {
+				PRINT_COMPLEX(0, col_minxy[x].x, col_minxy[x].y);
+				minmax.x = min(minmax.x, col_minxy[x].x);
+				minmax.y = min(minmax.y, col_minxy[x].y);
+			}
+		}
+		else {
+			minmax = Point(-100000, -100000);
+			for (int x = 0; x < img_num_w - 1; x++) {
+				PRINT_COMPLEX(0, col_maxxy[x].x, col_maxxy[x].y);
+				minmax.x = max(minmax.x, col_maxxy[x].x);
+				minmax.y = max(minmax.y, col_maxxy[x].y);
+			}
+		}
+		PRINT_COMPLEX(0, minmax.x, minmax.y);
+		minmax -= base;
+		PRINT_COMPLEX(0, minmax.x, minmax.y);
+		fprintf(fp, "\n");
+	}
+	compute_center(pos_z, pos, center, 0, lf->cpara.rescale, err);
+	if (center.size() >= 3) {
+		center[0] = center[1];
+		center[center.size() - 1] = center[center.size() - 2];
+	}
+	fprintf(fp, "LR err distribute,");
+	for (int i = 0; i < 6; i++)
+		fprintf(fp, "%d %d,", err[i].x, err[i].y);
+	fprintf(fp, "\n");
+	for (int i = 0; i < (int)center.size(); i++)
+		fprintf(fp, "%d %d,", center[i].x, center[i].y);
+	fprintf(fp, "\n");
+
+
+	base = Point(lf->cpara.offset(1, 0)[1] - lf->cpara.offset(0, 0)[1],
+		lf->cpara.offset(1, 0)[0] - lf->cpara.offset(0, 0)[0]);
+	PRINT_COMPLEX(0, base.x, base.y);
+	fprintf(fp, "edge up down\n");
+	pos_z.create(img_num_h - 1, img_num_w);
+	pos.create(img_num_h - 1, img_num_w);
+	for (int y = 0; y < img_num_h + 1; y++)
+	if (y < img_num_h - 1) {
+		for (int x = 0; x < img_num_w; x++) {
+			Point src_corner(lf->cpara.offset(y, x)[1], lf->cpara.offset(y, x)[0]);
+			Point src_corner1(lf->cpara.offset(y + 1, x)[1], lf->cpara.offset(y + 1, x)[0]);
+			const EdgeDiff * ed = feature->get_edge(0, y, x);
+			Point idea_pos = ed->offset + ed->minloc * lf->cpara.rescale;
+			//idea_pos = src_corner1 - src_corner - idea_pos;
+			PRINT_COMPLEX(ed->avg - ed->submind <30, idea_pos.x, idea_pos.y);
+			if (ed->img_num>0) {
+				col_minxy[x].x = (y == 0) ? idea_pos.x : min(col_minxy[x].x, idea_pos.x);
+				col_minxy[x].y = (y == 0) ? idea_pos.y : min(col_minxy[x].y, idea_pos.y);
+				col_maxxy[x].x = (y == 0) ? idea_pos.x : max(col_maxxy[x].x, idea_pos.x);
+				col_maxxy[x].y = (y == 0) ? idea_pos.y : max(col_maxxy[x].y, idea_pos.y);
+				row_minxy[y].x = (x == 0) ? idea_pos.x : min(row_minxy[y].x, idea_pos.x);
+				row_minxy[y].y = (x == 0) ? idea_pos.y : min(row_minxy[y].y, idea_pos.y);
+				row_maxxy[y].x = (x == 0) ? idea_pos.x : max(row_maxxy[y].x, idea_pos.x);
+				row_maxxy[y].y = (x == 0) ? idea_pos.y : max(row_maxxy[y].y, idea_pos.y);
+			}
+			if (ed->img_num == 0 || x == 0 || y == 0 || y + 2 == img_num_h || x + 1 == img_num_w || ed->avg - ed->submind <30)
+				pos_z(y, x) = 1;
+			else
+				pos_z(y, x) = 0;
+			pos(y, x) = Vec2i(idea_pos.y, idea_pos.x);
+		}
+		PRINT_COMPLEX(0, row_minxy[y].x, row_minxy[y].y);
+		PRINT_COMPLEX(0, row_maxxy[y].x, row_maxxy[y].y);
+		fprintf(fp, "\n");
+	}
+	else {
+		Point minmax;
+		if (y == img_num_h - 1) {
+			minmax = Point(100000, 100000);
+			for (int x = 0; x < img_num_w; x++) {
+				PRINT_COMPLEX(0, col_minxy[x].x, col_minxy[x].y);
+				minmax.x = min(minmax.x, col_minxy[x].x);
+				minmax.y = min(minmax.y, col_minxy[x].y);
+			}
+		}
+		else {
+			minmax = Point(-100000, -100000);
+			for (int x = 0; x < img_num_w; x++) {
+				PRINT_COMPLEX(0, col_maxxy[x].x, col_maxxy[x].y);
+				minmax.x = max(minmax.x, col_maxxy[x].x);
+				minmax.y = max(minmax.y, col_maxxy[x].y);
+			}
+		}
+		PRINT_COMPLEX(0, minmax.x, minmax.y);
+		minmax -= base;
+		PRINT_COMPLEX(0, minmax.x, minmax.y);
+		fprintf(fp, "\n");
+	}
+	compute_center(pos_z, pos, center, 1, lf->cpara.rescale, err);
+	if (center.size() >= 3) {
+		center[0] = center[1];
+		center[center.size() - 1] = center[center.size() - 2];
+	}
+	fprintf(fp, "UD err distribute,");
+	for (int i = 0; i < 6; i++)
+		fprintf(fp, "%d %d,", err[i].x, err[i].y);
+	fprintf(fp, "\n");
+	for (int i = 0; i < (int)center.size(); i++)
+		fprintf(fp, "%d %d,", center[i].x, center[i].y);
+	fprintf(fp, "\n");
+
+
+	fprintf(fp, "corner\n");
+	const Mat_<Vec2i> & c_info = lf->corner_info;
+	int sumx = 0, sumy = 0, maxx = 0, maxy = 0;
+	for (int y = 0; y < img_num_h; y++) {
+		for (int x = 0; x < img_num_w; x++) {
+			unsigned info = c_info(y, x)[0];
+			short val_x = info & 0xffff;
+			short val_y = (info >> 16) & 0xffff;
+			sumx += abs(val_x);
+			sumy += abs(val_y);
+			maxx = max(maxx, abs(val_x));
+			maxy = max(maxy, abs(val_y));
+			PRINT_COMPLEX(0, val_x, val_y);
+		}
+		fprintf(fp, "\n");
+	}
+	fprintf(fp, "Sum:,");
+	PRINT_COMPLEX(0, sumx, sumy);
+	fprintf(fp, "Max:,");
+	PRINT_COMPLEX(0, maxx, maxy);
+	fclose(fp);
+}
+
+void thread_bundle_adjust(BundleAdjustInf * ba, const FeatExt * feature, Mat_<Vec2i> *offset, Mat_<Vec2i> * c_info, 
+	const vector<FixEdge> * fe, Size s, int option)
 {
 	ba->arrange(*feature, -1, -1, fe, s, option);
 	*offset = ba->get_best_offset();
@@ -933,7 +1266,11 @@ void StitchView::timerEvent(QTimerEvent *e)
 			string filename = compute_feature.result();
 			lf[feature_layer]->feature_file = filename;
 			lf[feature_layer]->feature.read_diff_file(filename);
-			QMessageBox::information(this, "Info", "Prepare finish");
+			double sum_err = compute_feature_cornerinfo(lf[feature_layer]);
+			write_edge_corner(lf[feature_layer], project_path);
+			char message[50];
+			sprintf(message, "Prepare finish, err=%6.3f", sum_err);
+			QMessageBox::information(this, "Info", message);
 			update_title();
 		} else
 			emit notify_progress(computing_feature.get_progress());
@@ -1318,7 +1655,7 @@ int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 		layer_feature->flagb[1].create(_cpara.offset.rows, _cpara.offset.cols - 1);
 		layer_feature->flagb[1] = 0;
 		lf.push_back(layer_feature);
-		self_check_offset(lf.size() - 1);
+		self_check_offset((int) lf.size() - 1);
 	}
 	else {
 		if (lf[_layer]->cpara.img_path == _cpara.img_path && lf[_layer]->cpara.img_num_w == _cpara.img_num_w &&
@@ -1819,6 +2156,28 @@ int StitchView::layer_down(int _layer)
     update_title();
 	update();
 	return 0;
+}
+
+double StitchView::refilter_edge(int _layer, int w0, int w1)
+{
+	if (_layer == -1)
+		_layer = layer;
+	if (_layer >= lf.size() || _layer < 0)
+		return -1;
+	if (compute_feature.isRunning()) {
+		QMessageBox::information(this, "Info", "Prepare is running, can't refilter_edge");
+		return -2;
+	}
+	if (lf[_layer]->feature_file.empty())
+		return -3;
+	lf[_layer]->feature.read_diff_file(lf[_layer]->feature_file);
+	double ret = computing_feature.filter_edge_diff(lf[_layer]->feature, w0, w1);
+	if (ret == 0) {
+		lf[_layer]->feature = computing_feature;
+		ret = compute_feature_cornerinfo(lf[_layer]);
+		write_edge_corner(lf[_layer], project_path);
+	}
+	return ret;
 }
 
 void StitchView::update_title()
