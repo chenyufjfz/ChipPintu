@@ -9,6 +9,7 @@
 #include <queue>
 #include "vwextract_public.h"
 #include <deque>
+#include <functional>
 
 #define SAVE_RST_TO_FILE	0
 #ifdef QT_DEBUG
@@ -4675,6 +4676,128 @@ public:
 	}
 } edge_router;
 
+#define EDGE_SEED	0x8
+#define EDGE_LEFT	0x10
+#define EDGE_RIGHT  0x20
+#define EDGE_SEARCH 0x40
+/*
+Input g, grad
+Input edge,
+Input grad_th
+Input org
+Input search_len_th
+Return path cost
+Find path from org to nearest end point with different type
+*/
+static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point org, int search_len_th, vector<Point> & path) {
+	priority_queue<uint64, vector<uint64>, greater<uint64>> q; //unsearch queue
+	int cost = 0; //for return value
+	vector<uint64> reach; //search queue
+	search_len_th = min(search_len_th, 511);
+	//s means score, l means length to seed, pd means parent dir, pg means parent grad dir, x,y means location
+#define MAKE_QUEUE_ITEM(s, l, pd, pg, x, y) ((uint64)(s) << 47 | (uint64)(l) << 38 | (uint64)(pd) << 35 | (uint64)(pg) << 32 | (y) << 16 | (x))
+#define ITEM_X(item) ((int)(item & 0xffff))
+#define ITEM_Y(item) ((int)((item) >> 16 & 0xffff))
+#define ITEM_PG(item) ((int)((item) >> 32 & 0x7))
+#define ITEM_PD(item) ((int)((item) >> 35 & 0x7))
+#define ITEM_LEN(item) ((int)((item) >> 38 & 0xff))
+#define ITEM_SCORE(item) ((int)((item) >> 47 & 0x1ffff))
+
+	path.clear();
+	//find a seed without left or right link
+	int d = g.at<ushort>(org) & 7;
+	int cost_th = grad_th[d] * 3 / (16 * 4);
+	int target;
+	if (!(edge.at<uchar>(org) & EDGE_LEFT)) {// missing left seed
+		q.push(MAKE_QUEUE_ITEM(0, 0, dir_2[d], d, org.x, org.y));
+		target = EDGE_LEFT; //target is different type
+	}
+	else {// missing right seed
+		q.push(MAKE_QUEUE_ITEM(0, 0, dir_2[dir_1[d]], d, org.x, org.y));
+		target = EDGE_RIGHT;
+	}
+	bool finish = false;
+	while (!q.empty() && !finish) {
+		uint64 item = q.top();
+		reach.push_back(item);
+		q.pop();
+		int len = ITEM_LEN(item);
+		int x0 = ITEM_X(item);
+		int y0 = ITEM_Y(item);
+		int pg = ITEM_PG(item);
+		int pd = ITEM_PD(item);
+		int s = ITEM_SCORE(item);
+		int cg = g.at<ushort>(y0, x0) & 7;
+
+		for (int dir = 0; dir < 8; dir++) {
+			int y1 = y0 + dxy[dir][0];
+			int x1 = x0 + dxy[dir][1];
+			ushort score = g.at<ushort>(y1, x1);
+			int ng = score & 7;
+			if (edge_router.path_ok(cg, pd, pg, dir, ng)) {
+				uchar * pe = edge.ptr<uchar>(y1, x1);
+				if (pe[0] & EDGE_SEARCH)
+					continue; //already searched
+				if (y1 <= 1 || x1 <= 1 || y1 >= g.rows - 2 || x1 >= g.cols - 2)
+					continue; //out of range
+				if ((pe[0] & (EDGE_LEFT | EDGE_RIGHT)) == target) { //find different-type end point, fill path
+					finish = true;
+					path.push_back(Point(x1, y1));
+					int ns = 0;
+					while (org.x != x0 || org.y != y0) {
+						int fa = edge.at<uchar>(y0, x0) & 7; //here edge(y0, x0) point to father
+						score = g.at<ushort>(y0, x0);
+						ns = (score > grad_th[score & 7]) ? 0 : ns + (grad_th[score & 7] - score) / (16 * 4);
+						cost = max(cost, ns);
+						path.push_back(Point(x0, y0));
+						y0 += dxy[fa][0];
+						x0 += dxy[fa][1];
+					}
+					CV_Assert(cost <= cost_th);
+					reverse(path.begin(), path.end());
+					break;
+				}
+				if (pe[0] & (EDGE_LEFT | EDGE_RIGHT)) //meet chain or same-type end point
+					continue;
+
+				if (len >= search_len_th) //too long
+					continue;
+
+				if (score <= grad_th[ng] / 4) //grad too low
+					continue;
+				int ns = (score > grad_th[ng]) ? 0 : s + (grad_th[ng] - score) / (16 * 4);
+				if (ns >= cost_th) //cost too big
+					continue;
+				q.push(MAKE_QUEUE_ITEM(ns, len + 1, dir_1[dir], cg, x1, y1));
+				pe[0] = EDGE_SEARCH | dir_1[dir]; //here edge(y1, x1) point to father
+			}
+		}
+	}
+	while (!q.empty()) {
+		uint64 item = q.top();
+		reach.push_back(item);
+		q.pop();
+	}
+	for (int i = 0; i < (int)reach.size(); i++) {
+		int x0 = ITEM_X(reach[i]);
+		int y0 = ITEM_Y(reach[i]);
+		uchar * pe = edge.ptr<uchar>(y0, x0);
+		if (pe[0] & EDGE_SEARCH) {
+			CV_Assert((pe[0] & (EDGE_LEFT | EDGE_RIGHT)) == 0);
+			pe[0] = 0;
+		}
+	}
+	reach.clear();
+
+	return cost;
+#undef MAKE_QUEUE_ITEM
+#undef ITEM_X
+#undef ITEM_Y
+#undef ITEM_PG
+#undef ITEM_PD
+#undef ITEM_LEN
+#undef ITEM_SCORE
+}
 /*
 Input g, compute_grad output
 Input gl, gr, gu, gd, grad threshold
@@ -4682,10 +4805,6 @@ Input valid_len_th, valid chain length threshold
 Input search_len_th, seed search length threshold
 Output edge
 */
-#define EDGE_SEED	0x8
-#define EDGE_LEFT	0x10
-#define EDGE_RIGHT  0x20
-#define EDGE_SEARCH 0x40
 static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid_len_th, int search_len_th, Mat & edge)
 {
 	CV_Assert(g.type() == CV_16U);
@@ -4769,7 +4888,7 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 				for (int xx = x1; xx <= x2; xx++)
 				for (int yy = y1; yy <= y2; yy++) {
 					uchar e = edge.at<uchar>(yy, xx);
-					if ((e & 7) == dir && e & EDGE_SEED) {
+					if ((e & 7) == dir && e & EDGE_SEED) { //same dir
 						//find next seed, link
 						p_edge[x] |= m0;
 						edge.at<uchar>(yy, xx) = e | m1;
@@ -4803,7 +4922,7 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 				for (int yy = y1; yy <= y2; yy++)
 				for (int xx = x1; xx <= x2; xx++) {
 					uchar e = edge.at<uchar>(yy, xx);
-					if ((e & 7) == dir && e & EDGE_SEED) {
+					if ((e & 7) == dir && e & EDGE_SEED) { //same dir
 						//find next seed, link
 						p_edge[x] |= m0;
 						edge.at<uchar>(yy, xx) = e | m1;
@@ -4825,7 +4944,7 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 		}
 	}
 
-	//3 find unlink seed
+	//3 find unlink seed and remove short len chain
 	vector<Point> unlink_seed[2];
 	for (int y = 2; y < g.rows - 2; y++) {
 		uchar * p_edge = edge.ptr<uchar>(y);
@@ -4835,11 +4954,15 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 			int d = g.at<ushort>(y, x) & 7;
 			int sd[3]; //search dir
 			if (!(p_edge[x] & EDGE_LEFT)) {// missing left seed
+				if (d == DIR_DOWN || d == DIR_LEFT)
+					continue;
 				sd[0] = dir_3[d];
 				sd[1] = dir_2[d];
 				sd[2] = dir_3[dir_2[d]];
 			}
 			else { // missing right seed
+				if (d == DIR_UP || d == DIR_RIGHT)
+					continue;
 				sd[0] = dir_1[dir_3[d]];
 				sd[1] = dir_1[dir_2[d]];
 				sd[2] = dir_3[dir_1[dir_2[d]]];
@@ -4848,7 +4971,7 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 			int find = 1;
 			vector<Point> link_chain;
 			link_chain.push_back(Point(x, y));
-			while (link_chain.size() < valid_len_th && find) {
+			while (find) {
 				if (x0 <= 2 || y0 <= 2 || x0 >= g.cols - 3 || y0 >= g.rows - 3)
 					break;
 				find = 0;
@@ -4877,99 +5000,7 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 			}
 		}
 	}
-	return;
-	priority_queue<uint64> q;
-	vector<uint64> reach;
-//s means score, l means length to seed, pd means parent dir, pg means parent grad dir, x,y means location
-#define MAKE_QUEUE_ITEM(s, l, pd, pg, x, y) ((uint64)(s) << 48 | (uint64)(l) << 38 | (uint64)(pd) << 35 | (uint64)(pg) << 32 | (y) << 16 | (x))
-#define ITEM_X(item) ((int)(item & 0xffff))
-#define ITEM_Y(item) ((int)((item) >> 16 & 0xffff))
-#define ITEM_PG(item) ((int)((item) >> 32 & 0x7))
-#define ITEM_PD(item) ((int)((item) >> 35 & 0x7))
-#define ITEM_LEN(item) ((int)((item) >> 38 & 0xff))
-
-	int grad_th[] = { gu / 4, gr / 4, gd / 4, gl / 4, (gr + gu) / 8, (gr + gd) / 8, (gl + gd) / 8, (gl + gu) / 8};
-	for (int y = 2; y < g.rows - 2; y++) {
-		uchar * p_edge = edge.ptr<uchar>(y);
-		for (int x = 2; x < g.cols - 2; x++)
-		if (p_edge[x] & EDGE_SEED && (p_edge[x] & (EDGE_LEFT | EDGE_RIGHT)) != (EDGE_LEFT | EDGE_RIGHT))  {
-			//find a seed without left or right link
-			int d = g.at<ushort>(y, x) & 7;
-			if (!(p_edge[x] & EDGE_LEFT)) { // missing left seed
-				q.push(MAKE_QUEUE_ITEM(1, 0, dir_2[d], d, x, y));
-				p_edge[x] |= EDGE_LEFT;				
-			}
-			else {// missing right seed
-				q.push(MAKE_QUEUE_ITEM(1, 0, dir_2[dir_1[d]], d, x, y));
-				p_edge[x] |= EDGE_RIGHT;
-			}
-			bool finish = false;
-			while (!q.empty() && !finish) {
-				uint64 item = q.top();
-				reach.push_back(item);
-				q.pop();
-				int len = ITEM_LEN(item);
-				int x0 = ITEM_X(item);
-				int y0 = ITEM_Y(item);
-				int pg = ITEM_PG(item);
-				int pd = ITEM_PD(item);
-				int cg = g.at<ushort>(y0, x0) & 7;
-				for (int dir = 0; dir < 8; dir++) {
-					int y1 = y0 + dxy[dir][0];
-					int x1 = x0 + dxy[dir][1];
-					ushort score = g.at<ushort>(y1, x1);
-					int ng = score & 7;
-					if (edge_router.path_ok(cg, pd, pg, dir, ng)) {
-						uchar * pe = edge.ptr<uchar>(y1, x1);
-						if (pe[0] & EDGE_SEARCH)
-							continue; //already searched
-						if (y1 <= 1 || x1 <= 1 || y1 >= g.rows - 2 || x1 >= g.cols - 2)
-							continue; //out of range
-						if (pe[0] & (EDGE_SEED | EDGE_LEFT | EDGE_RIGHT)) { //find, fill path
-							finish = true;
-							while (x != x0 || y != y0) {
-								int fa = edge.at<uchar>(y0, x0) & 7; //here edge(y0, x0) point to father
-								edge.at<uchar>(y0, x0) = EDGE_LEFT | EDGE_RIGHT | cg;
-								y0 += dxy[fa][0];
-								x0 += dxy[fa][1];
-								cg = g.at<ushort>(y0, x0) & 7;
-							}
-							break;
-						}
-                        if (len >= search_len_th) //too long
-							continue;
-
-						if (grad_th[dir] >= score)
-							continue;
-						q.push(MAKE_QUEUE_ITEM(score, len + 1, dir_1[dir], cg, x1, y1));
-						pe[0] = EDGE_SEARCH | dir_1[dir]; //here edge(y1, x1) point to father
-					}
-				}
-			}
-			while (!q.empty()) {
-				uint64 item = q.top();
-				reach.push_back(item);
-				q.pop();
-			}
-			for (int i = 0; i < (int)reach.size(); i++) {
-				int x0 = ITEM_X(reach[i]);
-				int y0 = ITEM_Y(reach[i]);
-				uchar * pe = edge.ptr<uchar>(y0, x0);
-				if (pe[0] & EDGE_SEARCH) {
-					CV_Assert((pe[0] & (EDGE_SEED | EDGE_LEFT | EDGE_RIGHT)) == 0);
-					pe[0] = 0;
-				}
-			}
-			reach.clear();
-			x--;
-		}
-	}
-#undef MAKE_QUEUE_ITEM
-#undef ITEM_X
-#undef ITEM_Y
-#undef ITEM_PG
-#undef ITEM_PD
-#undef ITEM_LEN
+	int grad_th[] = { gu, gr, gd, gl, (gr + gu) / 2, (gr + gd) / 2, (gl + gd) / 2, (gl + gu) / 2 };
 }
 
 /*		31..24   23..16    15..8   7..0

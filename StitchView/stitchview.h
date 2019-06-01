@@ -264,7 +264,7 @@ public:
 	int delete_layer(int _layer);
 	int layer_up(int _layer);
 	int layer_down(int _layer);
-	double refilter_edge(int _layer, int w0, int w1);
+    double refilter_edge(int _layer, int w0, int w1, int option);
 	void update_title();
 	QPoint point2choose(QPoint mouse_point);
 	void write_file(string file_name);

@@ -111,7 +111,7 @@ void compute_center(const Mat_<uchar> & pos_z, const Mat_<Vec2i> & pos, vector<P
 			if (num!=0) //center is average of valid row edge offset
 				center[y] = c * (1.0 / num);
 			else
-				center[y] = Point2d(pos(y, 0)[1], pos(y, 0)[0]);
+				center[y] = (y >= 1) ? center[y-1] : Point2d(pos(y, 0)[1], pos(y, 0)[0]); //use pre-row center
 			for (int x = 0; x < pos.cols; x++) 
 			if (!pos_z(y, x)) { //accumulate err stat
 				int errx = min(abs((pos(y, x)[1] - center[y].x) / scale), (int)err_statx.size() - 1);
@@ -135,7 +135,7 @@ void compute_center(const Mat_<uchar> & pos_z, const Mat_<Vec2i> & pos, vector<P
 			if (num != 0) //center is average of valid row edge offset
 				center[x] = c * (1.0 / num);
 			else
-				center[x] = Point2d(pos(0, x)[1], pos(0, x)[0]);
+				center[x] = (x >= 1) ? center[x-1] : Point2d(pos(0, x)[1], pos(0, x)[0]);
 			for (int y = 0; y < pos.rows; y++)
 			if (!pos_z(y, x)) {
 				int errx = min(abs((pos(y, x)[1] - center[x].x) / scale), (int)err_statx.size() - 1);
@@ -174,7 +174,7 @@ void compute_center(const Mat_<uchar> & pos_z, const Mat_<Vec2i> & pos, vector<P
 	}
 }
 
-void write_edge_corner(const LayerFeature * lf, string project_path)
+void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_valid=true, bool lc_valid=true, bool fr_valid=true, bool lr_valid=true)
 {
 	static int ec_save = 0;
 	char file_no[10];
@@ -225,7 +225,10 @@ void write_edge_corner(const LayerFeature * lf, string project_path)
 				row_maxxy[y].x = (x == 0) ? idea_pos.x : max(row_maxxy[y].x, idea_pos.x);
 				row_maxxy[y].y = (x == 0) ? idea_pos.y : max(row_maxxy[y].y, idea_pos.y);
 			}
-			if (ed->img_num == 0 || x == 0 || y == 0 || y + 1 == img_num_h || x + 2 == img_num_w || ed->avg - ed->submind <30)
+			if (ed->img_num == 0 || ed->avg - ed->submind <30)
+				pos_z(y, x) = 1;
+			else
+			if (x == 0 && !fc_valid || y == 0 && !fr_valid || y + 1 == img_num_h && !lr_valid || x + 2 == img_num_w && !lc_valid )
 				pos_z(y, x) = 1;
 			else
 				pos_z(y, x) = 0;
@@ -260,8 +263,10 @@ void write_edge_corner(const LayerFeature * lf, string project_path)
 	}
 	compute_center(pos_z, pos, center, 0, lf->cpara.rescale, err);
 	if (center.size() >= 3) {
-		center[0] = center[1];
-		center[center.size() - 1] = center[center.size() - 2];
+		if (!fc_valid)
+			center[0] = center[1];
+		if (!lc_valid)
+			center[center.size() - 1] = center[center.size() - 2];
 	}
 	fprintf(fp, "LR err distribute,");
 	for (int i = 0; i < 6; i++)
@@ -297,7 +302,10 @@ void write_edge_corner(const LayerFeature * lf, string project_path)
 				row_maxxy[y].x = (x == 0) ? idea_pos.x : max(row_maxxy[y].x, idea_pos.x);
 				row_maxxy[y].y = (x == 0) ? idea_pos.y : max(row_maxxy[y].y, idea_pos.y);
 			}
-			if (ed->img_num == 0 || x == 0 || y == 0 || y + 2 == img_num_h || x + 1 == img_num_w || ed->avg - ed->submind <30)
+			if (ed->img_num == 0 || ed->avg - ed->submind <30)
+				pos_z(y, x) = 1;
+			else
+			if (x == 0 && !fc_valid || y == 0 && !fr_valid || y + 2 == img_num_h && !lr_valid || x + 1 == img_num_w && !lc_valid)
 				pos_z(y, x) = 1;
 			else
 				pos_z(y, x) = 0;
@@ -332,8 +340,10 @@ void write_edge_corner(const LayerFeature * lf, string project_path)
 	}
 	compute_center(pos_z, pos, center, 1, lf->cpara.rescale, err);
 	if (center.size() >= 3) {
-		center[0] = center[1];
-		center[center.size() - 1] = center[center.size() - 2];
+		if (!fr_valid)
+			center[0] = center[1];
+		if (!lr_valid)
+			center[center.size() - 1] = center[center.size() - 2];
 	}
 	fprintf(fp, "UD err distribute,");
 	for (int i = 0; i < 6; i++)
@@ -2158,7 +2168,7 @@ int StitchView::layer_down(int _layer)
 	return 0;
 }
 
-double StitchView::refilter_edge(int _layer, int w0, int w1)
+double StitchView::refilter_edge(int _layer, int w0, int w1, int option)
 {
 	if (_layer == -1)
 		_layer = layer;
@@ -2175,7 +2185,7 @@ double StitchView::refilter_edge(int _layer, int w0, int w1)
 	if (ret == 0) {
 		lf[_layer]->feature = computing_feature;
 		ret = compute_feature_cornerinfo(lf[_layer]);
-		write_edge_corner(lf[_layer], project_path);
+		write_edge_corner(lf[_layer], project_path, option & 1, option & 2, option & 4, option & 8);
 	}
 	return ret;
 }

@@ -370,10 +370,10 @@ void MainWindow::on_actionImport_triggered()
 
 void MainWindow::on_actionAlign_IdeaPos_triggered()
 {
-    AlignIdeaPosDialog dlg(this, 2, 2);
+    AlignIdeaPosDialog dlg(this, 2, 2, 0);
     if (dlg.exec() == QDialog::Accepted) {
-        qInfo("Align Ideapos w0=%d, w1=%d", dlg.w0, dlg.w1);
-		double ret = stitch_view->refilter_edge(-1, dlg.w0, dlg.w1);
+        qInfo("Align Ideapos w0=%d, w1=%d, option=0x%x", dlg.w0, dlg.w1, dlg.option);
+        double ret = stitch_view->refilter_edge(-1, dlg.w0, dlg.w1, dlg.option);
 		if (ret >= 0) {
 			char message[50];
 			sprintf(message, "Align success, err=%6.3f", ret);

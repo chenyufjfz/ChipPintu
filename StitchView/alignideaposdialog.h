@@ -12,8 +12,8 @@ class AlignIdeaPosDialog : public QDialog
     Q_OBJECT
 
 public:
-    int w0, w1;
-    explicit AlignIdeaPosDialog(QWidget *parent = 0, int _w0=2, int _w1=2);
+    int w0, w1, option;
+    explicit AlignIdeaPosDialog(QWidget *parent = 0, int _w0=2, int _w1=2, int _option =0);
     ~AlignIdeaPosDialog();
 
 private slots:

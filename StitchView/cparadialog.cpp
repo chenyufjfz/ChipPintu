@@ -116,6 +116,11 @@ void CparaDialog::on_config_file_textChanged(const QString &arg1)
 	string item;
 	ifstream fr(config_file);
 	vector<Point> cx, cy;
+	if (!fr) {
+		config_file.clear();
+		return;
+	}
+		
 	while (getline(fr, item)) {
 		int state = 0;
 		string item_head = item.substr(0, 50);
@@ -135,14 +140,14 @@ void CparaDialog::on_config_file_textChanged(const QString &arg1)
 				config_file.clear();
 				break;
 			}
-			cpara.max_lr_xshift = v5;
+			cpara.max_lr_xshift = v5; //97% cover
 			cpara.max_lr_yshift = v6;
 			cx.push_back(Point(0, 0));
 			for (int i = 0; i < cpara.img_num_w - 1; i++) {
 				getline(fr, item, ',');
 				int x, y;
 				if (sscanf(item.c_str(), "%d %d", &x, &y) == 2)
-					cx.push_back(cx.back() + Point(x, y));
+					cx.push_back(cx.back() + Point(x, y)); //cx[n] = cx[n-1]+offset
 				else {
 					config_file.clear();
 					break;
@@ -164,7 +169,7 @@ void CparaDialog::on_config_file_textChanged(const QString &arg1)
 				getline(fr, item, ',');
 				int x, y;
 				if (sscanf(item.c_str(), "%d %d", &x, &y) == 2)
-					cy.push_back(cy.back() + Point(x, y));
+					cy.push_back(cy.back() + Point(x, y)); //cy[n] = cy[n-1]+offset
 				else {
 					config_file.clear();
 					break;
@@ -185,7 +190,7 @@ void CparaDialog::on_config_file_textChanged(const QString &arg1)
 		cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
 		for (int y = 0; y < cpara.img_num_h; y++) {
 			for (int x = 0; x < cpara.img_num_w; x++) {
-				Point xy = cx[x] + cy[y];
+				Point xy = cx[x] + cy[y]; //this can make up-down offset as cy[y]-cy[y-1], left-right offset as cx[x]-cx[x-1]
 				cpara.offset(y, x)[1] = (xy.x + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
 				cpara.offset(y, x)[0] = (xy.y + cpara.rescale / 2) / cpara.rescale * cpara.rescale;
 			}
