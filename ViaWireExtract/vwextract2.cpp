@@ -170,8 +170,8 @@ union VWParameter {
 };
 
 class VWSet {
-	vector <VWParameter> vws;
 public:
+	vector <VWParameter> vws;
 	VWParameter * get_vw_para(int pattern, int type, int sub_type) {
 		for (int i = 0; i < (int)vws.size(); i++)
 		if (vws[i].v.type == type && vws[i].v.pattern == pattern && vws[i].v.subtype == sub_type)
@@ -4566,53 +4566,54 @@ static void compute_grad(const Mat & m, Mat & g)
 	}
 }
 
-static uchar path0[][7] = {
-	//edge_grad,prev loc,prev grad, next loc,   next grad
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWN, DIR_DOWN },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWN, DIR_DOWN },
+static uchar path0[][10] = {
+	//edge_grad,prev loc,prev grad, next loc,   next grad0  next_grad1   next_grad2  c0 c1 c2
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 6, 8, 6 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT, 8, 7, 7 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT,  6, 6, 8},
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 6, 8, 6 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, 8, 8, 6 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT, 6, 6, 8 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 6, 8, 6 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN, 8, 6, 8 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT, 6, 6, 8},
 
-	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
-	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWN },
-	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
-	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWN },
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT, 8, 6, 6 },
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWN, 4, 7, 4 },
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT, 8, 6, 6 },
+	{ DIR_DOWN, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWN, 4, 7, 4 },
 
-	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
-	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
-	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN },
-	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT },
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 4, 7, 4 },
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT, 8, 6, 6 },
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 4, 7, 4 },
+	{ DIR_DOWN, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT, 8, 6, 6 },
 
-	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_DOWN },
-	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 7, 6, 3 },
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 6, 8, 6 },
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 7, 6, 3 },
+	{ DIR_DOWNLEFT, DIR_LEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 6, 8, 6 },
 
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 7, 6, 3 },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 6, 8, 6 },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_LEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 3, 5, 7 },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 7, 6, 3 },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 6, 8, 6 },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWNLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 3, 5, 7 },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 7, 6, 3},
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 6, 8, 6 },
+	{ DIR_DOWNLEFT, DIR_UPLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 3, 5, 7 },
 
-	{ DIR_DOWNLEFT, DIR_UP, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UP, DIR_LEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UP, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
-	{ DIR_DOWNLEFT, DIR_UP, DIR_DOWNLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT },
+	{ DIR_DOWNLEFT, DIR_UP, DIR_LEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 6, 7, 3 },
+	{ DIR_DOWNLEFT, DIR_UP, DIR_LEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 4, 6, 7 },
+	{ DIR_DOWNLEFT, DIR_UP, DIR_DOWNLEFT, DIR_DOWNRIGHT, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 6, 7, 3 },
+	{ DIR_DOWNLEFT, DIR_UP, DIR_DOWNLEFT, DIR_DOWN, DIR_DOWN, DIR_DOWNLEFT, DIR_LEFT, 4, 6, 7 },
 };
+
 class EdgeRouter {
 protected:
-	uchar path_mask[4096];
-	void put_path(int edge_grad, int prev_loc, int prev_grad, int next_loc, int next_grad) {
-		path_mask[get_path_idx(edge_grad, prev_loc, prev_grad, next_loc)] |= 1 << next_grad;
+	unsigned path_mask[4096];
+	void put_path(int edge_grad, int prev_loc, int prev_grad, int next_loc, int next_grad, int coef) {
+		path_mask[get_path_idx(edge_grad, prev_loc, prev_grad, next_loc)] |= coef << (4 * next_grad);
 	}
 	int t(int dir) {
 		return dir_2[dir];
@@ -4635,43 +4636,47 @@ protected:
 			return DIR_UPLEFT;
 		case DIR_DOWNRIGHT:
 			return DIR_DOWNLEFT;
+		default:
+			CV_Assert(0);
 		}
+		return 0;
 	}
 public:
 	int get_path_idx(int edge_grad, int prev_loc, int prev_grad, int next_loc) {
 		return edge_grad << 9 | prev_loc << 6 | prev_grad << 3 | next_loc;
 	}
-	int path_ok(int edge_grad, int prev_loc, int prev_grad, int next_loc, int next_grad) {
-		return (path_mask[get_path_idx(edge_grad, prev_loc, prev_grad, next_loc)] >> next_grad) & 1;
+	float path_ok(int edge_grad, int prev_loc, int prev_grad, int next_loc, int next_grad) {
+		int a = (path_mask[get_path_idx(edge_grad, prev_loc, prev_grad, next_loc)] >> ( 4 * next_grad)) & 15;
+		return a / 8.0;
 	}
 	EdgeRouter() {
 		memset(path_mask, 0, sizeof(path_mask));
 		for (int i = 0; i < sizeof(path0) / sizeof(path0[0]); i++) {
-			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][4]);
-			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][5]);
-			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][6]);
-			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][4]));
-			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][5]));
-			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][6]));
-			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][4])));
-			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][5])));
-			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][6])));
-			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][4]))));
-			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][5]))));
-			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][6]))));
+			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][4], path0[i][7]);
+			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][5], path0[i][8]);
+			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][6], path0[i][9]);
+			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][4]), path0[i][7]);
+			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][5]), path0[i][8]);
+			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][6]), path0[i][9]);
+			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][4])), path0[i][7]);
+			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][5])), path0[i][8]);
+			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][6])), path0[i][9]);
+			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][4]))), path0[i][7]);
+			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][5]))), path0[i][8]);
+			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][6]))), path0[i][9]);
 
-			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][4]));
-			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][5]));
-			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][6]));
-			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][4])));
-			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][5])));
-			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][6])));
-			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][4]))));
-			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][5]))));
-			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][6]))));
-			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][4])))));
-			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][5])))));
-			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][6])))));
+			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][4]), path0[i][7]);
+			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][5]), path0[i][8]);
+			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][6]), path0[i][9]);
+			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][4])), path0[i][7]);
+			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][5])), path0[i][8]);
+			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][6])), path0[i][9]);
+			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][4]))), path0[i][7]);
+			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][5]))), path0[i][8]);
+			put_path(t(t(m(path0[i][0]))), t(t(m(path0[i][1]))), t(t(m(path0[i][2]))), t(t(m(path0[i][3]))), t(t(m(path0[i][6]))), path0[i][9]);
+			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][4])))), path0[i][7]);
+			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][5])))), path0[i][8]);
+			put_path(t(t(t(m(path0[i][0])))), t(t(t(m(path0[i][1])))), t(t(t(m(path0[i][2])))), t(t(t(m(path0[i][3])))), t(t(t(m(path0[i][6])))), path0[i][9]);
 		}
 	}
 } edge_router;
@@ -4690,36 +4695,36 @@ Return path cost
 Find path from org to nearest end point with different type
 */
 static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point org, int search_len_th, vector<Point> & path) {
-	priority_queue<uint64, vector<uint64>, greater<uint64>> q; //unsearch queue
+	priority_queue<pair<uint64, int>, vector<pair<uint64, int> >, greater<pair<uint64, int> > > q; //unsearch queue
 	int cost = 0; //for return value
 	vector<uint64> reach; //search queue
 	search_len_th = min(search_len_th, 511);
 	//s means score, l means length to seed, pd means parent dir, pg means parent grad dir, x,y means location
-#define MAKE_QUEUE_ITEM(s, l, pd, pg, x, y) ((uint64)(s) << 47 | (uint64)(l) << 38 | (uint64)(pd) << 35 | (uint64)(pg) << 32 | (y) << 16 | (x))
-#define ITEM_X(item) ((int)(item & 0xffff))
-#define ITEM_Y(item) ((int)((item) >> 16 & 0xffff))
-#define ITEM_PG(item) ((int)((item) >> 32 & 0x7))
-#define ITEM_PD(item) ((int)((item) >> 35 & 0x7))
-#define ITEM_LEN(item) ((int)((item) >> 38 & 0xff))
-#define ITEM_SCORE(item) ((int)((item) >> 47 & 0x1ffff))
-
+#define MAKE_QUEUE_ITEM(s, l, pd, pg, x, y, c) make_pair((uint64)(s) << 47 | (uint64)(l) << 38 | (uint64)(pd) << 35 | (uint64)(pg) << 32 | (y) << 16 | (x), c)
+#define ITEM_X(item) ((int)(item.first & 0xffff))
+#define ITEM_Y(item) ((int)((item.first) >> 16 & 0xffff))
+#define ITEM_PG(item) ((int)((item.first) >> 32 & 0x7))
+#define ITEM_PD(item) ((int)((item.first) >> 35 & 0x7))
+#define ITEM_LEN(item) ((int)((item.first) >> 38 & 0xff))
+#define ITEM_SCORE(item) ((int)((item.first) >> 47 & 0x1ffff))
+#define ITEM_COST(item) (item.second)
 	path.clear();
 	//find a seed without left or right link
 	int d = g.at<ushort>(org) & 7;
-	int cost_th = grad_th[d] * 3 / (16 * 4);
+	int cost_th = grad_th[d] * 10 / (16 * 4);
 	int target;
 	if (!(edge.at<uchar>(org) & EDGE_LEFT)) {// missing left seed
-		q.push(MAKE_QUEUE_ITEM(0, 0, dir_2[d], d, org.x, org.y));
+		q.push(MAKE_QUEUE_ITEM(0, 0, dir_2[d], d, org.x, org.y, 0));
 		target = EDGE_LEFT; //target is different type
 	}
 	else {// missing right seed
-		q.push(MAKE_QUEUE_ITEM(0, 0, dir_2[dir_1[d]], d, org.x, org.y));
+		q.push(MAKE_QUEUE_ITEM(0, 0, dir_2[dir_1[d]], d, org.x, org.y, 0));
 		target = EDGE_RIGHT;
 	}
 	bool finish = false;
 	while (!q.empty() && !finish) {
-		uint64 item = q.top();
-		reach.push_back(item);
+		pair<uint64, int> item = q.top();
+		reach.push_back(item.first);
 		q.pop();
 		int len = ITEM_LEN(item);
 		int x0 = ITEM_X(item);
@@ -4727,28 +4732,38 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 		int pg = ITEM_PG(item);
 		int pd = ITEM_PD(item);
 		int s = ITEM_SCORE(item);
+		int c = ITEM_COST(item);
 		int cg = g.at<ushort>(y0, x0) & 7;
 
 		for (int dir = 0; dir < 8; dir++) {
 			int y1 = y0 + dxy[dir][0];
 			int x1 = x0 + dxy[dir][1];
-			ushort score = g.at<ushort>(y1, x1);
+			int score = g.at<ushort>(y1, x1);
 			int ng = score & 7;
-			if (edge_router.path_ok(cg, pd, pg, dir, ng)) {
+			score = score * edge_router.path_ok(cg, pd, pg, dir, ng);
+			if (score > 1) {
 				uchar * pe = edge.ptr<uchar>(y1, x1);
 				if (pe[0] & EDGE_SEARCH)
 					continue; //already searched
 				if (y1 <= 1 || x1 <= 1 || y1 >= g.rows - 2 || x1 >= g.cols - 2)
 					continue; //out of range
+
+				if (len > search_len_th) //too long
+					continue;
+
+				if (score <= grad_th[ng] / 4) //grad too low
+					continue;
+				int ns = (score > grad_th[ng] * 1.5) ? 0 : s + (grad_th[ng] - score) / (16 * 4);
+				ns = max(ns, 0);
+				if (ns >= cost_th) //cost too big
+					continue;
+
 				if ((pe[0] & (EDGE_LEFT | EDGE_RIGHT)) == target) { //find different-type end point, fill path
 					finish = true;
 					path.push_back(Point(x1, y1));
-					int ns = 0;
+					cost = max(c, ns);
 					while (org.x != x0 || org.y != y0) {
 						int fa = edge.at<uchar>(y0, x0) & 7; //here edge(y0, x0) point to father
-						score = g.at<ushort>(y0, x0);
-						ns = (score > grad_th[score & 7]) ? 0 : ns + (grad_th[score & 7] - score) / (16 * 4);
-						cost = max(cost, ns);
 						path.push_back(Point(x0, y0));
 						y0 += dxy[fa][0];
 						x0 += dxy[fa][1];
@@ -4759,28 +4774,20 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 				}
 				if (pe[0] & (EDGE_LEFT | EDGE_RIGHT)) //meet chain or same-type end point
 					continue;
-
-				if (len >= search_len_th) //too long
-					continue;
-
-				if (score <= grad_th[ng] / 4) //grad too low
-					continue;
-				int ns = (score > grad_th[ng]) ? 0 : s + (grad_th[ng] - score) / (16 * 4);
-				if (ns >= cost_th) //cost too big
-					continue;
-				q.push(MAKE_QUEUE_ITEM(ns, len + 1, dir_1[dir], cg, x1, y1));
+				
+				q.push(MAKE_QUEUE_ITEM(ns, len + 1, dir_1[dir], cg, x1, y1, max(c, ns)));
 				pe[0] = EDGE_SEARCH | dir_1[dir]; //here edge(y1, x1) point to father
 			}
 		}
 	}
 	while (!q.empty()) {
-		uint64 item = q.top();
-		reach.push_back(item);
+		pair<uint64, int>  item = q.top();
+		reach.push_back(item.first);
 		q.pop();
 	}
 	for (int i = 0; i < (int)reach.size(); i++) {
-		int x0 = ITEM_X(reach[i]);
-		int y0 = ITEM_Y(reach[i]);
+		int x0 = reach[i] & 0xffff;
+		int y0 = reach[i] >> 16 & 0xffff;
 		uchar * pe = edge.ptr<uchar>(y0, x0);
 		if (pe[0] & EDGE_SEARCH) {
 			CV_Assert((pe[0] & (EDGE_LEFT | EDGE_RIGHT)) == 0);
@@ -4798,6 +4805,123 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 #undef ITEM_LEN
 #undef ITEM_SCORE
 }
+
+class Chain;
+
+struct ChainPath {
+	vector<Point> * path; //path to other chain
+	int cost;
+	Chain * to; //other chain pointer
+	ChainPath(vector<Point> * _path, int _cost, Chain * _to) {
+		path = _path;
+		cost = _cost;
+		to = _to;
+	}
+	ChainPath() {
+	}
+};
+class Chain {
+public:
+	vector<Point> pts; //chain's points
+	vector<Chain*> pair;
+	vector<ChainPath> left, right; //
+    vector<Point> left_path, right_path; //left path and right path points
+	int left_cost, right_cost;
+	ChainPath mleft; //left match
+	ChainPath mright; //right match
+	struct {
+		Chain * lp;
+		Chain * rp;
+		int lcost; //from root to left and right cost
+		void reset() {
+			lp = rp = NULL;
+			lcost = 10000000;
+		}
+	} tm; //try match
+	int flag, rflag;
+
+	Chain(vector<Point> & _pts) {
+		pts.swap(_pts);
+	}
+	Chain() {
+
+	}
+	bool left_reach_to(Chain * c) {
+		if (this == c)
+			return true;
+		for (int i = 0; i < left.size(); i++)
+			if (left[i].to == c)
+				return true;
+		return false;
+	}
+	bool right_reach_to(Chain * c) {
+		if (this == c)
+			return true;
+		for (int i = 0; i < right.size(); i++)
+		if (right[i].to == c)
+			return true;
+		return false;
+	}
+};
+
+static void find_pair(vector<Chain> & ch0, vector<Chain> & ch1, bool row_mode, int row_col, int min_w, int max_w, int overlap)
+{
+	vector<vector<pair<int, pair<int, int> > > > ch_map[2];
+
+#define OVERLAP(a, b) (min(a.second, b.second) - max(a.first, b.first))
+	ch_map[0].resize(row_col);
+	ch_map[1].resize(row_col);
+	if (row_mode) {
+		for (int i = 0; i < ch0.size(); i++) {
+			int y = (ch0[i].pts[0].y + ch0[i].pts.back().y) / 2;
+			int x0 = ch0[i].pts[0].x;
+			int x1 = ch0[i].pts.back().x;
+			CV_Assert(y < row_col && x0 < x1);
+			ch_map[0][y].push_back(make_pair(i, make_pair(x0, x1)));
+		}
+		for (int i = 0; i < ch1.size(); i++) {
+			int y = (ch1[i].pts[0].y + ch1[i].pts.back().y) / 2;
+			int x0 = ch1[i].pts[0].x;
+			int x1 = ch1[i].pts.back().x;
+			CV_Assert(y < row_col && x0 < x1);
+			ch_map[1][y].push_back(make_pair(i, make_pair(x0, x1)));
+		}
+	}
+	else {
+		for (int i = 0; i < ch0.size(); i++) {
+			int x = (ch0[i].pts[0].x + ch0[i].pts.back().x) / 2;
+			int y0 = ch0[i].pts[0].y;
+			int y1 = ch0[i].pts.back().y;
+			CV_Assert(x < row_col);
+			ch_map[0][x].push_back(make_pair(i, make_pair(y0, y1)));
+		}
+		for (int i = 0; i < ch1.size(); i++) {
+			int x = (ch1[i].pts[0].x + ch1[i].pts.back().x) / 2;
+			int y0 = ch1[i].pts[0].y;
+			int y1 = ch1[i].pts.back().y;
+			CV_Assert(x < row_col);
+			ch_map[1][x].push_back(make_pair(i, make_pair(y0, y1)));
+		}
+	}
+
+	
+    for (int i = 0; i < row_col; i++)
+    for (int j = 0; j < ch_map[0][i].size(); j++)
+    for (int k = i + min_w; k < min(row_col, i + max_w); k++)
+	for (int l = 0; l < ch_map[1][k].size(); l++) {
+		pair<int, int> o = make_pair(max(ch_map[0][i][j].second.first, ch_map[1][k][l].second.first),
+			min(ch_map[0][i][j].second.second, ch_map[1][k][l].second.second));
+		if (o.second - o.first > overlap) {
+			int a = ch_map[0][i][j].first;
+			int b = ch_map[1][k][l].first;
+			ch0[a].pair.push_back(&ch1[b]);
+			ch1[b].pair.push_back(&ch0[a]);
+		}
+	}
+	
+#undef OVERLAP
+}
+
 /*
 Input g, compute_grad output
 Input gl, gr, gu, gd, grad threshold
@@ -4805,9 +4929,10 @@ Input valid_len_th, valid chain length threshold
 Input search_len_th, seed search length threshold
 Output edge
 */
-static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid_len_th, int search_len_th, Mat & edge)
+static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid_len_th, Mat & edge, vector<Chain> * chs)
 {
 	CV_Assert(g.type() == CV_16U);
+	valid_len_th = max(4, valid_len_th);
 	edge.create(g.rows, g.cols, CV_8U);
 	edge = Scalar::all(0);
 	gl = gl * 16 * 8; //*16 is because grad filter coef sum, * 8 because less 3 bit is dir 
@@ -4945,62 +5070,305 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 	}
 
 	//3 find unlink seed and remove short len chain
-	vector<Point> unlink_seed[2];
 	for (int y = 2; y < g.rows - 2; y++) {
 		uchar * p_edge = edge.ptr<uchar>(y);
 		for (int x = 2; x < g.cols - 2; x++)
 		if (p_edge[x] & EDGE_SEED && (p_edge[x] & (EDGE_LEFT | EDGE_RIGHT)) != (EDGE_LEFT | EDGE_RIGHT))  {
 			//find a seed without left or right link
 			int d = g.at<ushort>(y, x) & 7;
+			CV_Assert(d <= 3);
 			int sd[3]; //search dir
 			if (!(p_edge[x] & EDGE_LEFT)) {// missing left seed
 				if (d == DIR_DOWN || d == DIR_LEFT)
 					continue;
-				sd[0] = dir_3[d];
+				sd[0] = dir_3[d]; //search right or down
 				sd[1] = dir_2[d];
 				sd[2] = dir_3[dir_2[d]];
 			}
 			else { // missing right seed
 				if (d == DIR_UP || d == DIR_RIGHT)
 					continue;
-				sd[0] = dir_1[dir_3[d]];
+				sd[0] = dir_1[dir_3[d]]; //search right or down
 				sd[1] = dir_1[dir_2[d]];
 				sd[2] = dir_3[dir_1[dir_2[d]]];
 			}
 			int x0 = x, y0 = y;
 			int find = 1;
-			vector<Point> link_chain;
-			link_chain.push_back(Point(x, y));
+            vector<Point> chain;
+            chain.push_back(Point(x, y));
 			while (find) {
-				if (x0 <= 2 || y0 <= 2 || x0 >= g.cols - 3 || y0 >= g.rows - 3)
-					break;
 				find = 0;
 				for (int dir = 0; dir < 3; dir++) {
 					int yy = y0 + dxy[sd[dir]][0];
 					int xx = x0 + dxy[sd[dir]][1];
 					if (edge.at<uchar>(yy, xx) & (EDGE_LEFT | EDGE_RIGHT)) {
 						find++;
-						link_chain.push_back(Point(xx, yy));
+                        chain.push_back(Point(xx, yy));
 					}
 				}
 				CV_Assert(find <= 1);
-				y0 = link_chain.back().y;
-				x0 = link_chain.back().x;
+                y0 = chain.back().y;
+                x0 = chain.back().x;
+				CV_Assert(x0 > 1 && y0 > 1 && x0 < g.cols - 2 || y0 < g.rows - 2);
 			}
-			if (link_chain.size() >= valid_len_th) {
-				if (!(p_edge[x] & EDGE_LEFT))
-					unlink_seed[0].push_back(Point(x, y));
-				else
-					unlink_seed[1].push_back(Point(x, y));
+            if (chain.size() >= valid_len_th) {
+                chs[d].push_back(Chain(chain));
 			}
 			else {
-				for (int i = 0; i < (int)link_chain.size(); i++) {
-					edge.at<uchar>(link_chain[i]) = 0;
+                for (int i = 0; i < (int)chain.size(); i++) {
+                    edge.at<uchar>(chain[i]) = 0;
 				}
 			}
 		}
 	}
-	int grad_th[] = { gu, gr, gd, gl, (gr + gu) / 2, (gr + gd) / 2, (gl + gd) / 2, (gl + gu) / 2 };
+
+	for (int i = 0; i < 4; i++) 
+	for (int j = 0; j < chs[i].size(); j++) {
+		edge.at<uchar>(chs[i][j].pts[0]) = 0; //remove chain head and tail
+		edge.at<uchar>(chs[i][j].pts.back()) = 0;
+		chs[i][j].pts.pop_back();
+		chs[i][j].pts.erase(chs[i][j].pts.begin());
+		if (i == DIR_UP || i == DIR_RIGHT) {
+			edge.at<uchar>(chs[i][j].pts[0]) &= ~EDGE_LEFT;
+			edge.at<uchar>(chs[i][j].pts.back()) &= ~EDGE_RIGHT;
+		}
+		else {
+			edge.at<uchar>(chs[i][j].pts[0]) &= ~EDGE_RIGHT;
+			edge.at<uchar>(chs[i][j].pts.back()) &= ~EDGE_LEFT;
+		}
+	}
+}
+
+static void link_chain_match(vector<Chain *> & ch)
+{
+	//1 find one-one unique map first
+	for (int i = 0; i < (int)ch.size(); i++) {
+		ch[i]->mleft.to = ch[i]->mright.to = NULL;
+		ch[i]->flag = ch[i]->pair.empty() ? 0 : 1; //flag = 0 means left not need to link, =1 means need link
+		ch[i]->rflag = ch[i]->flag;
+		ch[i]->tm.reset();
+	}
+
+	bool finish = false;
+	while (!finish) {
+		finish = true;
+		for (int i = 0; i < (int)ch.size(); i++)
+		if (ch[i]->left.size() == 1 && ch[i]->left[0].to->right.size() == 1 &&
+			(ch[i]->flag == 1 || ch[i]->left[0].to->rflag == 1)) {
+			finish = false;
+			//it is unique map and part of track, need link
+			if (ch[i]->left[0].to->flag == 0 && ch[i]->flag == 1) //pass track flag to single chain
+				ch[i]->left[0].to->flag = 1;
+			if (ch[i]->rflag == 0 && ch[i]->left[0].to->rflag == 1)
+				ch[i]->rflag = 1;
+			ch[i]->flag = 2; // flag = 2 means left link done
+			ch[i]->left[0].to->rflag = 2;
+			CV_Assert(ch[i]->left[0].to->right[0].to == ch[i]);
+			ch[i]->mleft = ch[i]->left[0]; //link unique map
+			ch[i]->mleft.to->mright = ch[i]->mleft.to->right[0];
+		}
+	}
+	
+	//2 pick ch which is not allocated
+	vector<Chain *> pick_ch; //pick_ch contain the chain which need link but still not done
+	for (int i = 0; i < (int)ch.size(); i++)
+	if (!ch[i]->left.empty() && ch[i]->flag == 1)
+		pick_ch.push_back(ch[i]);
+	int loop = 0;
+	while (1) {
+		loop++;
+		vector<Chain *> new_path;
+		int new_path_cost = 10000000;
+		for (int i = 0; i < (int)pick_ch.size(); i++) 
+		if (pick_ch[i]->flag == 1) {
+			CV_Assert(pick_ch[i]->mleft.to == NULL);
+			vector<Chain *> q;
+			pick_ch[i]->tm.lcost = 0;
+			pick_ch[i]->tm.lp = NULL;
+			int head = 0;
+			q.push_back(pick_ch[i]);
+			Chain * best = NULL;
+			int best_cost = 10000000;
+			while (head < (int) q.size()) {
+				Chain * c = q[head++];
+				for (int i = 0; i < (int)c->left.size(); i++)
+				if (c->left[i].to != c->mleft.to) { //valid path
+					if (c->left[i].to->mright.to == NULL) { //find chain which no match
+						if (c->left[i].to->rflag == 1) { //find track which has no match
+							if (max(c->left[i].cost, c->tm.lcost) < best_cost) { //find best path to c->left[i].to, answer
+								c->left[i].to->tm.rp = c; //use rp to save parent
+								best = c->left[i].to;
+								best_cost = max(c->left[i].cost, c->tm.lcost);
+							}							
+						}
+						else { //find single chain which has no match
+							CV_Assert(c->left[i].to->flag == 0 && c->left[i].to->rflag == 0);
+							if (max(c->left[i].cost, c->tm.lcost) < c->left[i].to->tm.lcost) { //find best path to c->left[i].to
+								c->left[i].to->tm.lcost = max(c->left[i].cost, c->tm.lcost);
+								c->left[i].to->tm.lp = c;
+								q.push_back(c->left[i].to);
+							}
+						}
+					}
+					else { //find chain which already match
+						Chain * nc = c->left[i].to->mright.to;
+						if (max(c->left[i].cost, c->tm.lcost) < nc->tm.lcost) { //find best path to nc
+							nc->tm.lcost = max(c->left[i].cost, c->tm.lcost);
+							nc->tm.lp = c;
+							q.push_back(nc);
+						}
+					}
+				}
+			}
+			if (best == NULL)
+				pick_ch[i]->flag = 3; //flag = 3 means no match
+			else {
+				if (best_cost < new_path_cost) { //find new minium path
+					new_path_cost = best_cost;
+					new_path.clear();
+					new_path.push_back(best);
+					new_path.push_back(best->tm.rp); //link best and best->tm.rp
+					while (new_path.back()->tm.lp) {
+						if (new_path.back()->flag == 0) { //single chain which has no match
+							new_path.push_back(new_path.back()); //link new_path.back() and new_path.back()->tm.lp
+							new_path.push_back(new_path[new_path.size() - 2]->tm.lp);
+						}
+						else {//chain which has match
+							CV_Assert(new_path.back()->mleft.to);
+							new_path.push_back(new_path.back()->mleft.to); //link new_path.back()->mleft.to and new_path.back()->tm.lp
+							new_path.push_back(new_path[new_path.size() - 2]->tm.lp);
+						}
+					}
+				}
+			}
+			for (int i = 0; i < (int)q.size(); i++)
+				q[i]->tm.reset();		
+			if (new_path_cost == 0)
+				break;
+		}
+		if (new_path.empty())
+			break;
+		reverse(new_path.begin(), new_path.end());
+		new_path[0]->flag = 2;
+		new_path.back()->rflag = 2;
+		for (int i = 0; i < (int)new_path.size(); i += 2) {
+			for (int j = 0; j < (int)new_path[i]->left.size(); j++)
+			if (new_path[i]->left[j].to == new_path[i + 1])
+				new_path[i]->mleft = new_path[i]->left[j];
+			for (int j = 0; j < (int)new_path[i + 1]->right.size(); j++)
+			if (new_path[i + 1]->right[j].to == new_path[i])
+				new_path[i + 1]->mright = new_path[i + 1]->right[j];
+		}
+	}
+}
+/*
+Input g, compute_grad output
+Input edge, search_edge output
+Input chs, search_edge output
+Input gl, gr, gu, gd, grad threshold
+Input search_len_th, search length
+*/
+static void link_chain(const Mat & grad, Mat & edge, vector<Chain> * chs, int gl, int gr, int gu, int gd, int search_len_th)
+{
+	gl = gl * 16 * 8; //*16 is because grad filter coef sum, * 8 because less 3 bit is dir 
+	gr = gr * 16 * 8;
+	gu = gu * 16 * 8;
+	gd = gd * 16 * 8;
+	int grad_th[] = { gu * 2, gr * 2, gd * 2, gl * 2, (gr + gu), (gr + gd), (gl + gd), (gl + gu) };
+	
+	//1 find chs left_path and right_path
+	for (int i = 0; i < 4; i++)
+	for (int j = 0; j < chs[i].size(); j++) {
+		if (i == DIR_UP || i == DIR_RIGHT) {
+			chs[i][j].left_cost = find_nearest_ep(grad, edge, grad_th, chs[i][j].pts[0], search_len_th, chs[i][j].left_path);
+			chs[i][j].right_cost = find_nearest_ep(grad, edge, grad_th, chs[i][j].pts.back(), search_len_th, chs[i][j].right_path);
+		}
+		else {
+			chs[i][j].left_cost = find_nearest_ep(grad, edge, grad_th, chs[i][j].pts.back(), search_len_th, chs[i][j].left_path);
+			chs[i][j].right_cost = find_nearest_ep(grad, edge, grad_th, chs[i][j].pts[0], search_len_th, chs[i][j].right_path);
+		}
+	}
+
+	//2 Fill track ChainPath
+	for (int i = 0; i < 4; i++)
+	for (int j = 0; j < chs[i].size(); j++) 
+	if (!chs[i][j].pair.empty()) {//chain is track
+		chs[i][j].flag = 1;
+		for (int k = 0; k < 2; k++) {
+			Point ep(-1, -1);
+			if (k == 0 && !chs[i][j].left_path.empty())
+				ep = chs[i][j].left_path.back();
+			if (k == 1 && !chs[i][j].right_path.empty())
+				ep = chs[i][j].right_path.back();
+			if (ep.x > 0) {
+				for (int l = 0; l < 4; l++)
+				for (int m = 0; m < chs[l].size(); m++)
+				if (ep == chs[l][m].pts[0] || ep == chs[l][m].pts.back()) {
+					if (k == 0) { //chs[i][j] left_path is to chs[l][m]
+						if (!chs[i][j].left_reach_to(&chs[l][m]))
+							chs[i][j].left.push_back(ChainPath(&chs[i][j].left_path, chs[i][j].left_cost, &chs[l][m]));
+						if (!chs[l][m].right_reach_to(&chs[i][j]))
+							chs[l][m].right.push_back(ChainPath(&chs[i][j].left_path, chs[i][j].left_cost, &chs[i][j]));
+					}
+					else { //chs[i][j] right_path is to chs[l][m]
+						if (!chs[i][j].right_reach_to(&chs[l][m]))
+							chs[i][j].right.push_back(ChainPath(&chs[i][j].right_path, chs[i][j].right_cost, &chs[l][m]));
+						if (!chs[l][m].left_reach_to(&chs[i][j]))
+							chs[l][m].left.push_back(ChainPath(&chs[i][j].right_path, chs[i][j].right_cost, &chs[i][j]));
+					}
+				}
+			}
+		}
+	}
+	else
+		chs[i][j].flag = 0;
+
+	vector<Chain *> ch;
+	for (int i = 0; i < 4; i++)
+	for (int j = 0; j < chs[i].size(); j++)
+		ch.push_back(&chs[i][j]);
+
+	//3 fill related ChainPath
+	bool finish = false;
+	while (!finish) {
+		finish = true;
+		for (int i = 0; i < (int)ch.size(); i++)
+		if (!ch[i]->flag && (!ch[i]->left.empty() || !ch[i]->right.empty())) {
+			finish = false;
+			ch[i]->flag = 1;
+			for (int k = 0; k < 2; k++) {
+				Point ep(-1, -1);
+				if (k == 0 && !ch[i]->left_path.empty())
+					ep = ch[i]->left_path.back();
+				if (k == 1 && !ch[i]->right_path.empty())
+					ep = ch[i]->right_path.back();
+				if (ep.x > 0) {
+					for (int j = 0; j < (int)ch.size(); j++)
+					if (ep == ch[j]->pts[0] || ep == ch[j]->pts.back()) {
+						if (k == 0) {
+							if (!ch[i]->left_reach_to(ch[j]))
+								ch[i]->left.push_back(ChainPath(&ch[i]->left_path, ch[i]->left_cost, ch[j]));
+							if (!ch[j]->right_reach_to(ch[i]))
+								ch[j]->right.push_back(ChainPath(&ch[i]->left_path, ch[i]->left_cost, ch[i]));
+						}
+						else {
+							if (!ch[i]->right_reach_to(ch[j]))
+								ch[i]->right.push_back(ChainPath(&ch[i]->right_path, ch[i]->right_cost, ch[j]));
+							if (!ch[j]->left_reach_to(ch[i]))
+								ch[j]->left.push_back(ChainPath(&ch[i]->right_path, ch[i]->right_cost, ch[i]));
+						}
+					}
+				}
+			}
+		}
+	}
+
+	link_chain_match(ch);
+	for (int i = 0; i < ch.size(); i++)
+	if (ch[i]->mleft.to != NULL) {
+		for (int j = 0; j + 1 < ch[i]->mleft.path->size(); j++)
+			edge.at<uchar>(ch[i]->mleft.path[0][j]) = EDGE_LEFT | EDGE_RIGHT;
+	}
 }
 
 /*		31..24   23..16    15..8   7..0
@@ -5008,12 +5376,13 @@ opt0:grad_low_u grad_low_r search_len_th detect_opt
 opt1:            valid_len_th grad_low_l grad_low_d
 method_opt
 0: for edge detect output
+1: for gray level turn_points inout
 */
 static void edge_detect2(PipeData & d, ProcessParameter & cpara)
 {
 	int layer = cpara.layer;
-	Mat & img = d.l[layer].img;
 	int idx = cpara.method_opt & 0xf;
+	int idx1 = cpara.method_opt >> 4 & 0xf;
 	int detect_opt = cpara.opt0 & 0xff;
 	int search_len_th = cpara.opt0 >> 8 & 0xff;
 	int grad_low_r = cpara.opt0 >> 16 & 0xff;
@@ -5021,10 +5390,39 @@ static void edge_detect2(PipeData & d, ProcessParameter & cpara)
 	int grad_low_d = cpara.opt1 & 0xff;
 	int grad_low_l = cpara.opt1 >> 8 & 0xff;
 	int valid_len_th = cpara.opt1 >> 16 & 0xff;
+	int min_w = 10000, max_w = 0;
+
+	VWSet & vw = d.l[layer].vw;
+	for (int i = 0; i < (int)vw.vws.size(); i++)
+	if (vw.vws[i].w2.pattern < 224) {
+		min_w = min(min_w, vw.vws[i].w2.mwide_min - 1);
+		max_w = max(max_w, vw.vws[i].w2.mwide_max + 1);
+	}
+	if (min_w == 10000)
+		min_w = 5;
+	if (max_w == 0)
+		max_w = 30;
 	Mat & edge = d.l[layer].v[idx].d;
+	d.l[layer].v[idx].type = TYPE_EDGE_MASK;
+	if (d.l[layer].v[idx1].type != TYPE_GRAY_LEVEL) {
+		qCritical("image_enhance gray_lvl[%d]=%d, error", idx1, d.l[layer].v[idx1].type);
+		return;
+	}
+	int gv = find_index(d.l[layer].v[idx1].d, (int)GRAY_M0);
+	gv = d.l[layer].v[idx1].d.at<int>(gv, 2);
+	qInfo("edge_detect2 valid_len=%d, search_len=%d, gr=%d, gu=%d, gd=%d, gl=%d, color_m0=%d, min_w=%d, max_w=%d",
+		valid_len_th, search_len_th, grad_low_r, grad_low_u, grad_low_d, grad_low_l, gv, min_w, max_w);
+	Mat img;
+	clip_img(d.l[layer].img, 0, gv, img);
 	Mat grad;
+	vector<Chain> chs[4];
+
 	compute_grad(img, grad);
-	search_edge(grad, grad_low_l, grad_low_r, grad_low_u, grad_low_d, valid_len_th, search_len_th, edge);
+	search_edge(grad, grad_low_l, grad_low_r, grad_low_u, grad_low_d, valid_len_th, edge, chs);
+	find_pair(chs[DIR_UP], chs[DIR_DOWN], 1, img.rows, min_w, max_w, valid_len_th);
+	find_pair(chs[DIR_LEFT], chs[DIR_RIGHT], 0, img.cols, min_w, max_w, valid_len_th);
+	link_chain(grad, edge, chs, grad_low_l, grad_low_r, grad_low_u, grad_low_d, search_len_th);
+
 	if (cpara.method & OPT_DEBUG_EN) {
 		Mat debug_draw;		
 		cvtColor(img, debug_draw, CV_GRAY2BGR);

@@ -213,6 +213,8 @@ void MainWindow::on_actionZoom_out_triggered()
 
 void MainWindow::on_actionSet_Param_triggered()
 {
+	if (image_file_name.length() == 0)
+		return;
 	std::string file_name = image_file_name.toStdString();
 	file_name.erase(file_name.find_last_of("/\\"));
 	file_name.append("/action.xml");

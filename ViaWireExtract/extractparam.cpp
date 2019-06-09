@@ -897,6 +897,7 @@ bool ExtractParam::read_file(string filename)
 							int layer = (int)(*it)["layer"];
 							int debug_opt = (int)(*it)["debug_opt"];
 							int opidx_edge = (int)(*it)["opidx_edge"];
+							int opidx_tp = (int)(*it)["opidx_tp"];
 							int detect_opt = (int)(*it)["detect_opt"];
 							int search_len_th = (int)(*it)["search_len_th"];
 							int valid_len_th = (int)(*it)["valid_len_th"];
@@ -1616,6 +1617,7 @@ void ExtractParam::write_file(string filename)
 			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
 			fs << "layer" << it->second.pi[0];
 			fs << "opidx_edge" << (it->second.pi[1] & 0xf);
+			fs << "opidx_tp" << (it->second.pi[1] >> 4 & 0xf);
 			fs << "detect_opt" << (it->second.pi[2] & 0xff);
 			fs << "search_len_th" << (it->second.pi[2] >> 8 & 0xff);
 			fs << "grad_low_r" << (it->second.pi[2] >> 16 & 0xff);

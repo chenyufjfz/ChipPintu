@@ -104,6 +104,7 @@ public:
     string output_dir;
     int rotate;
     int clip_l, clip_r, clip_d, clip_u;
+	int start_x, start_y, end_x, end_y;
     int img_num_w, img_num_h;
     void read_file(string filename) {
         FileStorage fs(filename, FileStorage::READ);
@@ -114,8 +115,12 @@ public:
         fs["clip_r"] >> clip_r;
         fs["clip_d"] >> clip_d;
         fs["clip_u"] >> clip_u;
-        fs["img_num_w"] >> img_num_w;
-        fs["img_num_h"] >> img_num_h;
+		fs["start_x"] >> start_x;
+		fs["start_y"] >> start_y;
+		fs["end_x"] >> end_x;
+		fs["end_y"] >> end_y;
+		img_num_w = end_x - start_x + 1;
+		img_num_h = end_y - start_y + 1;
         rotate = (rotate + 360) % 360;
     }
 
@@ -141,6 +146,9 @@ public:
 
     string get_output_name(int _x, int _y) const {
 		int x, y;
+
+		x = _x - start_x + 1;
+		y = _y - start_y + 1;
         switch (rotate) {
         case 90:
             y = _x;
@@ -238,21 +246,26 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(myMessageOutput);
     gen.read_file("rotate.xml");
 
-    for (int y = 1; y <= gen.img_num_h; y++)
-	for (int x = 1; x <= gen.img_num_w; x++) {
+    for (int y = gen.start_y; y <= gen.end_y; y++)
+	for (int x = gen.start_x; x <= gen.end_x; x++) {
 		string file_name = gen.get_input_name(x, y);
 		qInfo("process %s", file_name.c_str());
-		Mat m = imread(file_name, CV_LOAD_IMAGE_UNCHANGED);
-		Mat rm = rotate(m, gen.rotate);
-		file_name = gen.get_output_name(x, y);
-		qInfo("output %s", file_name.c_str());
-		try {
-			if (!imwrite(file_name, rm))
-				qFatal("Exception when imwrite\n");
+		if (gen.rotate != 0) {
+			Mat m = imread(file_name, CV_LOAD_IMAGE_UNCHANGED);
+			Mat rm = rotate(m, gen.rotate);
+			file_name = gen.get_output_name(x, y);
+			qInfo("output %s", file_name.c_str());
+			try {
+				if (!imwrite(file_name, rm))
+					qFatal("Exception when imwrite\n");
+			}
+			catch (runtime_error& ex) {
+				qFatal("Exception when imwrite %s\n", ex.what());
+				return(1);
+			}
 		}
-		catch (runtime_error& ex) {
-			qFatal("Exception when imwrite %s\n", ex.what());
-			return(1);
+		else {
+			QFile::copy(QString::fromStdString(file_name), QString::fromStdString(gen.get_output_name(x, y)));
 		}
 	}
     return 1;
