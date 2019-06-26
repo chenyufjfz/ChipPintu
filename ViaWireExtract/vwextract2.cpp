@@ -3405,6 +3405,11 @@ static void fill_center(Mat & c, Point o, int r, int val)
 		c.at<int>(y, x) = val;
 }
 
+static Mat Horizon = (Mat_<char>(5, 5) << -1, -1, 0, 1, 1, -1, -2, 0, 2, 1, -2, -4, 0, 4, 2, -1, -2, 0, 2, 1, -1, -1, 0, 1, 1);
+static Mat Vert = (Mat_<char>(5, 5) << -1, -1, -2, -1, -1, -1, -2, -4, -2, -1, 0, 0, 0, 0, 0, 1, 2, 4, 2, 1, 1, 1, 2, 1, 1);
+static Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -2, -1, 0, -1, -2, -3, 0, 1, -2, -3, 0, 3, 2, -1, 0, 3, 2, 1, 0, 1, 2, 1, 0);
+static Mat Deg135 = (Mat_<char>(5, 5) << 0, 1, 2, 1, 0, -1, 0, 3, 2, 1, -2, -3, 0, 3, 2, -1, -2, -3, 0, 1, 0, -1, -2, -1, 0);
+
 //CircleCheck use octagon to approximate circle, use grad accumulation to judge every edge
 class CircleCheck {
 protected:
@@ -3519,7 +3524,8 @@ public:
 	Point check(const Mat * d, const Mat * s, int _d0, int _th, vector<Point> * vs) {
 		if (d0 != _d0 || th != _th)
 			init(_d0, _th, d, s);
-		
+		if (vs != NULL)
+			vs->clear();
 		vector<float> es(eo.size()); //edge score
 		float max_score = 0; //best score
 		int max_ei = -1; //best octagon shape
@@ -3597,8 +3603,7 @@ public:
 			}
 
 		}
-		if (vs != NULL) {
-			vs->clear();
+		if (vs != NULL && max_ei>=0) {
 			for (int j = 0; j < 8; j++) {
 				int idx = ei[max_ei][j];
 				int exp_dir = eo[idx][0].x;
@@ -3614,101 +3619,96 @@ public:
 		else
 			return Point(-1, -1);
 	}
-} circle_check;
 
-static Mat Horizon = (Mat_<char>(5, 5) << -1, -1, 0, 1, 1, -1, -2, 0, 2, 1, -2, -4, 0, 4, 2, -1, -2, 0, 2, 1, -1, -1, 0, 1, 1);
-static Mat Vert = (Mat_<char>(5, 5) << -1, -1, -2, -1, -1, -1, -2, -4, -2, -1, 0, 0, 0, 0, 0, 1, 2, 4, 2, 1, 1, 1, 2, 1, 1);
-static Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -2, -1, 0, -1, -2, -3, 0, 1, -2, -3, 0, 3, 2, -1, 0, 3, 2, 1, 0, 1, 2, 1, 0);
-static Mat Deg135 = (Mat_<char>(5, 5) << 0, 1, 2, 1, 0, -1, 0, 3, 2, 1, -2, -3, 0, 3, 2, -1, -2, -3, 0, 1, 0, -1, -2, -1, 0);
+	Point via_double_check(Mat * img, int xo, int yo, int d0, int r1, int th, int th2, vector<Point> * vs)
+	{
+		Mat_<Vec2b> d(r1 * 2 + 1, r1 * 2 + 1); //vec0 means main dir, vec1 means 2nd dir
+		Mat_<Vec2f> s(r1 * 2 + 1, r1 * 2 + 1); //vec0 means main dir score, vec1 means 2nd dir score
+		th = th * 16;
 
-static Point via_double_check(Mat * img, int xo, int yo, int d0, int r1, int th, int th2, vector<Point> * vs)
-{
-	Mat_<Vec2b> d(r1 * 2 + 1, r1 * 2 + 1); //vec0 means main dir, vec1 means 2nd dir
-	Mat_<Vec2f> s(r1 * 2 + 1, r1 * 2 + 1); //vec0 means main dir score, vec1 means 2nd dir score
-	th = th * 16;
-
-	for (int y = yo - r1; y <= yo + r1; y++)
-	for (int x = xo - r1; x <= xo + r1; x++) {
-		int sv = 0, sh = 0, s45 = 0, s135 = 0;
-		for (int dy = -2; dy <= 2; dy++) {
-			const uchar * p_img = img->ptr<uchar>(y + dy, x);
-			const char * p_vert = Vert.ptr<char>(dy + 2, 2);
-			const char * p_hori = Horizon.ptr<char>(dy + 2, 2);
-			const char * p_deg45 = Deg45.ptr<char>(dy + 2, 2);
-			const char * p_deg135 = Deg135.ptr<char>(dy + 2, 2);
-			for (int dx = -2; dx <= 2; dx++) {
-				int t = p_img[dx];
-				sv += t * p_vert[dx];
-				sh += t * p_hori[dx];
-				s45 += t * p_deg45[dx];
-				s135 += t * p_deg135[dx];
+		for (int y = yo - r1; y <= yo + r1; y++)
+		for (int x = xo - r1; x <= xo + r1; x++) {
+			int sv = 0, sh = 0, s45 = 0, s135 = 0;
+			for (int dy = -2; dy <= 2; dy++) {
+				const uchar * p_img = img->ptr<uchar>(y + dy, x);
+				const char * p_vert = Vert.ptr<char>(dy + 2, 2);
+				const char * p_hori = Horizon.ptr<char>(dy + 2, 2);
+				const char * p_deg45 = Deg45.ptr<char>(dy + 2, 2);
+				const char * p_deg135 = Deg135.ptr<char>(dy + 2, 2);
+				for (int dx = -2; dx <= 2; dx++) {
+					int t = p_img[dx];
+					sv += t * p_vert[dx];
+					sh += t * p_hori[dx];
+					s45 += t * p_deg45[dx];
+					s135 += t * p_deg135[dx];
+				}
 			}
-		}
-		int absv = abs(sv), absh = abs(sh);
-		int abs45 = abs(s45), abs135 = abs(s135);
-		float score0, score1; //score0 is bigest, score1 is 2nd big
-        int dir0, dir1; //d0 is best dir, d1 is 2nd
-		int dir = (sv > 0) ? DIR_UP : DIR_DOWN;		
-		score0 = absv;
-        dir0 = dir;
-		
-		dir = (sh > 0) ? DIR_LEFT : DIR_RIGHT;
-		if (absh > score0) {
-			score1 = score0;
-			score0 = absh;
-            dir1 = dir0;
-            dir0 = dir;
-		}
-		else {
-			score1 = absh;
-            dir1 = dir;
-		}
-		
-		dir = (s45 > 0) ? DIR_UPLEFT : DIR_DOWNRIGHT;
-		if (abs45 > score0) {
-			score1 = score0;
-			score0 = abs45;
-            dir1 = dir0;
-            dir0 = dir;
-		} 
-		else 
-		if (abs45 > score1) {
-			score1 = abs45;
-            dir1 = dir;
+			int absv = abs(sv), absh = abs(sh);
+			int abs45 = abs(s45), abs135 = abs(s135);
+			float score0, score1; //score0 is bigest, score1 is 2nd big
+			int dir0, dir1; //d0 is best dir, d1 is 2nd
+			int dir = (sv > 0) ? DIR_UP : DIR_DOWN;
+			score0 = absv;
+			dir0 = dir;
+
+			dir = (sh > 0) ? DIR_LEFT : DIR_RIGHT;
+			if (absh > score0) {
+				score1 = score0;
+				score0 = absh;
+				dir1 = dir0;
+				dir0 = dir;
+			}
+			else {
+				score1 = absh;
+				dir1 = dir;
+			}
+
+			dir = (s45 > 0) ? DIR_UPLEFT : DIR_DOWNRIGHT;
+			if (abs45 > score0) {
+				score1 = score0;
+				score0 = abs45;
+				dir1 = dir0;
+				dir0 = dir;
+			}
+			else
+			if (abs45 > score1) {
+				score1 = abs45;
+				dir1 = dir;
+			}
+
+			dir = (s135 > 0) ? DIR_DOWNLEFT : DIR_UPRIGHT;
+			if (abs135 > score0) {
+				score1 = score0;
+				score0 = abs135;
+				dir1 = dir0;
+				dir0 = dir;
+			}
+			else
+			if (abs135 > score1) {
+				score1 = abs135;
+				dir1 = dir;
+			}
+			if (score0 > 1.5 * score1) { //main grad is very biger than 2nd grad, then no 2nd grad
+				dir1 = dir0;
+				score1 = score0;
+			}
+			score0 = min(score0 / th, 1.0f);
+			score1 = min(score1 / th, 1.0f);
+			s(y - yo + r1, x - xo + r1) = Vec2f(score0, score1);
+			d(y - yo + r1, x - xo + r1) = Vec2b(dir0, dir1);
 		}
 
-		dir = (s135 > 0) ? DIR_DOWNLEFT : DIR_UPRIGHT;
-		if (abs135 > score0) {
-			score1 = score0;
-			score0 = abs135;
-            dir1 = dir0;
-            dir0 = dir;
+		Point ret = check(&d, &s, d0, th2, vs);
+		if (vs != NULL) {
+			for (int i = 0; i < (int)vs->size(); i++)
+				vs[0][i] += Point(xo - r1, yo - r1);
 		}
+		if (ret == Point(-1, -1))
+			return ret;
 		else
-		if (abs135 > score1) {
-			score1 = abs135;
-            dir1 = dir;
-		}
-		if (score0 > 1.5 * score1) { //main grad is very biger than 2nd grad, then no 2nd grad
-            dir1 = dir0;
-			score1 = score0;
-		}
-		score0 = min(score0 / th, 1.0f);
-		score1 = min(score1 / th, 1.0f);
-		s(y - yo + r1, x - xo + r1) = Vec2f(score0, score1);
-        d(y - yo + r1, x - xo + r1) = Vec2b(dir0, dir1);
+			return ret + Point(xo - r1, yo - r1);
 	}
-
-	Point ret = circle_check.check(&d, &s, d0, th2, vs);
-	if (vs != NULL) {
-		for (int i = 0; i < (int)vs->size(); i++)
-			vs[0][i] += Point(xo - r1, yo - r1);
-	}
-	if (ret == Point(-1, -1))
-		return ret;
-	else
-		return ret + Point(xo - r1, yo - r1);
-}
+};
 
 /*
 It require internal circle =gray
@@ -3728,6 +3728,7 @@ protected:
 	Mat * lg;
 	Mat *llg;
 	Mat *img;
+	CircleCheck circle_check;
 public:
 	friend class TwoCirclelBSCompute;
 	void prepare(int _layer, ViaParameter &vp, PipeData & _d) {
@@ -3789,9 +3790,9 @@ public:
 	bool double_check(int & x0, int & y0) {
 		Point ret;
 #ifdef QT_DEBUG
-		ret = via_double_check(img, x0, y0, d0, d0, th, gd, &vs);
+		ret = circle_check.via_double_check(img, x0, y0, d0, d0, th, gd, &vs);
 #else
-		ret = via_double_check(img, x0, y0, d0, d0, th, gd, NULL);
+		ret = circle_check.via_double_check(img, x0, y0, d0, d0, th, gd, NULL);
 #endif
 		if (ret == Point(-1, -1))
 			return false;
@@ -3861,9 +3862,9 @@ public:
 	bool double_check(int & x0, int & y0) {
 		Point ret;
 #ifdef QT_DEBUG
-		ret = via_double_check(tcc.img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, &vs);
+		ret = tcc.circle_check.via_double_check(tcc.img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, &vs);
 #else
-		ret = via_double_check(tcc.img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, NULL);
+		ret = tcc.circle_check.via_double_check(tcc.img, x0, y0, tcc.d0, tcc.d0, tcc.th, tcc.gd, NULL);
 #endif
 		if (ret == Point(-1, -1))
 			return false;
@@ -4568,7 +4569,7 @@ static void compute_grad(const Mat & m, Mat & g)
 
 static uchar path0[][10] = {
 	//edge_grad,prev loc,prev grad, next loc,   next grad0  next_grad1   next_grad2  c0 c1 c2
-	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 6, 8, 6 },
+	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 6, 8, 6 },//8 is 1, 6 is 0.75, 4 is 0.5
 	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_RIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_DOWNLEFT, 8, 7, 7 },
 	{ DIR_DOWN, DIR_LEFT, DIR_DOWN, DIR_DOWNRIGHT, DIR_LEFT, DIR_DOWN, DIR_DOWNLEFT,  6, 6, 8},
 	{ DIR_DOWN, DIR_LEFT, DIR_DOWNLEFT, DIR_UPRIGHT, DIR_DOWN, DIR_DOWNRIGHT, DIR_RIGHT, 6, 8, 6 },
@@ -4645,6 +4646,7 @@ public:
 	int get_path_idx(int edge_grad, int prev_loc, int prev_grad, int next_loc) {
 		return edge_grad << 9 | prev_loc << 6 | prev_grad << 3 | next_loc;
 	}
+	//return path penalty coefficient
 	float path_ok(int edge_grad, int prev_loc, int prev_grad, int next_loc, int next_grad) {
 		int a = (path_mask[get_path_idx(edge_grad, prev_loc, prev_grad, next_loc)] >> ( 4 * next_grad)) & 15;
 		return a / 8.0;
@@ -4655,7 +4657,7 @@ public:
 			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][4], path0[i][7]);
 			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][5], path0[i][8]);
 			put_path(path0[i][0], path0[i][1], path0[i][2], path0[i][3], path0[i][6], path0[i][9]);
-			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][4]), path0[i][7]);
+			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][4]), path0[i][7]);//rotate
 			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][5]), path0[i][8]);
 			put_path(t(path0[i][0]), t(path0[i][1]), t(path0[i][2]), t(path0[i][3]), t(path0[i][6]), path0[i][9]);
 			put_path(t(t(path0[i][0])), t(t(path0[i][1])), t(t(path0[i][2])), t(t(path0[i][3])), t(t(path0[i][4])), path0[i][7]);
@@ -4665,7 +4667,7 @@ public:
 			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][5]))), path0[i][8]);
 			put_path(t(t(t(path0[i][0]))), t(t(t(path0[i][1]))), t(t(t(path0[i][2]))), t(t(t(path0[i][3]))), t(t(t(path0[i][6]))), path0[i][9]);
 
-			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][4]), path0[i][7]);
+			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][4]), path0[i][7]);//lr mirror
 			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][5]), path0[i][8]);
 			put_path(m(path0[i][0]), m(path0[i][1]), m(path0[i][2]), m(path0[i][3]), m(path0[i][6]), path0[i][9]);
 			put_path(t(m(path0[i][0])), t(m(path0[i][1])), t(m(path0[i][2])), t(m(path0[i][3])), t(m(path0[i][4])), path0[i][7]);
@@ -4685,6 +4687,11 @@ public:
 #define EDGE_LEFT	0x10
 #define EDGE_RIGHT  0x20
 #define EDGE_SEARCH 0x40
+#define EDGE_WIRE	0x80
+
+#define SEEM_BE_WIRE		0x11
+#define SEEM_BE_INSU		0x10
+#define SEEM_CONFLICT		0xfe
 /*
 Input g, grad
 Input edge,
@@ -4699,7 +4706,7 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 	int cost = 0; //for return value
 	vector<uint64> reach; //search queue
 	search_len_th = min(search_len_th, 511);
-	//s means score, l means length to seed, pd means parent dir, pg means parent grad dir, x,y means location
+	//s is score, l is length to seed, pd is parent dir, pg is parent grad dir, x,y is location, cost is path's max score
 #define MAKE_QUEUE_ITEM(s, l, pd, pg, x, y, c) make_pair((uint64)(s) << 47 | (uint64)(l) << 38 | (uint64)(pd) << 35 | (uint64)(pg) << 32 | (y) << 16 | (x), c)
 #define ITEM_X(item) ((int)(item.first & 0xffff))
 #define ITEM_Y(item) ((int)((item.first) >> 16 & 0xffff))
@@ -4711,7 +4718,7 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 	path.clear();
 	//find a seed without left or right link
 	int d = g.at<ushort>(org) & 7;
-	int cost_th = grad_th[d] * 10 / (16 * 4);
+	int cost_th = grad_th[d] * 10 / (16 * 4); //cost threshold to stop search
 	int target;
 	if (!(edge.at<uchar>(org) & EDGE_LEFT)) {// missing left seed
 		q.push(MAKE_QUEUE_ITEM(0, 0, dir_2[d], d, org.x, org.y, 0));
@@ -4753,7 +4760,8 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 
 				if (score <= grad_th[ng] / 4) //grad too low
 					continue;
-				int ns = (score > grad_th[ng] * 1.5) ? 0 : s + (grad_th[ng] - score) / (16 * 4);
+				int ns = (score > grad_th[ng] * 1.5) ? 0 :  //score big enough, ns back to 0
+					s + (grad_th[ng] - score) / (16 * 4); //(grad_th[ng] - score) may >0 or <0, so ns may increase or decrease
 				ns = max(ns, 0);
 				if (ns >= cost_th) //cost too big
 					continue;
@@ -4775,7 +4783,7 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 				if (pe[0] & (EDGE_LEFT | EDGE_RIGHT)) //meet chain or same-type end point
 					continue;
 				
-				q.push(MAKE_QUEUE_ITEM(ns, len + 1, dir_1[dir], cg, x1, y1, max(c, ns)));
+				q.push(MAKE_QUEUE_ITEM(ns, len + 1, dir_1[dir], cg, x1, y1, max(c, ns))); //ns may increase or decrease, cost is max ns
 				pe[0] = EDGE_SEARCH | dir_1[dir]; //here edge(y1, x1) point to father
 			}
 		}
@@ -4791,7 +4799,7 @@ static int find_nearest_ep(const Mat & g, Mat & edge, const int grad_th[], Point
 		uchar * pe = edge.ptr<uchar>(y0, x0);
 		if (pe[0] & EDGE_SEARCH) {
 			CV_Assert((pe[0] & (EDGE_LEFT | EDGE_RIGHT)) == 0);
-			pe[0] = 0;
+			pe[0] = 0; //clear EDGE_SEARCH
 		}
 	}
 	reach.clear();
@@ -4864,9 +4872,17 @@ public:
 	}
 };
 
+/*
+Input ch0.pts, ch1.pts
+Ouput ch0.pair, ch1.pair
+Input row_mode, row or column
+Input min_w, max_w, wire width min and max
+Input overlap, min wire length
+*/
 static void find_pair(vector<Chain> & ch0, vector<Chain> & ch1, bool row_mode, int row_col, int min_w, int max_w, int overlap)
 {
-	vector<vector<pair<int, pair<int, int> > > > ch_map[2];
+	vector<vector<pair<int, pair<int, int> > > > ch_map[2];//(x,y0) (x,y1) fist is x, second.first is y0, second.second is y1
+	//(x0,y) (x1,y) fist is y, second.first is x0, second.second is x1
 
 #define OVERLAP(a, b) (min(a.second, b.second) - max(a.first, b.first))
 	ch_map[0].resize(row_col);
@@ -4928,6 +4944,7 @@ Input gl, gr, gu, gd, grad threshold
 Input valid_len_th, valid chain length threshold
 Input search_len_th, seed search length threshold
 Output edge
+Output chs
 */
 static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid_len_th, Mat & edge, vector<Chain> * chs)
 {
@@ -5139,9 +5156,12 @@ static void search_edge(const Mat & g, int gl, int gr, int gu, int gd, int valid
 	}
 }
 
+/*
+Fill ch mleft and mright
+*/
 static void link_chain_match(vector<Chain *> & ch)
 {
-	//1 find one-one unique map first
+	// do init
 	for (int i = 0; i < (int)ch.size(); i++) {
 		ch[i]->mleft.to = ch[i]->mright.to = NULL;
 		ch[i]->flag = ch[i]->pair.empty() ? 0 : 1; //flag = 0 means left not need to link, =1 means need link
@@ -5149,6 +5169,7 @@ static void link_chain_match(vector<Chain *> & ch)
 		ch[i]->tm.reset();
 	}
 
+	//1 find one-one unique map first
 	bool finish = false;
 	while (!finish) {
 		finish = true;
@@ -5159,7 +5180,7 @@ static void link_chain_match(vector<Chain *> & ch)
 			//it is unique map and part of track, need link
 			if (ch[i]->left[0].to->flag == 0 && ch[i]->flag == 1) //pass track flag to single chain
 				ch[i]->left[0].to->flag = 1;
-			if (ch[i]->rflag == 0 && ch[i]->left[0].to->rflag == 1)
+			if (ch[i]->rflag == 0 && ch[i]->left[0].to->rflag == 1) //pass track flag to single chain
 				ch[i]->rflag = 1;
 			ch[i]->flag = 2; // flag = 2 means left link done
 			ch[i]->left[0].to->rflag = 2;
@@ -5174,11 +5195,14 @@ static void link_chain_match(vector<Chain *> & ch)
 	for (int i = 0; i < (int)ch.size(); i++)
 	if (!ch[i]->left.empty() && ch[i]->flag == 1)
 		pick_ch.push_back(ch[i]);
+
+	//3 Do best match with max-flow, min-cost method
 	int loop = 0;
 	while (1) {
 		loop++;
 		vector<Chain *> new_path;
 		int new_path_cost = 10000000;
+		//3.1 find min-cost new path
 		for (int i = 0; i < (int)pick_ch.size(); i++) 
 		if (pick_ch[i]->flag == 1) {
 			CV_Assert(pick_ch[i]->mleft.to == NULL);
@@ -5197,7 +5221,7 @@ static void link_chain_match(vector<Chain *> & ch)
 						if (c->left[i].to->rflag == 1) { //find track which has no match
 							if (max(c->left[i].cost, c->tm.lcost) < best_cost) { //find best path to c->left[i].to, answer
 								c->left[i].to->tm.rp = c; //use rp to save parent
-								best = c->left[i].to;
+								best = c->left[i].to; //modify best
 								best_cost = max(c->left[i].cost, c->tm.lcost);
 							}							
 						}
@@ -5205,7 +5229,7 @@ static void link_chain_match(vector<Chain *> & ch)
 							CV_Assert(c->left[i].to->flag == 0 && c->left[i].to->rflag == 0);
 							if (max(c->left[i].cost, c->tm.lcost) < c->left[i].to->tm.lcost) { //find best path to c->left[i].to
 								c->left[i].to->tm.lcost = max(c->left[i].cost, c->tm.lcost);
-								c->left[i].to->tm.lp = c;
+								c->left[i].to->tm.lp = c; //use lp to save parent
 								q.push_back(c->left[i].to);
 							}
 						}
@@ -5214,7 +5238,7 @@ static void link_chain_match(vector<Chain *> & ch)
 						Chain * nc = c->left[i].to->mright.to;
 						if (max(c->left[i].cost, c->tm.lcost) < nc->tm.lcost) { //find best path to nc
 							nc->tm.lcost = max(c->left[i].cost, c->tm.lcost);
-							nc->tm.lp = c;
+							nc->tm.lp = c; //use lp to save parent
 							q.push_back(nc);
 						}
 					}
@@ -5246,6 +5270,7 @@ static void link_chain_match(vector<Chain *> & ch)
 			if (new_path_cost == 0)
 				break;
 		}
+		//3.2 link new_path
 		if (new_path.empty())
 			break;
 		reverse(new_path.begin(), new_path.end());
@@ -5268,7 +5293,7 @@ Input chs, search_edge output
 Input gl, gr, gu, gd, grad threshold
 Input search_len_th, search length
 */
-static void link_chain(const Mat & grad, Mat & edge, vector<Chain> * chs, int gl, int gr, int gu, int gd, int search_len_th)
+static void link_chain(const Mat & grad, Mat & edge, Mat & wi_mark, vector<Chain> * chs, int gl, int gr, int gu, int gd, int search_len_th, int max_w)
 {
 	gl = gl * 16 * 8; //*16 is because grad filter coef sum, * 8 because less 3 bit is dir 
 	gr = gr * 16 * 8;
@@ -5276,7 +5301,9 @@ static void link_chain(const Mat & grad, Mat & edge, vector<Chain> * chs, int gl
 	gd = gd * 16 * 8;
 	int grad_th[] = { gu * 2, gr * 2, gd * 2, gl * 2, (gr + gu), (gr + gd), (gl + gd), (gl + gu) };
 	
-	//1 find chs left_path and right_path
+	wi_mark.create(edge.rows, edge.cols, CV_8U);
+	wi_mark = 0;
+	//1 find all chains' left_path and right_path
 	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < chs[i].size(); j++) {
 		if (i == DIR_UP || i == DIR_RIGHT) {
@@ -5291,9 +5318,7 @@ static void link_chain(const Mat & grad, Mat & edge, vector<Chain> * chs, int gl
 
 	//2 Fill track ChainPath
 	for (int i = 0; i < 4; i++)
-	for (int j = 0; j < chs[i].size(); j++) 
-	if (!chs[i][j].pair.empty()) {//chain is track
-		chs[i][j].flag = 1;
+	for (int j = 0; j < chs[i].size(); j++) {
 		for (int k = 0; k < 2; k++) {
 			Point ep(-1, -1);
 			if (k == 0 && !chs[i][j].left_path.empty())
@@ -5320,54 +5345,205 @@ static void link_chain(const Mat & grad, Mat & edge, vector<Chain> * chs, int gl
 			}
 		}
 	}
-	else
-		chs[i][j].flag = 0;
 
 	vector<Chain *> ch;
 	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < chs[i].size(); j++)
 		ch.push_back(&chs[i][j]);
 
-	//3 fill related ChainPath
-	bool finish = false;
-	while (!finish) {
-		finish = true;
-		for (int i = 0; i < (int)ch.size(); i++)
-		if (!ch[i]->flag && (!ch[i]->left.empty() || !ch[i]->right.empty())) {
-			finish = false;
-			ch[i]->flag = 1;
-			for (int k = 0; k < 2; k++) {
-				Point ep(-1, -1);
-				if (k == 0 && !ch[i]->left_path.empty())
-					ep = ch[i]->left_path.back();
-				if (k == 1 && !ch[i]->right_path.empty())
-					ep = ch[i]->right_path.back();
-				if (ep.x > 0) {
-					for (int j = 0; j < (int)ch.size(); j++)
-					if (ep == ch[j]->pts[0] || ep == ch[j]->pts.back()) {
-						if (k == 0) {
-							if (!ch[i]->left_reach_to(ch[j]))
-								ch[i]->left.push_back(ChainPath(&ch[i]->left_path, ch[i]->left_cost, ch[j]));
-							if (!ch[j]->right_reach_to(ch[i]))
-								ch[j]->right.push_back(ChainPath(&ch[i]->left_path, ch[i]->left_cost, ch[i]));
+	//3 match link chain
+	link_chain_match(ch);
+	for (int i = 0; i < ch.size(); i++)
+	if (ch[i]->mleft.to != NULL) {
+		for (int j = 0; j + 1 < ch[i]->mleft.path->size(); j++) {
+			int dir = grad.at<ushort>(ch[i]->mleft.path[0][j]) & 7;
+			edge.at<uchar>(ch[i]->mleft.path[0][j]) = EDGE_LEFT | EDGE_RIGHT | dir;
+		}
+	}
+
+	//4 fill wire & insu
+	for (int i = 0; i < ch.size(); i++)
+		ch[i]->flag = 0;
+	for (int i = 0; i < ch.size(); i++)
+	if (!ch[i]->pair.empty() && ch[i]->flag == 0) {
+		//4.1 link chain into track
+		vector<Chain *> track; //contain all related chains
+		ch[i]->flag = 1;
+		track.push_back(ch[i]);
+		int head = 0;
+		while (head < track.size()) {
+			Chain * c = track[head++];
+			if (c->mleft.to != NULL && c->mleft.to->flag == 0) { //push mleft to track
+				track.push_back(c->mleft.to);
+				c->mleft.to->flag = 1;
+			}
+			if (c->mright.to != NULL && c->mright.to->flag == 0) { //push mright to track
+				track.push_back(c->mright.to);
+				c->mright.to->flag = 1;
+			}
+			for (int j = 0; j < (int) c->pair.size(); j++)
+			if (c->pair[j]->flag == 0) { //push pair to track
+				track.push_back(c->pair[j]);
+				c->pair[j]->flag = 1;
+			}
+		}
+		//4.2 fill track's border
+		vector<Point> border; //border is track's border
+		for (int j = 0; j < (int) track.size(); j++) {
+			for (int k = 0; k < (int)track[j]->pts.size(); k++) {
+				edge.at<uchar>(track[j]->pts[k]) |= EDGE_SEARCH;
+				border.push_back(track[j]->pts[k]);
+			}
+			if (track[j]->mleft.to)
+			for (int k = 0; k < (int)track[j]->mleft.path->size(); k++) {
+				edge.at<uchar>(track[j]->mleft.path[0][k]) |= EDGE_SEARCH;
+				border.push_back(track[j]->mleft.path[0][k]);
+			}
+		}
+		//4.3 fill WIRE within border
+		int minx = 100000, miny = 100000, maxx = 0, maxy = 0;
+		for (int j = 0; j < (int)border.size(); j++) {
+			minx = min(minx, border[j].x);
+			maxx = max(maxx, border[j].x);
+			miny = min(miny, border[j].y);
+			maxy = max(maxy, border[j].y);
+		}
+
+		for (int turn = 0; turn < 2; turn++) {
+			vector<Point> wire_pts;
+			Point lpoint(-10000, -10000);
+			//scan from up to down and left to right
+			enum EdgeType {
+				R_EDGE,
+				L_EDGE,
+				W_EDGE,
+				IDLE_EDGE,
+				C_EDGE
+			};
+			for (int y = miny; y <= maxy; y++) {
+				EdgeType cur_edge = IDLE_EDGE; 
+				wire_pts.clear();
+				uchar * pedge = edge.ptr<uchar>(y);
+				for (int x = minx; x <= maxx; x++) {
+					uchar e = pedge[x];
+					EdgeType next_edge = IDLE_EDGE;
+					if (e & EDGE_SEARCH) {
+						if (contain_dir(e & 7, DIR_RIGHT))
+							next_edge = R_EDGE;
+						else if (contain_dir(e & 7, DIR_LEFT))
+							next_edge = L_EDGE;
+						else
+							next_edge = C_EDGE;
+					}
+					else
+					if (e & EDGE_WIRE)
+						next_edge = W_EDGE;
+					
+					switch (next_edge) {
+					case R_EDGE:
+						if ((cur_edge == L_EDGE || cur_edge == W_EDGE)) { //From L or W to R
+							if (!wire_pts.empty() && x - wire_pts[0].x < max_w) //within R range
+							for (int i = 0; i < wire_pts.size(); i++) //fill wire
+								edge.at<uchar>(wire_pts[i]) |= EDGE_WIRE;
+							wire_pts.clear();
 						}
-						else {
-							if (!ch[i]->right_reach_to(ch[j]))
-								ch[i]->right.push_back(ChainPath(&ch[i]->right_path, ch[i]->right_cost, ch[j]));
-							if (!ch[j]->left_reach_to(ch[i]))
-								ch[j]->left.push_back(ChainPath(&ch[i]->right_path, ch[i]->right_cost, ch[i]));
+						break;
+					case L_EDGE:
+						wire_pts.clear();
+						lpoint = Point(x, y);
+						break;
+					case W_EDGE:
+						if (cur_edge == L_EDGE) { //From L to W
+							if (!wire_pts.empty() && wire_pts.back().x - lpoint.x < max_w) //within L range
+							for (int i = 0; i < wire_pts.size(); i++) //fill wire							
+								edge.at<uchar>(wire_pts[i]) |= EDGE_WIRE;
+							wire_pts.clear();
 						}
+						break;
+					case IDLE_EDGE:
+						if (cur_edge == L_EDGE || cur_edge == W_EDGE)
+							wire_pts.push_back(Point(x, y));
+						break;
+					}
+					if (next_edge != IDLE_EDGE) {
+						if (next_edge == W_EDGE && cur_edge == L_EDGE)
+							cur_edge == (x - lpoint.x < max_w) ? L_EDGE : W_EDGE;
+						else
+							cur_edge = next_edge;
+					}
+				}
+			}
+			lpoint = Point(-10000, -10000);
+			//scan from left to right then from up to down
+			for (int x = minx; x <= maxx; x++) {
+				EdgeType cur_edge = IDLE_EDGE; 
+				wire_pts.clear();
+				for (int y = miny; y <= maxy; y++) {
+					uchar e = edge.at<uchar>(y, x);
+					EdgeType next_edge = IDLE_EDGE;
+					if (e & EDGE_SEARCH) {
+						if (contain_dir(e & 7, DIR_DOWN))
+							next_edge = R_EDGE;
+						else if (contain_dir(e & 7, DIR_UP))
+							next_edge = L_EDGE;
+						else
+							next_edge = C_EDGE;
+					}
+					else
+					if (e & EDGE_WIRE)
+						next_edge = W_EDGE;
+					
+					switch (next_edge) {
+					case R_EDGE:
+						if ((cur_edge == L_EDGE || cur_edge == W_EDGE)) { //From L or W to R
+							if (!wire_pts.empty() && y - wire_pts[0].y < max_w) //within R range
+							for (int i = 0; i < wire_pts.size(); i++) //fill wire							
+								edge.at<uchar>(wire_pts[i]) |= EDGE_WIRE;
+							wire_pts.clear();
+						}
+						break;
+					case L_EDGE:
+						wire_pts.clear();
+						lpoint = Point(x, y);
+						break;
+					case W_EDGE:
+						if (cur_edge == L_EDGE) { //From L to W
+							if (!wire_pts.empty() && wire_pts.back().y - lpoint.y < max_w) //within L range
+							for (int i = 0; i < wire_pts.size(); i++) //fill wire
+								edge.at<uchar>(wire_pts[i]) |= EDGE_WIRE;
+							wire_pts.clear();
+						}
+						break;
+					case IDLE_EDGE:
+						if (cur_edge == L_EDGE || cur_edge == W_EDGE)
+							wire_pts.push_back(Point(x, y));
+						break;
+					}
+					if (next_edge != IDLE_EDGE) {
+						if (next_edge == W_EDGE && cur_edge == L_EDGE)
+							cur_edge = (y - lpoint.y < max_w) ? L_EDGE : W_EDGE;
+						else
+							cur_edge = next_edge;
 					}
 				}
 			}
 		}
-	}
 
-	link_chain_match(ch);
-	for (int i = 0; i < ch.size(); i++)
-	if (ch[i]->mleft.to != NULL) {
-		for (int j = 0; j + 1 < ch[i]->mleft.path->size(); j++)
-			edge.at<uchar>(ch[i]->mleft.path[0][j]) = EDGE_LEFT | EDGE_RIGHT;
+		//4.4 clear border, fill wi_mark with SEEM_BE_WIRE
+		for (int y = miny; y <= maxy; y++) {
+			uchar * pedge = edge.ptr<uchar>(y);
+			uchar * pwi = wi_mark.ptr<uchar>(y);
+			for (int x = minx; x <= maxx; x++) 
+			if (pedge[x] & EDGE_WIRE) {
+				pedge[x] &= ~EDGE_WIRE;
+				pwi[x] = SEEM_BE_WIRE;
+			}
+		}
+		for (int j = 0; j < (int) border.size(); j++) {
+			edge.at<uchar>(border[j]) &= ~EDGE_SEARCH;
+			if (wi_mark.at<uchar>(border[j]) != SEEM_BE_WIRE)
+				wi_mark.at<uchar>(border[j]) = SEEM_BE_INSU;
+		}
 	}
 }
 
@@ -5402,10 +5578,10 @@ static void edge_detect2(PipeData & d, ProcessParameter & cpara)
 		min_w = 5;
 	if (max_w == 0)
 		max_w = 30;
-	Mat & edge = d.l[layer].v[idx].d;
+	Mat edge, wi_mark;
 	d.l[layer].v[idx].type = TYPE_EDGE_MASK;
 	if (d.l[layer].v[idx1].type != TYPE_GRAY_LEVEL) {
-		qCritical("image_enhance gray_lvl[%d]=%d, error", idx1, d.l[layer].v[idx1].type);
+		qCritical("edge_detect2 gray_lvl[%d]=%d, error", idx1, d.l[layer].v[idx1].type);
 		return;
 	}
 	int gv = find_index(d.l[layer].v[idx1].d, (int)GRAY_M0);
@@ -5421,7 +5597,7 @@ static void edge_detect2(PipeData & d, ProcessParameter & cpara)
 	search_edge(grad, grad_low_l, grad_low_r, grad_low_u, grad_low_d, valid_len_th, edge, chs);
 	find_pair(chs[DIR_UP], chs[DIR_DOWN], 1, img.rows, min_w, max_w, valid_len_th);
 	find_pair(chs[DIR_LEFT], chs[DIR_RIGHT], 0, img.cols, min_w, max_w, valid_len_th);
-	link_chain(grad, edge, chs, grad_low_l, grad_low_r, grad_low_u, grad_low_d, search_len_th);
+	link_chain(grad, edge, wi_mark, chs, grad_low_l, grad_low_r, grad_low_u, grad_low_d, search_len_th, max_w * 2);
 
 	if (cpara.method & OPT_DEBUG_EN) {
 		Mat debug_draw;		
@@ -5444,6 +5620,24 @@ static void edge_detect2(PipeData & d, ProcessParameter & cpara)
 		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_edgedet.jpg", debug_draw);
 		if (cpara.method & OPT_DEBUG_OUT_EN) {
 			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
+		}
+
+		cvtColor(img, debug_draw, CV_GRAY2BGR);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			uchar * p_draw = debug_draw.ptr<uchar>(y);
+			uchar * p_wi = wi_mark.ptr<uchar>(y);
+			for (int x = 0; x < debug_draw.cols; x++) {
+				if (p_wi[x] == SEEM_BE_INSU)
+					p_draw[3 * x] = 255;
+				if (p_wi[x] == SEEM_BE_WIRE)
+					p_draw[3 * x + 1] = min(255, p_draw[3 * x + 1] + 20);
+			}
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_wireinsu.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			debug_idx = (debug_idx + 1) & 3;
 			d.l[layer].v[debug_idx + 12].d = debug_draw;
 		}
 	}
@@ -5465,9 +5659,6 @@ method_opt
 0: for remove via mask input
 1: for edge detect output
 */
-#define SEEM_BE_WIRE		0x11
-#define SEEM_BE_INSU		0x10
-#define SEEM_CONFLICT		0xfe
 static void edge_detect(PipeData & d, ProcessParameter & cpara)
 {
 	int layer = cpara.layer;

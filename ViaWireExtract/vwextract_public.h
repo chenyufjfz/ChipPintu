@@ -130,5 +130,6 @@ out llg, sum(img(i,j)*img(i,j), j=0..x-1)
 */
 void integral_square(const Mat & img, Mat & ig, Mat & iig, Mat & lg, Mat & llg, bool compute_line_integral);
 void clip_img(Mat & img, int gray_low, int gray_high, Mat & new_img);
+bool contain_dir(int d1, int d2);
 #endif // VWEXTRACT_PUBLIC_H
 

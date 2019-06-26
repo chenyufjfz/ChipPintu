@@ -48,6 +48,25 @@ int dir_3[8] = {
 	DIR_UP
 };
 
+bool contain_dir(int d1, int d2)
+{
+	if (d1 == d2)
+		return true;
+	if (d1 > 3) {
+		switch (d1) {
+		case DIR_UPRIGHT:
+			return (d2 == DIR_UP || d2 == DIR_RIGHT);
+		case DIR_UPLEFT:
+			return (d2 == DIR_UP || d2 == DIR_LEFT);
+		case DIR_DOWNLEFT:
+			return (d2 == DIR_DOWN || d2 == DIR_LEFT);
+		case DIR_DOWNRIGHT:
+			return (d2 == DIR_DOWN || d2 == DIR_RIGHT);
+		}
+	}
+	return false;
+}
+
 BrickConnect brick_conn;
 
 struct Brick bricks[] = {
