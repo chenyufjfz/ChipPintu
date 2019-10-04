@@ -10,6 +10,8 @@
 using namespace cv;
 using namespace std;
 
+#define QMSG_FLUSH 1
+
 #ifdef Q_OS_WIN
 #include <Windows.h>
 #include <Dbghelp.h>

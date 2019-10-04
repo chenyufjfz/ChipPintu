@@ -2107,9 +2107,14 @@ void BundleAdjust2::output()
 			pe->diff->get_img_idx(img0, img1);
 			IMGROOT(img0, img0_root); //find root to check if img0 and img1 belong to same root
 			IMGROOT(img1, img1_root);
-			if (img0_root == img1_root) //img0 and img1 belong to different set
+			if (img0_root == img1_root) //img0 and img1 belong to same set
 				continue;
 			else { //pick pe, and bind img0 and img1 to same set
+				unsigned long long edge_mask = 1ULL << (EDGE_E(pe->diff->edge_idx)+48);
+				if (EDGE_E(pe->diff->edge_idx))
+					corner_info(EDGE_Y(pe->diff->edge_idx), EDGE_X(pe->diff->edge_idx) + 1) |= edge_mask;
+				else
+					corner_info(EDGE_Y(pe->diff->edge_idx) + 1, EDGE_X(pe->diff->edge_idx)) |= edge_mask;
 				total_cost += edge_cost[i].first;
 				pe->flagb |= 0x80000000;
 				if (img0_root < img1_root)
@@ -2199,20 +2204,6 @@ void BundleAdjust2::output()
 		val1 = corner_info(y, x) >> 16 & 0xffff;
 		int res = max(abs(val0) / scale, abs(val1) / scale);
 		cost += min(res, 3) * 2000;
-		/*if (pc->bd > 0) {
-			Point pos0(best_offset(y - 1, x - 1)[1], best_offset(y - 1, x - 1)[0]);
-			Point pos1(best_offset(y - 1, x)[1], best_offset(y - 1, x)[0]);
-			Point pos2(best_offset(y, x - 1)[1], best_offset(y, x - 1)[0]);
-			Point pos3(best_offset(y, x)[1], best_offset(y, x)[0]);
-			Point pos_dif[4] = { pos1 - pos0, pos3 - pos1, pos3 - pos2, pos2 - pos0 };
-			for (int dir = 0; dir < 4; dir++) {
-				Edge2 * pe = get_edge(pc->get_edge_idx(dir));				
-				Point pos = pos_dif[dir] - pe->diff->offset;
-				pos.x = pos.x / scale;
-				pos.y = pos.y / scale;
-				cost += pe->get_point_cost(pos, scale);
-			}
-		}*/
 		cost = min(cost, 0x1fffULL);
 		cost = (cost << 32) | ((unsigned long long) sft(y, x) << 45);
 		corner_info(y, x) |= cost;

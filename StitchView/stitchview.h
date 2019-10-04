@@ -221,6 +221,7 @@ protected:
 
 	//following is for draw mouse
 	int mouse_state;
+	int new_nail_num;
 	QPoint cur_mouse_point;
 	//upper is for draw mouse
 public:
@@ -267,7 +268,9 @@ public:
     double refilter_edge(int _layer, int w0, int w1, int option);
 	void update_title();
 	QPoint point2choose(QPoint mouse_point);
+	bool modified();
 	void write_file(string file_name);
+	void auto_save_file();
 	int read_file(string file_name, bool import=false);
 };
 

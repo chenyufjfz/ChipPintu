@@ -219,6 +219,7 @@ Mat rotate(Mat m, int degree)
 				}
 			}
 		}
+		break;
 	case CV_8UC3:
 		for (int y = 0; y < m.rows; y++) {
 			Vec3b * p = m.ptr<Vec3b>(y);
@@ -236,6 +237,7 @@ Mat rotate(Mat m, int degree)
 				}
 			}
 		}
+		break;
 	}
 	return rm;
 }

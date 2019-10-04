@@ -13,7 +13,7 @@ const int step_para = 3;
 const int max_scale = 8;
 
 #define PRINT_DRAW_IMAGE	0
-#define IMAGE_OUTPUT_QUALITY 85
+#define IMAGE_OUTPUT_QUALITY 75
 enum MouseState {
 	IDLE,
 	PutFirstNail,
@@ -26,7 +26,7 @@ string thread_generate_diff(FeatExt * feature, string project_path, int layer)
 	feature->generate_feature_diff();
 	QDateTime current = QDateTime::currentDateTime();
 	string filename = current.toString("yy_MM_dd-hh.mm.ss.zzz-l").toStdString();
-	char l = '0' + layer;
+	char l = (layer <= 9) ? '0' + layer : 'A' + layer - 10;
 	filename = filename + l;
 	filename = filename + ".xml";
 	filename = project_path + "/WorkData/" + filename;
@@ -418,7 +418,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	mouse_state = IDLE;
 	choose_edge = 0;
 	cur_nail = Nail();
-	
+	new_nail_num = 0;
 	ba = BundleAdjustInf::create_instance(2);
 }
 
@@ -603,6 +603,18 @@ void StitchView::paintEvent(QPaintEvent *)
 								painter.drawText(dst_edge_center + QPoint(-10, -30), val);
 							else
 								painter.drawText(dst_edge_center + QPoint(-60, -8), val);
+							if (!lf[layer]->corner_info.empty()) {
+								unsigned long long info = lf[layer]->corner_info(y, x)[1];
+								info = info << 32 | lf[layer]->corner_info(y, x)[0];
+								if (info & 1ULL << i + 48) {
+									painter.setPen(QPen(Qt::green));
+									painter.setBrush(QBrush(Qt::green));
+									if (i == 1)
+										painter.drawEllipse(dst_edge_center + QPoint(0, 10), 2, 2);
+									else
+										painter.drawEllipse(dst_edge_center + QPoint(10, 0), 2, 2);
+								}
+							}
 						}
 					}
 				}
@@ -621,7 +633,7 @@ void StitchView::paintEvent(QPaintEvent *)
 					if (lf[layer]->corner_info.empty()) {
 						painter.setPen(QPen(Qt::green));
 						painter.setBrush(QBrush(Qt::green));
-						painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 3, 3);
+						painter.drawEllipse((dst_corner - view_rect.topLeft()) / scale, 2, 2);
 					}
 					else {
 						unsigned long long info = lf[layer]->corner_info(y, x)[1];
@@ -1443,6 +1455,9 @@ bool StitchView::add_nail(Nail nail)
 	update_nview();
 	if (layer != ABS_LAYER)
 		notify_nail_info(layer);
+	new_nail_num++;
+	if (new_nail_num == 3)
+		auto_save_file();
 	return true;
 }
 
@@ -1817,12 +1832,7 @@ int StitchView::compute_new_feature(int _layer)
 		QMessageBox::information(this, "Info", "Prepare is already running, wait it finish");
 		return -2;
 	}
-	char name[100];
-	sprintf(name, "/WorkData/autosave%d.xml", auto_save);
-	auto_save = (auto_save + 1) % 5;
-
-	string filename = project_path + name;
-	write_file(filename);
+	auto_save_file();
 
 	computing_feature.set_cfg_para(lf[_layer]->cpara);
 	computing_feature.set_tune_para(lf[_layer]->tpara);
@@ -1843,12 +1853,8 @@ int StitchView::optimize_offset(int _layer, int optimize_option)
 		QMessageBox::information(this, "Info", "Prepare is running, wait it finish and redo optimize offset");
 		return -2;
 	}
-	char name[100];
-	sprintf(name, "/WorkData/autosave%d.xml", auto_save);
-	auto_save = (auto_save + 1) % 5;
+	auto_save_file();
 
-	string filename = project_path + name;
-	write_file(filename);
 	vector<Nail> ns;
 	get_one_layer_nails(lf[_layer], ns);
 	if (!ns.empty())
@@ -2032,9 +2038,19 @@ int StitchView::output_layer(int _layer, string pathname) {
 	if (_layer >= lf.size() || _layer < 0)
 		return -1;
 	string filename = pathname + "/" + lf[_layer]->layer_name + ".db";
-	ICLayerWrInterface *ic = ICLayerWrInterface::create(filename, false, 1, 1, 0, 0, 0, 0, 0);
-	ICLayerInterface *icl = ic->get_iclayer_inf();
-
+	ICLayerWrInterface *ic;
+	ICLayerInterface *icl;
+	try {
+		ic = ICLayerWrInterface::create(filename, false, 1, 1, 0, 0, 0, 0, 0);
+		icl = ic->get_iclayer_inf();
+	}
+	catch (std::exception & e) {
+		if (modified()) {
+			auto_save_file();
+		}
+		QMessageBox::information(this, "Error", "Open file fail");
+		return -3;
+	}
 	int dst_w = ri->get_dst_wide();
 	Point max_bd(0, 0);
 	for (int l = 0; l < lf.size(); l++) {
@@ -2077,6 +2093,28 @@ int StitchView::output_layer(int _layer, string pathname) {
 		}
 	}
 	CV_Assert(map_id.empty());
+	delete ic;
+	//Following generate zoom image
+	int ZOOM_IMAG_SIZE = 4096;
+	int s;
+	for (s = 0; (dst_w << s) < ZOOM_IMAG_SIZE; s++);
+	ic = ICLayerWrInterface::create(filename, true, 1, 1, 0, 0, 0, 0, 0);
+	s = max(ic->getMaxScale() - s - 1, 1);	
+	vector<uchar> buff;
+	QImage image0;
+	QImage image((end_x / (1 << s) + 1)* dst_w, (end_y / (1 << s) + 1) * dst_w, QImage::Format_RGB32);
+	image.fill(QColor(0, 0, 0));
+	QPainter painter(&image);
+	for (int y = 0, yy=0; y < end_y; y += 1 << s, yy++)
+	for (int x = 0, xx=0; x < end_x; x += 1 << s, xx++) {
+		if (ic->getRawImgByIdx(buff, x, y, s, 0, false) == 0) {
+			if (!image0.loadFromData((uchar *)&buff[0], (int)buff.size()))
+				qFatal("image format error, (x=%d,y=%d,s=%d)", x, y, s);
+			painter.drawImage(xx * dst_w, yy * dst_w, image0);
+		}
+	}
+	string zoomfilename = pathname + "/" + lf[_layer]->layer_name + "_zoom.jpg";
+	image.save(QString::fromStdString(zoomfilename));
 	delete ic;
 	emit notify_progress(0);
     return 0;
@@ -2212,6 +2250,11 @@ QPoint StitchView::point2choose(QPoint mouse_point)
 	return TOQPOINT(find_src_map(lf[layer]->cpara, src_point, ri->get_src_img_size(layer), 0));
 }
 
+bool StitchView::modified()
+{
+	return new_nail_num > 0;
+}
+
 void StitchView::write_file(string file_name)
 {	
 	if (compute_feature.isRunning()) {
@@ -2227,6 +2270,7 @@ void StitchView::write_file(string file_name)
 	}
 	if (lf.size() == 0)
 		return;
+	new_nail_num = 0;
 	qInfo("write_file name=%s", file_name.c_str());
 	FileStorage fs(file_name, FileStorage::WRITE);
 	fs << "layer_num" << (int) lf.size();
@@ -2281,6 +2325,16 @@ void StitchView::write_file(string file_name)
 	fs << "xgrid_size" << xgrid_size;
 	fs << "ygrid_size" << ygrid_size;
 	fs.release();
+}
+
+void StitchView::auto_save_file()
+{
+	char name[100];
+	sprintf(name, "/WorkData/autosave%d.xml", auto_save);
+	auto_save = (auto_save + 1) % 8;
+
+	string filename = project_path + name;
+	write_file(filename);
 }
 
 int StitchView::read_file(string file_name, bool import)

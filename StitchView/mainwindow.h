@@ -80,6 +80,9 @@ private slots:
 
     void on_actionAlign_IdeaPos_triggered();
 
+protected:
+	void closeEvent(QCloseEvent * e);
+
 private:
     Ui::MainWindow *ui;
 	QLabel *status_label;

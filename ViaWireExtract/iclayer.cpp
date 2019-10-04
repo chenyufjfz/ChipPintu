@@ -670,8 +670,9 @@ ICLayerM::ICLayerM(const string & _file, bool _read)
 		vector<int> bias_num;
 		int total_num = compute_bias_num(bias_num);
 		if (total_num != head.total_num) {
-			qCritical("File corrupted");
+			qCritical("Read file corrupted");
 			fin.close();
+			throw std::exception("Read file corrupted");
 			return;
 		}
 		img_len.resize(total_num);
@@ -688,8 +689,11 @@ ICLayerM::ICLayerM(const string & _file, bool _read)
 	}
 	else {
 		fout.open(_file.c_str(), fstream::in | fstream::out | fstream::binary | fstream::trunc);
-		if (!fout.is_open())
-			qFatal("open file write error");
+		if (!fout.is_open()) {
+			qCritical("open file write error");
+			throw std::exception("open file write error");
+			return;
+		}
 		strncpy(head.flag, "CID", 4);
 		x0 = -12345;
 		y0 = -12345;

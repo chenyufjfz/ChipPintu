@@ -68,6 +68,8 @@
 #define EDGE_DETECT_ERODE						4
 #define IMG_ENHANCE_HAS_VIA_MASK				1
 
+#define	IMAGE_ENHANCE3_BLUR						1
+
 typedef pair<unsigned long long, unsigned long long> PAIR_ULL;
 
 #define POINT_DIS(p0, p1) (abs(p0.x - p1.x) + abs(p0.y -p1.y))
@@ -5302,7 +5304,7 @@ static void link_chain(const Mat & grad, Mat & edge, Mat & wi_mark, vector<Chain
 	int grad_th[] = { gu * 2, gr * 2, gd * 2, gl * 2, (gr + gu), (gr + gd), (gl + gd), (gl + gu) };
 	
 	wi_mark.create(edge.rows, edge.cols, CV_8U);
-	wi_mark = 0;
+	wi_mark = Scalar::all(0);
 	//1 find all chains' left_path and right_path
 	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < chs[i].size(); j++) {
@@ -5547,6 +5549,397 @@ static void link_chain(const Mat & grad, Mat & edge, Mat & wi_mark, vector<Chain
 	}
 }
 
+/*
+Input img
+Output ccl, ccl region
+output score,  ccl region area
+*/
+static void do_ccl(Mat & img, Mat & ccl, Mat & score)
+{
+	ccl.create(img.rows, img.cols, CV_32SC1);
+	score.create(img.rows, img.cols, CV_32SC1);
+	for (int y = 0; y < img.rows; y++) {
+		unsigned char * p_img = img.ptr<unsigned char>(y);
+		unsigned char * p_img_1 = y > 0 ? img.ptr<unsigned char>(y - 1) : NULL;
+		unsigned * p_ccl = ccl.ptr<unsigned>(y);
+		unsigned * p_ccl_1 = y > 0 ? ccl.ptr<unsigned>(y - 1) : NULL;
+		int * p_score = score.ptr<int>(y);
+		int up_adj, left_adj;
+		unsigned fa, fa0, fa1;
+		for (int x = 0; x < img.cols; x++) {
+			p_score[x] = 0;
+			left_adj = (x != 0 && p_img[x - 1] == p_img[x]) ? 1 : 0;
+			up_adj = (y != 0 && p_img[x] == p_img_1[x] ) ? 1 : 0;
+			switch (2 * up_adj + left_adj) {
+			case 0: //solo point
+				p_ccl[x] = y << 16 | x;
+				break;
+			case 1: //left adj
+				p_ccl[x] = p_ccl[x - 1];
+				break;
+			case 2: //up adj
+				p_ccl[x] = p_ccl_1[x];
+				break;
+			case 3: //both left and up adj
+				fa = p_ccl[x - 1]; //find left root
+				fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
+				while (fa0 != fa) {
+					fa = fa0;
+					fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
+				}
+				fa1 = p_ccl_1[x]; //find up root
+				fa0 = ccl.at<int>(fa1 >> 16, fa1 & 0xffff);
+				while (fa0 != fa1) {
+					fa1 = fa0;
+					fa0 = ccl.at<int>(fa1 >> 16, fa1 & 0xffff);
+				}
+				p_ccl[x] = min(fa, fa1);
+				if (fa < fa1) //left ccl < up ccl
+					ccl.at<int>(fa1 >> 16, fa1 & 0xffff) = fa;
+				if (fa1 < fa) {//up ccl < left ccl
+					fa = y << 16 | (x - 1);
+					fa0 = p_ccl[x - 1];
+					while (fa0 != fa) {
+						ccl.at<int>(fa >> 16, fa & 0xffff) = fa1;
+						fa = fa0;
+						fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);							
+					}
+					ccl.at<int>(fa >> 16, fa & 0xffff) = fa1;
+				}
+				break;
+			}
+		}
+	}
+	for (int y = 0; y < img.rows; y++) {
+		unsigned * p_ccl = ccl.ptr<unsigned>(y);
+		for (int x = 0; x < img.cols; x++) {
+			unsigned fa = p_ccl[x];
+			fa = ccl.at<int>(fa >> 16, fa & 0xffff);
+			p_ccl[x] = fa;
+			fa = ccl.at<int>(fa >> 16, fa & 0xffff);
+			if (p_ccl[x] != fa)
+				qCritical("CCL (x=%d, y=%d), ccl=%x, fa=%x", x, y, p_ccl[x], fa);
+			score.at<int>(fa >> 16, fa & 0xffff)++;
+		}
+	}
+}
+
+/*		31..24   23..16    15..8   7..0
+opt0:  grad_th gray_w_th gray_i_th enhance_opt
+opt1:	ud_adjust lr_adjust        hole_area_th
+> gray_w_th is consider as wire
+< gray_i_th is consider as insu
+> grad_th is consider as wire & insu
+*/
+static void image_enhance3(PipeData & d, ProcessParameter & cpara)
+{
+	int layer = cpara.layer;
+	int enhance_opt = cpara.opt0 & 0xff;
+	int gray_i_th = cpara.opt0 >> 8 & 0xff;
+	int gray_w_th = cpara.opt0 >> 16 & 0xff;
+	int grad_th = cpara.opt0 >> 24 & 0xff;
+	int hole_area_th = cpara.opt1 & 0xffff;
+	float lr_adjust = cpara.opt1 >> 16 & 0xff;
+	float ud_adjust = cpara.opt1 >> 24 & 0xff;
+	grad_th = grad_th * 4;
+	lr_adjust = lr_adjust / 100;
+	ud_adjust = ud_adjust / 100;
+	Mat img, grad, score;
+
+	qDebug("i_th=%d, w=th=%d, grad_th=%d, hole_th=%d, lr_adjst=%f, ud_adjust=%f", gray_i_th, gray_w_th,
+		grad_th, hole_area_th, lr_adjust, ud_adjust);
+	if (enhance_opt & IMAGE_ENHANCE3_BLUR) {
+		medianBlur(d.l[layer].img, img, 3);
+		clip_img(img, gray_i_th, gray_w_th, img);
+	}
+	else
+		clip_img(d.l[layer].img, gray_i_th, gray_w_th, img);
+	grad.create(img.rows, img.cols, CV_16SC2);
+	score.create(img.rows, img.cols, CV_32SC1);
+	for (int y = 0; y < img.rows; y++) {
+		unsigned char * p_img = img.ptr<unsigned char>(y);
+		int * p_score = score.ptr<int>(y);
+		for (int x = 0; x < img.cols; x++) 
+			p_score[x] = (p_img[x] == 0) ? 0 : ((p_img[x] == gray_w_th - gray_i_th) ? 1 : 0xffffffff);
+	}
+
+	int l = score.step.p[0] / sizeof(int);
+	for (int y = 0; y < img.rows; y++) {
+		unsigned char * p_img = img.ptr<unsigned char>(y);
+		unsigned char * p_img1 = (y < img.rows - 1) ? img.ptr<unsigned char>(y + 1) : p_img;
+		unsigned char * p_img_1 = (y > 0) ? img.ptr<unsigned char>(y - 1) : p_img;
+		unsigned char * p_img2 = (y < img.rows - 2) ? img.ptr<unsigned char>(y + 2) : p_img1;
+		short * p_grad = grad.ptr<short>(y);		
+		p_grad[0] = p_img[0] * 2 + p_img[1] - p_img1[0] * 2 - p_img1[1];
+		p_grad[0] = p_grad[0] * ud_adjust;
+		p_grad[1] = p_img[0] + p_img1[0] + p_img_1[0] - p_img[1] - p_img1[1] - p_img_1[1];
+		p_grad[1] = p_grad[1] * lr_adjust;
+		p_grad[2 * (img.cols - 1)] = p_img[img.cols - 1] * 2 + p_img[img.cols - 2] - p_img1[img.cols - 1] * 2 - p_img1[img.cols - 2];
+		p_grad[2 * (img.cols - 1)] = p_grad[2 * (img.cols - 1)] * ud_adjust;
+		int * p_score = score.ptr<int>(y);
+		for (int x = 1; x < img.cols - 1; x++) {
+			p_grad[2 * x] = p_img[x] + p_img[x - 1] + p_img[x + 1] + p_img_1[x] - p_img1[x] - p_img1[x - 1] - p_img1[x + 1] - p_img2[x]; //up down grad
+			p_grad[2 * x] = p_grad[2 * x] * ud_adjust;
+			p_grad[2 * x + 1] = p_img[x] + p_img1[x] + p_img_1[x] + p_img2[x] - p_img[x + 1] - p_img1[x + 1] - p_img_1[x + 1] - p_img2[x + 1]; //left right grad
+			p_grad[2 * x + 1] = p_grad[2 * x + 1] * lr_adjust;
+			if (abs(p_grad[2 * x]) >= grad_th && (p_score[x] == 0xffffffff || p_score[x + l] == 0xffffffff)) {
+				if (p_grad[2 * x] > 0) {
+					p_score[x] = 1;
+					p_score[x + l] = 0;
+				}
+				else {
+					p_score[x] = 0;
+					p_score[x + l] = 1;
+				}
+			}
+			if (abs(p_grad[2 * x + 1]) >= grad_th && (p_score[x] == 0xffffffff || p_score[x + 1] == 0xffffffff)) {
+				if (p_grad[2 * x + 1] > 0) {
+					p_score[x] = 1;
+					p_score[x + 1] = 0;
+				}
+				else {
+					p_score[x] = 0;
+					p_score[x + 1] = 1;
+				}
+			}
+		}
+	}
+#define MAKE_SCORE(s0, s1, s2, q, x, y) ((unsigned long long)(s0 + s1 + s2) << 55 | (unsigned long long)(s0) << 47 \
+	| (unsigned long long)(s1) << 40 | (unsigned long long)(s2) << 33 | (unsigned long long)(q) << 32 | (y) << 16 | (x))
+#define SCORE_X(p) ((int)((p) & 0xffff))
+#define SCORE_Y(p) ((int)((p) >> 16 & 0xffff))
+#define SCORE_S(p) ((unsigned)((p) >> 32 & 0xffffffff))
+#define SCORE_Q(p) ((int)((p) >> 32 & 1))
+#define SCORE_S2(p) ((int)((p) >> 33 & 0x7f))
+#define SCORE_S1(p) ((int)((p) >> 40 & 0x7f))
+#define SCORE_S0(p) ((int)((p) >> 47 & 0xff))
+
+	priority_queue<unsigned long long, vector<unsigned long long>, greater<unsigned long long> > sq; //score queue
+	
+	for (int y = 0; y < img.rows; y++) {
+		unsigned * p_score = score.ptr<unsigned>(y);
+		unsigned * p_score1 = y < img.rows - 1 ? score.ptr<unsigned>(y + 1) : NULL;
+		unsigned * p_score_1 = y > 0 ? score.ptr<unsigned>(y - 1) : NULL;
+		for (int x = 0; x < img.cols; x++)
+		if (p_score[x] == 0xffffffff) {
+			int min_g = 10000, min_q, q, g;
+			if (y > 0 && p_score_1[x] < 2) {
+				q = p_score_1[x];
+				g = grad.at<short>(y - 1, x * 2); //up grad
+				if (q == 0 && g > 0 || q == 1 && g < 0)
+					g = 0;
+				min_g = abs(g); 
+				min_q = q;
+			}
+			
+			if (y < img.rows - 1 && p_score1[x] < 2) {
+				q = p_score1[x];
+				g = grad.at<short>(y, x * 2); //down grad
+				if (q == 0 && g < 0 || q == 1 && g > 0)
+					g = 0;
+				g = abs(g);
+				if (min_g > g) {
+					min_g = g;
+					min_q = q;
+				}
+			}
+
+			if (x > 0 && p_score[x - 1] < 2) {
+				q = p_score[x - 1];
+				g = grad.at<short>(y, x * 2 - 1); //left grad
+				if (q == 0 && g > 0 || q == 1 && g < 0)
+					g = 0;
+				g = abs(g);
+				if (min_g > g) {
+					min_g = g;
+					min_q = q;
+				}
+			}
+
+			if (x < img.cols - 1 && p_score[x + 1] < 2) {
+				q = p_score[x + 1];
+				g = grad.at<short>(y, x * 2 + 1); //right grad
+				if (q == 0 && g < 0 || q == 1 && g > 0)
+					g = 0;
+				g = abs(g);
+				if (min_g > g) {
+					min_g = g;
+					min_q = q;
+				}
+			}
+			
+			if (min_g < 1024) { 
+				CV_Assert(min_q <= 1);
+				unsigned long long p = MAKE_SCORE(min_g, 0, 0, min_q, x, y);
+				p_score[x] = SCORE_S(p);
+				sq.push(p); //push self to sq
+			}
+		}
+	}
+
+	unsigned max_score = 0;
+	while (!sq.empty()) {
+		unsigned long long p = sq.top();
+		sq.pop();
+		int y = SCORE_Y(p);
+		int x = SCORE_X(p);
+		int s0 = SCORE_S0(p);
+		int s1 = SCORE_S1(p);
+		int s2 = SCORE_S2(p);
+		int q = SCORE_Q(p);
+		int g;
+		unsigned * p_score = score.ptr<unsigned>(y, x);
+		if (p_score[0] < 2)
+			continue;
+		CV_Assert(SCORE_S(p) >= max_score);
+		max_score = SCORE_S(p);
+		p_score[0] = q;
+		
+		if (y > 0 && p_score[-l] > 1) {
+			g = grad.at<short>(y - 1, x * 2); //up grad
+			if (q == 0 && g < 0 || q == 1 && g > 0)
+				p = MAKE_SCORE(s0, s1, s2, q, x, y - 1);
+			else {
+				g = abs(g);
+				if (s0 <= g)
+					p = MAKE_SCORE(g, s0, s1, q, x, y - 1);
+				else
+				if (s1 <= g)
+					p = MAKE_SCORE(s0, g, s1, q, x, y - 1);
+				else
+					p = (s2 <= g) ? MAKE_SCORE(s0, s1, g, q, x, y - 1) : MAKE_SCORE(s0, s1, s2, q, x, y - 1);
+			}
+			if (SCORE_S(p) < p_score[-l]) {
+				p_score[-l] = SCORE_S(p);
+				sq.push(p); //push up to sq
+			}			
+		}
+
+		if (y < img.rows - 1 && p_score[l] > 1) {
+			g = grad.at<short>(y, x * 2); //down grad
+			if (q == 0 && g > 0 || q == 1 && g < 0)
+				p = MAKE_SCORE(s0, s1, s2, q, x, y + 1);
+			else {
+				g = abs(g);
+				if (s0 <= g)
+					p = MAKE_SCORE(g, s0, s1, q, x, y + 1);
+				else
+				if (s1 <= g)
+					p = MAKE_SCORE(s0, g, s1, q, x, y + 1);
+				else
+					p = (s2 <= g) ? MAKE_SCORE(s0, s1, g, q, x, y + 1) : MAKE_SCORE(s0, s1, s2, q, x, y + 1);
+			}
+			if (SCORE_S(p) < p_score[l]) {
+				p_score[l] = SCORE_S(p);
+				sq.push(p); //push bottom to sq
+			}			
+		}
+
+		if (x > 0 && p_score[-1] > 1) {
+			g = grad.at<short>(y, x * 2 - 1); //left grad
+			if (q == 0 && g < 0 || q == 1 && g > 0)
+				p = MAKE_SCORE(s0, s1, s2, q, x - 1, y);
+			else {
+				g = abs(g);
+				if (s0 <= g)
+					p = MAKE_SCORE(g, s0, s1, q, x - 1, y);
+				else
+				if (s1 <= g)
+					p = MAKE_SCORE(s0, g, s1, q, x - 1, y);
+				else
+					p = (s2 <= g) ? MAKE_SCORE(s0, s1, g, q, x - 1, y) : MAKE_SCORE(s0, s1, s2, q, x - 1, y);
+			}
+			if (SCORE_S(p) < p_score[-1]) {
+				p_score[-1] = SCORE_S(p);
+				sq.push(p); //push left to sq
+			}			
+		}
+
+		if (x < img.cols - 1 && p_score[1] > 1) {
+			g = grad.at<short>(y, x * 2 + 1); //right grad
+			if (q == 0 && g > 0 || q == 1 && g < 0)
+				p = MAKE_SCORE(s0, s1, s2, q, x + 1, y);
+			else {
+				g = abs(g);
+				if (s0 <= g)
+					p = MAKE_SCORE(g, s0, s1, q, x + 1, y);
+				else
+				if (s1 <= g)
+					p = MAKE_SCORE(s0, g, s1, q, x + 1, y);
+				else
+					p = (s2 <= g) ? MAKE_SCORE(s0, s1, g, q, x + 1, y) : MAKE_SCORE(s0, s1, s2, q, x + 1, y);
+			}
+			if (SCORE_S(p) < p_score[1]) { 
+				p_score[1] = SCORE_S(p);
+				sq.push(p); //push rigth to sq
+			}			
+		}
+	}
+	qDebug("ImageEnhance3 Max s0=%d, s1=%d, s2=%d, q=%d", max_score >> 15 & 0xff, max_score >> 8 & 0x7f, max_score >> 1 & 0x7f, max_score & 1);
+	if (cpara.method & OPT_DEBUG_EN) {
+		Mat debug_draw(img.rows, img.cols, CV_8UC3);
+		for (int y = 0; y < debug_draw.rows; y++) {
+			uchar * p_draw = debug_draw.ptr<uchar>(y);
+			unsigned * p_score = score.ptr<unsigned>(y);
+			for (int x = 0; x < debug_draw.cols; x++)
+			if (p_score[x] > 1) { //wrong case
+				p_draw[3 * x + 2] = p_score[x] == 0xffffffff ? 255 : 0;
+				p_draw[3 * x + 1] = (p_score[x] != 0xffffffff && p_score[x] & 1) ? 255 : 0;
+				p_draw[3 * x] = (p_score[x] != 0xffffffff && !(p_score[x] & 1)) ? 255 : 0;
+			}
+			else {
+				p_draw[3 * x + 2] = p_score[x] == 0 ? 0 : 255;
+				p_draw[3 * x + 1] = p_score[x] == 0 ? 0 : 255;
+				p_draw[3 * x] = p_score[x] == 0 ? 0 : 255;
+			}
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_image_enhance.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
+		}
+	}
+
+	for (int y = 0; y < img.rows; y++) {
+		uchar * p_img = img.ptr<uchar>(y);
+		unsigned * p_score = score.ptr<unsigned>(y);
+		for (int x = 0; x < img.cols; x++) {
+			p_img[x] = (p_score[x] == 0) ? 0 : (p_score[x] == 1) ? 255 : p_img[x];
+		}
+	}
+
+	if (hole_area_th > 0) {
+		Mat ccl;
+		do_ccl(img, ccl, score);
+		for (int y = 0; y < score.rows; y++) {
+			unsigned * p_ccl = ccl.ptr<unsigned>(y);
+			uchar * p_img = img.ptr<uchar>(y);
+			for (int x = 0; x < score.cols; x++) {
+				unsigned fa = p_ccl[x];
+				if (fa >> 16 && fa & 0xffff && (fa & 0xffff) != score.cols-1) //y!=0 && x!=0
+				if (score.at<int>(fa >> 16, fa & 0xffff) < hole_area_th)
+					p_img[x] = (p_img[x] == 0) ? 255 : 0;
+			}
+		}
+	}
+
+	if (cpara.method & OPT_DEBUG_EN) {
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_image_enhance2.jpg", img);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			debug_idx = (debug_idx + 1) & 3;
+			d.l[layer].v[debug_idx + 12].d = img.clone();
+		}
+	}
+
+#undef MAKE_SCORE
+#undef SCORE_X
+#undef SCORE_Y
+#undef SCORE_Q
+#undef SCORE_S2
+#undef SCORE_S1
+#undef SCORE_S0
+}
 /*		31..24   23..16    15..8   7..0
 opt0:grad_low_u grad_low_r search_len_th detect_opt
 opt1:            valid_len_th grad_low_l grad_low_d
@@ -8244,8 +8637,10 @@ static ObjProcessHook obj_process_translate(ProcessParameter & cpara)
 #define PP_HOTPOINT_SEARCH		12
 #define PP_ASSEMBLE_VIA			13
 #define PP_ASSEMBLE_BRANCH		14
-#define PP_EDGE_DETECT			15
-#define PP_IMAGE_ENHANCE		16
+#define PP_EDGE_DETECT3			15
+#define PP_IMAGE_ENHANCE3		16
+#define PP_EDGE_DETECT			17
+#define PP_IMAGE_ENHANCE		18
 #define PP_OBJ_PROCESS			254
 
 typedef void(*ProcessFunc)(PipeData & d, ProcessParameter & cpara);
@@ -8261,6 +8656,7 @@ struct PipeProcess {
 	{ PP_EDGE_DETECT, edge_detect },
 	{ PP_EDGE_DETECT2, edge_detect2 },
 	{ PP_IMAGE_ENHANCE, image_enhance },
+	{ PP_IMAGE_ENHANCE3, image_enhance3 },
 	{ PP_COARSE_VIA_MASK, coarse_via_search_mask },
 	{ PP_FINE_VIA_SEARCH, fine_via_search },
 	{ PP_REMOVE_VIA, remove_via },

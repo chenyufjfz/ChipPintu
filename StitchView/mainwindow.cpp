@@ -383,3 +383,11 @@ void MainWindow::on_actionAlign_IdeaPos_triggered()
             QMessageBox::information(this, "Info", "Align fail");
     }
 }
+
+void MainWindow::closeEvent(QCloseEvent * e)
+{
+	if (stitch_view->modified())
+	if (QMessageBox::question(this, "Quit", "Do you want to quicksave?", QMessageBox::Yes, QMessageBox::No) == QMessageBox::Yes) {
+		on_actionQuick_Save_triggered();
+	}
+}
