@@ -601,7 +601,7 @@ bool ExtractParam::read_file(string filename)
 								 int opidx_shadow_prob = (int)(*it)["opidx_shadow_prob"];
 								 int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
 								 int wlong0 = (int)(*it)["wlong0"];
-								 int wlong1 = (int)(*it)["wlong1"];
+								 int th1 = (int)(*it)["th1"];
 								 int inc0 = (int)(*it)["inc0"];
 								 int inc1 = (int)(*it)["inc1"];
 								 int wnum = (int)(*it)["wnum"];
@@ -632,9 +632,9 @@ bool ExtractParam::read_file(string filename)
 									 check_pass = false;
 								 }
 
-								 if (inc1 > 255 || inc0 > 255 || wlong1 > 255 || wlong0 > 255) {
-									 qCritical("ParamItems file error, name=%s, inc1=%d, inc0=%d, wlong1=%d, wlong0=%d",
-										 name.c_str(), inc1, inc0, wlong1, wlong0);
+								 if (inc1 > 255 || inc0 > 255 || th1 > 255 || wlong0 > 255) {
+									 qCritical("ParamItems file error, name=%s, inc1=%d, inc0=%d, th1=%d, wlong0=%d",
+										 name.c_str(), inc1, inc0, th1, wlong0);
 									 check_pass = false;
 								 }
 
@@ -668,7 +668,7 @@ bool ExtractParam::read_file(string filename)
 									 check_pass = false;
 								 }
 								 param.pi[1] = debug_opt << 24 | PP_COARSE_LINE_SEARCH << 16 | opidx_rv_mask << 8 | opidx_shadow_prob << 4 | opidx_tp;
-								 param.pi[2] = inc1 << 24 | inc0 << 16 | wlong1 << 8 | wlong0;
+								 param.pi[2] = inc1 << 24 | inc0 << 16 | th1 << 8 | wlong0;
 								 param.pi[3] = update_prob << 24 | search_opt << 16 | th << 8 | wnum;
 								 param.pi[4] = subtype0 << 24 | pattern0 << 16 | dir0 << 8 | type0;
 								 param.pi[5] = subtype1 << 24 | pattern1 << 16 | dir1 << 8 | type1;
@@ -1334,28 +1334,30 @@ bool ExtractParam::read_file(string filename)
 							int layer = (int)(*it)["layer"];
 							int debug_opt = (int)(*it)["debug_opt"];
 							int enhance_opt = (int)(*it)["enhance_opt"];
+							int gray_i_clip = (int)(*it)["gray_i_clip"];
+							int gray_w_clip = (int)(*it)["gray_w_clip"];
 							int gray_i_th = (int)(*it)["gray_i_th"];
 							int gray_w_th = (int)(*it)["gray_w_th"];
-							int grad_th = (int)(*it)["grad_th"];
 							int hole_th = (int)(*it)["hole_th"];
 							int lr_adjust = (int)(*it)["lr_adjust"];
 							int ud_adjust = (int)(*it)["ud_adjust"];
 
-							if (enhance_opt > 255 || gray_i_th > 255 || gray_w_th > 255 || grad_th > 255) {
-								qCritical("ParamItems file error, name=%s, enhance_opt=%d, i_th=%d, w_th=%d, grad_th=%d", name.c_str(),
-									enhance_opt, gray_i_th, gray_w_th, grad_th);
+							if (enhance_opt > 255 || gray_i_th > 255 || gray_w_th > 255 || gray_i_clip > 255) {
+								qCritical("ParamItems file error, name=%s, enhance_opt=%d, i_th=%d, w_th=%d, gray_i_clip=%d", 
+									name.c_str(), enhance_opt, gray_i_th, gray_w_th, gray_i_clip);
 								check_pass = false;
 							}
 
-							if (ud_adjust > 255 || lr_adjust > 255 || hole_th > 65535) {
-								qCritical("ParamItems file error, name=%s, ud_adjust=%d, lr_adjust=%d, hole_th=%d", name.c_str(),
-									ud_adjust, lr_adjust, hole_th);
+							if (ud_adjust > 255 || lr_adjust > 255 || hole_th > 65535 || gray_w_clip > 255) {
+								qCritical("ParamItems file error, name=%s, ud_adjust=%d, lr_adjust=%d, hole_th=%d, gray_w_clip=%d", 
+									name.c_str(), ud_adjust, lr_adjust, hole_th, gray_w_clip);
 								check_pass = false;
 							}
 							param.pi[0] = layer;
 							param.pi[1] = debug_opt << 24 | PP_IMAGE_ENHANCE3 << 16;
-							param.pi[2] = grad_th << 24 | gray_w_th << 16 | gray_i_th << 8 | enhance_opt;
+							param.pi[2] = gray_i_clip << 24 | gray_w_th << 16 | gray_i_th << 8 | enhance_opt;
 							param.pi[3] = ud_adjust << 24 | lr_adjust << 16 | hole_th;
+							param.pi[4] = gray_w_clip;
 							break;
 		}
 		case FilterObj:
