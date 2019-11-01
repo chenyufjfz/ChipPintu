@@ -7151,6 +7151,7 @@ struct WireKeyPoint {
 	int type;
 	int shape1, shape2, shape3, shape4;
 	float a0, a1, a2, a3, a4;
+	float gamma;
 };
 
 struct WireDetectInfo {
@@ -7164,7 +7165,7 @@ struct WireDetectInfo {
 };
 
 /*     31..24 23..16   15..8   7..0
-opt0:   inc1   inc0  via_enhance w_long0
+opt0:   inc1   inc0     th1   w_long0
 opt1:up_prob search_opt  th    w_num
 opt2: w_subtype w_pattern w_dir  w_type
 opt3: w_subtype w_pattern w_dir  w_type
@@ -7246,7 +7247,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			wpara[i].w_type = d.l[layer].wts.add(vw->w2.type, vw->w2.subtype, vw->w2.pattern, wpara[i].w_wide);
 			wpara[i].i_wide = vw->w2.i_wide;
 			w_guard[wpara[i].w_type] = vw->w2.guard;
-			wpara[i].gamma = vw->w2.arfactor / 100.0;
+			wpara[i].gamma = 1.0 + vw->w2.arfactor / 100.0;
 			finish = (wpara[i].w_wide >= vw->w2.mwide_max);
 
 			qInfo("%d:type=%d, dir=%d, pattern=%d, w_wide=%d, i_wide=%d, gamma=%f", i, wpara[i].w_type,
@@ -7278,11 +7279,12 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				wire.offset[10] = Point(wpara[i].w_wide - wpara[i].w_wide / 2, 0);
 				wire.offset[11] = Point(wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2, 0);
 				wire.type = wpara[i].w_type;
-				wire.a0 = sqrt(1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0));
-				wire.a1 = sqrt(1.0 / ((wpara[i].i_wide + wpara[i].w_wide) * w_long0));
-				wire.a2 = sqrt(1.0 / (wpara[i].w_wide * w_long0));
-				wire.a3 = sqrt(1.0 / (wpara[i].i_wide * w_long0));
-				wire.a4 = sqrt(1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0 / 2));
+				wire.a0 = 50.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0);
+				wire.a1 = 50.0 / ((wpara[i].i_wide + wpara[i].w_wide) * w_long0);
+				wire.a2 = 50.0 / (wpara[i].w_wide * w_long0);
+				wire.a3 = 50.0 / (wpara[i].i_wide * w_long0);
+				wire.a4 = 50.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long0 / 2);
+				wire.gamma = wpara[i].gamma;
 				wire.shape1 = BRICK_I_0;
 				wire.shape2 = BRICK_T_90;
 				wire.shape3 = BRICK_II_0;
@@ -7304,11 +7306,12 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				wire.offset[10] = Point(0, wpara[i].w_wide - wpara[i].w_wide / 2);
 				wire.offset[11] = Point(0, wpara[i].i_wide + wpara[i].w_wide - wpara[i].w_wide / 2);
 				wire.type = wpara[i].w_type;
-				wire.a0 = sqrt(1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1));
-				wire.a1 = sqrt(1.0 / ((wpara[i].i_wide + wpara[i].w_wide) * w_long1));
-				wire.a2 = sqrt(1.0 / (wpara[i].w_wide * w_long1));
-				wire.a3 = sqrt(1.0 / (wpara[i].i_wide * w_long1));
-				wire.a4 = sqrt(1.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1 / 2));
+				wire.a0 = 50.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1);
+				wire.a1 = 50.0 / ((wpara[i].i_wide + wpara[i].w_wide) * w_long1);
+				wire.a2 = 50.0 / (wpara[i].w_wide * w_long1);
+				wire.a3 = 50.0 / (wpara[i].i_wide * w_long1);
+				wire.a4 = 50.0 / ((wpara[i].i_wide * 2 + wpara[i].w_wide) * w_long1 / 2);
+				wire.gamma = wpara[i].gamma;
 				wire.shape1 = BRICK_I_90;
 				wire.shape2 = BRICK_T_0;
 				wire.shape3 = BRICK_II_90;
@@ -7396,42 +7399,46 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 					int sum4 = w[i].p_ig[9][0] + w[i].p_ig[6][0] - w[i].p_ig[5][0] - w[i].p_ig[10][0];
 					int sum5 = w[i].p_ig[10][0] + w[i].p_ig[7][0] - w[i].p_ig[6][0] - w[i].p_ig[11][0];
 
-					float shape0_1 = sum1 *  w[i].a2;
-					float shape0_2 = max(sum0, sum2) * w[i].a3;
+					float shape0_0 = sum0 * w[i].a3;
+					float shape0_1 = sum1 * w[i].a2;
+					float shape0_2 = sum2 * w[i].a3;
 					float shape0_3 = (sum0 + sum1) * w[i].a1;
-					float shape0_4 = (sum1 + sum2) * w[i].a1;
-					float shape0_0 = (sum0 + sum1 + sum2) * w[i].a0;
-					float shape0_5 = (sum0 + sum1 + sum2) * w[i].a4;
+					float shape0_4 = (sum1 + sum2) * w[i].a1;					
+					float shape0_5 = sum0 + sum1 + sum2;
 
-					float shape1_1 = sum4 *  w[i].a2;
-					float shape1_2 = max(sum3, sum5) * w[i].a3;
+					float shape1_0 = sum3 * w[i].a3;
+					float shape1_1 = sum4 * w[i].a2;
+					float shape1_2 = sum5 * w[i].a3;
 					float shape1_3 = (sum3 + sum4) * w[i].a1;
-					float shape1_4 = (sum4 + sum5) * w[i].a1;
-					float shape1_0 = (sum3 + sum4 + sum5) * w[i].a0;
-					float shape1_5 = (sum3 + sum4 + sum5) * w[i].a4;
+					float shape1_4 = (sum4 + sum5) * w[i].a1;					
+					float shape1_5 = sum3 + sum4 + sum5;
 
-					if (shape0_1 > shape0_0 && shape0_1 > shape0_3 && shape0_1 > shape0_4 && shape0_1 > shape0_2 && shape0_1 + shape1_1 > shape0_5 &&
-						shape1_1 > shape1_0 && shape1_1 > shape1_3 && shape1_1 > shape1_4 && shape1_1 > shape1_2 && shape0_1 + shape1_1 > shape1_5 &&
-						shape0_1 + shape1_1 > th * th) { //BRICK_I
-						s1 = shape0_1 + shape1_1;
-						CV_Assert(s1 <= 65535);
-						s1 = MAKE_S(65535 - s1, i, w[i].shape1);
-					}
-					else
-					if (shape0_3 > shape0_1 && shape0_3 > shape0_4 && shape0_3 > shape0_0 && shape0_3 > shape0_2 && shape0_3 + shape1_3 > shape0_5 &&
-						shape1_3 > shape1_1 && shape1_3 > shape1_4 && shape1_3 > shape1_0 && shape1_3 > shape1_2 && shape0_3 + shape1_3 > shape1_5 &&
-						shape0_3 + shape1_3 > th1 * th1) { //BRICK_II_0
-						s1 = shape0_3 + shape1_3;
-						CV_Assert(s1 <= 65535);
-						s1 = MAKE_S(65535 - s1, i, w[i].shape3);
-					}
-					else
-					if (shape0_4 > shape0_1 && shape0_4 > shape0_3 && shape0_4 > shape0_0 && shape0_4 > shape0_2 && shape0_4 + shape1_4 > shape0_5 &&
-						shape1_4 > shape1_1 && shape1_4 > shape1_3 && shape1_4 > shape1_0 && shape1_4 > shape1_2 && shape0_4 + shape1_4 > shape1_5 &&
-						shape0_4 + shape1_4 > th1 * th1) { //BRICK_II_180
-						s1 = shape0_4 + shape1_4;
-						CV_Assert(s1 <= 65535);
-						s1 = MAKE_S(65535 - s1, i, w[i].shape4);
+					if (shape0_5 < shape1_5 * w[i].gamma && shape1_5 < shape0_5 * w[i].gamma) {
+						if (shape0_1 > max(shape0_0, shape0_2) * w[i].gamma && shape0_1 < shape1_1 * w[i].gamma &&
+							shape1_1 > max(shape1_0, shape1_2) * w[i].gamma && shape1_1 < shape0_1 * w[i].gamma &&
+							shape0_1 + shape1_1 > th * th) { //BRICK_I
+							s1 = shape0_1 + shape1_1 - max(shape0_0, shape0_2) - max(shape1_0, shape1_2);
+							CV_Assert(s1 <= 65535);
+							s1 = MAKE_S(65535 - s1, i, w[i].shape1);
+						}
+						else
+						if (shape0_3 > shape0_2 * w[i].gamma && shape0_3 < shape1_3 * w[i].gamma &&
+							shape1_3 > shape1_2 * w[i].gamma && shape1_3 < shape0_3 * w[i].gamma &&
+							shape0_3 + shape1_3 > th1 * th1) { //BRICK_II_0
+							s1 = shape0_3 + shape1_3 - shape0_2 - shape1_2;
+							CV_Assert(s1 <= 65535);
+							s1 = MAKE_S(65535 - s1, i, w[i].shape3);
+						}
+						else
+						if (shape0_4 > shape0_0 * w[i].gamma && shape0_4 < shape1_4 * w[i].gamma &&
+							shape1_4 > shape1_0 * w[i].gamma && shape1_4 < shape0_4 * w[i].gamma &&
+							shape0_4 + shape1_4 > th1 * th1) { //BRICK_II_180
+							s1 = shape0_4 + shape1_4 - shape0_0 - shape1_0;
+							CV_Assert(s1 <= 65535);
+							s1 = MAKE_S(65535 - s1, i, w[i].shape4);
+						}
+						else
+							s1 = MAKE_S(65535, i, BRICK_INVALID);
 					}
 					else
 						s1 = MAKE_S(65535, i, BRICK_INVALID);
@@ -7486,20 +7493,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			int guard = (cr - 1) / d.l[layer].gs + 1;
 			int y1 = max(0, y - guard), y2 = min(prob.rows - 1, y + guard);
 			int x1 = max(0, x - guard), x2 = min(prob.cols - 1, x + guard);
-			/*for (int yy = y1; yy <= y2; yy++)  {
-			unsigned long long * p_prob2 = prob.ptr<unsigned long long>(yy);
-			for (int xx = x1; xx <= x2; xx++) {
-			if (p_prob2[2 * xx] < prob0 && PROB_SHAPE(p_prob2[2 * xx]) != PROB_SHAPE(prob0) && //this check make sure BRICK_I_0 < all nearby BRICK_I_90
-			(PROB_SHAPE(p_prob2[2 * xx]) == BRICK_I_0 || PROB_SHAPE(p_prob2[2 * xx]) == BRICK_I_90)) { // and BRICK_I_90 < all nearby BRICK_I_0
-			if (abs(PROB_X(p_prob2[2 * xx]) - PROB_X(prob0)) <= cr &&
-			abs(PROB_Y(p_prob2[2 * xx]) - PROB_Y(prob0)) <= cr) {
-			pass = false;
-			yy = y2;
-			break;
-			}
-			}
-			}
-			}*/
+
 
 			if (PROB_SHAPE(prob0) == BRICK_I_0) {
 				for (int xx = x1; xx <= x2; xx++)
