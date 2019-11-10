@@ -69,10 +69,14 @@
 #define EDGE_DETECT_ERODE						4
 #define IMG_ENHANCE_HAS_VIA_MASK				1
 
+#define IMAGE_ENHANCE2_BLUR						1
+#define IMAGE_ENHANCE2_CLIP_IMG					2
+#define IMAGE_ENHANCE2_VIA_MASK					4
+
 #define	IMAGE_ENHANCE3_BLUR						1
 #define IMAGE_ENHANCE3_CLIP_IMG					2
 #define IMAGE_ENHANCE3_USE_PROB					4
-#define IMAGE_ENHANCE3_WIREGRAY					100
+#define IMAGE_ENHANCE_WIREGRAY					100
 
 typedef pair<unsigned long long, unsigned long long> PAIR_ULL;
 
@@ -3954,7 +3958,7 @@ public:
 		remove_rd = vp.remove_rd;
 		connect_d = vp.connect_d;
 		compute_circle_dd(connect_d, d2);
-		qInfo("ViaCircleRemove, connect_rd=%d, remove_rd=%d, connect_d=%d", connect_rd, remove_rd, connect_d);
+		qInfo("ViaCircleRemove, guard=%d, connect_rd=%d, remove_rd=%d, connect_d=%d", gd, connect_rd, remove_rd, connect_d);
 		if (connect_rd > remove_rd)
 			qCritical("ViaCircleRemove connect_rd > remove_rd");
 		corner[0][0] = Point(-connect_d / 2, -remove_rd);
@@ -5644,13 +5648,451 @@ static void do_ccl(Mat & img, Mat & ccl, Mat & score, bool mark_border)
 			if (p_ccl[x] != fa)
 				qCritical("CCL (x=%d, y=%d), ccl=%x, fa=%x", x, y, p_ccl[x], fa);
 			if (mark_border && (y == 0 || y == img.rows - 1 || x == 0 || x == img.cols - 1))
-				score.at<int>(fa >> 16, fa & 0xffff) += 10000;
+				score.at<int>(fa >> 16, fa & 0xffff) += 50000;
 			else
 				score.at<int>(fa >> 16, fa & 0xffff)++;
 		}
 	}
 }
 
+/*
+Input affect
+Input x, y
+Input gray
+Inout weight, gray_sum
+*/
+static void put_weight(Mat & weight, Mat & gray_sum, Mat & affect, int x0, int y0, int gray)
+{
+	int by = max(0, y0 / 2 - affect.rows / 2);
+	int ey = min(y0 / 2 + affect.rows / 2, weight.rows - 1);
+	int bx = max(0, x0 / 2 - affect.cols / 2);
+	int ex = min(x0 / 2 + affect.cols / 2, weight.cols - 1);
+	for (int y = by; y <= ey; y++) {
+		if (abs(2 * y - y0) >= affect.rows)
+			continue;
+		int * pa = affect.ptr<int>(abs(2 * y - y0));
+		for (int x = bx; x <= ex; x++) 
+		if (abs(2 * x - x0) < affect.cols) {
+			int a = pa[abs(2 * x - x0)];
+			weight.at<int>(y, x) += a;
+			gray_sum.at<int>(y, x) += a * gray;
+		}
+	}
+}
+/*		31..24   23..16    15..8   7..0
+opt0: gray_i_clip gray_w_th gray_i_th enhance_opt
+opt1:tangen_len heave_len   hole_area_th
+opt2:       via_th_weight wire_th_weight gray_w_clip
+> gray_w_th is consider as wire
+< gray_i_th is consider as insu
+gray_w_clip & gray_i_clip are used when IMAGE_ENHANCE3_CLIP_IMG is defined
+if coarse_line_search before image_enhance3, IMAGE_ENHANCE3_USE_PROB not comaptible with IMAGE_ENHANCE3_BLUR & IMAGE_ENHANCE3_CLIP_IMG
+0: for gray level turn_points inout
+*/
+static void image_enhance2(PipeData & d, ProcessParameter & cpara)
+{
+	int layer = cpara.layer;
+	int enhance_opt = cpara.opt0 & 0xff;
+	int gray_i_th = cpara.opt0 >> 8 & 0xff;
+	int gray_w_th = cpara.opt0 >> 16 & 0xff;
+	int heave_len = cpara.opt1 >> 16 & 0xff;
+	heave_len = max(2, heave_len);
+	int tangen_len = cpara.opt1 >> 24 & 0xff;
+	tangen_len = max(2, tangen_len);
+	int gray_i_clip = cpara.opt0 >> 24 & 0xff;
+	int gray_w_clip = cpara.opt2 & 0xff;
+	int wire_th_weight = cpara.opt2 >> 8 & 0xff;
+	wire_th_weight = wire_th_weight * 256 / 100;
+	int via_th_weight = cpara.opt2 >> 16 & 0xff;
+	via_th_weight = via_th_weight * 256 / 100;
+	int hole_area_th = cpara.opt1 & 0xffff;
+	int idx0 = cpara.method_opt & 0xf;
+	int idx1 = cpara.method_opt >> 4 & 0xf;
+	Mat & img = d.l[layer].img;
+
+	if (enhance_opt & IMAGE_ENHANCE2_BLUR) {
+		medianBlur(img, img, 3);
+		d.l[layer].ig_valid = false;
+	}
+
+	if (enhance_opt & IMAGE_ENHANCE2_CLIP_IMG) {
+		clip_img(img, gray_i_clip, gray_w_clip, img);
+		d.l[layer].ig_valid = false;
+	}
+	Mat & via_mask = d.l[layer].v[idx1].d;
+	if (enhance_opt & IMAGE_ENHANCE2_VIA_MASK && d.l[layer].v[idx1].type != TYPE_REMOVE_VIA_MASK) {
+		qCritical("coarse_line_search idx1[%d]=%d, error", idx1, d.l[layer].v[idx1].type);
+		return;
+		if (via_mask.type() != CV_8UC1) {
+			qCritical("coarse_line_search,  via_mask.type(%d)!=%d", via_mask.type(), CV_8UC1);
+			return;
+		}
+	}
+	if (d.l[layer].v[idx0].type != TYPE_GRAY_LEVEL) {
+		qCritical("image_enhance2 idx0 type=%d, wrong", d.l[layer].v[idx0].type);
+		return;
+	}
+	qInfo("image_enhance2 i_th=%d, w_th=%d, heave_len=%d, tangen_len=%d,wire_th_weight=%d,via_th_weight=%d", 
+		gray_i_th, gray_w_th, heave_len, tangen_len, wire_th_weight, via_th_weight);
+
+	Mat mark;
+	if (cpara.method & OPT_DEBUG_EN) {
+		mark.create(img.rows, img.cols, CV_8UC1);
+		mark = Scalar::all(2);
+	}
+	Mat weight[2], gray_sum[2], affect[2], affect_t[2]; //affect used for weight
+	for (int i = 0; i < 2; i++) {
+		weight[i].create((img.rows + 1) / 2, (img.cols + 1) / 2, CV_32SC1);
+		weight[i] = Scalar::all(0);
+		gray_sum[i].create((img.rows + 1) / 2, (img.cols + 1) / 2, CV_32SC1);
+		gray_sum[i] = Scalar::all(0);
+		affect[i].create(heave_len, tangen_len, CV_32SC1);
+		affect_t[i].create(tangen_len, heave_len, CV_32SC1);
+		for (int y = 0; y < heave_len; y++)
+		for (int x = 0; x < tangen_len; x++) {
+			affect_t[i].at<int>(x, y)  = affect[i].at<int>(y, x) = 
+			256 * (heave_len - y) * (tangen_len - x) / (heave_len * tangen_len);
+		}		
+	}
+
+	//1 init weight and gray with prob
+	Mat & prob = d.l[layer].prob;
+	int count_brick = 0;
+	int li = (int) img.step.p[0] / sizeof(uchar);
+	for (int y = 1; y < prob.rows - 1; y++) {
+		unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
+		for (int x = 1; x < prob.cols - 1; x++) {
+			int shape = PROB_SHAPE(p_prob[2 * x]);
+			int x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]);
+			if (shape != BRICK_I_0 && shape != BRICK_I_90 && shape != BRICK_II_0 && shape != BRICK_II_90
+				&& shape != BRICK_II_180 && shape != BRICK_II_270)
+				continue;
+			int wide = d.l[layer].wts.get_wide(PROB_TYPE(p_prob[2 * x]));
+			int best_dx, best_dy, gray, best_gray ;
+			for (int k = -1; k <= 1; k += 2) { //k=-1 search up left, k=1 search down right
+				if (shape == BRICK_I_0 || shape == BRICK_II_0 || shape == BRICK_II_180) {
+					if (shape == BRICK_II_0 && k == -1 || shape == BRICK_II_180 && k == 1)
+						continue;
+					x0 = PROB_X(p_prob[2 * x]) + k * (wide / 2 + 3);
+				}
+				else {
+					if (shape == BRICK_II_90 && k == -1 || shape == BRICK_II_270 && k == 1)
+						continue;
+					y0 = PROB_Y(p_prob[2 * x]) + k * (wide / 2 + 3);
+				}
+				CV_Assert(x0 > 0 && y0 > 0 && x0 < img.cols - 1 && y0 < img.rows - 1);
+				unsigned char * p_img = img.ptr<unsigned char>(y0, x0);
+				/*
+				gray = 0, best_gray = 10000;
+				for (int dy = -1; dy <= 1; dy += 2)
+				for (int dx = -1; dx <= 1; dx += 2) { //find best insu
+					gray = p_img[0] + p_img[dx] + p_img[dy * li] + p_img[dy * li + dx];
+					if (gray < best_gray) { //find most dark for best wire
+						best_gray = gray;
+						best_dx = dx;
+						best_dy = dy;
+					}
+				}
+				if (best_gray < gray_i_th * 4) { //put weight around best insu
+					int best_x = best_dx < 0 ? x0 - 1 : x0;
+					int best_y = best_dy < 0 ? y0 - 1 : y0;
+					if (shape == BRICK_I_0 || shape == BRICK_II_0 || shape == BRICK_II_180)
+						put_weight(weight[0], gray_sum[0], affect[0], best_x, best_y, best_gray / 4);
+					else
+						put_weight(weight[0], gray_sum[0], affect_t[0], best_x, best_y, best_gray / 4);
+					if (cpara.method & OPT_DEBUG_EN)
+						mark.at<uchar>(best_y, best_x) = 0;
+				}*/
+				best_gray = p_img[0] + p_img[1] + p_img[-1] + p_img[-li - 1] + p_img[-li]
+					+ p_img[-li + 1] + p_img[li - 1] + p_img[li] + p_img[li + 1];
+				if (best_gray < gray_i_th * 9) { //put weight around best insu
+					if (shape == BRICK_I_0 || shape == BRICK_II_0 || shape == BRICK_II_180)
+						put_weight(weight[0], gray_sum[0], affect[0], x0, y0, best_gray / 9);
+					else
+						put_weight(weight[0], gray_sum[0], affect_t[0], x0, y0, best_gray / 9);
+					if (cpara.method & OPT_DEBUG_EN)
+						mark.at<uchar>(y0, x0) = 0;
+				}
+			}			
+			x0 = PROB_X(p_prob[2 * x]), y0 = PROB_Y(p_prob[2 * x]);
+			if (enhance_opt & IMAGE_ENHANCE2_VIA_MASK && via_mask.at<uchar>(y0, x0) & 1)
+				continue;
+			unsigned char * p_img = img.ptr<unsigned char>(y0, x0);
+			/* choose bright rectangle
+			for (int dy = -1; dy <= 1; dy += 2)
+			for (int dx = -1; dx <= 1; dx += 2) { //find best wire
+			gray = p_img[0] + p_img[dx] + p_img[dy * li] + p_img[dy * li + dx];
+			if (gray > best_gray) { //find most bright for best wire
+			best_gray = gray;
+			best_dx = dx;
+			best_dy = dy;
+			}
+			}
+
+			if (best_gray > gray_w_th * 4) { //put weight around best wire
+			int best_x = best_dx < 0 ? x0 - 1 : x0;
+			int best_y = best_dy < 0 ? y0 - 1 : y0;
+			if (shape == BRICK_I_0 || shape == BRICK_II_0 || shape == BRICK_II_180)
+			put_weight(weight[1], gray_sum[1], affect[1], best_x, best_y, best_gray / 4);
+			else
+			put_weight(weight[1], gray_sum[1], affect_t[1], best_x, best_y, best_gray / 4);
+			}*/
+
+			best_gray = p_img[0] + p_img[1] + p_img[-1] + p_img[-li - 1] + p_img[-li]
+				+ p_img[-li + 1] + p_img[li - 1] + p_img[li] + p_img[li + 1];
+			if (best_gray > gray_w_th * 9) { //put weight around best wire
+				if (shape == BRICK_I_0 || shape == BRICK_II_0 || shape == BRICK_II_180)
+					put_weight(weight[1], gray_sum[1], affect[1], x0, y0, best_gray / 9);
+				else
+					put_weight(weight[1], gray_sum[1], affect_t[1], x0, y0, best_gray / 9);
+				if (cpara.method & OPT_DEBUG_EN)
+					mark.at<uchar>(y0, x0) = 1;
+				count_brick++;
+			}
+		}
+	}
+	qInfo("ImageEnhance2 brick count=%d", count_brick);
+	if (count_brick == 0)
+		return;
+	if (cpara.method & OPT_DEBUG_EN) {
+		Mat debug_draw = img.clone();
+		for (int y = 0; y < debug_draw.rows; y++) {
+			uchar * p_draw = debug_draw.ptr<uchar>(y);
+			uchar * p_draw_1 = (y > 0) ? debug_draw.ptr<uchar>(y - 1) : p_draw;
+			uchar * p_draw1 = (y + 1 < debug_draw.rows) ? debug_draw.ptr<uchar>(y + 1) : p_draw;
+			uchar * p_mark = mark.ptr<uchar>(y);
+			for (int x = 0; x < debug_draw.cols; x++)
+				if (p_mark[x] == 1) {
+					p_draw[x] = p_draw[x + 1] = p_draw[x - 1] = 252;
+					p_draw_1[x] = p_draw_1[x + 1] = p_draw_1[x - 1] = 252;
+					p_draw1[x] = p_draw1[x + 1] = p_draw1[x - 1] = 252;
+				}
+				else
+				if (p_mark[x] == 0) {
+					p_draw[x] = p_draw[x + 1] = 255;
+					p_draw1[x] = p_draw1[x + 1] = 255;
+				}
+		}
+		vector<ViaInfo> & via_loc = d.l[layer].via_info;
+		for (int i = 0; i < (int)via_loc.size(); i++) {//init via score
+			debug_draw.at<uchar>(via_loc[i].xy) = 0;
+			debug_draw.at<uchar>(via_loc[i].xy + Point(0, 1)) = 0;
+			debug_draw.at<uchar>(via_loc[i].xy + Point(0, -1)) = 0;
+			debug_draw.at<uchar>(via_loc[i].xy + Point(1, 0)) = 0;
+			debug_draw.at<uchar>(via_loc[i].xy + Point(-1, 0)) = 0;
+		}
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_image_enhance2_brick.jpg", debug_draw);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			d.l[layer].v[debug_idx + 12].d = debug_draw.clone();
+		}
+	}
+
+	//2 compute weight gray	
+	for (int i = 0; i < 2; i++) {
+		vector<Point > explore;
+		explore.reserve(20000);
+		for (int y = 0; y < weight[i].rows; y++) {
+			int * pw = weight[i].ptr<int>(y);
+			int * pg = gray_sum[i].ptr<int>(y);
+			for (int x = 0; x < weight[i].cols; x++)
+			if (pw[x] != 0) {
+				pg[x] = pg[x] * 256 / pw[x];
+				pw[x] = 1;
+			}
+			else
+				CV_Assert(pg[x] == 0);
+		}
+		//Now pw=1, pg=gray; pw=0, pg=0
+		for (int y = 0; y < weight[i].rows; y++) {
+			int * pw_1 = (y > 0) ? weight[i].ptr<int>(y - 1) : weight[i].ptr<int>(y);
+			int * pw1 = (y + 1 < weight[i].rows) ? weight[i].ptr<int>(y + 1) : weight[i].ptr<int>(y);
+			int * pw = weight[i].ptr<int>(y);
+			int * pg_1 = (y > 0) ? gray_sum[i].ptr<int>(y - 1) : gray_sum[i].ptr<int>(y);
+			int * pg1 = (y + 1 < weight[i].rows) ? gray_sum[i].ptr<int>(y + 1) : gray_sum[i].ptr<int>(y);
+			int * pg = gray_sum[i].ptr<int>(y);
+			for (int x = 0; x < weight[i].cols; x++)
+			if (pw[x] == 0) { //check if it has pw=1 nearby
+				if (pw_1[x])
+					pg[x] = pg_1[x];
+				else
+				if (pw1[x])
+					pg[x] = pg1[x];
+				else
+				if (x + 1 <weight[i].cols && pw[x + 1])
+					pg[x] = pg[x + 1];
+				else
+				if (x > 0 && pw[x - 1])
+					pg[x] = pg[x - 1];
+				else
+					continue;
+				explore.push_back(Point(x, y));
+			}
+		}
+		for (int j = 0; j < explore.size(); j++)
+			weight[i].at<int>(explore[j]) = 2;
+
+		//Now pw=1, pg=gray, pw=2, pg=gray(in explore), pw=0, pg=0(not in explore)
+		int head = 0;
+		li = (int) weight[i].step.p[0] / sizeof(int);
+		while (head < (int)explore.size()) {
+			int y0 = explore[head].y;
+			int x0 = explore[head].x;
+			head++;
+			int * pw = weight[i].ptr<int>(y0, x0);
+			int * pg = gray_sum[i].ptr<int>(y0, x0);
+			CV_Assert(pw[0] > 1);
+			if (y0 > 0 && pw[-li] == 0) {
+				pw[-li] = pw[0] + 1;
+				pg[-li] = pg[0];
+				explore.push_back(Point(x0, y0 - 1));
+			}
+			if (y0 + 1< weight[i].rows && pw[li] == 0) {
+				pw[li] = pw[0] + 1;
+				pg[li] = pg[0];
+				explore.push_back(Point(x0, y0 + 1));
+			}
+			if (x0 > 0 && pw[-1] == 0) {
+				pw[-1] = pw[0] + 1;
+				pg[-1] = pg[0];
+				explore.push_back(Point(x0 - 1, y0));
+			}
+			if (x0 + 1 < weight[i].cols && pw[1] == 0) {
+				pw[1] = pw[0] + 1;
+				pg[1] = pg[0];
+				explore.push_back(Point(x0 + 1, y0));
+			}
+		}
+		//Now pw=1, pg=gray, pw!=1, pg=gray(in explore)
+		for (int iter = 0; iter < 3; iter++) //laplace finite difference
+		for (int j = 0; j < (int)explore.size(); j++) {
+			int y0 = explore[j].y;
+			int x0 = explore[j].x;
+			int * pg = gray_sum[i].ptr<int>(y0, x0);
+			int num = 0; 
+			int sum = 0;
+			if (x0 > 0) {
+				sum += pg[-1];
+				num++;
+			}
+			if (x0 + 1 < weight[i].cols) {
+				sum += pg[1];
+				num++;
+			}
+			if (y0 > 0) {
+				sum += pg[-li];
+				num++;
+			}
+			if (y0 + 1 < weight[i].rows) {
+				sum += pg[li];
+				num++;
+			}
+			pg[0] = sum / num;
+		}
+	}
+	//3 do threshold
+	Mat th(img.rows, img.cols, CV_8UC1);
+	for (int y = 0; y < img.rows; y++) {
+		int * pw0 = weight[0].ptr<int>(y / 2);
+		int * pg0 = gray_sum[0].ptr<int>(y / 2);
+		int * pg01 = (y / 2 + 1 >= gray_sum[0].rows || y % 2 == 0) ? gray_sum[0].ptr<int>(y / 2) : gray_sum[0].ptr<int>(y / 2 + 1);
+		int * pw1 = weight[1].ptr<int>(y / 2);
+		int * pg1 = gray_sum[1].ptr<int>(y / 2);
+		int * pg11 = (y / 2 + 1 >= gray_sum[1].rows || y % 2 == 0) ? gray_sum[1].ptr<int>(y / 2) : gray_sum[1].ptr<int>(y / 2 + 1);
+		uchar * pth = th.ptr<uchar>(y);
+		uchar * pimg = img.ptr<uchar>(y);
+		uchar * p_via = via_mask.ptr<uchar>(y);
+		for (int x = 0; x < img.cols; x++) {
+			CV_Assert(pw0[x / 2] && pw1[x / 2]);
+			if (pg0[x / 2] > pg1[x / 2] || pg1[x / 2] > 65536 || pg0[x / 2] < 0)
+				qCritical("image_enhance2 gray error at (%d,%d),g=(%d,%d)", x, y, pg0[x / 2], pg1[x / 2]);
+			int wire_gray, insu_gray;
+			if (x & 1 && x / 2 + 1 < gray_sum[0].cols) {
+				wire_gray = (pg1[x / 2] + pg11[x / 2] + pg1[x / 2 + 1] + pg11[x / 2 + 1]) / 2;
+				insu_gray = (pg0[x / 2] + pg01[x / 2] + pg0[x / 2 + 1] + pg01[x / 2 + 1]) / 2;
+			}
+			else {
+				wire_gray = pg1[x / 2] + pg11[x / 2];
+				insu_gray = pg0[x / 2] + pg01[x / 2];
+			}
+			if (p_via[x] & 2)
+				pth[x] = (wire_gray * via_th_weight + insu_gray * (256 - via_th_weight)) / 131072;
+			else
+				pth[x] = (wire_gray * wire_th_weight + insu_gray * (256 - wire_th_weight)) / 131072;
+				
+			pimg[x] = (pimg[x] > pth[x]) ? IMAGE_ENHANCE_WIREGRAY : 0;
+		}
+	}
+	d.l[layer].ig_valid = false;
+
+	if (cpara.method & OPT_DEBUG_EN) {
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_image_enhance2_hole.jpg", img);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			debug_idx = (debug_idx + 1) & 3;
+			d.l[layer].v[debug_idx + 12].d = img.clone();
+		}
+	}
+
+	if (hole_area_th > 0) {
+		Mat ccl, area;
+		do_ccl(img, ccl, area, true);
+		for (int y = 0; y < area.rows; y++) {
+			unsigned * p_ccl = ccl.ptr<unsigned>(y);
+			uchar * p_img = img.ptr<uchar>(y);
+			for (int x = 0; x < area.cols; x++) {
+				unsigned fa = p_ccl[x];
+				if (area.at<int>(fa >> 16, fa & 0xffff) < hole_area_th)
+					p_img[x] = (p_img[x] == 0) ? IMAGE_ENHANCE_WIREGRAY : 0;
+			}
+		}
+	}
+
+	if (cpara.method & OPT_DEBUG_EN) {
+		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_image_enhance2_nohole.jpg", img);
+		if (cpara.method & OPT_DEBUG_OUT_EN) {
+			int debug_idx = cpara.method >> 12 & 3;
+			debug_idx = (debug_idx + 2) & 3;
+			d.l[layer].v[debug_idx + 12].d = img.clone();
+		}
+	}
+
+	Mat & m = d.l[layer].v[idx0].d;
+	m.create(11, 5, CV_32SC1);
+	m.at<int>(0, 0) = GRAY_ZERO;
+	m.at<int>(0, 1) = 0;
+	m.at<int>(0, 2) = 0;
+	m.at<int>(1, 0) = GRAY_L1;
+	m.at<int>(1, 1) = 0;
+	m.at<int>(1, 2) = 0;
+	m.at<int>(2, 0) = GRAY_L0;
+	m.at<int>(2, 1) = 0;
+	m.at<int>(2, 2) = 0;
+	m.at<int>(3, 0) = GRAY_L2;
+	m.at<int>(3, 1) = 0;
+	m.at<int>(3, 2) = 0;
+	m.at<int>(4, 0) = GRAY_M1;
+	m.at<int>(4, 1) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(4, 2) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(5, 0) = GRAY_M0;
+	m.at<int>(5, 1) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(5, 2) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(6, 0) = GRAY_M2;
+	m.at<int>(6, 1) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(6, 2) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(7, 0) = GRAY_H1;
+	m.at<int>(7, 1) = 255;
+	m.at<int>(7, 2) = 255;
+	m.at<int>(8, 0) = GRAY_H0;
+	m.at<int>(8, 1) = 255;
+	m.at<int>(8, 2) = 255;
+	m.at<int>(9, 0) = GRAY_H2;
+	m.at<int>(9, 1) = 255;
+	m.at<int>(9, 2) = 255;
+	m.at<int>(10, 0) = GRAY_FULL;
+	m.at<int>(10, 1) = 255;
+	m.at<int>(10, 2) = 255;
+}
 /*		31..24   23..16    15..8   7..0
 opt0:gray_i_clip gray_w_th gray_i_th enhance_opt
 opt1: ud_adjust lr_adjust  hole_area_th
@@ -5702,13 +6144,12 @@ static void image_enhance3(PipeData & d, ProcessParameter & cpara)
 	}
 	else
 	for (int y = 0; y < img.rows; y++) {
-		unsigned char * p_img = img.ptr<unsigned char>(y);
 		int * p_score = score.ptr<int>(y);
 		for (int x = 0; x < img.cols; x++)
 			p_score[x] = 0xffffffff;
 	}
 
-	int l = score.step.p[0] / sizeof(int);
+	int l = (int) score.step.p[0] / sizeof(int);
 	for (int y = 0; y < img.rows; y++) {
 		unsigned char * p_img = img.ptr<unsigned char>(y);
 		unsigned char * p_img1 = (y < img.rows - 1) ? img.ptr<unsigned char>(y + 1) : p_img;
@@ -5721,7 +6162,6 @@ static void image_enhance3(PipeData & d, ProcessParameter & cpara)
 		p_grad[1] = p_grad[1] * lr_adjust;
 		p_grad[2 * (img.cols - 1)] = p_img[img.cols - 1] * 2 + p_img[img.cols - 2] - p_img1[img.cols - 1] * 2 - p_img1[img.cols - 2];
 		p_grad[2 * (img.cols - 1)] = p_grad[2 * (img.cols - 1)] * ud_adjust;
-		int * p_score = score.ptr<int>(y);
 		for (int x = 1; x < img.cols - 1; x++) {
 			p_grad[2 * x] = p_img[x] + p_img[x - 1] + p_img[x + 1] + p_img_1[x] - p_img1[x] - p_img1[x - 1] - p_img1[x + 1] - p_img2[x]; //up down grad
 			p_grad[2 * x] = p_grad[2 * x] * ud_adjust;
@@ -5732,10 +6172,8 @@ static void image_enhance3(PipeData & d, ProcessParameter & cpara)
 
 	if (enhance_opt & IMAGE_ENHANCE3_USE_PROB) { //init score seed by prob BRICK_I
 		Mat & prob = d.l[layer].prob;
-		int li = img.step.p[0] / sizeof(uchar);
+		int li = (int) img.step.p[0] / sizeof(uchar);
 		for (int y = 1; y < prob.rows - 1; y++) {
-			unsigned long long * p_prob1 = prob.ptr<unsigned long long>(y + 1);
-			unsigned long long * p_prob_1 = prob.ptr<unsigned long long>(y - 1);
 			unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
 			for (int x = 1; x < prob.cols - 1; x++) {
 				int shape = PROB_SHAPE(p_prob[2 * x]);
@@ -6022,9 +6460,9 @@ static void image_enhance3(PipeData & d, ProcessParameter & cpara)
 				p_draw[3 * x] = (p_score[x] != 0xffffffff && !(p_score[x] & 1)) ? 255 : 0;
 			}
 			else {
-				p_draw[3 * x + 2] = p_score[x] == 0 ? 0 : IMAGE_ENHANCE3_WIREGRAY;
-				p_draw[3 * x + 1] = p_score[x] == 0 ? 0 : IMAGE_ENHANCE3_WIREGRAY;
-				p_draw[3 * x] = p_score[x] == 0 ? 0 : IMAGE_ENHANCE3_WIREGRAY;
+				p_draw[3 * x + 2] = p_score[x] == 0 ? 0 : IMAGE_ENHANCE_WIREGRAY;
+				p_draw[3 * x + 1] = p_score[x] == 0 ? 0 : IMAGE_ENHANCE_WIREGRAY;
+				p_draw[3 * x] = p_score[x] == 0 ? 0 : IMAGE_ENHANCE_WIREGRAY;
 			}
 		}
 		imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_image_enhance3.jpg", debug_draw);
@@ -6039,7 +6477,7 @@ static void image_enhance3(PipeData & d, ProcessParameter & cpara)
 		uchar * p_img = img.ptr<uchar>(y);
 		unsigned * p_score = score.ptr<unsigned>(y);
 		for (int x = 0; x < img.cols; x++) {
-			p_img[x] = (p_score[x] == 0) ? 0 : (p_score[x] == 1) ? IMAGE_ENHANCE3_WIREGRAY : p_img[x];
+			p_img[x] = (p_score[x] == 0) ? 0 : (p_score[x] == 1) ? IMAGE_ENHANCE_WIREGRAY : p_img[x];
 		}
 	}
 
@@ -6052,7 +6490,7 @@ static void image_enhance3(PipeData & d, ProcessParameter & cpara)
 			for (int x = 0; x < score.cols; x++) {
 				unsigned fa = p_ccl[x];
 				if (score.at<int>(fa >> 16, fa & 0xffff) < hole_area_th)
-					p_img[x] = (p_img[x] == 0) ? IMAGE_ENHANCE3_WIREGRAY : 0;
+					p_img[x] = (p_img[x] == 0) ? IMAGE_ENHANCE_WIREGRAY : 0;
 			}
 		}
 	}
@@ -6083,14 +6521,14 @@ static void image_enhance3(PipeData & d, ProcessParameter & cpara)
 	m.at<int>(3, 1) = 0;
 	m.at<int>(3, 2) = 0;
 	m.at<int>(4, 0) = GRAY_M1;
-	m.at<int>(4, 1) = IMAGE_ENHANCE3_WIREGRAY;
-	m.at<int>(4, 2) = IMAGE_ENHANCE3_WIREGRAY;
+	m.at<int>(4, 1) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(4, 2) = IMAGE_ENHANCE_WIREGRAY;
 	m.at<int>(5, 0) = GRAY_M0;
-	m.at<int>(5, 1) = IMAGE_ENHANCE3_WIREGRAY;
-	m.at<int>(5, 2) = IMAGE_ENHANCE3_WIREGRAY;
+	m.at<int>(5, 1) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(5, 2) = IMAGE_ENHANCE_WIREGRAY;
 	m.at<int>(6, 0) = GRAY_M2;
-	m.at<int>(6, 1) = IMAGE_ENHANCE3_WIREGRAY;
-	m.at<int>(6, 2) = IMAGE_ENHANCE3_WIREGRAY;
+	m.at<int>(6, 1) = IMAGE_ENHANCE_WIREGRAY;
+	m.at<int>(6, 2) = IMAGE_ENHANCE_WIREGRAY;
 	m.at<int>(7, 0) = GRAY_H1;
 	m.at<int>(7, 1) = 255;
 	m.at<int>(7, 2) = 255;
@@ -7413,47 +7851,38 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 					float shape1_4 = (sum4 + sum5) * w[i].a1;					
 					float shape1_5 = sum3 + sum4 + sum5;
 
+					if (shape0_1 > max(shape0_0, shape0_2) * w[i].gamma && shape1_1 > max(shape1_0, shape1_2) * w[i].gamma 
+						//&& shape0_1 < shape1_1 * w[i].gamma && shape1_1 < shape0_1 * w[i].gamma
+						&& shape0_1 - max(shape0_0, shape0_2)  > th * th / 2 && shape1_1 - max(shape1_0, shape1_2) > th * th / 2) { //BRICK_I
+						s1 = shape0_1 + shape1_1 - max(shape0_0, shape0_2) - max(shape1_0, shape1_2);
+						CV_Assert(s1 <= 25000);
+						s1 = MAKE_S(25000 - s1, i, w[i].shape1); //make score BRICK_I < BRICK_II
+					}
+					else
 					if (shape0_5 < shape1_5 * w[i].gamma && shape1_5 < shape0_5 * w[i].gamma) {
-						if (shape0_1 > max(shape0_0, shape0_2) * w[i].gamma && shape0_1 < shape1_1 * w[i].gamma &&
-							shape1_1 > max(shape1_0, shape1_2) * w[i].gamma && shape1_1 < shape0_1 * w[i].gamma &&
-							shape0_1 + shape1_1 > th * th) { //BRICK_I
-							s1 = shape0_1 + shape1_1 - max(shape0_0, shape0_2) - max(shape1_0, shape1_2);
-							CV_Assert(s1 <= 65535);
-							s1 = MAKE_S(65535 - s1, i, w[i].shape1);
-						}
-						else
 						if (shape0_3 > shape0_2 * w[i].gamma && shape0_3 < shape1_3 * w[i].gamma &&
 							shape1_3 > shape1_2 * w[i].gamma && shape1_3 < shape0_3 * w[i].gamma &&
-							shape0_3 + shape1_3 > th1 * th1) { //BRICK_II_0
+							shape0_3 - shape0_2 > th1 * th1 / 2 && shape1_3 - shape1_2 > th1 * th1 / 2) { //BRICK_II_0
 							s1 = shape0_3 + shape1_3 - shape0_2 - shape1_2;
-							CV_Assert(s1 <= 65535);
-							s1 = MAKE_S(65535 - s1, i, w[i].shape3);
+							CV_Assert(s1 <= 25000);
+							s1 = MAKE_S(50000 - s1, i, w[i].shape3);
 						}
 						else
 						if (shape0_4 > shape0_0 * w[i].gamma && shape0_4 < shape1_4 * w[i].gamma &&
 							shape1_4 > shape1_0 * w[i].gamma && shape1_4 < shape0_4 * w[i].gamma &&
-							shape0_4 + shape1_4 > th1 * th1) { //BRICK_II_180
+							shape0_4 - shape0_0 > th1 * th1 / 2  && shape1_4 - shape1_0 > th1 * th1 / 2) { //BRICK_II_180
 							s1 = shape0_4 + shape1_4 - shape0_0 - shape1_0;
-							CV_Assert(s1 <= 65535);
-							s1 = MAKE_S(65535 - s1, i, w[i].shape4);
+							CV_Assert(s1 <= 25000);
+							s1 = MAKE_S(50000 - s1, i, w[i].shape4);
 						}
 						else
 							s1 = MAKE_S(65535, i, BRICK_INVALID);
 					}
 					else
 						s1 = MAKE_S(65535, i, BRICK_INVALID);
-
-
-					if (S_SHAPE(s0) == BRICK_I_0 || S_SHAPE(s0) == BRICK_I_90) {
-						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90) //two wire BRICK_I compare
-							s0 = min(s0, s1);
-					}
-					else {
-						if (S_SHAPE(s1) == BRICK_I_0 || S_SHAPE(s1) == BRICK_I_90) //s1 is BRICK_I, s0 is not BRICK_I
-							s0 = s1;
-						else
-							s0 = min(s0, s1); //two non BRICK_I compare
-					}
+					
+					s0 = min(s0, s1);
+					
 					for (int j = 0; j < 12; j++) {
 						w[i].p_ig[j] += dx;
 						w[i].p_iig[j] += dx;
@@ -7478,6 +7907,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 		debug_draw = img.clone();
 
 	//search hot points, which is BRICK_I_0 or BRICK_I_90 and has minimum prob than nearby guard points
+	if (update_prob & COARSE_LINE_UPDATE_PROB)
 	for (int y = 0; y < prob.rows; y++) {
 		unsigned long long * p_prob = prob.ptr<unsigned long long>(y);
 		for (int x = 0; x < prob.cols; x++)
@@ -7494,10 +7924,12 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			int y1 = max(0, y - guard), y2 = min(prob.rows - 1, y + guard);
 			int x1 = max(0, x - guard), x2 = min(prob.cols - 1, x + guard);
 
+			if (update_prob & COARSE_LINE_UPDATE_WITH_MASK && via_mask.at<unsigned char>(PROB_Y(prob0), PROB_X(prob0)) & 1)
+				continue;
 
 			if (PROB_SHAPE(prob0) == BRICK_I_0) {
 				for (int xx = x1; xx <= x2; xx++)
-				if (p_prob[2 * xx] < prob0 && (PROB_SHAPE(p_prob[2 * xx]) == BRICK_I_0 || PROB_SHAPE(p_prob[2 * xx]) == BRICK_I_90)) {
+				if (p_prob[2 * xx] < prob0) {
 					//this check make sure BRICK_I_0 <all row BRICK,
 					if (abs(PROB_X(p_prob[2 * xx]) - PROB_X(prob0)) <= cr)
 						pass = false;
@@ -7507,7 +7939,7 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 			if (PROB_SHAPE(prob0) == BRICK_I_90) {
 				for (int yy = y1; yy <= y2; yy++) {
 					unsigned long long prob1 = prob.at<unsigned long long>(yy, 2 * x);
-					if (prob1 < prob0 && (PROB_SHAPE(prob1) == BRICK_I_0 || PROB_SHAPE(prob1) == BRICK_I_90)) {
+					if (prob1 < prob0) {
 						//this check make sure BRICK_I_90< all column BRICK_I_90
 						if (abs(PROB_Y(prob1) - PROB_Y(prob0)) <= cr)
 							pass = false;
@@ -7515,17 +7947,19 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 				}
 			}
 			else {//BRICK_II
-				int bright_max = 0;
+				int bright_max = 0, dark_max = 1000000;
 				int wide = d.l[layer].wts.get_wide(PROB_TYPE(prob0));
 				for (int xx = max(PROB_X(prob0) - cr, 2); xx < min(PROB_X(prob0) + cr, ig.cols - 3); xx++) {
 					int b0 = ig.at<int>(PROB_Y(prob0) - 2, xx - 1) - ig.at<int>(PROB_Y(prob0) - 2, xx + 1)
 						- ig.at<int>(PROB_Y(prob0) + 2, xx - 1) + ig.at<int>(PROB_Y(prob0) + 2, xx + 1);
 					bright_max = max(bright_max, b0);
+					dark_max = min(dark_max, b0);
 				}
 				for (int yy = max(PROB_Y(prob0) - cr, 2); yy < min(PROB_Y(prob0) + cr, ig.rows - 3); yy++) {
 					int b0 = ig.at<int>(yy - 1, PROB_X(prob0) - 2) - ig.at<int>(yy - 1, PROB_X(prob0) + 2)
 						- ig.at<int>(yy + 1, PROB_X(prob0) - 2) + ig.at<int>(yy + 1, PROB_X(prob0) + 2);
 					bright_max = max(bright_max, b0);
+					dark_max = min(dark_max, b0);
 				}
 				if (PROB_SHAPE(prob0) == BRICK_II_0 || PROB_SHAPE(prob0) == BRICK_II_180) {
 					int b1 = ig.at<int>(PROB_Y(prob0) - 2, PROB_X(prob0) - 1) - ig.at<int>(PROB_Y(prob0) - 2, PROB_X(prob0) + 1)
@@ -7535,11 +7969,12 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 						- ig.at<int>(PROB_Y(prob0) + 2, PROB_X(prob0) + wide / 2 + 2) + ig.at<int>(PROB_Y(prob0) + 2, PROB_X(prob0) + wide / 2 + 4) :
 						ig.at<int>(PROB_Y(prob0) - 2, PROB_X(prob0) - wide / 2 - 4) - ig.at<int>(PROB_Y(prob0) - 2, PROB_X(prob0) - wide / 2 - 2)
 						- ig.at<int>(PROB_Y(prob0) + 2, PROB_X(prob0) - wide / 2 - 4) + ig.at<int>(PROB_Y(prob0) + 2, PROB_X(prob0) - wide / 2 - 2);
-					if (b1 - b0 < bright_max - b1)
+					if (2 * (b1 - b0) < bright_max - dark_max) //this check make sure BRICK_II grad is big enough, b1-b0 is BRICK_II grad, bright_max - b1 is reference grad
 						pass = false;
 					for (int xx = x1; xx <= x2; xx++)
-					if (p_prob[2 * xx] < prob0 || PROB_SHAPE(p_prob[2 * xx]) == BRICK_I_0 || PROB_SHAPE(p_prob[2 * xx]) == BRICK_I_90) {//this check make sure BRICK_I_0 <all row BRICK,
-						if (abs(PROB_X(p_prob[2 * xx]) - PROB_X(prob0)) <= cr)
+					if (p_prob[2 * xx] < prob0) {//this check make sure BRICK_II_0 <all row BRICK_II_0 & BRICK_I_0,
+						if (abs(PROB_X(p_prob[2 * xx]) - PROB_X(prob0)) <= cr && 
+							(PROB_SHAPE(p_prob[2 * xx]) == PROB_SHAPE(prob0) || PROB_SHAPE(p_prob[2 * xx]) == BRICK_I_0))
 							pass = false;
 					}
 				}
@@ -7552,13 +7987,13 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 						- ig.at<int>(PROB_Y(prob0) + wide / 2 + 4, PROB_X(prob0) - 2) + ig.at<int>(PROB_Y(prob0) + wide / 2 + 4, PROB_X(prob0) + 2) :
 						ig.at<int>(PROB_Y(prob0) - wide / 2 - 4, PROB_X(prob0) - 2) - ig.at<int>(PROB_Y(prob0) - wide / 2 - 4, PROB_X(prob0) + 2)
 						- ig.at<int>(PROB_Y(prob0) - wide / 2 - 2, PROB_X(prob0) - 2) + ig.at<int>(PROB_Y(prob0) - wide / 2 - 2, PROB_X(prob0) + 2);
-					if (b1 - b0 < bright_max - b1)
+					if (2 * (b1 - b0) < bright_max - dark_max) //this check make sure BRICK_II grad is big enough, b1-b0 is BRICK_II grad,bright_max - b1 is reference grad
 						pass = false;
 					for (int yy = y1; yy <= y2; yy++) {
 						unsigned long long prob1 = prob.at<unsigned long long>(yy, 2 * x);
-						if (prob1 < prob0 || PROB_SHAPE(prob1) == BRICK_I_0 || PROB_SHAPE(prob1) == BRICK_I_90) {
-							//this check make sure BRICK_I_90< all column BRICK_I_90
-							if (abs(PROB_Y(prob1) - PROB_Y(prob0)) <= cr)
+						if (prob1 < prob0) { //this check make sure BRICK_II_90 <all column BRICK_II_90 & BRICK_I_90,
+							if (abs(PROB_Y(prob1) - PROB_Y(prob0)) <= cr  &&
+								(PROB_SHAPE(prob1) == PROB_SHAPE(prob0) || PROB_SHAPE(prob1) == BRICK_I_90))
 								pass = false;
 						}
 					}
@@ -7567,44 +8002,37 @@ static void coarse_line_search(PipeData & d, ProcessParameter & cpara)
 
 			if (!pass)
 				continue;
-
-			if (update_prob & COARSE_LINE_UPDATE_PROB) {
-				if (!(update_prob & COARSE_LINE_UPDATE_WITH_MASK))
-					push_new_prob(d.l[layer].prob, prob0, d.l[layer].gs);
+			
+			push_new_prob(d.l[layer].prob, prob0, d.l[layer].gs);
+			
+			if (cpara.method & OPT_DEBUG_EN) {
+				if (PROB_SHAPE(prob0) == BRICK_I_0)
+					circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 2, Scalar::all(255));
 				else
-				if (!(via_mask.at<unsigned char>(PROB_Y(prob0), PROB_X(prob0)) & 1))
-					push_new_prob(d.l[layer].prob, prob0, d.l[layer].gs);
-			}
-			if (cpara.method & OPT_DEBUG_EN)
-			if (PROB_SHAPE(prob0) == BRICK_I_0)
-				circle(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0)), 2, Scalar::all(255));
-			else
-			if (PROB_SHAPE(prob0) == BRICK_I_90)
-				rectangle(debug_draw, Rect(PROB_X(prob0) - 2, PROB_Y(prob0) - 2, 5, 5), Scalar::all(255), 1);
-			else
-			if (PROB_SHAPE(p_prob[2 * x]) == BRICK_II_0 || PROB_SHAPE(prob0) == BRICK_II_180) {
-				line(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0) - 1),
-					Point(PROB_X(prob0), PROB_Y(prob0) + 1), Scalar::all(255));
-				line(debug_draw, Point(PROB_X(prob0) - 1, PROB_Y(prob0) - 1),
-					Point(PROB_X(prob0) - 1, PROB_Y(prob0) + 1), Scalar::all(255));
-			}
-			else
-			if (PROB_SHAPE(prob0) == BRICK_II_90 || PROB_SHAPE(prob0) == BRICK_II_270) {
-				line(debug_draw, Point(PROB_X(prob0) - 1, PROB_Y(prob0)),
-					Point(PROB_X(prob0) + 1, PROB_Y(prob0)), Scalar::all(255));
-				line(debug_draw, Point(PROB_X(prob0) - 1, PROB_Y(prob0) - 1),
-					Point(PROB_X(prob0) + 1, PROB_Y(prob0) - 1), Scalar::all(255));
+				if (PROB_SHAPE(prob0) == BRICK_I_90)
+					rectangle(debug_draw, Rect(PROB_X(prob0) - 2, PROB_Y(prob0) - 2, 5, 5), Scalar::all(255), 1);
+				else
+				if (PROB_SHAPE(p_prob[2 * x]) == BRICK_II_0 || PROB_SHAPE(prob0) == BRICK_II_180) {
+					line(debug_draw, Point(PROB_X(prob0), PROB_Y(prob0) - 1),
+						Point(PROB_X(prob0), PROB_Y(prob0) + 1), Scalar::all(255));
+					line(debug_draw, Point(PROB_X(prob0) - 1, PROB_Y(prob0) - 1),
+						Point(PROB_X(prob0) - 1, PROB_Y(prob0) + 1), Scalar::all(255));
+				}
+				else
+				if (PROB_SHAPE(prob0) == BRICK_II_90 || PROB_SHAPE(prob0) == BRICK_II_270) {
+					line(debug_draw, Point(PROB_X(prob0) - 1, PROB_Y(prob0)),
+						Point(PROB_X(prob0) + 1, PROB_Y(prob0)), Scalar::all(255));
+					line(debug_draw, Point(PROB_X(prob0) - 1, PROB_Y(prob0) - 1),
+						Point(PROB_X(prob0) + 1, PROB_Y(prob0) - 1), Scalar::all(255));
+				}
 			}
 		}
 		else
 		if (PROB_SHAPE(p_prob[2 * x]) != BRICK_INVALID && PROB_SHAPE(p_prob[2 * x]) != BRICK_VIA) {
-			if (update_prob & COARSE_LINE_UPDATE_PROB) {
-				if (!(update_prob & COARSE_LINE_UPDATE_WITH_MASK))
-					push_new_prob(d.l[layer].prob, p_prob[2 * x], d.l[layer].gs);
-				else
-				if (!(via_mask.at<unsigned char>(PROB_Y(p_prob[2 * x]), PROB_X(p_prob[2 * x])) & 1))
-					push_new_prob(d.l[layer].prob, p_prob[2 * x], d.l[layer].gs);
-			}
+			if (update_prob & COARSE_LINE_UPDATE_WITH_MASK && via_mask.at<unsigned char>(PROB_Y(p_prob[2 * x]), PROB_X(p_prob[2 * x])) & 1)
+				continue;
+
+			push_new_prob(d.l[layer].prob, p_prob[2 * x], d.l[layer].gs);
 			if (PROB_SHAPE(p_prob[2 * x]) != BRICK_NO_WIRE) {
 				if (PROB_SHAPE(p_prob[2 * x]) == BRICK_T_0)
 					line(debug_draw, Point(PROB_X(p_prob[2 * x]) - 1, PROB_Y(p_prob[2 * x])),
@@ -8067,8 +8495,11 @@ static void remove_via(PipeData & d, ProcessParameter & cpara)
 				unsigned char * p_mask = mask.ptr<unsigned char>(y);
 				unsigned char * p_img = debug_draw.ptr<unsigned char>(y);
 				for (int x = 0; x < mask.cols; x++)
-				if (p_mask[x])
+				if (p_mask[x] & 1)
 					p_img[x] = 0xff;
+				else
+				if (p_mask[x] & 2)
+					p_img[x] = 0xe0;
 			}
 			imwrite(get_time_str() + "_l" + (char)('0' + layer) + "_delvia_mask.jpg", debug_draw);
 		}
@@ -8948,6 +9379,7 @@ struct PipeProcess {
 	{ PP_EDGE_DETECT, edge_detect },
 	{ PP_EDGE_DETECT2, edge_detect2 },
 	{ PP_IMAGE_ENHANCE, image_enhance },
+	{ PP_IMAGE_ENHANCE2, image_enhance2 },
 	{ PP_IMAGE_ENHANCE3, image_enhance3 },
 	{ PP_COARSE_VIA_MASK, coarse_via_search_mask },
 	{ PP_FINE_VIA_SEARCH, fine_via_search },

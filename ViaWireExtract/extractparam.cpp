@@ -1329,10 +1329,46 @@ bool ExtractParam::read_file(string filename)
 							param.pi[2] = grad_merge << 24 | gray_w_th << 16 | gray_i_th << 8 | detect_opt;
 							break;
 		}
+		case ImageEnhance2:
+		{
+							  int layer = (int)(*it)["layer"];
+							  int debug_opt = (int)(*it)["debug_opt"];
+							  int opidx_tp = (int)(*it)["opidx_tp"];
+							  int opidx_rv_mask = (int)(*it)["opidx_rv_mask"];
+							  int enhance_opt = (int)(*it)["enhance_opt"];
+							  int gray_i_clip = (int)(*it)["gray_i_clip"];
+							  int gray_w_clip = (int)(*it)["gray_w_clip"];
+							  int gray_i_th = (int)(*it)["gray_i_th"];
+							  int gray_w_th = (int)(*it)["gray_w_th"];
+							  int hole_th = (int)(*it)["hole_th"];
+							  int heave_len = (int)(*it)["heave_len"];
+							  int tangen_len = (int)(*it)["tangen_len"];
+							  int wire_th_weight = (int)(*it)["wire_th_weight"];
+							  int via_th_weight = (int)(*it)["via_th_weight"];
+
+							  if (enhance_opt > 255 || gray_i_th > 255 || gray_w_th > 255 || gray_i_clip > 255) {
+								  qCritical("ParamItems file error, name=%s, enhance_opt=%d, i_th=%d, w_th=%d, gray_i_clip=%d",
+									  name.c_str(), enhance_opt, gray_i_th, gray_w_th, gray_i_clip);
+								  check_pass = false;
+							  }
+
+							  if (tangen_len > 255 || heave_len > 255 || hole_th > 65535 || gray_w_clip > 255) {
+								  qCritical("ParamItems file error, name=%s, heave_len=%d, tangen_len=%d, hole_th=%d, gray_w_clip=%d",
+									  name.c_str(), heave_len, tangen_len, hole_th, gray_w_clip);
+								  check_pass = false;
+							  }
+							  param.pi[0] = layer;
+							  param.pi[1] = debug_opt << 24 | PP_IMAGE_ENHANCE2 << 16 | opidx_rv_mask << 4 | opidx_tp;
+							  param.pi[2] = gray_i_clip << 24 | gray_w_th << 16 | gray_i_th << 8 | enhance_opt;
+							  param.pi[3] = tangen_len << 24 | heave_len << 16 | hole_th;
+							  param.pi[4] = via_th_weight << 16 | wire_th_weight << 8 | gray_w_clip;
+							  break;
+		}
 		case ImageEnhance3:
 		{
 							int layer = (int)(*it)["layer"];
 							int debug_opt = (int)(*it)["debug_opt"];
+							int opidx_tp = (int)(*it)["opidx_tp"];
 							int enhance_opt = (int)(*it)["enhance_opt"];
 							int gray_i_clip = (int)(*it)["gray_i_clip"];
 							int gray_w_clip = (int)(*it)["gray_w_clip"];
@@ -1354,7 +1390,7 @@ bool ExtractParam::read_file(string filename)
 								check_pass = false;
 							}
 							param.pi[0] = layer;
-							param.pi[1] = debug_opt << 24 | PP_IMAGE_ENHANCE3 << 16;
+							param.pi[1] = debug_opt << 24 | PP_IMAGE_ENHANCE3 << 16 | opidx_tp;
 							param.pi[2] = gray_i_clip << 24 | gray_w_th << 16 | gray_i_th << 8 | enhance_opt;
 							param.pi[3] = ud_adjust << 24 | lr_adjust << 16 | hole_th;
 							param.pi[4] = gray_w_clip;
@@ -1840,6 +1876,32 @@ void ExtractParam::write_file(string filename)
 			fs << "enhance_x0" << (it->second.pi[6] & 0xff);
 			fs << "enhance_x1" << (it->second.pi[6] >> 8 & 0xff);
 			fs << "enhance_y" << (it->second.pi[6] >> 16 & 0xff);
+			break;
+
+		case ImageEnhance2:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "enhance_opt" << (it->second.pi[2] & 0xff);
+			fs << "gray_i_clip" << (it->second.pi[2] >> 24 & 0xff);
+			fs << "gray_w_clip" << (it->second.pi[4] & 0xff);
+			fs << "gray_i_th" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "gray_w_th" << (it->second.pi[2] >> 16 & 0xff);
+			fs << "hole_th" << (it->second.pi[3] & 0xff);
+			fs << "heave_len" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "tangen_len" << (it->second.pi[3] >> 24 & 0xff);
+			break;
+
+		case ImageEnhance3:
+			fs << "debug_opt" << (it->second.pi[1] >> 24 & 0xff);
+			fs << "layer" << it->second.pi[0];
+			fs << "enhance_opt" << (it->second.pi[2] & 0xff);
+			fs << "gray_i_clip" << (it->second.pi[2] >> 24 & 0xff);
+			fs << "gray_w_clip" << (it->second.pi[4] & 0xff);
+			fs << "gray_i_th" << (it->second.pi[2] >> 8 & 0xff);
+			fs << "gray_w_th" << (it->second.pi[2] >> 16 & 0xff);
+			fs << "hole_th" << (it->second.pi[3] & 0xff);
+			fs << "lr_adjust" << (it->second.pi[3] >> 16 & 0xff);
+			fs << "ud_adjust" << (it->second.pi[3] >> 24 & 0xff);
 			break;
 
 		case FilterObj:
