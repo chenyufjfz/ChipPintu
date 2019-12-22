@@ -1,9 +1,11 @@
 #include "stitchview.h"
 #include "iclayer.h"
-#include <QPainter>
+#include <stdlib.h>
 #include <algorithm>
-#include <QtCore/QSharedPointer>
+#include <math.h>
 #include <fstream>
+#include <QPainter>
+#include <QtCore/QSharedPointer>
 #include <QMessageBox>
 #include <QDateTime>
 #include <QApplication>
@@ -111,7 +113,7 @@ void compute_center(const Mat_<uchar> & pos_z, const Mat_<Vec2i> & pos, vector<P
 			if (num!=0) //center is average of valid row edge offset
 				center[y] = c * (1.0 / num);
 			else
-				center[y] = (y >= 1) ? center[y-1] : Point2d(pos(y, 0)[1], pos(y, 0)[0]); //use pre-row center
+				center[y] = (y >= 1) ? center[y-1] : Point(pos(y, 0)[1], pos(y, 0)[0]); //use pre-row center
 			for (int x = 0; x < pos.cols; x++) 
 			if (!pos_z(y, x)) { //accumulate err stat
 				int errx = min(abs((pos(y, x)[1] - center[y].x) / scale), (int)err_statx.size() - 1);
@@ -135,7 +137,7 @@ void compute_center(const Mat_<uchar> & pos_z, const Mat_<Vec2i> & pos, vector<P
 			if (num != 0) //center is average of valid row edge offset
 				center[x] = c * (1.0 / num);
 			else
-				center[x] = (x >= 1) ? center[x-1] : Point2d(pos(0, x)[1], pos(0, x)[0]);
+                center[x] = (x >= 1) ? center[x-1] : Point(pos(0, x)[1], pos(0, x)[0]);
 			for (int y = 0; y < pos.rows; y++)
 			if (!pos_z(y, x)) {
 				int errx = min(abs((pos(y, x)[1] - center[x].x) / scale), (int)err_statx.size() - 1);
@@ -364,8 +366,8 @@ void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_val
 			short val_y = (info >> 16) & 0xffff;
 			sumx += abs(val_x);
 			sumy += abs(val_y);
-			maxx = max(maxx, abs(val_x));
-			maxy = max(maxy, abs(val_y));
+            maxx = std::max(maxx, (int)abs(val_x));
+            maxy = std::max(maxy, (int)abs(val_y));
 			PRINT_COMPLEX(0, val_x, val_y);
 		}
 		fprintf(fp, "\n");
@@ -420,6 +422,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	cur_nail = Nail();
 	new_nail_num = 0;
 	ba = BundleAdjustInf::create_instance(2);
+	license = "";
 }
 
 StitchView::~StitchView()
@@ -1633,6 +1636,11 @@ void StitchView::self_check_offset(int _layer)
 	}
 }
 
+void StitchView::set_license(string _license)
+{
+	license = _license;
+}
+
 //if _layer==-1, means current layer
 int StitchView::set_config_para(int _layer, const ConfigPara & _cpara)
 {
@@ -2041,7 +2049,7 @@ int StitchView::output_layer(int _layer, string pathname) {
 	ICLayerWrInterface *ic;
 	ICLayerInterface *icl;
 	try {
-		ic = ICLayerWrInterface::create(filename, false, 1, 1, 0, 0, 0, 0, 0);
+		ic = ICLayerWrInterface::create(filename, license, false, 1, 1, 0, 0, 0, 0, 0);
 		icl = ic->get_iclayer_inf();
 	}
 	catch (std::exception & e) {
@@ -2098,7 +2106,7 @@ int StitchView::output_layer(int _layer, string pathname) {
 	int ZOOM_IMAG_SIZE = 4096;
 	int s;
 	for (s = 0; (dst_w << s) < ZOOM_IMAG_SIZE; s++);
-	ic = ICLayerWrInterface::create(filename, true, 1, 1, 0, 0, 0, 0, 0);
+	ic = ICLayerWrInterface::create(filename, "", true, 1, 1, 0, 0, 0, 0, 0);
 	s = max(ic->getMaxScale() - s - 1, 1);	
 	vector<uchar> buff;
 	QImage image0;
@@ -2436,7 +2444,7 @@ int StitchView::read_file(string file_name, bool import)
 			fs[name] >> lf[i]->corner_info;			
 			if (lf[i]->corner_info.empty()) {
 				lf[i]->corner_info.create(lf[i]->cpara.offset.rows, lf[i]->cpara.offset.cols);
-				lf[i]->corner_info = 0;
+				lf[i]->corner_info = Vec2i(0, 0);
 			}
 			else {
 				lf[i]->find_next = 0;

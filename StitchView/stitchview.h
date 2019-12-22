@@ -168,6 +168,7 @@ protected:
 	
 protected:
 	string project_path;
+	string license;
 	int choose_edge;
 	//Following is for drawing layer and rect
 	double scale; //current scale, should be bigger than cpara.rescale /2
@@ -225,6 +226,7 @@ protected:
 	QPoint cur_mouse_point;
 	//upper is for draw mouse
 public:
+	void set_license(string _license);
 	//if _layer==-1, means current layer, if _layer==get_layer_num(), add new layer
 	int set_config_para(int _layer, const ConfigPara & _cpara);
 	//if _layer==-1, means get config of current layer

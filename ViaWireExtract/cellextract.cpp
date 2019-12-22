@@ -352,7 +352,7 @@ float CellFeature::cmp(int *ig, int lsize, int & dir, float & m_score)
     return (float)min_d / valid_area;
 }
 
-int CellExtract::train(string file_name, const vector<MarkObj> & obj_sets)
+int CellExtract::train(string file_name, vector<MarkObj> & obj_sets)
 {
 	QDir *qdir = new QDir;
 	deldir("./DImg");

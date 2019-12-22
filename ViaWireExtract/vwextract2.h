@@ -26,7 +26,7 @@ public:
 	Mat get_mark1(int layer);
 	Mat get_mark2(int layer);
 	Mat get_mark3(int layer);
-	int train(string, const std::vector<MarkObj> &) { return 0; }
+	int train(string, std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
 	int train(vector<ICLayerWrInterface *> &, const std::vector<MarkObj> &) { return 0; }
 	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);

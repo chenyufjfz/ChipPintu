@@ -91,7 +91,7 @@ public:
 	  Input: _zoom, same as GenerateDatabaseParam zoom
 	  Input: _offset_x, _offset_y, same as GenerateDatabaseParam _offset_x, _offset_y
 	*/
-	static ICLayerWrInterface * create(const string file, bool _read, double _zoom_x, double _zoom_y, double _offset_x, double _offset_y,
+	static ICLayerWrInterface * create(const string file, const string license, bool _read, double _zoom_x, double _zoom_y, double _offset_x, double _offset_y,
 		int _cache_size, int dbtype, int wrtype);
 	//getBlockWidth can be called when read database
 	virtual int getBlockWidth() = 0;
@@ -153,13 +153,13 @@ It support multi-thread access when open as read, each layer has its own lock,
 Typical call use
 1 Write use case
 img_db = BkImgDBInterface::create_BkImgDB();
-img_db->open("chip.prj", false);
+img_db->open("chip.prj", license, false);
 img_db->addNewLayer("f:/layer1/Name_", 1, 60, 1, 75);
 img_db->addNewLayer("f:/layer2/Name_", 1, 60, 1, 75);
 delete img_db
 2 Read use case
 img_db = BkImgDBInterface::create_BkImgDB();
-img_db->open("chip.prj", true, cache_size);
+img_db->open("chip.prj", license, true, cache_size);
 img_db->getBlockWidth();
 img_db->getBlockNum(bx, by);
 img_db->getRawImgByIdx(buff, l, x, y, s, 0);
@@ -169,7 +169,7 @@ img_db->adjust_cache_size(-delta_size);
 delete img_db
 3 Read by layer
 img_db = BkImgDBInterface::create_BkImgDB();
-img_db->open("chip.prj", true, cache_size);
+img_db->open("chip.prj", license, true, cache_size);
 ICLayerWrInterface * ic_layer = get_layer(1);
 ic_layer->getRawImgByIdx(buff, x, y, s, 0);
 ic_layer->adjust_cache_size(delta_size);
@@ -215,7 +215,7 @@ public:
 	Input, quality, used to set image quality
 	*/
 	virtual void addNewLayer(GenerateDatabaseParam & gdp) = 0;
-	virtual int open(const string prj, bool _read, int _max_cache_size=0) = 0;
+	virtual int open(const string prj, const string license,  bool _read, int _max_cache_size = 0) = 0;
 	/*Only be called when open for read
 	Input: _delta_cache_size
 	*/
@@ -227,7 +227,7 @@ public:
 /*
 With BkImgRoMgr user don't call BkImgInterface.open directly and same prj's BkImgInterface is shared by different user.
 Use case 1
-1 QSharedPointer<BkImgInterface> sp = BkImgRoMgr.open(prj, cache_size);
+1 QSharedPointer<BkImgInterface> sp = BkImgRoMgr.open(prj, license, cache_size);
 2 sp->getBlockWidth();
 3 sp->getBlockNum(bx, by);
 4 sp->getRawImgByIdx(buff, l, x, y, s, 0);
@@ -244,7 +244,7 @@ public:
 	   Delete BkImgInterface is managed by QSharedPointer. 
 	   But user should call BkImgInterface->adjust_cache_size to release cache size. 
 	*/
-    QSharedPointer<BkImgInterface> open(const string prj, int _cache_size=0);
+	QSharedPointer<BkImgInterface> open(const string prj, const string license, int _cache_size = 0);
 };
 
 #endif // ICLAYER_H

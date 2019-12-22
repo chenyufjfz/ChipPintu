@@ -190,7 +190,7 @@ int cell_extract_test()
 	vector <MarkObj> obj_set; 
 
 	CellExtract ce;
-	ICLayerWrInterface * ic = ICLayerWrInterface::create("C:/chenyu/data/A13/PL.db", true, 1.0, 1.0, 0, 0, 2, 0, 0);
+	ICLayerWrInterface * ic = ICLayerWrInterface::create("C:/chenyu/data/A13/PL.db", "", true, 1.0, 1.0, 0, 0, 2, 0, 0);
 	
     vector<ICLayerWrInterface *> pic;
     pic.push_back(ic);

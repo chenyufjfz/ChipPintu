@@ -64,7 +64,6 @@ public:
 protected:
     vector <MarkObj> obj_set;
 	string img_name;
-	vector<unsigned int> mark_color;
 	vector<QImage> bk_img;
 	QImage bk_img_mask;
     bool mouse_press;

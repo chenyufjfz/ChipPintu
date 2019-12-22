@@ -12,24 +12,6 @@
 using namespace std;
 using namespace cv;
 
-static unsigned int mark_color_table[][2] = {
-		{ 0xff000000, M_UNKNOW},
-		{ 0xff0000a0, M_W },
-		{ 0xff00a000, M_V },
-		{ 0xff000030, M_W_I },
-		{ 0xff003000, M_V_I },
-		{ 0xff202020, M_I },
-		{ 0xff008080, M_W_V },
-		{ 0xffa00000, M_V_I_W },
-		{ 0xff300000, M_V_I_V },
-		{ 0xff800000, M_EDGE},
-		{ 0xff202020, M_NOEDGE },
-		{ 0xff202020, M_INL },
-		{ 0xff0000a0, M_WNL },
-		{ 0xff00a000, M_VNL },
-		{ 0xff000030, M_W_INL },
-		{ 0xff003000, M_V_INL }
-};
 static double distance_p2p(const QPoint & p1, const QPoint & p2)
 {
     double ret;
@@ -96,9 +78,6 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	mark_mask = 0;
 	show_debug_en = false;
 	hide_obj = false;
-	mark_color.resize(sizeof(mark_color_table) / (sizeof(unsigned) * 2));
-	for (int i = 0; i < mark_color.size(); i++)
-		mark_color[mark_color_table[i][1]] = mark_color_table[i][0];
 	cele = new CellExtract();
 	current_train = NULL;
 	vwe = NULL;
@@ -216,20 +195,18 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
         break;
     case OBJ_POINT:
         if (obj.state !=4 && obj.type3 == layer) {
-            if (obj.state == 0) {
-                painter.setPen(QPen(Qt::green, 1));
-                painter.setBrush(QBrush(Qt::green));
-            } else {
-                painter.setPen(QPen(Qt::red, 1));
-                painter.setBrush(QBrush(Qt::red));
-            }
-            painter.drawEllipse(obj.p1, 2, 2);
-
-			//draw via circle
-			/*
-			painter.setPen(QPen(Qt::green, 1, Qt::DotLine));
-			painter.setBrush(QBrush(Qt::NoBrush));
-			painter.drawEllipse(obj.p1, via_radius, via_radius);*/
+			if (obj.type2 == POINT_NO_VIA) {
+				painter.setPen(QPen(Qt::red, 1, Qt::DotLine));
+				painter.setBrush(QBrush(Qt::red, Qt::NoBrush));
+			}
+			else {
+				painter.setPen(QPen(Qt::green, 1, Qt::DotLine));
+				painter.setBrush(QBrush(Qt::green, Qt::NoBrush));
+			}
+            painter.drawEllipse(obj.p0, 2, 2);
+			QPoint tl(obj.p0.x() - obj.p1.x() / 2, obj.p0.y() - obj.p1.y() / 2);
+			QPoint br(obj.p0.x() - obj.p1.x() / 2 + obj.p1.x(), obj.p0.y() - obj.p1.y() / 2 + obj.p1.y());
+			painter.drawEllipse(QRect(tl, br));
         }
         break;
     }
