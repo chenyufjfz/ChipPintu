@@ -850,7 +850,12 @@ uchar middle_sort(const vector<uchar> & data)
 /*
 Input img, image
 Input start_pt, start point
-
+Input dir0, scan direction
+Input dir1, middle sort direction, vertical to scan direction
+Input num0, scan number
+Input num1, middle sort number = num1 *2
+Output flt_out, its size is num0
+middle_sort_line move a rectangle [2, num1] in dir0 direction.
 */
 void middle_sort_line(const Mat & img, Point start_pt, int dir0, int dir1, int num0, int num1, vector<uchar> & flt_out)
 {
@@ -887,9 +892,6 @@ void middle_sort_line(const Mat & img, Point start_pt, int dir0, int dir1, int n
 
 void compute_grad(const Mat & img, Mat & grad)
 {
-	Size wholesize;
-	Point pt;
-	img.locateROI(wholesize, pt);
 	grad.create(img.rows, img.cols, CV_32SC2);
 
 	for (int y = 0; y < img.rows; y++) {
@@ -897,18 +899,18 @@ void compute_grad(const Mat & img, Mat & grad)
 		for (int x = 0; x < img.cols; x++) {
 			int sv = 0, sh = 0;
 			for (int dy = -2; dy <= 2; dy++) {
-				const uchar * p_img = (y + dy + pt.y < 0) ? img.ptr<uchar>(0, x) : 
-					(y + dy + pt.y >= img.rows) ? img.ptr<uchar>(img.rows - 1, x) : img.ptr<uchar>(y + dy, x);
+				const uchar * p_img = (y + dy < 0) ? img.ptr<uchar>(0, x) : 
+					(y + dy >= img.rows) ? img.ptr<uchar>(img.rows - 1, x) : img.ptr<uchar>(y + dy, x);
 				const char * p_vert = Vert.ptr<char>(dy + 2, 2);
 				const char * p_hori = Horizon.ptr<char>(dy + 2, 2);
-				if (x + pt.x - 2 < 0) {
+				if (x - 2 < 0) {
 					for (int dx = -2; dx <= 2; dx++) {
 						int t = p_img[dx < 0 ? 0 : dx];
 						sv += t * p_vert[dx];
 						sh += t * p_hori[dx];
 					}
 				}
-				else if (x + pt.x + 2 >= img.cols) {
+				else if (x + 2 >= img.cols) {
 					for (int dx = -2; dx <= 2; dx++) {
 						int t = p_img[dx > 0 ? img.cols - 1 : dx];
 						sv += t * p_vert[dx];
@@ -929,7 +931,6 @@ void compute_grad(const Mat & img, Mat & grad)
 
 ViaML::ViaML()
 {
-	via_lda = NULL;
 	via_svm = NULL;
 }
 
@@ -971,6 +972,8 @@ void ViaML::find_best_bright(const Mat & lg, int d, vector<Point> & loc)
 	}
 }
 
+#define VIA_MINIMUM_GRAD 1000
+
 int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d, const vector<Point> & loc, Mat features[])
 {
 	CV_Assert(grad.type() == CV_32SC2 && img.type() == CV_8UC1);
@@ -991,20 +994,21 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 			for (int d2 = d - 1; d2 <= d + 1; d2++) { //search all shape, d1 for x, d2 for y
 				float r1 = d1 * 0.5f;
 				float r2 = d2 * 0.5f;
-				auto circle_it = circles.find(d1 * 100 + d2);
+				auto circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
+				Point2f tl;
 				if (circle_it == circles.end()) {
 					//following compute circle(d1, d2) and d0s(d1, d2)
 					vector<vector<Vec3i> > cir;
 					vector<Point2f> ef[8];
 					float minx = 10000, miny = 10000;
 					for (int i = 0; i < 8; i++)
-						for (float beta = M_PI_4 * (i - 0.6); beta <= M_PI_4 * (i + 0.6); beta += 0.05) { //compute octagon's edge point
-							ef[i].push_back(Point2f(r1 * cosf(beta), -r2 * sinf(beta)));
-							minx = min(minx, ef[i].back().x);
-							miny = min(miny, ef[i].back().y);
-						}
-					Point2f tl(minx - 0.5, miny - 0.5);
-					vector<Vec3i> xy(d2+1);
+					for (float beta = M_PI_4 * (i - 0.6); beta <= M_PI_4 * (i + 0.6); beta += 0.05) { //compute octagon's edge point
+						ef[i].push_back(Point2f(r1 * cosf(beta), -r2 * sinf(beta)));
+						minx = min(minx, ef[i].back().x);
+						miny = min(miny, ef[i].back().y);
+					}
+					tl = Point2f(minx - 0.5, miny - 0.5);
+					vector<Vec3i> xy(d2 + 1);
 					for (int i = 0; i <= d2; i++) {
 						xy[i][0] = i;
 						xy[i][1] = 0;
@@ -1029,9 +1033,14 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 						}
 						cir.push_back(edge);
 					}
-					circles[d1 * 100 + d2] = cir;
+					circles[grad.step.p[0] * 10000 + d1 * 100 + d2] = cir;
 					d0s[d1 * 100 + d2] = xy;
-					circle_it = circles.find(d1 * 100 + d2);
+					circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
+				}
+				vector<vector<Vec3i> > & cir = circle_it->second; //cir[i] is one edge, cir[i][j] is one point
+				auto circle_edges_it = circle_edges.find(d1 * 100 + d2);
+
+				if (circle_edges_it == circle_edges.end()) {
 					//following compute circle_edges outside
 					vector<Vec6i> v6(8);					
 					for (int i = 0; i < 8; i++) {
@@ -1090,9 +1099,9 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 						v6[i][1] = p1.x - tl.x;
 					}
 					circle_edges[d1 * 100 + d2] = v6;
+					circle_edges_it = circle_edges.find(d1 * 100 + d2);
 				}
-				vector<vector<Vec3i> > & cir = circle_it->second; //cir[i] is one edge, cir[i][j] is one point
-				auto circle_edges_it = circle_edges.find(d1 * 100 + d2);
+				
 				vector<Vec6i> & cir_edge = circle_edges_it->second;
 				CV_Assert(cir.size() == 8);
 				int min_es = 0x20000000, submin_es = 0x20000000, total_es = 0;
@@ -1104,6 +1113,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 						es += (cross >= 0) ? cross : cross * 4;
 					}
 					es = es / (int) cir[i].size();
+					es = es / 16; //grad sum is 16
 					if (es < min_es) {
 						submin_es = min_es;
 						min_es = es;
@@ -1111,12 +1121,12 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 					else 
 					if (es < submin_es)
 						submin_es = es;
-					if (es < 0)
+					if (es < VIA_MINIMUM_GRAD)
 						break;
 					e8[i] = es;
 					total_es += es;
 				}
-				if (min_es < -9)
+				if (min_es < VIA_MINIMUM_GRAD)
 					continue;
 				int score = min_es + submin_es / 2 + total_es / 64;
 				if (score > best_score) {
@@ -1145,7 +1155,8 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 	}
 	if (score0 == 0)
 		return 0;
-	for (int k = 0; k < 2; k++) {
+	for (int k = 0; k < 2; k++) 
+	if (!features[k].empty()) {
 		Point org(features[k].at<int>(0, 0), features[k].at<int>(0, 1));
 		int d1 = features[k].at<int>(0, 2);
 		int d2 = features[k].at<int>(0, 3);
@@ -1180,12 +1191,16 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 			n += 2 * x + 1;
 		}
 		features[k].at<int>(0, 5) = s / n;
+		features[k].at<int>(0, 6) = 0;
+		features[k].at<int>(0, 7) = 0;
 	}
 	return score0;
 }
 
 int ViaML::feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs)
 {
+	if (d0.empty())
+		return 0;
 	int max_d = *max_element(d0.begin(), d0.end());
 	int x0 = max(0, org.x - range.x - max_d);
 	int x1 = min(img.cols - 1, org.x + range.x + max_d);
@@ -1236,16 +1251,15 @@ int ViaML::feature_extract(const Mat & img, Point & org, Point & range, const ve
 	return best_score;
 }
 
-bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int d0, int label, vector<Mat> & features, vector<Point> * vs)
+bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, vector<Point> * vs)
 {
 	features.clear();
 	if (label & 1) { //it is via
 		vector<int> d;
 		Mat feature;
-		if (d0 > 5)
-			d.push_back(d0 - 2);
-		d.push_back(d0);
-		d.push_back(d0 + 2);
+		for (int i = min_d0; i <= max_d0; i++)
+		if (i > 5)
+			d.push_back(i);
 		int score = feature_extract(img, org, range, d, feature, vs);
 		if (score > 0) {
 			feature.at<int>(0, 0) = label;
@@ -1257,12 +1271,12 @@ bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int d0,
 	}
 	else { //it is not via		
 		int best_score = 0;
-		for (int i = -2; i <= 2; i += 2) {
+		for (int i = min_d0; i <= max_d0; i++) {
 			vector<Point> vs0;
 			vector<int> d;
 			Mat feature;
-			if (d0 + i > 5)
-				d.push_back(d0 + i);
+			if (i > 5)
+				d.push_back(i);
 			else
 				continue;
 			int score = feature_extract(img, org, range, d, feature, &vs0);
@@ -1272,7 +1286,12 @@ bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int d0,
 			}
 			if (score > 0) {
 				feature.at<int>(0, 0) = label;
-				features.push_back(feature);
+				bool same = false;
+				for (auto & f : features)
+				if (f.at<int>(0, 2) == feature.at<int>(0, 2) && f.at<int>(0, 3) == feature.at<int>(0, 3))
+					same = true;
+				if (!same)
+					features.push_back(feature);
 			}
 		}
 		if (best_score > 0)
@@ -1284,77 +1303,76 @@ bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int d0,
 
 bool ViaML::train(const vector<Mat> & features)
 {
-	Mat train_data_svm((int)features.size(), 3, CV_32FC1);
-	Mat train_data_lda((int)features.size(), 3, CV_32FC1);
+	Mat train_data_svm((int)features.size(), 5, CV_32FC1);
 	Mat label((int)features.size(), 1, CV_32FC1);
-	//train LDA to reduce grad dim
+	//prepare train data svm
 	bool has_via[2] = { false, false };
-	for (int i = 0; i < features.size(); i++) {
+	via_dia.clear();
+	for (int i = 0; i < (int) features.size(); i++) {
 		const Mat &feature = features[i];
 		CV_Assert(feature.cols == 8 && feature.rows == FEATURE_ROW);
 		vector<int> g;
 		for (int j = 0; j < 8; j++)
-			g.push_back(feature.at<float>(1, j));
-		sort(g.begin(), g.end());
-		train_data_lda.at<float>(i, 0) = g[0];
-		train_data_lda.at<float>(i, 1) = g[1];
-		train_data_lda.at<float>(i, 2) = g[2];
+			g.push_back(feature.at<int>(1, j));
+		sort(g.begin(), g.end());		
 		int s = feature.at<int>(0, 0) & 1;
-		label.at<float>(i) = s;
-		has_via[s] = true;
-	}
-	if (!has_via[0] || !has_via[1])
-		return false;
-	if (via_lda)
-		delete via_lda;
-	via_lda = new LDA(train_data_lda, label, 1);
-	
-	Mat ev = via_lda->eigenvectors();
-	qInfo("via lda ev=%f, %f, %f", ev.at<float>(0), ev.at<float>(1), ev.at<float>(2));
-	//compute reduce grad
-	Mat grad = via_lda->project(train_data_lda);
-	via_dia.clear();
-	//train SVM
-	CV_Assert(grad.rows == (int)features.size() && grad.cols == 1 && grad.type() == CV_32FC1);
-	for (int i = 0; i < features.size(); i++) {
-		const Mat &feature = features[i];
 		int d1 = feature.at<int>(0, 2);
 		int d2 = feature.at<int>(0, 3);
-		int diameter = (d1 + d2) / 2;
 		int sum = feature.at<int>(0, 4);
-		train_data_svm.at<float>(i, 0) = diameter;
+		train_data_svm.at<float>(i, 0) = (d1 + d2) * 5;
 		train_data_svm.at<float>(i, 1) = sum;
-		train_data_svm.at<float>(i, 2) = grad.at<float>(i);
-		qInfo("train, is_via=%d, d=%d, s=%d, g=%d,%d,%d, gp=%f", (int) label.at<float>(i), diameter, sum,
-			(int) train_data_lda.at<float>(i, 0), (int) train_data_lda.at<float>(i, 1), 
-			(int)train_data_lda.at<float>(i, 2), grad.at<float>(i));
-
+		train_data_svm.at<float>(i, 2) = g[0] * 0.1;
+		train_data_svm.at<float>(i, 3) = g[1] * 0.1;
+		train_data_svm.at<float>(i, 4) = g[2] * 0.1;
+		label.at<float>(i) = s * 2 - 1;
+		qInfo("ViaML:train, is_via=%d, d=%f, s=%d,g=%f,%f,%f", (int)label.at<float>(i),
+			train_data_svm.at<float>(i, 0), sum, train_data_svm.at<float>(i, 2),
+			train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));		
+		has_via[s] = true;
+		int diameter = (d1 + d2) / 2;
 		//fill via diameter set
 		if (abs(d1 - d2) == 1) {
 			if (via_dia.find(d1) == via_dia.end() && via_dia.find(d2) == via_dia.end())
 				via_dia.insert(diameter);
 		}
-		else 
+		else
 			via_dia.insert(diameter);
 	}
-
+	if (!has_via[0] || !has_via[1])
+		return false;
+	
 	// Set up SVM's parameters
 	CvSVMParams params;
 	params.svm_type = CvSVM::C_SVC;
-	params.kernel_type = CvSVM::RBF;
+	params.kernel_type = CvSVM::POLY;
 	params.term_crit = cvTermCriteria(CV_TERMCRIT_ITER, 100, 1e-6);
+	params.C = 2;
+	params.degree = 2;
+	params.gamma = 1;
+	params.coef0 = 0;
 	if (via_svm)
 		delete via_svm;
 	via_svm = new CvSVM;
 	via_svm->train(train_data_svm, label, Mat(), Mat(), params);
+	qInfo("ViaML:train, var_cnt=%d, sup_vec_cnt=%d", via_svm->get_var_count(), via_svm->get_support_vector_count());
+	char s[600];
+	for (int i = 0; i < via_svm->get_support_vector_count(); i++) {
+		const float * sv = via_svm->get_support_vector(i);
+		int k = 0;
+		for (int j = 0; j < via_svm->get_var_count(); j++)
+			k += sprintf(&s[k], "%f,", sv[j]);
+		qInfo(s);
+	}
+	for (int i = 0; i < (int)features.size(); i++) {
+		float response = via_svm->predict(train_data_svm.row(i), true);
+		qInfo("ViaML:train, is_via=%d, predict=%f", (int)label.at<float>(i), response);
+	}
 	return true;
 }
 
 float ViaML::judge(const Mat & img, Point & org, Point & range, int &label)
 {
 	label = 0;
-	if (via_lda == NULL)
-		return 0;
 	
 	int max_d = *max_element(via_dia.begin(), via_dia.end());
 	int x0 = max(0, org.x - range.x - max_d);
@@ -1370,7 +1388,7 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label)
 	Mat feature2[2];
 
 	int choose = 0;
-	float max_response = 0;
+	float max_response = -1;
 	for (auto d : via_dia) {
 		vector<Point> loc;
 		find_best_bright(lg, d, loc);
@@ -1380,14 +1398,13 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label)
 			const Mat &feature = feature2[i];
 			vector<int> g;
 			for (int j = 0; j < 8; j++)
-				g.push_back(feature.at<float>(1, j));
+				g.push_back(feature.at<int>(1, j));
 			sort(g.begin(), g.end());
-			Mat gm = (Mat_<float>(1, 3) << g[0], g[1], g[2]); 
-			float diameter = (feature.at<int>(0, 2) + feature.at<int>(0, 3)) / 2;
+			Mat gm = (Mat_<float>(1, 3) << g[0], g[1], g[2]);
+			float diameter = (feature.at<int>(0, 2) + feature.at<int>(0, 3)) * 5;
 			float sum = feature.at<int>(0, 4);
-			float grad = via_lda->project(gm).at<float>(0);
-			Mat sample = (Mat_<float>(1, 3) << diameter, sum, grad);
-			float response = via_svm->predict(sample);
+			Mat sample = (Mat_<float>(1, 5) << diameter, sum, g[0] * 0.1, g[1] * 0.1, g[2] * 0.1);
+			float response = -via_svm->predict(sample, true);
 			if (response > max_response) {
 				max_response = response;
 				range.x = feature.at<int>(0, 2);
@@ -1402,7 +1419,7 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label)
 		if (max_response > 0.999)
 			break;
 	}
-	if (max_response > 0.5)
+	if (max_response > 0)
 		label |= 1;
 	return max_response;
 }
@@ -1412,24 +1429,24 @@ VWfeature::VWfeature()
 	retrain_via = false;
 }
 
-bool VWfeature::add_feature(const Mat & img, Point local, Point & global, Point & range, int d0, int label, vector<Point> * vs)
+bool VWfeature::add_feature(const Mat & img, Point local, Point & global, Point & range, int min_d0, int max_d0, int label, vector<Point> * vs)
 {
-	if (d0 < 5) {
+	if (max_d0 <= 5) {
 		qCritical("add_feature d0 too low");
 		return false;
 	}
-	if (local.x <= d0 || local.y <= d0 || local.x >= img.cols - d0 || local.y >= img.rows - d0) {
+	if (local.x <= max_d0 || local.y <= max_d0 || local.x >= img.cols - max_d0 || local.y >= img.rows - max_d0) {
 		qCritical("add_feature (%d,%d) out of range", local.x, local.y);
 		return false;
 	}
 	range = Point(0, 0);
 	vector<Mat> features;
 	Point local1 = local, global1;
-	bool ret = vml.feature_extract(img, local1, range, d0, label, features, vs);
+	bool ret = vml.feature_extract(img, local1, range, min_d0, max_d0, label, features, vs);
 	if (!ret)
 		return false;
 	global1 = global + local1 - local;
-	del_feature(global1, d0);
+	del_feature(global1, max_d0);
 	for (int i = 0; i < features.size(); i++) {
 		via_locs.push_back(global1);
 		via_features.push_back(features[i]);
@@ -1447,7 +1464,7 @@ bool VWfeature::del_feature(Point global, int d0)
 {
 	for (int i = 0; i < via_locs.size(); i++) {
 		Point shift = global - via_locs[i];
-		if (abs(shift.x) <= d0 || abs(shift.y) <= d0) {
+		if (abs(shift.x) <= d0 && abs(shift.y) <= d0) {
 			via_locs.erase(via_locs.begin() + i);
 			via_features.erase(via_features.begin() + i);
 			i--;
@@ -1466,7 +1483,7 @@ void VWfeature::clear_feature()
 
 void VWfeature::write_file(string project_path, int layer)
 {
-	string filename = project_path + "/WorkData";
+	string filename = project_path + "/WorkData/";
 	QDir work_dir(QString::fromStdString(filename));
 	if (!work_dir.exists()) {
 		bool ret = work_dir.mkdir(QString::fromStdString(filename));
@@ -1493,7 +1510,7 @@ void VWfeature::write_file(string project_path, int layer)
 
 bool VWfeature::read_file(string project_path, int layer)
 {
-	string filename = project_path + "/WorkData";
+	string filename = project_path + "/WorkData/";
 	char sh[100];
 	sprintf(sh, "vwfeature%d.txt", layer);
 	filename = filename + sh;
@@ -1506,6 +1523,7 @@ bool VWfeature::read_file(string project_path, int layer)
 	via_features.resize(s);
 	via_locs.resize(s);
 	for (int i = 0; i < (int)via_features.size(); i++) {
+		via_features[i].create(FEATURE_ROW, 8, CV_32S);
 		if (fscanf(fp, "%d%d", &s, &t) != 2)
 			return false;
 		via_locs[i] = Point(s, t);
@@ -1541,12 +1559,14 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<MarkObj > & v
 		mark_dbg = 0;
 	
 	//1 find min diameter and min via gray
-	int min_d0 = 1000;
+	int min_d0 = 1000, max_d0 = 0;
 	int min_a1 = 1000, max_a0 = 0;
 	for (auto & feature : via_features) {
 		if (feature.at<int>(0, 0) & 1) {
 			min_d0 = min(feature.at<int>(0, 2), min_d0);
 			min_d0 = min(feature.at<int>(0, 3), min_d0);
+			max_d0 = max(feature.at<int>(0, 2), max_d0);
+			max_d0 = max(feature.at<int>(0, 3), max_d0);
 			min_a1 = min(feature.at<int>(0, 5), min_a1);
 		}
 		else 
@@ -1558,7 +1578,7 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<MarkObj > & v
 	for (int y = 0; y < prob.rows; y++) {
 		uint64 *p_prob = prob.ptr<uint64>(y);
 		for (int x = 0; x < prob.cols; x++)
-			p_prob[x] = 0;
+			p_prob[x] = 0ULL;
 	}
 	//2 build grid
 	Mat ig, iig;
@@ -1566,11 +1586,11 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<MarkObj > & v
 	int r0 = min_d0 * 0.4;
 	int th = min((min_a1 + max_a0) / 2, min_a1);
 	th = th * (2 * r0 + 1) *(2 * r0 + 1);
-	for (int y = min_d0 / 2; y < img.rows - min_d0 / 2; y++) {
+	for (int y = max_d0 + FEATURE_ROW; y < img.rows - max_d0 - FEATURE_ROW; y++) {
 		unsigned *p_ig = ig.ptr<unsigned>(y - r0);
 		unsigned *p_ig1 = ig.ptr<unsigned>(y + r0 + 1);
 		uint64 *p_prob = prob.ptr<uint64>(y / grid);
-		for (int x = min_d0 / 2; x < img.cols - min_d0 / 2; x++) {
+		for (int x = max_d0 + FEATURE_ROW; x < img.cols - max_d0 - FEATURE_ROW; x++) {
 			int s = p_ig1[x + r0 + 1] + p_ig[x - r0] - p_ig1[x - r0] - p_ig[x + r0 + 1];
 			if (s < th) //filter gray < th
 				continue;
@@ -1581,16 +1601,19 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<MarkObj > & v
 	//3 find local maximum gray and judge
 	for (int y = 0; y < prob.rows; y++) {
 		uint64 *p_prob = prob.ptr<uint64>(y);
-		for (int x = 0; x < prob.cols; x++) {
+		for (int x = 0; x < prob.cols; x++) 
+		if (p_prob[x]) {
 			unsigned s0 = PROB_S(p_prob[x]);
 			int x0 = PROB_X(p_prob[x]);
-			int y0 = PROB_Y(p_prob[y]);
+			int y0 = PROB_Y(p_prob[x]);
 			bool pass = true; //pass means local maximum
 			for (int dir = 0; dir < 8; dir++) {
-				int xx = x0 + dxy[dir][1];
-				int yy = y0 + dxy[dir][0];
-				if (xx < 0 || yy < 0 || xx >= prob.cols || yy >= prob.rows)
-					continue;
+				int xx = x + dxy[dir][1];
+				int yy = y + dxy[dir][0];
+				if (xx < 0 || yy < 0 || xx >= prob.cols || yy >= prob.rows) {
+					pass = false;
+					break;
+				}
 				uint64 *p_prob1 = prob.ptr<uint64>(yy, xx);
 				if (PROB_S(p_prob1[0]) > s0 && abs(PROB_X(p_prob1[0]) - x0) < min_d0 && abs(PROB_Y(p_prob1[0]) - y0) < min_d0)
 					pass = false;

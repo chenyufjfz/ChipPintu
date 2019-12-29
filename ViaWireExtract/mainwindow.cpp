@@ -37,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mark_action_group->addAction(ui->actionMark_Via);
     mark_action_group->addAction(ui->actionMark_Wire);
     mark_action_group->addAction(ui->actionSelect);
+	mark_action_group->addAction(ui->actionMark_NoVia);
     ui->actionSelect->setChecked(true);
 
     ui->actionShow_Via->setChecked(false);
@@ -236,11 +237,20 @@ void MainWindow::on_actionSingle_Wire_Para_triggered()
 {
     int wmin, wmax, opt, gray_i, gray_w, w_wide, gray_th, sep, shape_mask;
 	double i_wide, w_wide1;
+	int d0, d1, d2, d3, d4, d5, d6, d7;
     vw_view->get_single_wire_ext_para(wmin, wmax, opt, gray_th, sep, shape_mask);
 	vw_view->get_brick_shape_ext_para(w_wide, i_wide, w_wide1, gray_i, gray_w);
-	SingleVWEParaDialog sd(this, wmin, wmax, gray_th, sep, opt, gray_w, gray_i, w_wide, w_wide1, i_wide, shape_mask);
+	vw_view->get_via_diameter(d0, d1, d2, d3, d4, d5, d6, d7);
+	SingleVWEParaDialog sd(this, wmin, wmax, gray_th, sep, opt, gray_w, gray_i, w_wide, w_wide1, i_wide, shape_mask,
+		d0, d1, d2, d3, d4, d5, d6, d7);
 	if (sd.exec() == QDialog::Accepted) {
         vw_view->set_single_wire_ext_para(sd.wmin, sd.wmax, sd.opt, sd.gray_th, sd.sep, sd.shape_mask);
 		vw_view->set_brick_shape_ext_para(sd.w_wide, sd.i_wide, sd.w_wide1, sd.gray_i, sd.gray_w);
+		vw_view->set_via_diameter(d0, d1, d2, d3, d4, d5, d6, d7);
 	}
+}
+
+void MainWindow::on_actionMark_NoVia_triggered()
+{
+	vw_view->set_mark(OBJ_POINT, POINT_NO_VIA);
 }

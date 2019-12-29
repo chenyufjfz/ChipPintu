@@ -23,6 +23,9 @@ static double distance_p2p(const QPoint & p1, const QPoint & p2)
     return ret;
 }
 
+/*
+distance from p to Line p1, p2
+*/
 static double distance_p2l(const QPoint & p1, const QPoint & p2, const QPoint & p, int & wp)
 {
     double a2, b2, c2;
@@ -79,10 +82,11 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	show_debug_en = false;
 	hide_obj = false;
 	cele = new CellExtract();
-	current_train = NULL;
 	vwe = NULL;
 	startTimer(2000);
 	vwe_single = VWExtract::create_extract(1);
+	vwe_ml = VWExtract::create_extract(2);
+	current_train = vwe_ml;
 	swe_param.wmin = 3;
 	swe_param.wmax = 50;
 	swe_param.opt = 3;
@@ -94,6 +98,8 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	bse_param.w_wide = 0;
 	bse_param.i_wide = 0.4;
 	bse_param.w_wide1 = 0.3;
+	for (int i = 0; i < 8; i++)
+		dia[i] = 11;
 }
 
 ViaWireEditView::~ViaWireEditView()
@@ -107,7 +113,6 @@ ViaWireEditView::~ViaWireEditView()
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 {
 	int wire_width = (obj.type == OBJ_LINE) ? 10 : 0;
-	int via_radius = (obj.type == OBJ_POINT) ? 8 : 0;
 
     switch (obj.type) {
     case OBJ_NONE:
@@ -196,14 +201,14 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
     case OBJ_POINT:
         if (obj.state !=4 && obj.type3 == layer) {
 			if (obj.type2 == POINT_NO_VIA) {
-				painter.setPen(QPen(Qt::red, 1, Qt::DotLine));
+				painter.setPen(QPen(Qt::red, 1));
 				painter.setBrush(QBrush(Qt::red, Qt::NoBrush));
 			}
 			else {
-				painter.setPen(QPen(Qt::green, 1, Qt::DotLine));
+				painter.setPen(QPen(Qt::green, 1));
 				painter.setBrush(QBrush(Qt::green, Qt::NoBrush));
 			}
-            painter.drawEllipse(obj.p0, 2, 2);
+            painter.drawEllipse(obj.p0, 1, 1);
 			QPoint tl(obj.p0.x() - obj.p1.x() / 2, obj.p0.y() - obj.p1.y() / 2);
 			QPoint br(obj.p0.x() - obj.p1.x() / 2 + obj.p1.x(), obj.p0.y() - obj.p1.y() / 2 + obj.p1.y());
 			painter.drawEllipse(QRect(tl, br));
@@ -345,6 +350,22 @@ void ViaWireEditView::set_brick_shape_ext_para(int ww, double iw, double ww1, in
 	bse_param.w_wide1 = ww1;
 	bse_param.gray_i = gi;
 	bse_param.gray_w = gw;
+}
+
+void ViaWireEditView::get_via_diameter(int & _dia0, int & _dia1, int & _dia2, int & _dia3, int & _dia4, int & _dia5, int & _dia6, int & _dia7)
+{
+	_dia0 = dia[0], _dia1 = dia[1];
+	_dia2 = dia[2], _dia3 = dia[3];
+	_dia4 = dia[4], _dia5 = dia[5];
+	_dia6 = dia[6], _dia7 = dia[7];
+}
+
+void ViaWireEditView::set_via_diameter(int _dia0, int _dia1, int _dia2, int _dia3, int _dia4, int _dia5, int _dia6, int _dia7)
+{
+	dia[0] = _dia0, dia[1] = _dia1;
+	dia[2] = _dia2, dia[3] = _dia3;
+	dia[4] = _dia4, dia[5] = _dia5;
+	dia[6] = _dia6, dia[7] = _dia7;
 }
 
 int ViaWireEditView::get_scale()
@@ -555,7 +576,14 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 				current_obj.type3 = POWER_UP;
 			current_obj.state = 0;
             current_obj.p0 = event->pos() / scale;
-            current_obj.p1 = event->pos() / scale;
+			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_NORMAL_VIA0 || current_obj.type2 == POINT_NO_VIA)) {
+				vector<MarkObj> ms;
+				ms.push_back(current_obj);
+				vwe_ml->set_train_param(layer, dia[layer], dia[layer] + 1, 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->train(img_name, ms);
+				current_train = vwe_ml;
+				current_obj = ms[0];
+			}
 		}        
     }
 }
@@ -580,7 +608,8 @@ void ViaWireEditView::mouseReleaseEvent(QMouseEvent *event)
 			current_obj.type = OBJ_NONE;
 		}
 		else {
-            current_obj.p1 = event->pos() /scale;
+			if (current_obj.type != OBJ_POINT)
+				current_obj.p1 = event->pos() /scale;
 			
 			if (mark_state == OBJ_LINE) {
 				adjust_wire_point(current_obj.p0, current_obj.p1);
@@ -591,8 +620,6 @@ void ViaWireEditView::mouseReleaseEvent(QMouseEvent *event)
 					current_obj.p1 = p2;
 				}
 			}				
-			if (mark_state == OBJ_POINT)
-				current_obj.p0 = current_obj.p1;
 			if (mark_state == OBJ_AREA) {
 				QPoint top_left(min(current_obj.p0.x(), current_obj.p1.x()), min(current_obj.p0.y(), current_obj.p1.y()));
 				QPoint bot_right(max(current_obj.p0.x(), current_obj.p1.x()), max(current_obj.p0.y(), current_obj.p1.y()));
@@ -615,7 +642,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 		if (mark_state == SELECT_OBJ) {
 			if (current_obj.state == 1 || current_obj.state == 3)
 				current_obj.p0 = obj_set[select_idx].p0 + move_pos / scale - mp_point;
-			if (current_obj.state == 2 || current_obj.state == 3)
+			if (current_obj.state == 2)
 				current_obj.p1 = obj_set[select_idx].p1 + move_pos / scale - mp_point;
 			if (current_obj.type == OBJ_LINE) {
 				if (current_obj.state == 1)
@@ -636,11 +663,10 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 			}
 		}
 		else {
-			current_obj.p1 = move_pos / scale;
+			if (current_obj.type != OBJ_POINT)
+				current_obj.p1 = move_pos / scale;
 			if (mark_state == OBJ_LINE)
 				adjust_wire_point(current_obj.p0, current_obj.p1);
-			if (mark_state == OBJ_POINT)
-				current_obj.p0 = current_obj.p1;
 		}			
         update();
     } else {
@@ -651,14 +677,22 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
                 int wp;
 				double dis;
                 obj_set[i].state = 0;
-				if (obj_set[i].type == OBJ_LINE || obj_set[i].type == OBJ_POINT) {
+				if (obj_set[i].type == OBJ_LINE) {
 					dis = distance_p2l(obj_set[i].p0, obj_set[i].p1, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
 						min_wp = wp;
 						select_idx = i;
 					}
-				}					
+				}	
+				if (obj_set[i].type == OBJ_POINT) {
+					dis = distance_p2l(obj_set[i].p0, obj_set[i].p0, move_pos / scale, wp);
+					if (min_dis > dis) {
+						min_dis = dis;
+						min_wp = wp;
+						select_idx = i;
+					}
+				}
 				if (obj_set[i].type == OBJ_AREA) {
 					QPoint top_right(obj_set[i].p1.x(), obj_set[i].p0.y());
 					QPoint bot_left(obj_set[i].p0.x(), obj_set[i].p1.y());
@@ -690,7 +724,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
             }
 
 			if (min_dis < 9.1)
-                obj_set[select_idx].state = min_wp;
+                obj_set[select_idx].state = min_wp; //state here is object select state
 			else
 				select_idx = -1;
 			update();
@@ -887,12 +921,16 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 			scroll_view->horizontalScrollBar()->setValue(x);
 		}
 		break;
+	case Qt::Key_H:
+		hide_obj = !hide_obj;
+		break;
 	}
 	if (new_layer != layer) {
 		layer = new_layer;
 		bk_img_mask = bk_img[layer];
 		if (show_debug_en)
             show_debug(mark_mask, show_debug_en);
+		vwe_ml->set_extract_param(layer, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		update();
 		return;
 	}
@@ -929,12 +967,9 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 				adjust_wire_point(select_obj.p0, select_obj.p1);
 			obj_set[select_idx] = select_obj;
 			break;   
-		case Qt::Key_H:
-			hide_obj = !hide_obj;
-			break;
-		}
-		update();
+		}		
     }
+	update();
 }
 
 void ViaWireEditView::timerEvent(QTimerEvent *event)

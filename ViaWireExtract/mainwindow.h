@@ -74,6 +74,8 @@ private slots:
 
     void on_actionSingle_Wire_Para_triggered();
 
+    void on_actionMark_NoVia_triggered();
+
 private:
     QLabel *status_label;
     ViaWireEditView * vw_view;

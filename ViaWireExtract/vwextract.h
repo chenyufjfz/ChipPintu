@@ -22,7 +22,7 @@ class VWExtractML : public VWExtract
 protected:
 	vector<VWfeature> vwf;
 	int current_layer;
-	int via_diameter;
+	int via_diameter_min, via_diameter_max;
 	vector<Mat> via_mark;
 
 public:
@@ -38,7 +38,7 @@ public:
 	int extract(string file_name, QRect rect, vector<MarkObj> & obj_sets);
 	int train(vector<ICLayerWrInterface *> &, const vector<MarkObj> &) { return 0; }
 	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & _area, vector<MarkObj> & obj_sets) { return 0; }
-	void get_feature(int, int, int, vector<float> &, vector<int> &);
+	void get_feature(int, int, int, vector<float> &, vector<int> &) {}
 };
 
 #endif // VWEXTRACT_H

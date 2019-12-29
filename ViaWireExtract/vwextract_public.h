@@ -163,12 +163,11 @@ public:
 
 int compute_circle_dx(int d, vector<Vec3i> & d0);
 
-#define VIA_FEATURE 0x80000000
+#define VIA_FEATURE 0x40000000
 
 class ViaML {
 protected:
 	CvSVM * via_svm; //it is trained by feature
-	LDA * via_lda; //it is trained by feature
 	set<int> via_dia;  //it is trained by feature
 	map<int, vector<Vec3i> > d0s; //d0s.second store one circle xy, d0s.second[0] is (y, x1, x2), (x2, y) to (x1, y) forms circle in-points
 	map<int, vector<vector<Vec3i> > > circles; //circles.second is octagon, circles.second[i] is one edge, circles.second[i][j] is edge's point,
@@ -210,7 +209,7 @@ protected:
 public:
 	ViaML();
 	
-	bool feature_extract(const Mat & img, Point & org, Point & range, int d0, int label, vector<Mat> & features, vector<Point> * vs);
+	bool feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, vector<Point> * vs);
 	/*
 	input feature, it is output from feature_extract
 	return true, if train success, false if wrong
@@ -244,7 +243,7 @@ public:
 	Input label, via or wire label
 	Output vs, via edge
 	*/
-	bool add_feature(const Mat & img, Point local, Point & global, Point & range, int d0, int label, vector<Point> * vs);
+	bool add_feature(const Mat & img, Point local, Point & global, Point & range, int min_d0, int max_d0, int label, vector<Point> * vs);
 	/*
 	Input global, via/wire xy global, same as add_feature global
 	Input d0, via diameter

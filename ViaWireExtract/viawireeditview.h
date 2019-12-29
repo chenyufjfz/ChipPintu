@@ -58,11 +58,14 @@ public:
     void get_single_wire_ext_para(int &wmin, int &wmax, int &opt, int &gray_th, int &sep, int & shape_mask);
 	void get_brick_shape_ext_para(int &ww, double &iw, double &ww1, int &gi, int &gw);
 	void set_brick_shape_ext_para(int ww, double iw, double ww1, int gi, int gw);
+	void get_via_diameter(int & _dia0, int & _dia1, int & _dia2, int & _dia3, int & _dia4, int & _dia5, int & _dia6, int & _dia7);
+	void set_via_diameter(int _dia0, int _dia1, int _dia2, int _dia3, int _dia4, int _dia5, int _dia6, int _dia7);
     void set_scale(int _scale);
     int get_scale();
 
 protected:
     vector <MarkObj> obj_set;
+	int dia[8];
 	string img_name;
 	vector<QImage> bk_img;
 	QImage bk_img_mask;
@@ -72,6 +75,7 @@ protected:
     MarkObj current_obj;
 	VWExtract * vwe;	
 	VWExtract * vwe_single;
+	VWExtract * vwe_ml;
 	CellExtract * cele;
 	ObjExtract * current_train;
 

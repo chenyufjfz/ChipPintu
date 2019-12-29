@@ -5,10 +5,11 @@ VWExtractML::VWExtractML()
 	current_layer = -1;
 }
 
-int VWExtractML::set_train_param(int layer, int d, int clear, int, int, int, int, int, int, float)
+int VWExtractML::set_train_param(int layer, int d_min, int d_max, int clear, int, int, int, int, int, float)
 {
 	current_layer = layer;
-	via_diameter = d;
+	via_diameter_min = d_min;
+	via_diameter_max = d_max;
 	if (current_layer >= (int)vwf.size()) {
 		vwf.resize(current_layer + 1);
 		via_mark.resize(current_layer + 1);
@@ -58,9 +59,10 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 			label |= VIA_FEATURE;
 			Point loc = Point(m.p0.x(), m.p0.y());
 			bool ret = vwf[current_layer].add_feature(img, loc, loc, range,
-				via_diameter, label, &vs);
+				via_diameter_min, via_diameter_max, label, &vs);
 			if (ret) {
 				m.p0 = QPoint(loc.x, loc.y);
+				m.p1 = QPoint(range.x, range.y);
 				for (auto p : vs)
 					via_mark[current_layer].at<uchar>(p) = 255;
 			}
@@ -88,7 +90,9 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 	int loc = img_name.find_last_of("\\/");
 	string project_path = img_name.substr(0, loc);
 	if (!vwf[current_layer].read_file(project_path, current_layer))
-		return;
+		return -1;
 	vwf[current_layer].via_search(img, via_mark[current_layer], obj_sets);
+	for (auto & o : obj_sets)
+		o.type3 = current_layer;
 	return 0;
 }

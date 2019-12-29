@@ -1375,7 +1375,3 @@ int VWExtractAnt::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<
 	dw0 = dw1;
 	return 0;
 }
-void VWExtractAnt::get_feature(int, int, int, std::vector<float> &, std::vector<int> &)
-{
-	return;
-}

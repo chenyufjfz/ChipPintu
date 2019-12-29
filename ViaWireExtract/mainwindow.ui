@@ -39,6 +39,7 @@
     <addaction name="separator"/>
     <addaction name="actionMark_Wire"/>
     <addaction name="actionMark_Via"/>
+    <addaction name="actionMark_NoVia"/>
     <addaction name="actionMark_Cell"/>
     <addaction name="actionMark_Insulator"/>
     <addaction name="actionSelect"/>
@@ -49,6 +50,7 @@
     <addaction name="actionExtract"/>
     <addaction name="separator"/>
     <addaction name="actionSingle_Wire_Para"/>
+    <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -231,6 +233,14 @@
   <action name="actionSingle_Wire_Para">
    <property name="text">
     <string>Single Wire Para</string>
+   </property>
+  </action>
+  <action name="actionMark_NoVia">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Mark NoVia</string>
    </property>
   </action>
  </widget>
