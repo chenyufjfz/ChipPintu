@@ -1,6 +1,6 @@
 #ifndef VWEXTRACT3_H
 #define VWEXTRACT3_H
-#include "vwextract.h"
+#include "vwextract_public.h"
 
 struct DetectWirePara {
 	int w_min, w_max; //in non-scale pixel unit
@@ -54,7 +54,7 @@ public:
 	Mat get_mark3(int ) { return Mat(); }
 	int train(string, std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
-	int train(vector<ICLayerWrInterface *> &, const std::vector<MarkObj> &) { return 0; }
+	int train(vector<ICLayerWrInterface *> &, std::vector<MarkObj> &) { return 0; }
 	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & _area, vector<MarkObj> & obj_sets);
 	void get_feature(int, int, int, std::vector<float> &, std::vector<int> &) {}
 };

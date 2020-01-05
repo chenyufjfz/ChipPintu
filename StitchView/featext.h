@@ -141,9 +141,22 @@ public:
 		string::size_type ypos, xpos;
 		ypos = img_path.find("%y", 0);
 		if (ypos == string::npos) {
-			char filename[50];
-			sprintf(filename, "%d_%d.jpg", y + 1, x + 1); //image name postfix
-			return img_path + filename;
+			ypos = img_path.find("%2y", 0);
+			if (ypos == string::npos) {
+				char filename[50];
+				sprintf(filename, "%d_%d.jpg", y + 1, x + 1); //image name postfix
+				return img_path + filename;
+			}
+			else {
+				char filename[10];
+				sprintf(filename, "%02d", y + 1);
+				string s = img_path;
+				s.replace(ypos, 3, filename, 0, strlen(filename));
+				xpos = s.find("%2x", 0);
+				sprintf(filename, "%02d", x + 1);
+				s.replace(xpos, 3, filename, 0, strlen(filename));
+				return s;
+			}
 		}
 		else {
 			char filename[10];

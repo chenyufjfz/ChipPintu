@@ -246,7 +246,7 @@ void MainWindow::on_actionSingle_Wire_Para_triggered()
 	if (sd.exec() == QDialog::Accepted) {
         vw_view->set_single_wire_ext_para(sd.wmin, sd.wmax, sd.opt, sd.gray_th, sd.sep, sd.shape_mask);
 		vw_view->set_brick_shape_ext_para(sd.w_wide, sd.i_wide, sd.w_wide1, sd.gray_i, sd.gray_w);
-		vw_view->set_via_diameter(d0, d1, d2, d3, d4, d5, d6, d7);
+		vw_view->set_via_diameter(sd.dia0, sd.dia1, sd.dia2, sd.dia3, sd.dia4, sd.dia5, sd.dia6, sd.dia7);
 	}
 }
 

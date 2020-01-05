@@ -117,6 +117,29 @@ public:
 	int quick_shape_add(int brick0, int brick1);
 };
 
+
+struct ElementObj : public MarkObj
+{
+	union {
+		unsigned long long attach;
+		void * ptr;
+	} un;
+
+	ElementObj() {
+
+	}
+
+	ElementObj(const MarkObj &o) : MarkObj(o) {
+		un.attach = 0;
+	}
+
+	ElementObj(const ElementObj &o) {
+		*this = o;
+	}
+
+	bool intersect_rect(const QRect & r);
+};
+
 #ifndef VWEXTRACT_PUBLIC_C
 extern struct Brick bricks[];
 extern int dxy[8][2];
@@ -137,6 +160,8 @@ out llg, sum(img(i,j)*img(i,j), j=0..x-1)
 void integral_square(const Mat & img, Mat & ig, Mat & iig, Mat & lg, Mat & llg, bool compute_line_integral);
 void clip_img(Mat & img, int gray_low, int gray_high, Mat & new_img);
 bool contain_dir(int d1, int d2);
+void deldir(const string &path);
+void save_rst_to_file(const vector<ElementObj> & obj_sets);
 
 //CircleCheck use octagon to approximate circle, use grad accumulation to judge every edge
 class CircleCheck {
@@ -179,10 +204,11 @@ protected:
 	/*
 	input lg, line sum mat
 	input d, via diameter
+	input sep0, search range [sep0, lg.rows-d-sep0] *[sep0, lg.cols-d-sep0]
 	output loc, top left location for brightest circle
 	find local brightest location in loc, it is a pre-filter for compute_feature
 	*/
-	void find_best_bright(const Mat & lg, int d, vector<Point> & loc);
+	void find_best_bright(const Mat & lg, int d, int sep0, vector<Point> & loc, bool multi_thread);
 	/*
 	input ig, raw image
 	input grad, raw image grad
@@ -195,7 +221,7 @@ protected:
 	feature[3][0..7] is middle filter for outside octagon edge (2 point away)
 	Return feature likelihood, bigger is better
 	*/
-	int compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d0, const vector<Point> & loc, Mat features[]);
+	int compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d0, const vector<Point> & loc, Mat features[], bool multi_thread, int score_min);
 	/*
 	input img,
 	inout org, for input, it is a point inside via, for output it is via's center
@@ -205,33 +231,48 @@ protected:
 	output vs, via circle xy
 	return true, if find feature, false, not find feature
 	*/
-	int feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs);
+	int feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs, bool multi_thread, int score_min);
 public:
 	ViaML();
+	~ViaML();
 	
-	bool feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, vector<Point> * vs);
+	bool feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, 
+		vector<Point> * vs, bool multi_thread);
 	/*
 	input feature, it is output from feature_extract
+	input weight, weight for miss via vs false via
 	return true, if train success, false if wrong
 	*/
-	bool train(const vector<Mat> & feature);
+	bool train(const vector<Mat> & feature, float weight = 0.5);
 	/*
 	Input img
 	Inout org, via location
 	Input range, normally it is 0
 	output label
-	Return label
+	Return probability, bigger is via, smaller is no-via
 	*/
-	float judge(const Mat & img, Point & org, Point & range, int &label);
+	float judge(const Mat & img, Point & org, Point & range, int &label, bool multi_thread);
 };
+
+
+void convert_element_obj(const vector<ElementObj> & es, vector<MarkObj> & ms, int scale);
 
 class VWfeature {
 protected:
 	ViaML vml;
-	bool retrain_via;
+	bool retrain_via, is_via_valid;
 	vector<Mat> via_features;
 	vector<Point> via_locs;
 
+	/*
+	Input img
+	Inout org, for input, it is a point inside via, for output it is via center
+	Inout range, for input, it is search range= max{d} + range, for output it is diameter
+	Output label, via & wire label
+	input multi_thread, if call with multi_thread, true
+	Return probability, bigger is via, smaller is no via
+	*/
+	float via_judge(const Mat & img, Point & org, Point & range, int & label, bool multi_thread);
 public:
 	VWfeature();
 	/*
@@ -250,19 +291,28 @@ public:
 	*/
 	bool del_feature(Point global, int d0);
 	void clear_feature();
-	void write_file(string proj_path, int layer);
-	bool read_file(string filename, int layer);
-	/*
-	Input img
-	Inout org
-	*/
-	float via_judge(const Mat & img, Point & org, Point & range, int & label);
+	void write_file(string project_path, int layer);
+	bool read_file(string project_path, int layer);
+	bool via_valid(bool multi_thread);
 	/*
 	input img
 	output vs, vs.p0 is via center, vs.p1 is via diameter.
 	*/
-	void via_search(const Mat & img, Mat & mark_dbg, vector<MarkObj > & vs);
+	void via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj > & vs, bool multi_thread);
 };
+
+
+class VWExtract : public ObjExtract
+{
+public:
+	VWExtract() {}
+	static VWExtract * create_extract(int method);
+
+	virtual ~VWExtract() {
+
+	}
+};
+
 
 #endif // VWEXTRACT_PUBLIC_H
 

@@ -3100,24 +3100,6 @@ static string get_time_str()
 	return "./DImg/" + t.toString("hh.mm.ss.zzz").toStdString();
 }
 
-static void deldir(const string &path)
-{
-	if (path.empty())
-		return;
-
-	QDir dir(QString::fromStdString(path));
-	if (!dir.exists())
-		return;
-	dir.setFilter(QDir::AllEntries | QDir::NoDotAndDotDot);
-	QFileInfoList fileList = dir.entryInfoList(); //get all file info
-	foreach(QFileInfo file, fileList) {
-		if (file.isFile())
-			file.dir().remove(file.fileName());
-		else
-			deldir(file.absoluteFilePath().toStdString());
-	}
-}
-
 //Bresenham line draw
 template<class T>
 static void mark_line(Mat & m, Point pt1, Point pt2, T mask) {
@@ -9420,8 +9402,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 	obj_sets.clear();
 	for (int area_idx = 0; area_idx < area_.size(); area_idx++) {
 		//extend area to sr, this is because extract can't process edge grid
-		QRect sr = area_[area_idx].rect.marginsAdded(QMargins(BORDER_SIZE, BORDER_SIZE, BORDER_SIZE, BORDER_SIZE));
-		sr = sr.intersected(QRect(1, 1, 0x7fffffff, 0x7fffffff));
+		QRect sr = area_[area_idx].rect.marginsAdded(QMargins(BORDER_SIZE * scale, BORDER_SIZE * scale, BORDER_SIZE * scale, BORDER_SIZE * scale));
 		parallel_search = area_[area_idx].option & OPT_PARALLEL_SEARCH;
 		sr &= QRect(0, 0, block_x << 15, block_y << 15);
 		if (sr.width() <= 0x8000 || sr.height() <= 0x8000) {
@@ -9660,23 +9641,6 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 		}
 	}
 
-#if SAVE_RST_TO_FILE
-	FILE * fp;
-	fp = fopen("result.txt", "w");
-	for (int i = 0; i < obj_sets.size(); i++) {
-		unsigned t = obj_sets[i].type;
-		if (t == OBJ_POINT) {
-			fprintf(fp, "via, l=%d, x=%d, y=%d\n", obj_sets[i].type3, obj_sets[i].p0.x(), obj_sets[i].p0.y());
-		}
-		else {
-			fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d)\n", obj_sets[i].type3, obj_sets[i].p0.x(), obj_sets[i].p0.y(),
-				obj_sets[i].p1.x(), obj_sets[i].p1.y());
-		}
-		continue;
-	}
-	fclose(fp);
-#endif	
-
 	for (int i = 0; i < obj_sets.size(); i++) {
 		obj_sets[i].p0 = obj_sets[i].p0 * scale;
 		obj_sets[i].p1 = obj_sets[i].p1 * scale;
@@ -9685,7 +9649,7 @@ int VWExtractPipe::extract(vector<ICLayerWrInterface *> & ic_layer, const vector
 	qDebug("*#*#DumpMessage#*#*");
 	return 0;
 }
-
+#include "vwextract.h"
 #include "vwextract3.h"
 
 VWExtract * VWExtract::create_extract(int method)

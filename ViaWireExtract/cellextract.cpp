@@ -500,7 +500,7 @@ int CellExtract::extract(string file_name, QRect rect, vector<MarkObj> & obj_set
 typedef unsigned long long MapID;
 
 
-int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, const std::vector<MarkObj> & obj_sets)
+int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, std::vector<MarkObj> & obj_sets)
 {
     vector<unsigned> bins, th;
     Mat mark, img;

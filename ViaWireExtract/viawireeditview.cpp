@@ -564,7 +564,7 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 			if (select_idx != -1) {
 				mouse_press = true;
 				current_obj = obj_set[select_idx];
-                obj_set[select_idx].state = 4;
+                obj_set[select_idx].state = 4; //state=4 means selecte as focus
 			}
 		}
 		else {
@@ -579,7 +579,7 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_NORMAL_VIA0 || current_obj.type2 == POINT_NO_VIA)) {
 				vector<MarkObj> ms;
 				ms.push_back(current_obj);
-				vwe_ml->set_train_param(layer, dia[layer], dia[layer] + 1, 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->set_train_param(OBJ_POINT, (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
 				vwe_ml->train(img_name, ms);
 				current_train = vwe_ml;
 				current_obj = ms[0];
@@ -640,9 +640,9 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 	QPoint move_pos(event->pos() - QPoint(scale / 2, scale / 2));
     if (mouse_press) {
 		if (mark_state == SELECT_OBJ) {
-			if (current_obj.state == 1 || current_obj.state == 3)
+			if (current_obj.state == 1 || current_obj.state == 3) //state=1 or state =3 change p0
 				current_obj.p0 = obj_set[select_idx].p0 + move_pos / scale - mp_point;
-			if (current_obj.state == 2)
+			if (current_obj.state == 2) //state=2 change p1
 				current_obj.p1 = obj_set[select_idx].p1 + move_pos / scale - mp_point;
 			if (current_obj.type == OBJ_LINE) {
 				if (current_obj.state == 1)
@@ -930,7 +930,7 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		bk_img_mask = bk_img[layer];
 		if (show_debug_en)
             show_debug(mark_mask, show_debug_en);
-		vwe_ml->set_extract_param(layer, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		vwe_ml->set_extract_param(layer << 8 | layer, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		update();
 		return;
 	}
@@ -939,6 +939,14 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		int d;
 		switch (e->key()) {
 		case Qt::Key_Delete:
+			if (obj_set[select_idx].type == OBJ_POINT &&
+				(obj_set[select_idx].type2 == POINT_NORMAL_VIA0 || obj_set[select_idx].type2 == POINT_NO_VIA)) {
+				vector<MarkObj> ms;
+				ms.push_back(obj_set[select_idx]);
+				vwe_ml->set_train_param(OBJ_POINT, 1 << 16 | (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->train(img_name, ms);
+				current_train = vwe_ml;
+			}
 			obj_set.erase(obj_set.begin() + select_idx);
 			break;
 		case Qt::Key_Up:

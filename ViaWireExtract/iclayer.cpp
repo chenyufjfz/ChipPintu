@@ -427,7 +427,7 @@ Header: num_block_x(4), num_block_y(4), block_w(4), total image num(4)
 Image length Array(total_num): Image0 length(4), Image1 length(4).. 
 Image(total_num): Image0 (Image0 length), Image1,...
 */
-#define ICLayerM_GENERATE_VERSION 1
+#define ICLayerM_GENERATE_VERSION 2
 class ICLayerM : public ICLayerInterface
 {
 protected:
@@ -478,6 +478,8 @@ ICLayerM::ICLayerM(const string & _file, uint64 _key, bool _read)
 			return;
 		}
 		version = head.num_block_x >> 24;
+		if (version == 1)
+			key = 0ULL;
 		head.num_block_x = head.num_block_x & 0xffffff;
 		head.num_block_y = head.num_block_y & 0xffffff;
 		vector<int> bias_num;
@@ -490,7 +492,7 @@ ICLayerM::ICLayerM(const string & _file, uint64 _key, bool _read)
 		}
 		img_len.resize(total_num);
 		fin.read((char*)& img_len[0], sizeof(unsigned) * total_num);
-		if (version == 1)
+		if (version >= 1)
 			decrypt((char*)&img_len[0], sizeof(unsigned)* head.total_num, 0x87654321 ^ (key & 0xffffffff) ^ (key >> 32 & 0xffffffff));
 		for (int i = 0; i < total_num; i++)
 		if (img_len[i] > 0x50000000) {

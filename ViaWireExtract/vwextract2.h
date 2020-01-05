@@ -1,6 +1,6 @@
 #ifndef VWEXTRACT2_H
 #define VWEXTRACT2_H
-#include "vwextract.h"
+#include "vwextract_public.h"
 
 struct ProcessParameter {
 	int layer;
@@ -28,7 +28,7 @@ public:
 	Mat get_mark3(int layer);
 	int train(string, std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
-	int train(vector<ICLayerWrInterface *> &, const std::vector<MarkObj> &) { return 0; }
+	int train(vector<ICLayerWrInterface *> &, std::vector<MarkObj> &) { return 0; }
 	int extract(vector<ICLayerWrInterface *> & ic_layer, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets);
 	void get_feature(int, int, int, std::vector<float> &, std::vector<int> &);
 };

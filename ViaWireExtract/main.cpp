@@ -630,6 +630,54 @@ int test_extractparam2()
 	return 0;
 }
 
+void test_ml_train()
+{
+	BkImgRoMgr bkimg_faty;
+#ifdef WIN32
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A22190918/chip.prj", "", 0);
+#else
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
+#endif
+	vector<ICLayerWrInterface *> pic;
+	for (int l = 0; l < bk_img->getLayerNum(); l++) {
+		pic.push_back(bk_img->get_layer(l));
+		CV_Assert(pic.back() != NULL);
+	}
+	QScopedPointer<VWExtract> vwe(VWExtract::create_extract(2));
+	vector<MarkObj> objs;
+	vwe->set_train_param(0, 0x0e0d, 0, 0, 0, 0, 0, 0, 0, 0);
+	MarkObj obj;
+	obj.type = OBJ_POINT;
+	obj.type2 = POINT_NO_VIA;
+	obj.type3 = 1;
+	obj.p0 = QPoint(169280, 43424);
+	obj.p1 = QPoint(0, 0);
+	objs.push_back(obj);	
+	vwe->train(pic, objs);
+}
+
+void test_ml_extract()
+{
+	BkImgRoMgr bkimg_faty;
+#ifdef WIN32
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A22190918/chip.prj", 0);
+#else
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
+#endif
+	vector<ICLayerWrInterface *> pic;
+	for (int l = 0; l < bk_img->getLayerNum(); l++) {
+		pic.push_back(bk_img->get_layer(l));
+		CV_Assert(pic.back() != NULL);
+	}
+	QScopedPointer<VWExtract> vwe(VWExtract::create_extract(2));
+	vector<MarkObj> objs;
+	vwe->set_extract_param(0x0101, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	vector<SearchArea> areas;
+
+	areas.push_back(SearchArea(QRect(169280, 43424, 10000, 10000), 0));
+	vwe->extract(pic, areas, objs);
+}
+
 int test_single_wire_extract()
 {
 	BkImgRoMgr bkimg_faty;
@@ -724,12 +772,13 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 0
+#if 1
 	
 	//wire_extract_test_pipeprocess();
 	//cell_extract_test();
-	test_extractparam2();
+	//test_extractparam2();
 	//test_single_wire_extract();
+	test_ml_train();
 	return 0;
 #endif
     w.show();

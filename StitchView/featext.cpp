@@ -65,7 +65,7 @@ void edge_mixer(const Mat & img_in, const Mat & mask, Mat & img_out, char lut[],
         char * p_img_out = out.ptr<char>(y);
         for (int x = 0; x < img_in.cols; x++)
 		if (p_mask[x]) {
-			p_img_out[x] = (abs(p_img_in[x]) >= lut_size) ? lut[lut_size - 1] : lut[abs(p_img_in[x])];
+			p_img_out[x] = (abs(p_img_in[x]) >= lut_size) ? lut[lut_size - 1] : lut[abs((int)p_img_in[x])];
 			p_img_out[x] = p_img_in[x] > 0 ? p_img_out[x] : -p_img_out[x];
 		}
         else
@@ -268,7 +268,7 @@ void compute_diff(const ImageDiff & img_diff, const ParamItem & param, const Rec
 	if (num[i]==0)
 		normal_out[i] = DIFF_NOT_CONTACT / 100;
 	else {
-		CV_Assert(out[i] > 0);
+		CV_Assert(out[i] >= 0);
 		normal_out[i] = (double)out[i] / num[i];
 	}
     e->dif.create(2 * yshift + 1, 2 * xshift + 1);

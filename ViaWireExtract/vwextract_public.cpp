@@ -394,6 +394,43 @@ int BrickConnect::quick_shape_add(int brick0, int brick1)
 		return shape_add(brick0, brick1);
 }
 
+void deldir(const string &path)
+{
+	if (path.empty())
+		return;
+
+	QDir dir(QString::fromStdString(path));
+	if (!dir.exists())
+		return;
+	dir.setFilter(QDir::AllEntries | QDir::NoDotAndDotDot);
+	QFileInfoList fileList = dir.entryInfoList(); //get all file info
+	foreach(QFileInfo file, fileList) {
+		if (file.isFile())
+			file.dir().remove(file.fileName());
+		else
+			deldir(file.absoluteFilePath().toStdString());
+	}
+}
+
+void save_rst_to_file(const vector<ElementObj> & obj_sets)
+{
+	FILE * fp;
+	fp = fopen("result.txt", "w");
+	if (fp) {
+		for (int i = 0; i < obj_sets.size(); i++) {
+			unsigned t = obj_sets[i].type;
+			if (t == OBJ_POINT) {
+				fprintf(fp, "via, l=%d, x=%d, y=%d, prob=%f\n", obj_sets[i].type3, obj_sets[i].p0.x(), obj_sets[i].p0.y(), obj_sets[i].prob);
+			}
+			else {
+				fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d), prob=%f\n", obj_sets[i].type3, obj_sets[i].p0.x(), obj_sets[i].p0.y(),
+					obj_sets[i].p1.x(), obj_sets[i].p1.y(), obj_sets[i].prob);
+			}
+			continue;
+		}
+		fclose(fp);
+	}
+}
 /*
 Compute integrate and line integral
 in img
@@ -929,15 +966,42 @@ void compute_grad(const Mat & img, Mat & grad)
 	}
 }
 
+void convert_element_obj(const vector<ElementObj> & es, vector<MarkObj> & ms, int scale)
+{
+	ms.clear();
+	ms.reserve(es.size());
+	for (auto & eo : es) {
+		MarkObj mo;
+		mo.p0 = eo.p0 * scale;
+		if (eo.type == OBJ_POINT)
+			mo.p1 = eo.p1;
+		else
+			mo.p1 = eo.p1 * scale;
+		mo.prob = eo.prob;
+		mo.state = eo.state;
+		mo.type = eo.type;
+		mo.type2 = eo.type2;
+		mo.type3 = eo.type3;
+		ms.push_back(mo);
+	}
+}
+
 ViaML::ViaML()
 {
 	via_svm = NULL;
 }
 
-void ViaML::find_best_bright(const Mat & lg, int d, vector<Point> & loc)
+ViaML::~ViaML()
+{
+	if (via_svm)
+		delete via_svm;
+}
+
+void ViaML::find_best_bright(const Mat & lg, int d, int sep0, vector<Point> & loc, bool multi_thread)
 {
 	auto d0it = d0s.find(d);
 	if (d0it == d0s.end()) {
+		CV_Assert(!multi_thread);
 		vector<Vec3i> dd;
 		compute_circle_dx1(d, dd);
 		d0s[d] = dd;
@@ -946,8 +1010,8 @@ void ViaML::find_best_bright(const Mat & lg, int d, vector<Point> & loc)
 	vector<Vec3i> & dd = d0it->second;
 	Mat sum(lg.rows, lg.cols, CV_32SC1, Scalar::all(0x20000000)); //circle gray sum
 	//compute sum
-	for (int y0 = 0; y0 < lg.rows - d; y0++)
-	for (int x0 = 0; x0 < lg.cols - d - 1; x0++) {
+	for (int y0 = sep0; y0 < lg.rows - d - sep0; y0++)
+	for (int x0 = sep0; x0 < lg.cols - d - sep0 - 1; x0++) {
 		int s = 0;
 		for (int i = 0; i < (int)dd.size(); i++) {
 			int y = dd[i][0];
@@ -972,16 +1036,16 @@ void ViaML::find_best_bright(const Mat & lg, int d, vector<Point> & loc)
 	}
 }
 
-#define VIA_MINIMUM_GRAD 1000
+#define VIA_MINIMUM_GRAD -1000
 
-int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d, const vector<Point> & loc, Mat features[])
+int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d, const vector<Point> & loc, Mat features[], bool multi_thread, int score_min)
 {
 	CV_Assert(grad.type() == CV_32SC2 && img.type() == CV_8UC1);
-	int score0 = 0, score1 = 0;
+	int score0 = score_min, score1 = score_min;
 	features[0].release();
 	features[1].release();
 	for (auto o : loc) {
-		int best_score = 0;
+		int best_score = score_min;
 		Mat feature(FEATURE_ROW, 8, CV_32S);
 		for (int dir = 0; dir < 5; dir++) {
 			Point org = o;
@@ -997,6 +1061,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 				auto circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
 				Point2f tl;
 				if (circle_it == circles.end()) {
+					CV_Assert(!multi_thread);
 					//following compute circle(d1, d2) and d0s(d1, d2)
 					vector<vector<Vec3i> > cir;
 					vector<Point2f> ef[8];
@@ -1042,6 +1107,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 
 				if (circle_edges_it == circle_edges.end()) {
 					//following compute circle_edges outside
+					CV_Assert(!multi_thread);
 					vector<Vec6i> v6(8);					
 					for (int i = 0; i < 8; i++) {
 						Point2f p1;
@@ -1128,7 +1194,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 				}
 				if (min_es < VIA_MINIMUM_GRAD)
 					continue;
-				int score = min_es + submin_es / 2 + total_es / 64;
+				int score = min_es + submin_es / 2 + total_es / 32;
 				if (score > best_score) {
 					best_score = score;
 					feature.at<int>(0, 0) = org.x; 
@@ -1153,8 +1219,8 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 		}
 			
 	}
-	if (score0 == 0)
-		return 0;
+	if (score0 == score_min)
+		return score_min;
 	for (int k = 0; k < 2; k++) 
 	if (!features[k].empty()) {
 		Point org(features[k].at<int>(0, 0), features[k].at<int>(0, 1));
@@ -1197,7 +1263,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 	return score0;
 }
 
-int ViaML::feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs)
+int ViaML::feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs, bool multi_thread, int score_min)
 {
 	if (d0.empty())
 		return 0;
@@ -1213,18 +1279,18 @@ int ViaML::feature_extract(const Mat & img, Point & org, Point & range, const ve
 	integral_square(img_via_rect, ig, iig, lg, llg, true);
 	compute_grad(img_via_rect, grad);
 	Mat feature2[2];
-	int best_score = 0;
+	int best_score = score_min;
 	for (auto d : d0) { //find biggest score in d
 		vector<Point> loc;
-		find_best_bright(lg, d, loc);
-		int score = compute_feature(img_via_rect, lg, grad, d, loc, feature2);
+		find_best_bright(lg, d, 2, loc, multi_thread);
+		int score = compute_feature(img_via_rect, lg, grad, d, loc, feature2, multi_thread, score_min);
 		if (score > best_score) {
 			best_score = score;
 			feature = feature2[0].clone();
 		}
 	}
-	if (best_score == 0)
-		return 0;
+	if (best_score == score_min)
+		return score_min;
 	range.x = feature.at<int>(0, 2);
 	range.y = feature.at<int>(0, 3);
 	org.x = feature.at<int>(0, 0) + x0 + range.x / 2;
@@ -1251,7 +1317,7 @@ int ViaML::feature_extract(const Mat & img, Point & org, Point & range, const ve
 	return best_score;
 }
 
-bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, vector<Point> * vs)
+bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, vector<Point> * vs, bool multi_thread)
 {
 	features.clear();
 	if (label & 1) { //it is via
@@ -1260,8 +1326,8 @@ bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min
 		for (int i = min_d0; i <= max_d0; i++)
 		if (i > 5)
 			d.push_back(i);
-		int score = feature_extract(img, org, range, d, feature, vs);
-		if (score > 0) {
+		int score = feature_extract(img, org, range, d, feature, vs, multi_thread, VIA_MINIMUM_GRAD);
+		if (score > VIA_MINIMUM_GRAD) {
 			feature.at<int>(0, 0) = label;
 			features.push_back(feature);
 			return true;
@@ -1270,7 +1336,7 @@ bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min
 			return false;
 	}
 	else { //it is not via		
-		int best_score = 0;
+		int best_score = VIA_MINIMUM_GRAD;
 		for (int i = min_d0; i <= max_d0; i++) {
 			vector<Point> vs0;
 			vector<int> d;
@@ -1279,12 +1345,13 @@ bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min
 				d.push_back(i);
 			else
 				continue;
-			int score = feature_extract(img, org, range, d, feature, &vs0);
+			int score = feature_extract(img, org, range, d, feature, vs ? &vs0 : NULL, multi_thread, VIA_MINIMUM_GRAD);
 			if (best_score < score) {
 				best_score = score;
-				vs->swap(vs0);
+				if (vs)
+					vs->swap(vs0);
 			}
-			if (score > 0) {
+			if (score > VIA_MINIMUM_GRAD) {
 				feature.at<int>(0, 0) = label;
 				bool same = false;
 				for (auto & f : features)
@@ -1294,14 +1361,19 @@ bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min
 					features.push_back(feature);
 			}
 		}
-		if (best_score > 0)
+		if (best_score > VIA_MINIMUM_GRAD)
 			return true;
 		else
 			return false;
 	}
 }
 
-bool ViaML::train(const vector<Mat> & features)
+/*
+Input features
+Input weight
+Return true if success
+*/
+bool ViaML::train(const vector<Mat> & features, float weight)
 {
 	Mat train_data_svm((int)features.size(), 5, CV_32FC1);
 	Mat label((int)features.size(), 1, CV_32FC1);
@@ -1343,18 +1415,21 @@ bool ViaML::train(const vector<Mat> & features)
 	
 	// Set up SVM's parameters
 	CvSVMParams params;
+	Mat class_wts(2, 1, CV_32FC1);
+	CvMat class_wts_cv;
+	class_wts.at<float>(0) = weight;
+	class_wts.at<float>(1) = 1 - weight;
+	class_wts_cv = class_wts;
 	params.svm_type = CvSVM::C_SVC;
-	params.kernel_type = CvSVM::POLY;
+	params.kernel_type = CvSVM::LINEAR;
 	params.term_crit = cvTermCriteria(CV_TERMCRIT_ITER, 100, 1e-6);
-	params.C = 2;
-	params.degree = 2;
-	params.gamma = 1;
-	params.coef0 = 0;
+	params.C = 10;
+	params.class_weights = &class_wts_cv;
 	if (via_svm)
 		delete via_svm;
 	via_svm = new CvSVM;
 	via_svm->train(train_data_svm, label, Mat(), Mat(), params);
-	qInfo("ViaML:train, var_cnt=%d, sup_vec_cnt=%d", via_svm->get_var_count(), via_svm->get_support_vector_count());
+	qInfo("ViaML:train linear, var_cnt=%d, sup_vec_cnt=%d", via_svm->get_var_count(), via_svm->get_support_vector_count());
 	char s[600];
 	for (int i = 0; i < via_svm->get_support_vector_count(); i++) {
 		const float * sv = via_svm->get_support_vector(i);
@@ -1363,14 +1438,47 @@ bool ViaML::train(const vector<Mat> & features)
 			k += sprintf(&s[k], "%f,", sv[j]);
 		qInfo(s);
 	}
+	int mistake1 = 0;
 	for (int i = 0; i < (int)features.size(); i++) {
-		float response = via_svm->predict(train_data_svm.row(i), true);
-		qInfo("ViaML:train, is_via=%d, predict=%f", (int)label.at<float>(i), response);
+		float response = -via_svm->predict(train_data_svm.row(i), true);
+		if (response * label.at<float>(i) < 0)
+			mistake1++;
+		qInfo("ViaML:train linear, is_via=%d, predict=%f", (int)label.at<float>(i), response);
+	}
+	if (mistake1 > 0) {
+		params.kernel_type = CvSVM::POLY;
+		params.degree = 2;
+		params.gamma = 1;
+		params.coef0 = 0;
+		CvSVM * via_svm1 = new CvSVM;
+		via_svm1->train(train_data_svm, label, Mat(), Mat(), params);
+		qInfo("ViaML:train poly, var_cnt=%d, sup_vec_cnt=%d", via_svm1->get_var_count(), via_svm1->get_support_vector_count());
+		char s[600];
+		for (int i = 0; i < via_svm1->get_support_vector_count(); i++) {
+			const float * sv = via_svm1->get_support_vector(i);
+			int k = 0;
+			for (int j = 0; j < via_svm1->get_var_count(); j++)
+				k += sprintf(&s[k], "%f,", sv[j]);
+			qInfo(s);
+		}
+		int mistake2 = 0;
+		for (int i = 0; i < (int)features.size(); i++) {
+			float response = -via_svm1->predict(train_data_svm.row(i), true);
+			if (response * label.at<float>(i) < 0)
+				mistake2++;
+			qInfo("ViaML:train poly, is_via=%d, predict=%f", (int)label.at<float>(i), response);
+		}
+		if (mistake2 < mistake1) {
+			delete via_svm;
+			via_svm = via_svm1;
+		}
+		else
+			delete via_svm1;
 	}
 	return true;
 }
 
-float ViaML::judge(const Mat & img, Point & org, Point & range, int &label)
+float ViaML::judge(const Mat & img, Point & org, Point & range, int &label, bool multi_thread)
 {
 	label = 0;
 	
@@ -1391,8 +1499,8 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label)
 	float max_response = -1;
 	for (auto d : via_dia) {
 		vector<Point> loc;
-		find_best_bright(lg, d, loc);
-		compute_feature(img_via_rect, lg, grad, d, loc, feature2);
+		find_best_bright(lg, d, 2, loc, multi_thread);
+		compute_feature(img_via_rect, lg, grad, d, loc, feature2, multi_thread, VIA_MINIMUM_GRAD);
 		for (int i = 0; i < 2; i++) 
 		if (!feature2[i].empty()) {
 			const Mat &feature = feature2[i];
@@ -1427,6 +1535,7 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label)
 VWfeature::VWfeature() 
 {
 	retrain_via = false;
+	is_via_valid = false;
 }
 
 bool VWfeature::add_feature(const Mat & img, Point local, Point & global, Point & range, int min_d0, int max_d0, int label, vector<Point> * vs)
@@ -1442,7 +1551,7 @@ bool VWfeature::add_feature(const Mat & img, Point local, Point & global, Point 
 	range = Point(0, 0);
 	vector<Mat> features;
 	Point local1 = local, global1;
-	bool ret = vml.feature_extract(img, local1, range, min_d0, max_d0, label, features, vs);
+	bool ret = vml.feature_extract(img, local1, range, min_d0, max_d0, label, features, vs, false);
 	if (!ret)
 		return false;
 	global1 = global + local1 - local;
@@ -1515,6 +1624,8 @@ bool VWfeature::read_file(string project_path, int layer)
 	sprintf(sh, "vwfeature%d.txt", layer);
 	filename = filename + sh;
 	retrain_via = true;
+	via_features.clear();
+	via_locs.clear();
 	FILE * fp = fopen(filename.c_str(), "rt");
 	if (fp == NULL)
 		return false;
@@ -1538,13 +1649,22 @@ bool VWfeature::read_file(string project_path, int layer)
 	return true;
 }
 
-float VWfeature::via_judge(const Mat & img, Point & org, Point & range, int & label)
+bool VWfeature::via_valid(bool multi_thread)
 {
 	if (retrain_via) {
-		vml.train(via_features);
+		CV_Assert(!multi_thread);
+		is_via_valid = vml.train(via_features);
 		retrain_via = false;
 	}
-	return vml.judge(img, org, range, label);
+	return is_via_valid;
+}
+
+float VWfeature::via_judge(const Mat & img, Point & org, Point & range, int & label, bool multi_thread)
+{
+	if (via_valid(multi_thread))
+		return vml.judge(img, org, range, label, multi_thread);
+	else
+		return -1;
 }
 
 #define MAKE_PROB(s, x, y) ((unsigned long long)(s) << 32 | (y) << 16 | (x))
@@ -1552,7 +1672,7 @@ float VWfeature::via_judge(const Mat & img, Point & org, Point & range, int & la
 #define PROB_Y(p) ((int)((p) >> 16 & 0xffff))
 #define PROB_S(p) ((unsigned)((p) >> 32 & 0xffffffff))
 
-void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<MarkObj > & vs)
+void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj > & vs, bool multi_thread)
 {
 	vs.clear();
 	if (!mark_dbg.empty())
@@ -1623,12 +1743,12 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<MarkObj > & v
 				if (!mark_dbg.empty())
 					mark_dbg.at<uchar>(org) = 100;
 				int label;
-				float ret = via_judge(img, org, range, label);
+				float ret = via_judge(img, org, range, label, multi_thread);
 				if (label & 1) {
 					MarkObj m;
 					m.type = OBJ_POINT;
 					m.type2 = POINT_VIA_AUTO_EXTRACT;
-					m.prob = ret;
+					m.prob = min(ret, 1.0f);
 					m.p0 = QPoint(org.x, org.y);
 					m.p1 = QPoint(range.x, range.y);
 					vs.push_back(m);
