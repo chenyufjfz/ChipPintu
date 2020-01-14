@@ -660,7 +660,7 @@ void test_ml_extract()
 {
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A22190918/chip.prj", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A22190918/chip.prj", "", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
 #endif
@@ -671,10 +671,11 @@ void test_ml_extract()
 	}
 	QScopedPointer<VWExtract> vwe(VWExtract::create_extract(2));
 	vector<MarkObj> objs;
-	vwe->set_extract_param(0x0101, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	vwe->set_extract_param(0x0201, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 	vector<SearchArea> areas;
-
-	areas.push_back(SearchArea(QRect(169280, 43424, 10000, 10000), 0));
+	//QPoint tl(135680, 19968), rb(597505, 517121);
+	QPoint tl(135680, 369968), rb(397505, 517121);
+	areas.push_back(SearchArea(QRect(tl, rb), 0));
 	vwe->extract(pic, areas, objs);
 }
 
@@ -772,13 +773,13 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	
 	//wire_extract_test_pipeprocess();
 	//cell_extract_test();
 	//test_extractparam2();
 	//test_single_wire_extract();
-	test_ml_train();
+	test_ml_extract();
 	return 0;
 #endif
     w.show();

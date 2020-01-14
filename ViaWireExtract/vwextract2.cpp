@@ -18,7 +18,6 @@
 #endif
 
 
-#define OPT_PARALLEL_SEARCH		1
 #define OPT_DEBUG_EN		0x8000
 #define OPT_DEBUG_OUT_EN	0x4000
 

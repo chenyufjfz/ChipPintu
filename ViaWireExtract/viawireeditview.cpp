@@ -109,6 +109,7 @@ ViaWireEditView::~ViaWireEditView()
 	if (vwe != NULL)
 		delete vwe;
 	delete vwe_single;
+	delete vwe_ml;
 }
 void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 {

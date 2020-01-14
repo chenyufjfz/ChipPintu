@@ -2,6 +2,14 @@
 #include "vwextract.h"
 #include <QDir>
 #define SAVE_RST_TO_FILE	1
+#ifdef Q_OS_WIN
+#ifdef QT_DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
+#define new DEBUG_NEW
+#endif
+#endif
 /*
 input ic_layer
 input scale, 0,1,2,3...
@@ -51,41 +59,112 @@ Mat prepare_raw_img(ICLayerWrInterface * ic_layer, int scale, QRect rect)
 
 struct ProcessData {
 	int x0, y0;
+	int img_pixel_x0, img_pixel_y0;
 	int layer;
-	vector<ElementObj> eo;
+	Mat raw_img;
+	vector<ElementObj *> eo;
+	int ref_cnt;
+	ProcessData() {
+		ref_cnt = 0;
+		x0 = -10000;
+		y0 = -10000;
+		img_pixel_x0 = -10000;
+		img_pixel_y0 = -10000;
+		layer = -1;
+	}
 };
 
 struct ProcessImageData {
-	Mat img;
-	QPoint tl;
 	VWfeature * vwf;
 	ProcessData * lpd;
 	ProcessData * upd;
 	ProcessData * cpd;
-	bool multi_thread;	
+	bool multi_thread;
 };
 
 ProcessImageData process_img(const ProcessImageData & pi)
 {
-	qInfo("process x=%d, y=%d, l=%d", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer);
-	pi.vwf->via_search(pi.img, Mat(), pi.cpd->eo, pi.multi_thread);
-	for (auto & o : pi.cpd->eo) {
-		o.type3 = pi.cpd->layer;
-		o.p0 = o.p0 + pi.tl;
+	qInfo("process_img (%d,%d,%d)", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer);
+
+	if (!pi.cpd->raw_img.empty()) {
+		Mat empty;
+		pi.vwf->via_search(pi.cpd->raw_img, empty, pi.cpd->eo, pi.multi_thread);
+		QPoint tl(pi.cpd->img_pixel_x0, pi.cpd->img_pixel_y0);
+		for (auto & o : pi.cpd->eo) {
+			o->type3 = pi.cpd->layer;
+			o->p0 = o->p0 + tl;
+		}
 	}
+	qInfo("process_img (%d,%d,%d) o=%d", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer, pi.cpd->eo.size());
 	return pi;
 }
 
-void merge_img_result(vector<ElementObj> & objs, const ProcessImageData & t)
+void merge_process_data(ProcessData * pd0, ProcessData * pd1)
 {
-	objs.insert(objs.end(), t.cpd->eo.begin(), t.cpd->eo.end());
+	qInfo("merge_process_data (%d,%d,%d) o=%d and (%d,%d,%d) o=%d", pd0->x0, pd0->y0, pd0->layer, pd0->eo.size(),
+		pd1->x0, pd1->y0, pd1->layer, pd1->eo.size());
+	for (int i = 0; i < (int) pd0->eo.size(); i++)
+	if (pd0->eo[i]->type == OBJ_POINT) {
+		QPoint loc = pd0->eo[i]->p0;
+		int layer = pd0->eo[i]->type3;
+		for (int j = 0; j < (int)pd1->eo.size(); j++)
+		if (pd1->eo[j]->type == OBJ_POINT && pd1->eo[j]->type3 == layer && pd0->eo[i] != pd1->eo[j]) {
+			QPoint diff = loc - pd1->eo[j]->p0;
+			if (abs(diff.x()) <= 2 && abs(diff.y()) <= 2) { //pd0 and pd1 point to same via, merge
+				if (pd0->eo[i]->un.attach >= pd1->eo[j]->un.attach) {
+					CV_Assert(pd1->eo[j]->un.attach == 1);
+					pd0->eo[i]->un.attach++;
+					delete pd1->eo[j];
+					pd1->eo[j] = pd0->eo[i];
+				}
+				else {
+					pd1->eo[j]->un.attach++;
+					delete pd0->eo[i];
+					pd0->eo[i] = pd1->eo[j];
+				}
+				break;
+			}
+		}
+	}
+	else {
+
+	}
 }
 
-void process_imgs(vector<ProcessImageData> & pis, vector<ElementObj> & obj_sets, bool parallel) {
+void get_result(ProcessData * pd, vector<ElementObj *> & objs)
+{
+	qInfo("get_result (%d,%d,%d) w=%d,h=%d,o=%d", pd->x0, pd->y0, pd->layer,
+		pd->raw_img.cols, pd->raw_img.rows, pd->eo.size());
+	for (auto & e : pd->eo) 
+	if (e->type == OBJ_POINT) {
+		if (e->un.attach == 1)
+			objs.push_back(e);
+		else
+			e->un.attach--;
+	}
+}
+
+void merge_img_result(vector<ElementObj *> & objs, const ProcessImageData & t)
+{
+	if (t.lpd)
+		merge_process_data(t.lpd, t.cpd);
+	if (t.upd)
+		merge_process_data(t.upd, t.cpd);
+	if (t.lpd) {
+		if (t.lpd->ref_cnt-- == 1)
+			get_result(t.lpd, objs);
+	}
+	if (t.upd) {
+		if (t.upd->ref_cnt-- == 1)
+			get_result(t.upd, objs);
+	}
+}
+
+void process_imgs(vector<ProcessImageData> & pis, vector<ElementObj *> & obj_sets, bool parallel) {
 	if (parallel) {
 		//each thread process all layer on same tile
-		vector<ElementObj> temp_vec;
-		temp_vec = QtConcurrent::blockingMappedReduced<vector<ElementObj>, vector<ProcessImageData> >(pis, process_img, merge_img_result,
+		vector<ElementObj *> temp_vec;
+		temp_vec = QtConcurrent::blockingMappedReduced<vector<ElementObj *>, vector<ProcessImageData> >(pis, process_img, merge_img_result,
 			QtConcurrent::OrderedReduce | QtConcurrent::SequentialReduce);
 		obj_sets.insert(obj_sets.end(), temp_vec.begin(), temp_vec.end());
 	}
@@ -122,6 +201,7 @@ int VWExtractML::set_extract_param(int layer, int, int, int, int, int, int, int,
 {
 	layer_min = layer & 0xff;
 	layer_max = layer >> 8 & 0xff;
+	layer_max = max(layer_max, layer_min);
 	if (layer_max >= (int)vwf.size()) {
 		vwf.resize(layer_max + 1);
 		via_mark.resize(layer_max + 1);
@@ -153,7 +233,7 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 		}
 		if (via_mark[current_layer].empty()) {
 			via_mark[current_layer].create(img.rows, img.cols, CV_8U);
-			via_mark[current_layer] = 0;
+            via_mark[current_layer] = Scalar::all(0);
 		}
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
@@ -190,6 +270,7 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 {
 	vector<ProcessImageData> pis;
 	ProcessData ed[100];
+	obj_sets.clear();
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		string file_name(img_name);
 		file_name[file_name.length() - 5] = current_layer + '0';
@@ -200,7 +281,7 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		}
 
 		via_mark[current_layer].create(img.rows, img.cols, CV_8U);
-		via_mark[current_layer] = 0;
+        via_mark[current_layer] = Scalar::all(0);
 
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
@@ -209,8 +290,10 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		ProcessImageData pi;
 		ed[current_layer].x0 = 0;
 		ed[current_layer].y0 = 0;
+		ed[current_layer].img_pixel_x0 = 0;
+		ed[current_layer].img_pixel_y0 = 0;
 		ed[current_layer].layer = current_layer;
-		pi.img = img;
+		ed[current_layer].raw_img = img;
 		pi.vwf = &vwf[current_layer];
 		pi.lpd = NULL;
 		pi.upd = NULL;
@@ -218,8 +301,10 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		pi.multi_thread = false;
 		pis.push_back(pi);
 	}
-	vector<ElementObj> es;
+	vector<ElementObj *> es;
 	process_imgs(pis, es, false);
+	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++)
+		get_result(&ed[current_layer], es);
 	convert_element_obj(es, obj_sets, 1);
 	return 0;
 }
@@ -276,7 +361,15 @@ int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj
 	return 0;
 }
 
-int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<SearchArea> & area_, vector<MarkObj> & obj_sets)
+struct SearchAreaPoly {
+	QPolygon poly;
+	int option;
+	SearchAreaPoly(QPolygon p, int o) {
+		poly = p;
+		option = o;
+	}
+};
+int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<SearchArea> & area_rect, vector<MarkObj> & obj_sets)
 {
 	QDir *qdir = new QDir;
 	deldir("./DImg");
@@ -287,7 +380,7 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 			qCritical("mkdir failed");
 	}
 	delete qdir;
-
+	int BORDER_SIZE = 0;
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		if (current_layer >= (int)vwf.size())
 			vwf.resize(current_layer + 1);
@@ -295,8 +388,31 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
 		vwf[current_layer].read_file(project_path, current_layer);
+		BORDER_SIZE = max(BORDER_SIZE, vwf[current_layer].get_max_d());
 	}
+	BORDER_SIZE += 8;
 
+	vector<SearchAreaPoly> area_;
+	QPolygon area_poly;
+	int option;
+	for (auto & ar : area_rect) {
+		if (ar.option & OPT_POLYGON_SEARCH) {
+			area_poly.push_back(ar.rect.topLeft());
+			area_poly.push_back(QPoint(ar.rect.width(), ar.rect.height()));
+			option = ar.option;
+		}
+		else {
+			if (area_poly.size() > 2) {
+				area_.push_back(SearchAreaPoly(area_poly, option));
+				area_poly.clear();
+			}
+			area_.push_back(SearchAreaPoly(QPolygon(ar.rect), ar.option));
+		}
+	}
+	if (area_poly.size() > 2) {
+		area_.push_back(SearchAreaPoly(area_poly, option));
+		area_poly.clear();
+	}
 	int block_x, block_y;
 	ics[0]->getBlockNum(block_x, block_y);
 	int block_width = ics[0]->getBlockWidth();
@@ -304,9 +420,9 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 	obj_sets.clear();
 
 	for (int area_idx = 0; area_idx < area_.size(); area_idx++) {
-		int extend = 18 * scale;
-
-		QRect sr = area_[area_idx].rect.marginsAdded(QMargins(extend, extend, extend, extend));
+		int extend = BORDER_SIZE * scale;
+		int parallel_search = area_[area_idx].option & OPT_PARALLEL_SEARCH;
+		QRect sr = area_[area_idx].poly.boundingRect().marginsAdded(QMargins(extend, extend, extend, extend));
 		sr &= QRect(0, 0, block_x << 15, block_y << 15);
 		if (sr.width() <= 0x10000 || sr.height() <= 0x10000) {
 			vector<ProcessImageData> pis;
@@ -317,27 +433,274 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 					continue;
 				}
 				ProcessImageData pi;
-				ed[l].x0 = sr.left() >> 15;
-				ed[l].y0 = sr.top() >> 15;
+				ed[l].x0 = 0;
+				ed[l].y0 = 0;
+				ed[l].img_pixel_x0 = sr.left() / scale;
+				ed[l].img_pixel_y0 = sr.top() / scale;
 				ed[l].layer = l;
 				QRect r(sr.left() / scale, sr.top() / scale, sr.width() / scale, sr.height() / scale);
-				pi.img = prepare_raw_img(ics[l], 0, r);
+				ed[l].raw_img = prepare_raw_img(ics[l], 0, r);
 				pi.vwf = &vwf[l];
 				pi.lpd = NULL;
 				pi.upd = NULL;
 				pi.cpd = &ed[l];
 				pi.multi_thread = false;
-				pi.tl = r.topLeft();
 				pis.push_back(pi);
 			}
-			vector<ElementObj> es;
+			vector<ElementObj *> es;
 			process_imgs(pis, es, false);
-#if SAVE_RST_TO_FILE
-			save_rst_to_file(es);
-#endif
+			for (int l = layer_min; l <= layer_max; l++)
+				get_result(&ed[l], es);
+			convert_element_obj(es, obj_sets, scale);
+		}
+		else {
+			//following same as vwextract2
+			QRect sb(QPoint((sr.left() + 0x4000) >> 15, (sr.top() + 0x4000) >> 15),
+				QPoint((sr.right() - 0x4000) >> 15, (sr.bottom() - 0x4000) >> 15));
+			CV_Assert(sb.right() >= sb.left() && sb.bottom() >= sb.top());
+			vector<vector<ProcessData> > diag_line[2];
+			for (int i = 0; i < 2; i++) {
+				diag_line[i].resize(layer_max + 1);
+				for (int j = 0; j < (int)diag_line[i].size(); j++)
+					diag_line[i][j].resize(max(sb.width() + 1, sb.height() + 1));
+			}
+			int lx = sr.left() - (sb.left() << 15); //do 4dec/5inc
+			int rx = sr.right() - ((sb.right() + 1) << 15);
+			int ty = sr.top() - (sb.top() << 15);
+			int by = sr.bottom() - ((sb.bottom() + 1) << 15);
+			int cl = 1;
+			int cl_num;
+			QPoint sr_tl_pixel = sr.topLeft() / scale;
+			qInfo("extract Rect, lt=(%d,%d), rb=(%d,%d), multithread=%d", sr_tl_pixel.x(), sr_tl_pixel.y(), sr.right() / scale, sr.bottom() / scale, parallel_search);
+			for (int xay = sb.left() + sb.top(); xay <= sb.right() + sb.bottom(); xay++) {
+				/*Scan from top left to bottom right. One loop process one xie line /,
+				For xie line /, process each ProcessData concurrenty*/
+				cl = 1 - cl;
+				cl_num = 0;
+				for (int i = 0; i < (int) diag_line[cl].size(); i++) //release current diag_line memory
+				for (int j = 0; j < (int)diag_line[cl][i].size(); j++) {
+					CV_Assert(diag_line[cl][i][j].ref_cnt == 0);
+					diag_line[cl][i][j].eo.clear();
+				}
+				//1 load image to diag_line
+				for (int x0 = sb.left(); x0 <= sb.right(); x0++) {
+					int y0 = xay - x0;
+					if (sb.contains(x0, y0)) { //load image per Tile
+						bool in_area = true;
+						cl_num++;
+						QPoint p0(x0 << 15, y0 << 15);
+						QPoint p1((x0 << 15) + 0x4000, (y0 << 15) + 0x4000);
+						QPoint p2((x0 << 15) + 0x8000 + BORDER_SIZE * scale, (y0 << 15) + 0x8000 + BORDER_SIZE * scale);
+						if (!area_[area_idx].poly.containsPoint(p0, Qt::OddEvenFill) &&
+							!area_[area_idx].poly.containsPoint(p1, Qt::OddEvenFill) &&
+							!area_[area_idx].poly.containsPoint(p2, Qt::OddEvenFill))
+							in_area = false;
+						//1.1 compute load image source and destination
+						int wide[3] = { 0 }, height[3] = { 0 }; //wide & height is image destination bound
+
+						if (x0 == sb.left()) {
+							if (lx < 0) {				//if left edge locates at less than half image picture, 
+								wide[0] = -lx / scale;	//load one more image
+								wide[1] = block_width;
+							}
+							else
+								wide[1] = block_width - lx / scale;
+						}
+						if (x0 == sb.right()) {
+							if (rx > 0) {				//if right edge locates at less than half image picture,  
+								wide[1] = (wide[1] == 0) ? block_width : wide[1]; //load one more image
+								wide[2] = rx / scale;
+							}
+							else
+								wide[1] = block_width + rx / scale;
+						}
+						if (x0 != sb.left() && x0 != sb.right())
+							wide[1] = block_width;
+
+						if (y0 == sb.top()) {
+							if (ty < 0) {				//if top edge locates at less than half image picture, 
+								height[0] = -ty / scale;	//load one more image
+								height[1] = block_width;
+							}
+							else
+								height[1] = block_width - ty / scale;
+						}
+						if (y0 == sb.bottom()) {
+							if (by > 0) {				//if bottom edge locates at less than half image picture, 
+								height[1] = (height[1] == 0) ? block_width : height[1];	//load one more image
+								height[2] = by / scale;
+							}
+							else
+								height[1] = block_width + by / scale;
+						}
+						if (y0 != sb.top() && y0 != sb.bottom())
+							height[1] = block_width;
+						int ewide = (x0 == sb.left()) ? 0 : BORDER_SIZE * 2;
+						int ehight = (y0 == sb.top()) ? 0 : BORDER_SIZE * 2;
+						for (int l = layer_min; l <= layer_max; l++) {
+							Mat img(height[0] + height[1] + height[2] + ehight, wide[0] + wide[1] + wide[2] + ewide, CV_8U);
+							ProcessData * d = &diag_line[cl][l][cl_num - 1];
+							d->layer = l;
+							d->x0 = x0;
+							d->y0 = y0;
+							if (ewide == 0 && ehight == 0) {
+								d->img_pixel_x0 = sr_tl_pixel.x();
+								d->img_pixel_y0 = sr_tl_pixel.y();								
+							}
+							if (ewide != 0) { // copy left image from old diag_line
+								Mat * s_img;
+								if (diag_line[1 - cl][l][cl_num - 1].y0 == y0) {
+									s_img = &diag_line[1 - cl][l][cl_num - 1].raw_img;
+									d->img_pixel_x0 = diag_line[1 - cl][l][cl_num - 1].img_pixel_x0 + s_img->cols
+										- BORDER_SIZE * 2;
+									d->img_pixel_y0 = diag_line[1 - cl][l][cl_num - 1].img_pixel_y0;
+								}
+								else {
+									CV_Assert(diag_line[1 - cl][l][cl_num - 2].y0 == y0);
+									s_img = &diag_line[1 - cl][l][cl_num - 2].raw_img;
+									d->img_pixel_x0 = diag_line[1 - cl][l][cl_num - 2].img_pixel_x0 + s_img->cols
+										- BORDER_SIZE * 2;
+									d->img_pixel_y0 = diag_line[1 - cl][l][cl_num - 2].img_pixel_y0;
+								}
+								if (in_area) {
+									if (!s_img->empty()) {
+										CV_Assert(s_img->rows == img.rows);
+										(*s_img)(Rect(s_img->cols - BORDER_SIZE * 2, 0, BORDER_SIZE * 2, img.rows)).copyTo(img(Rect(0, 0, BORDER_SIZE * 2, img.rows)));
+									}
+									else
+										img(Rect(0, 0, BORDER_SIZE * 2, img.rows)) = Scalar::all(0);
+								}
+							}
+
+							if (ehight != 0) {  // copy upper image from old diag_line
+								Mat * s_img;
+								if (diag_line[1 - cl][l][cl_num - 1].x0 == x0) {
+									s_img = &diag_line[1 - cl][l][cl_num - 1].raw_img;
+									if (ewide != 0)
+										CV_Assert(d->img_pixel_x0 == diag_line[1 - cl][l][cl_num - 1].img_pixel_x0 &&
+										d->img_pixel_y0 == diag_line[1 - cl][l][cl_num - 1].img_pixel_y0 + s_img->rows
+										- BORDER_SIZE * 2);
+									d->img_pixel_x0 = diag_line[1 - cl][l][cl_num - 1].img_pixel_x0;
+									d->img_pixel_y0 = diag_line[1 - cl][l][cl_num - 1].img_pixel_y0 + s_img->rows
+										- BORDER_SIZE * 2;
+								}
+								else {
+									CV_Assert(diag_line[1 - cl][l][cl_num].x0 == x0);
+									s_img = &diag_line[1 - cl][l][cl_num].raw_img;
+									if (ewide != 0)
+										CV_Assert(d->img_pixel_x0 == diag_line[1 - cl][l][cl_num].img_pixel_x0 &&
+										d->img_pixel_y0 == diag_line[1 - cl][l][cl_num].img_pixel_y0 + s_img->rows
+										- BORDER_SIZE * 2);
+									d->img_pixel_x0 = diag_line[1 - cl][l][cl_num].img_pixel_x0;
+									d->img_pixel_y0 = diag_line[1 - cl][l][cl_num].img_pixel_y0 + s_img->rows
+										- BORDER_SIZE * 2;
+								}
+								if (in_area) {
+									if (!s_img->empty()) {
+										CV_Assert(s_img->cols == img.cols);
+										(*s_img)(Rect(0, s_img->rows - BORDER_SIZE * 2, img.cols, BORDER_SIZE * 2)).copyTo(img(Rect(0, 0, img.cols, BORDER_SIZE * 2)));
+									}
+									else
+										img(Rect(0, 0, img.cols, BORDER_SIZE * 2)) = Scalar::all(0);
+								}
+							}
+							d->raw_img.release();
+							//When extract width(height) > 2 * image width
+							//if loading image is not at the edge, load 1*1 image; if at the edge, load 1*1 or 1*2;
+							//if at the corner, load 1*1 or 1*2, or 2*2.
+							//When extract width(height) < 2 * image width
+							//if loading image is at the edge, load 1*1, 1*2 or 1*3 image, if at the corner, load 1*1 or 1*2 or 2*2 or 2*3 or 3*3 
+							if (in_area)
+							for (int y = y0 - 1, img_y = ehight; y <= y0 + 1; y++) {
+								int dy = y - y0;
+								for (int x = x0 - 1, img_x = ewide; x <= x0 + 1; x++) {
+									int dx = x - x0;
+									if (wide[dx + 1] != 0 && height[dy + 1] != 0) {
+										vector<uchar> encode_img;
+										if (ics[l]->getRawImgByIdx(encode_img, x, y, 0, 0, false) != 0) {
+											qCritical("load image error at l=%d, (%d,%d)", l, x, y);
+											return -1;
+										}
+										Mat image = imdecode(Mat(encode_img), 0);
+										if (image.rows != image.cols) {
+											qCritical("load image rows!=cols at l=%d, (%d,%d)", l, x, y);
+											return -1;
+										}
+										QRect s(0, 0, image.cols, image.rows);
+										if (dx == -1)
+											s.setLeft(image.cols - wide[0]);
+										if (dx == 1)
+											s.setRight(wide[2] - 1);
+										if (dx == 0) {
+											if (wide[0] == 0 && x0 == sb.left())
+												s.setLeft(image.cols - wide[1]);
+											if (wide[2] == 0 && x0 == sb.right())
+												s.setRight(wide[1] - 1);
+										}
+										if (dy == -1)
+											s.setTop(image.rows - height[0]);
+										if (dy == 1)
+											s.setBottom(height[2] - 1);
+										if (dy == 0) {
+											if (height[0] == 0 && y0 == sb.top())
+												s.setTop(image.rows - height[1]);
+											if (height[2] == 0 && y0 == sb.bottom())
+												s.setBottom(height[1] - 1);
+										}
+										CV_Assert(s.width() == wide[dx + 1] && s.height() == height[dy + 1]);
+										if (l == 0)
+											qDebug("load image%d_%d, (x=%d,y=%d),(w=%d,h=%d) to (x=%d,y=%d)", y, x, s.left(), s.top(), s.width(), s.height(), img_x, img_y);
+										image(Rect(s.left(), s.top(), s.width(), s.height())).copyTo(img(Rect(img_x, img_y, wide[dx + 1], height[dy + 1])));
+									}
+									img_x += wide[dx + 1];
+								}
+								img_y += height[dy + 1];
+							}
+							d->raw_img = img;
+						}
+					}
+				}
+				//2 now diag_line is loaded, process it
+				vector<ProcessImageData> pis;
+				for (int i = 0; i < cl_num; i++) 
+				for (int l = layer_min; l <= layer_max; l++) {
+					ProcessImageData pi;
+					pi.vwf = &vwf[l];
+					pi.cpd = &diag_line[cl][l][i];
+					pi.lpd = &diag_line[1 - cl][l][i];
+					pi.upd = &diag_line[1 - cl][l][i];
+					pi.multi_thread = (pi.cpd->x0 == sb.left() && pi.cpd->y0 == sb.top()) ? false : parallel_search;
+					if (pi.cpd->y0 > sb.top() && pi.cpd->x0 != pi.upd->x0)
+						pi.upd = &diag_line[1 - cl][l][i + 1];
+					if (pi.cpd->x0 > sb.left() && pi.cpd->y0 != pi.lpd->y0)
+						pi.lpd = &diag_line[1 - cl][l][i - 1];
+					if (pi.cpd->x0 > sb.left()) {
+						CV_Assert(pi.cpd->y0 == pi.lpd->y0 && pi.cpd->layer == pi.lpd->layer);
+						pi.lpd->ref_cnt++;
+					}
+					else
+						pi.lpd = NULL;
+					if (pi.cpd->y0 > sb.top()) {
+						CV_Assert(pi.cpd->x0 == pi.upd->x0 && pi.cpd->layer == pi.upd->layer);
+						pi.upd->ref_cnt++;
+					}
+					else
+						pi.upd = NULL;
+					pis.push_back(pi);
+				}
+				vector<ElementObj *> es;
+				process_imgs(pis, es, parallel_search);
+				convert_element_obj(es, obj_sets, scale);
+			}
+			vector<ElementObj *> es;
+			for (int l = layer_min; l <= layer_max; l++)
+				get_result(&diag_line[cl][l][0], es);
 			convert_element_obj(es, obj_sets, scale);
 		}
 	}
+#if SAVE_RST_TO_FILE
+	save_rst_to_file(obj_sets, scale);
+#endif
 	qInfo("VWExtractML Extract finished successfully");
 	qDebug("*#*#DumpMessage#*#*");
 	return 0;

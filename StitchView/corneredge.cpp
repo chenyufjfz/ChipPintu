@@ -207,9 +207,9 @@ void CornerEdge::set_layer_info(LayerFeature * _lf)
 	if (lf->checked_edge_offset[0].empty() || lf->checked_edge_offset[0].rows != lf->cpara.img_num_h - 1
 		|| lf->checked_edge_offset[0].cols != lf->cpara.img_num_w) {
 		lf->checked_edge_offset[0].create(lf->cpara.img_num_h - 1, lf->cpara.img_num_w);
-		lf->checked_edge_offset[0] = 0;
+        lf->checked_edge_offset[0] = Vec2i(0, 0);
 		lf->checked_edge_offset[1].create(lf->cpara.img_num_h, lf->cpara.img_num_w - 1);
-		lf->checked_edge_offset[1] = 0;
+        lf->checked_edge_offset[1] = Vec2i(0, 0);
 	}
 	vector<unsigned long long> ce_set;
 	//same as compute_unsure_corner

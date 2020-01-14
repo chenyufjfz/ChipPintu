@@ -992,8 +992,10 @@ void thread_map_image(MapRequest & pr)
 				if ((*pr.draw_order)[i] == id)
 					order += (i + 1) * 0x10000;		
 				if (pmap->m.cols >= pr.cpara->clip_l + pr.src.width && pmap->m.rows >= pr.cpara->clip_u + pr.src.height)
-				src_map.push_back(PremapTailorImg(pmap->m(Rect(pr.cpara->clip_l, pr.cpara->clip_u, pr.src.width, pr.src.height)), 
-					Rect_<double>(pr.cpara->offset(y, x)[1] - 0.5, pr.cpara->offset(y, x)[0] - 0.5, pr.src.width, pr.src.height), order));				
+                {
+                    Rect_<double> rectD = Rect_<double>(pr.cpara->offset(y, x)[1] - 0.5, pr.cpara->offset(y, x)[0] - 0.5, pr.src.width, pr.src.height);
+                    src_map.push_back(PremapTailorImg(pmap->m(Rect(pr.cpara->clip_l, pr.cpara->clip_u, pr.src.width, pr.src.height)), rectD, order));
+                }
 				break;
 			}
 			CV_Assert(ret != NOT_FETCH);
@@ -1340,7 +1342,7 @@ void RenderImage::render_img(const vector<MapID> & map_id, vector<QImage> & imgs
 RenderImage::RenderImage()
 {
 	dst_w = 1024;
-	premap_cache.set_size(36);
+    premap_cache.set_size(50);
 	postmap_cache.set_size(30);
 }
 

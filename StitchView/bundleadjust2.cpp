@@ -150,7 +150,7 @@ template < class T >
 void clear_vec(vector< T >& vt)
 {
 	vector< T > vtTemp;
-	veTemp.swap(vt);
+    vtTemp.swap(vt);
 }
 
 unsigned queue_number(int shape_len, int dx, int dy)
@@ -1775,7 +1775,10 @@ void BundleAdjust2::merge_all()
 		split(img_num_w + 1, unit[i], gx);
 		for (int y = 0; y < gy.size() - 1; y++)
 		for (int x = 0; x < gx.size() - 1; x++)
-			ms.push_back(MergeSquarePara(this, Rect(gx[x] + 1, gy[y] + 1, gx[x + 1] - gx[x] - 1, gy[y + 1] - gy[y] - 1), COST_BIGER_THAN_AVG * 1.5));
+        {
+            Rect rect = Rect(gx[x] + 1, gy[y] + 1, gx[x + 1] - gx[x] - 1, gy[y + 1] - gy[y] - 1);
+            ms.push_back(MergeSquarePara(this, rect, COST_BIGER_THAN_AVG * 1.5));
+        }
 #if PARALLEL
 		QtConcurrent::blockingMap<vector<MergeSquarePara> >(ms, thread_merge_square);
 #else

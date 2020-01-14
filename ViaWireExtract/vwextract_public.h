@@ -92,6 +92,10 @@ void print_stack(void);
 #define DIR_DOWNLEFT_MASK	(1 << DIR_DOWNLEFT)
 #define DIR_DOWNRIGHT_MASK	(1 << DIR_DOWNRIGHT)
 
+//search opt
+#define OPT_PARALLEL_SEARCH		1
+#define OPT_POLYGON_SEARCH		2
+
 #define FEATURE_ROW			8
 struct Brick {
 	int a[3][3];
@@ -161,7 +165,7 @@ void integral_square(const Mat & img, Mat & ig, Mat & iig, Mat & lg, Mat & llg, 
 void clip_img(Mat & img, int gray_low, int gray_high, Mat & new_img);
 bool contain_dir(int d1, int d2);
 void deldir(const string &path);
-void save_rst_to_file(const vector<ElementObj> & obj_sets);
+void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale);
 
 //CircleCheck use octagon to approximate circle, use grad accumulation to judge every edge
 class CircleCheck {
@@ -254,8 +258,12 @@ public:
 	float judge(const Mat & img, Point & org, Point & range, int &label, bool multi_thread);
 };
 
-
-void convert_element_obj(const vector<ElementObj> & es, vector<MarkObj> & ms, int scale);
+/*
+Input es
+Output ms
+Note: it will release es and appends to ms
+*/
+void convert_element_obj(const vector<ElementObj *> & es, vector<MarkObj> & ms, int scale);
 
 class VWfeature {
 protected:
@@ -290,15 +298,18 @@ public:
 	Input d0, via diameter
 	*/
 	bool del_feature(Point global, int d0);
+	//delete all feature
 	void clear_feature();
+	int get_max_d();
 	void write_file(string project_path, int layer);
 	bool read_file(string project_path, int layer);
 	bool via_valid(bool multi_thread);
 	/*
 	input img
 	output vs, vs.p0 is via center, vs.p1 is via diameter.
+	input multi_thread, true means multithread search
 	*/
-	void via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj > & vs, bool multi_thread);
+	void via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *> & vs, bool multi_thread);
 };
 
 
