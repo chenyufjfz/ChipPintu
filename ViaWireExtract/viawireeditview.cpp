@@ -100,6 +100,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	bse_param.w_wide1 = 0.3;
 	for (int i = 0; i < 8; i++)
 		dia[i] = 11;
+	via_at_center = 0;
 }
 
 ViaWireEditView::~ViaWireEditView()
@@ -201,18 +202,26 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
         break;
     case OBJ_POINT:
         if (obj.state !=4 && obj.type3 == layer) {
-			if (obj.type2 == POINT_NO_VIA) {
+			switch (obj.type2) {
+			case POINT_NO_VIA:
+			case POINT_VIA_INSU:
 				painter.setPen(QPen(Qt::red, 1));
 				painter.setBrush(QBrush(Qt::red, Qt::NoBrush));
-			}
-			else {
+				break;
+			default: 
 				painter.setPen(QPen(Qt::green, 1));
 				painter.setBrush(QBrush(Qt::green, Qt::NoBrush));
+				break;
 			}
-            painter.drawEllipse(obj.p0, 1, 1);
-			QPoint tl(obj.p0.x() - obj.p1.x() / 2, obj.p0.y() - obj.p1.y() / 2);
-			QPoint br(obj.p0.x() - obj.p1.x() / 2 + obj.p1.x(), obj.p0.y() - obj.p1.y() / 2 + obj.p1.y());
-			painter.drawEllipse(QRect(tl, br));
+			if (obj.type2 == POINT_NO_VIA || obj.type2 == POINT_NORMAL_VIA0 || 
+				obj.type2 == POINT_VIA_AUTO_EXTRACT || obj.type2 == POINT_VIA_AUTO_EXTRACT1) {
+				painter.drawEllipse(obj.p0, 1, 1);
+				QPoint tl(obj.p0.x() - obj.p1.x() / 2, obj.p0.y() - obj.p1.y() / 2);
+				QPoint br(obj.p0.x() - obj.p1.x() / 2 + obj.p1.x(), obj.p0.y() - obj.p1.y() / 2 + obj.p1.y());
+				painter.drawEllipse(QRect(tl, br));
+			}
+			else
+				painter.drawLine(obj.p0, obj.p1);
         }
         break;
     }
@@ -300,6 +309,17 @@ void ViaWireEditView::set_mark(int ms, int type2)
 	mark_type2 = type2;
     if (ms == SELECT_OBJ)
         setFocus();
+}
+
+int ViaWireEditView::get_via_center()
+{
+	return via_at_center;
+}
+
+void ViaWireEditView::set_via_center(int _via_at_center)
+{
+	via_at_center = _via_at_center;
+	vwe_ml->set_extract_param(layer << 8 | layer, via_at_center, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
 void ViaWireEditView::set_scale(int _scale)
@@ -577,7 +597,8 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 				current_obj.type3 = POWER_UP;
 			current_obj.state = 0;
             current_obj.p0 = event->pos() / scale;
-			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_NORMAL_VIA0 || current_obj.type2 == POINT_NO_VIA)) {
+			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_NORMAL_VIA0 || current_obj.type2 == POINT_NO_VIA
+				|| current_obj.type2 == POINT_VIA_WIRE || current_obj.type2 == POINT_VIA_INSU)) {
 				vector<MarkObj> ms;
 				ms.push_back(current_obj);
 				vwe_ml->set_train_param(OBJ_POINT, (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
@@ -686,7 +707,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 						select_idx = i;
 					}
 				}	
-				if (obj_set[i].type == OBJ_POINT) {
+				if (obj_set[i].type == OBJ_POINT && current_obj.type2 != POINT_VIA_WIRE && current_obj.type2 != POINT_VIA_INSU) {
 					dis = distance_p2l(obj_set[i].p0, obj_set[i].p0, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
@@ -931,7 +952,7 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		bk_img_mask = bk_img[layer];
 		if (show_debug_en)
             show_debug(mark_mask, show_debug_en);
-		vwe_ml->set_extract_param(layer << 8 | layer, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		vwe_ml->set_extract_param(layer << 8 | layer, via_at_center, 0, 0, 0, 0, 0, 0, 0, 0);
 		update();
 		return;
 	}
@@ -940,10 +961,9 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		int d;
 		switch (e->key()) {
 		case Qt::Key_Delete:
-			if (obj_set[select_idx].type == OBJ_POINT &&
-				(obj_set[select_idx].type2 == POINT_NORMAL_VIA0 || obj_set[select_idx].type2 == POINT_NO_VIA)) {
+			if (select_obj.type == OBJ_POINT &&	(select_obj.type2 == POINT_NORMAL_VIA0 || select_obj.type2 == POINT_NO_VIA)) {
 				vector<MarkObj> ms;
-				ms.push_back(obj_set[select_idx]);
+				ms.push_back(select_obj);
 				vwe_ml->set_train_param(OBJ_POINT, 1 << 16 | (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
 				vwe_ml->train(img_name, ms);
 				current_train = vwe_ml;
@@ -952,29 +972,33 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 			break;
 		case Qt::Key_Up:
 		case Qt::Key_Down:
-			d = (e->key() == Qt::Key_Up) ? -1 : 1;
-			if (select_obj.state == 1 || select_obj.state == 3)
-				select_obj.p0.setY(select_obj.p0.y() + d);
-			if (select_obj.state == 2 || select_obj.state == 3)
-				select_obj.p1.setY(select_obj.p1.y() + d);
-			if (select_obj.state == 1)
-				adjust_wire_point(select_obj.p1, select_obj.p0);
-			if (select_obj.state == 2)
-				adjust_wire_point(select_obj.p0, select_obj.p1);
-			obj_set[select_idx] = select_obj;
+			if (select_obj.type != OBJ_POINT) {
+				d = (e->key() == Qt::Key_Up) ? -1 : 1;
+				if (select_obj.state == 1 || select_obj.state == 3)
+					select_obj.p0.setY(select_obj.p0.y() + d);
+				if (select_obj.state == 2 || select_obj.state == 3)
+					select_obj.p1.setY(select_obj.p1.y() + d);
+				if (select_obj.state == 1)
+					adjust_wire_point(select_obj.p1, select_obj.p0);
+				if (select_obj.state == 2)
+					adjust_wire_point(select_obj.p0, select_obj.p1);
+				obj_set[select_idx] = select_obj;
+			}
 			break;	
 		case Qt::Key_Left:
 		case Qt::Key_Right:
-			d = (e->key() == Qt::Key_Left) ? -1 : 1;
-			if (select_obj.state == 1 || select_obj.state == 3)
-				select_obj.p0.setX(select_obj.p0.x() + d);
-			if (select_obj.state == 2 || select_obj.state == 3)
-				select_obj.p1.setX(select_obj.p1.x() + d);
-			if (select_obj.state == 1)
-				adjust_wire_point(select_obj.p1, select_obj.p0);
-			if (select_obj.state == 2)
-				adjust_wire_point(select_obj.p0, select_obj.p1);
-			obj_set[select_idx] = select_obj;
+			if (select_obj.type != OBJ_POINT) {
+				d = (e->key() == Qt::Key_Left) ? -1 : 1;
+				if (select_obj.state == 1 || select_obj.state == 3)
+					select_obj.p0.setX(select_obj.p0.x() + d);
+				if (select_obj.state == 2 || select_obj.state == 3)
+					select_obj.p1.setX(select_obj.p1.x() + d);
+				if (select_obj.state == 1)
+					adjust_wire_point(select_obj.p1, select_obj.p0);
+				if (select_obj.state == 2)
+					adjust_wire_point(select_obj.p0, select_obj.p1);
+				obj_set[select_idx] = select_obj;
+			}
 			break;   
 		}		
     }

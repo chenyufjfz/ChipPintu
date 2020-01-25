@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <opencv2/contrib/contrib.hpp>
+#include "qsharedpointer.h"
 
 using namespace std;
 using namespace cv;
@@ -192,11 +193,30 @@ public:
 
 int compute_circle_dx(int d, vector<Vec3i> & d0);
 
-#define VIA_FEATURE 0x40000000
+#define VIA_FEATURE			0x40000000
+#define VIA_IS_VIA			1
+#define VIA_UP_WIRE			2
+#define VIA_RIGHT_WIRE		4
+#define VIA_DOWN_WIRE		8
+#define VIA_LEFT_WIRE		16
+#define VIA_UPRIGHT_WIRE	32
+#define VIA_DOWNRIGHT_WIRE	64
+#define VIA_DOWNLEFT_WIRE	128
+#define VIA_UPLEFT_WIRE		0x100
+#define VIA_UP_VALID		0x200
+#define VIA_RIGHT_VALID		0x400
+#define VIA_DOWN_VALID		0x800
+#define VIA_LEFT_VALID		0x1000
+#define VIA_UPRIGHT_VALID	0x2000
+#define VIA_DOWNRIGHT_VALID 0x4000
+#define VIA_DOWNLEFT_VALID	0x8000
+#define VIA_LR_SYMMETRY		1
+#define VIA_UD_SYMMETRY		2
 
 class ViaML {
 protected:
-	CvSVM * via_svm; //it is trained by feature
+	QSharedPointer<CvSVM> via_svm; //it is via or not, trained by feature
+	QSharedPointer<CvSVM> vwi_svm[8]; //via connect to wire or insu, trained by feature
 	set<int> via_dia;  //it is trained by feature
 	map<int, vector<Vec3i> > d0s; //d0s.second store one circle xy, d0s.second[0] is (y, x1, x2), (x2, y) to (x1, y) forms circle in-points
 	map<int, vector<vector<Vec3i> > > circles; //circles.second is octagon, circles.second[i] is one edge, circles.second[i][j] is edge's point,
@@ -244,10 +264,11 @@ public:
 		vector<Point> * vs, bool multi_thread);
 	/*
 	input feature, it is output from feature_extract
+	input flag, only for via-wire & via-insu training
 	input weight, weight for miss via vs false via
 	return true, if train success, false if wrong
 	*/
-	bool train(const vector<Mat> & feature, float weight = 0.5);
+	bool train(const vector<Mat> & feature, int flag = 0, float weight = 0.5f);
 	/*
 	Input img
 	Inout org, via location
@@ -269,6 +290,8 @@ class VWfeature {
 protected:
 	ViaML vml;
 	bool retrain_via, is_via_valid;
+	int via_flag;
+	float via_weight;
 	vector<Mat> via_features;
 	vector<Point> via_locs;
 
@@ -283,6 +306,8 @@ protected:
 	float via_judge(const Mat & img, Point & org, Point & range, int & label, bool multi_thread);
 public:
 	VWfeature();
+	void set_via_para(int via_flag_, float via_weight_ = 0.5f);
+
 	/*
 	Input img
 	Input local, via/wire xy related to img
@@ -291,6 +316,7 @@ public:
 	Input d0, via diameter
 	Input label, via or wire label
 	Output vs, via edge
+	It will delete existing fature in same location and then add
 	*/
 	bool add_feature(const Mat & img, Point local, Point & global, Point & range, int min_d0, int max_d0, int label, vector<Point> * vs);
 	/*
@@ -298,11 +324,19 @@ public:
 	Input d0, via diameter
 	*/
 	bool del_feature(Point global, int d0);
+	/*
+	Inout global, via/wire xy global
+	Input d0, via diameter
+	return label with the via
+	*/
+	int get_via_label(Point & global, int d0);
 	//delete all feature
 	void clear_feature();
+	//return max diameter
 	int get_max_d();
 	void write_file(string project_path, int layer);
 	bool read_file(string project_path, int layer);
+	//return if via is valid or not
 	bool via_valid(bool multi_thread);
 	/*
 	input img

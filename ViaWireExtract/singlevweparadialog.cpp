@@ -3,7 +3,7 @@
 
 SingleVWEParaDialog::SingleVWEParaDialog(QWidget *parent, unsigned _wmin, unsigned _wmax, unsigned _gray_th, unsigned _sep,
 	unsigned _opt, unsigned _gw, unsigned _gi, unsigned _ww, double _ww1, double _iw, int _shape_mask,
-	int _dia0, int _dia1, int _dia2, int _dia3, int _dia4, int _dia5, int _dia6, int _dia7) :
+	int _dia0, int _dia1, int _dia2, int _dia3, int _dia4, int _dia5, int _dia6, int _dia7, int _via_at_center) :
     QDialog(parent),
     ui(new Ui::SingleVWEParaDialog)
 {
@@ -34,6 +34,14 @@ SingleVWEParaDialog::SingleVWEParaDialog(QWidget *parent, unsigned _wmin, unsign
 	ui->dia5->setText(QString::number(_dia5));
 	ui->dia6->setText(QString::number(_dia6));
 	ui->dia7->setText(QString::number(_dia7));
+	ui->viacenter0->setChecked(_via_at_center & 1);
+	ui->viacenter1->setChecked(_via_at_center & 2);
+	ui->viacenter2->setChecked(_via_at_center & 4);
+	ui->viacenter3->setChecked(_via_at_center & 8);
+	ui->viacenter4->setChecked(_via_at_center & 16);
+	ui->viacenter5->setChecked(_via_at_center & 32);
+	ui->viacenter6->setChecked(_via_at_center & 64);
+	ui->viacenter7->setChecked(_via_at_center & 128);
 }
 
 SingleVWEParaDialog::~SingleVWEParaDialog()
@@ -66,4 +74,13 @@ void SingleVWEParaDialog::on_buttonBox_accepted()
 	dia5 = ui->dia5->text().toInt();
 	dia6 = ui->dia6->text().toInt();
 	dia7 = ui->dia7->text().toInt();
+	via_at_center = 0;
+	via_at_center |= ui->viacenter0->isChecked() ? 1 : 0;
+	via_at_center |= ui->viacenter1->isChecked() ? 2 : 0;
+	via_at_center |= ui->viacenter2->isChecked() ? 4 : 0;
+	via_at_center |= ui->viacenter3->isChecked() ? 8 : 0;
+	via_at_center |= ui->viacenter4->isChecked() ? 16 : 0;
+	via_at_center |= ui->viacenter5->isChecked() ? 32 : 0;
+	via_at_center |= ui->viacenter6->isChecked() ? 64 : 0;
+	via_at_center |= ui->viacenter7->isChecked() ? 128 : 0;
 }

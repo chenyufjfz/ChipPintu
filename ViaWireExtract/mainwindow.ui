@@ -40,6 +40,8 @@
     <addaction name="actionMark_Wire"/>
     <addaction name="actionMark_Via"/>
     <addaction name="actionMark_NoVia"/>
+    <addaction name="actionMark_Via_Wire"/>
+    <addaction name="actionMark_Via_NoWire"/>
     <addaction name="actionMark_Cell"/>
     <addaction name="actionMark_Insulator"/>
     <addaction name="actionSelect"/>
@@ -241,6 +243,16 @@
    </property>
    <property name="text">
     <string>Mark NoVia</string>
+   </property>
+  </action>
+  <action name="actionMark_Via_Wire">
+   <property name="text">
+    <string>Mark Via Wire</string>
+   </property>
+  </action>
+  <action name="actionMark_Via_NoWire">
+   <property name="text">
+    <string>Mark Via NoWire</string>
    </property>
   </action>
  </widget>

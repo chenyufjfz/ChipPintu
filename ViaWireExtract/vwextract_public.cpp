@@ -433,7 +433,10 @@ void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale)
 		for (int i = 0; i < obj_sets.size(); i++) {
 			unsigned t = obj_sets[i].type;
 			if (t == OBJ_POINT) {
-				fprintf(fp, "via, l=%d, x=%d, y=%d, prob=%f\n", obj_sets[i].type3, obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale, obj_sets[i].prob);
+				if (obj_sets[i].type2 == POINT_NO_VIA)
+					fprintf(fp, "novia, l=%d, x=%d, y=%d, prob=%f\n", obj_sets[i].type3, obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale, obj_sets[i].prob);
+				else
+					fprintf(fp, "via, l=%d, x=%d, y=%d, prob=%f\n", obj_sets[i].type3, obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale, obj_sets[i].prob);
 			}
 			else {
 				fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d), prob=%f\n", obj_sets[i].type3, obj_sets[i].p0.x() /scale, 
@@ -999,6 +1002,85 @@ void convert_element_obj(const vector<ElementObj *> & es, vector<MarkObj> & ms, 
 	}
 }
 
+CvSVM * train_svm(Mat & train_data_svm, Mat & label, float weight)
+{
+	CvSVM * ret_svm = new CvSVM;
+	// Set up SVM's parameters
+	CvSVMParams params;
+	Mat class_wts(2, 1, CV_32FC1);
+	CvMat class_wts_cv;
+	class_wts.at<float>(0) = weight;
+	class_wts.at<float>(1) = 1 - weight;
+	class_wts_cv = class_wts;
+	params.svm_type = CvSVM::C_SVC;
+	params.kernel_type = CvSVM::LINEAR;
+	params.term_crit = cvTermCriteria(CV_TERMCRIT_ITER, 100, 1e-6);
+	params.C = 6;
+	params.class_weights = &class_wts_cv;
+	ret_svm->train(train_data_svm, label, Mat(), Mat(), params);
+	qInfo("SVM:train linear, var_cnt=%d, sup_vec_cnt=%d", ret_svm->get_var_count(), ret_svm->get_support_vector_count());
+	char s[600];
+	for (int i = 0; i < ret_svm->get_support_vector_count(); i++) {
+		const float * sv = ret_svm->get_support_vector(i);
+		int k = 0;
+		for (int j = 0; j < ret_svm->get_var_count(); j++)
+			k += sprintf(&s[k], "%f,", sv[j]);
+		qInfo(s);
+	}
+	int mistake1 = 0;
+	for (int i = 0; i < train_data_svm.rows; i++) {
+		float response = -ret_svm->predict(train_data_svm.row(i), true);
+		if (response * label.at<float>(i) < 0)
+			mistake1++;
+		if (train_data_svm.cols == 5)
+			qInfo("ViaML:train linear, is_via=%d, predict=%3f,d=%4f,s=%4f,g=%5.1f,%5.1f,%5.1f", (int)label.at<float>(i), 
+			response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1), 
+			train_data_svm.at<float>(i, 2),	train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));
+		else
+			qInfo("ViaML:train linear, is_vwi=%d, predict=%3f,g=%5.1f,s=%5f,%5f", (int)label.at<float>(i),
+			response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1),
+			train_data_svm.at<float>(i, 2));
+	}
+	if (mistake1 > 0) {
+		params.kernel_type = CvSVM::POLY;
+		params.degree = 2;
+		params.gamma = 1;
+		params.coef0 = 0;
+		CvSVM * ret_svm1 = new CvSVM;
+		ret_svm1->train(train_data_svm, label, Mat(), Mat(), params);
+		qInfo("ViaML:train poly, var_cnt=%d, sup_vec_cnt=%d", ret_svm1->get_var_count(), ret_svm1->get_support_vector_count());
+		char s[600];
+		for (int i = 0; i < ret_svm1->get_support_vector_count(); i++) {
+			const float * sv = ret_svm1->get_support_vector(i);
+			int k = 0;
+			for (int j = 0; j < ret_svm1->get_var_count(); j++)
+				k += sprintf(&s[k], "%f,", sv[j]);
+			qInfo(s);
+		}
+		int mistake2 = 0;
+		for (int i = 0; i < train_data_svm.rows; i++) {
+			float response = -ret_svm1->predict(train_data_svm.row(i), true);
+			if (response * label.at<float>(i) < 0)
+				mistake2++;
+			if (train_data_svm.cols == 5)
+				qInfo("ViaML:train poly, is_via=%d, predict=%f,d=%4f,s=%4f,g=%5.1f,%5.1f,%5.1f", (int)label.at<float>(i), 
+				response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1), 
+				train_data_svm.at<float>(i, 2),	train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));
+			else
+				qInfo("ViaML:train poly, is_vwi=%d, predict=%3f,g=%5.1f,s=%5f,%5f", (int)label.at<float>(i),
+				response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1),
+				train_data_svm.at<float>(i, 2));
+		}
+		if (mistake2 < mistake1) {
+			delete ret_svm;
+			ret_svm = ret_svm1;
+		}
+		else
+			delete ret_svm1;
+	}
+	return ret_svm;
+}
+
 class ViaFeature2Vector {
 public:
 	Mat train_vec;
@@ -1037,9 +1119,9 @@ public:
 			Mat l(train_vec.rows, 1, CV_32FC1);
 			for (int i = 0; i < t.rows; i++) { //make sum and grad reduce for non-via training
 				t.at<float>(i, 1) = t.at<float>(i, 1) / 2;
-				t.at<float>(i, 2) = t.at<float>(i, 2) / 3;
-				t.at<float>(i, 3) = t.at<float>(i, 3) / 3;
-				t.at<float>(i, 4) = t.at<float>(i, 4) / 3;
+				t.at<float>(i, 2) = t.at<float>(i, 2) / 4;
+				t.at<float>(i, 3) = t.at<float>(i, 3) / 4;
+				t.at<float>(i, 4) = t.at<float>(i, 4) / 4;
 				l.at<float>(i, 0) = -1;
 			}
 			train_data_svm.push_back(t);
@@ -1068,15 +1150,74 @@ public:
 	}
 };
 
+class VWIFeature2Vector {
+public:
+	Mat compute_vwi_vec(const Mat & feature, int dir) {
+		CV_Assert(feature.cols == 8 && feature.rows == FEATURE_ROW);
+		int min_s = 100000, submin_s = 100000;
+		for (int i = 2; i < 6; i++) 
+		if (feature.at<int>(i, dir) < min_s) {
+			submin_s = min_s;
+			min_s = feature.at<int>(i, dir);
+		}
+		else 
+		if (feature.at<int>(i, dir) < submin_s)
+			submin_s = feature.at<int>(i, dir);
+		
+		Mat sample = (Mat_<float>(1, 3) << feature.at<int>(1, dir) * 0.1, min_s * 10, submin_s * 10);
+		return sample;
+	}
+	void get_addition_vec(Mat & train_data_svm, Mat & label) {
+		CV_Assert(train_data_svm.rows == label.rows);
+		if (label.rows == 0)
+			return;
+		bool has_vwi[2] = { false, false };
+		for (int i = 0; i < label.rows; i++)
+		if (label.at<float>(i) > 0)
+			has_vwi[1] = true;
+		else
+			has_vwi[0] = true;
+		if (has_vwi[0] && has_vwi[1])
+			return;
+		if (has_vwi[0]) {
+			Mat t = train_data_svm.clone();
+			Mat l(train_data_svm.rows, 1, CV_32FC1);
+			for (int i = 0; i < t.rows; i++) { //make sum and grad reduce for non-via training
+				float g = t.at<float>(i, 0) + t.at<float>(i, 1);
+				if (g > t.at<float>(i, 1) && g > t.at<float>(i, 2)) {
+					t.at<float>(i, 0) = 0;
+					for (int j = 1; j < t.cols; j++)
+						t.at<float>(i, j) = g;					
+					l.at<float>(i, 0) = 1;
+				} 
+				else
+					l.at<float>(i, 0) = -1;
+			}
+			train_data_svm.push_back(t);
+			label.push_back(l);
+		}
+		if (has_vwi[1]) {
+			Mat t = train_data_svm.clone();
+			Mat l(train_data_svm.rows, 1, CV_32FC1);
+			for (int i = 0; i < t.rows; i++) { //make sum and grad reduce for non-via training
+				float g = t.at<float>(i, 0) + t.at<float>(i, 1);				
+				t.at<float>(i, 0) = g;
+				for (int j = 1; j < t.cols; j++)
+					t.at<float>(i, j) = 0;
+				l.at<float>(i, 0) = -1;				
+			}
+			train_data_svm.push_back(t);
+			label.push_back(l);
+		}
+	}
+};
+
 ViaML::ViaML()
 {
-	via_svm = NULL;
 }
 
 ViaML::~ViaML()
 {
-	if (via_svm)
-		delete via_svm;
 }
 
 void ViaML::find_best_bright(const Mat & lg, int d, int sep0, vector<Point> & loc, bool multi_thread)
@@ -1402,7 +1543,7 @@ int ViaML::feature_extract(const Mat & img, Point & org, Point & range, const ve
 bool ViaML::feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, vector<Point> * vs, bool multi_thread)
 {
 	features.clear();
-	if (label & 1) { //it is via
+	if (label & VIA_IS_VIA) { //it is via
 		vector<int> d;
 		Mat feature;
 		for (int i = min_d0; i <= max_d0; i++)
@@ -1455,12 +1596,12 @@ Input features
 Input weight
 Return true if success
 */
-bool ViaML::train(const vector<Mat> & features, float weight)
+bool ViaML::train(const vector<Mat> & features, int flag, float weight)
 {
 	//Mat train_data_svm((int)features.size(), 5, CV_32FC1);
 	Mat train_data_svm;
 	Mat label((int)features.size(), 1, CV_32FC1);
-	//prepare train data svm
+	//prepare train via svm
 	bool has_via[2] = { false, false };
 	via_dia.clear();
 	ViaFeature2Vector f2v;
@@ -1485,75 +1626,62 @@ bool ViaML::train(const vector<Mat> & features, float weight)
 		else
 			via_dia.insert(diameter);
 	}
+	via_svm.reset();
+	for (int i = 0; i < 8; i++)
+		vwi_svm[i].reset();
 	if (!has_via[1])
 		return false;
 	f2v.get_addition_vec(train_data_svm, label);
-	// Set up SVM's parameters
-	CvSVMParams params;
-	Mat class_wts(2, 1, CV_32FC1);
-	CvMat class_wts_cv;
-	class_wts.at<float>(0) = weight;
-	class_wts.at<float>(1) = 1 - weight;
-	class_wts_cv = class_wts;
-	params.svm_type = CvSVM::C_SVC;
-	params.kernel_type = CvSVM::LINEAR;
-	params.term_crit = cvTermCriteria(CV_TERMCRIT_ITER, 100, 1e-6);
-	params.C = 10;
-	params.class_weights = &class_wts_cv;
-	if (via_svm)
-		delete via_svm;
-	via_svm = new CvSVM;
-	via_svm->train(train_data_svm, label, Mat(), Mat(), params);
-	qInfo("ViaML:train linear, var_cnt=%d, sup_vec_cnt=%d", via_svm->get_var_count(), via_svm->get_support_vector_count());
-	char s[600];
-	for (int i = 0; i < via_svm->get_support_vector_count(); i++) {
-		const float * sv = via_svm->get_support_vector(i);
-		int k = 0;
-		for (int j = 0; j < via_svm->get_var_count(); j++)
-			k += sprintf(&s[k], "%f,", sv[j]);
-		qInfo(s);
-	}
-	int mistake1 = 0;
-	for (int i = 0; i < train_data_svm.rows; i++) {
-		float response = -via_svm->predict(train_data_svm.row(i), true);
-		if (response * label.at<float>(i) < 0)
-			mistake1++;
-		qInfo("ViaML:train linear, is_via=%d, predict=%f,s=%4f,g=%5.1f,%5.1f,%5.1f", (int)label.at<float>(i), response,
-			train_data_svm.at<float>(i, 1), train_data_svm.at<float>(i, 2),
-			train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));
-	}
-	if (mistake1 > 0) {
-		params.kernel_type = CvSVM::POLY;
-		params.degree = 2;
-		params.gamma = 1;
-		params.coef0 = 0;
-		CvSVM * via_svm1 = new CvSVM;
-		via_svm1->train(train_data_svm, label, Mat(), Mat(), params);
-		qInfo("ViaML:train poly, var_cnt=%d, sup_vec_cnt=%d", via_svm1->get_var_count(), via_svm1->get_support_vector_count());
-		char s[600];
-		for (int i = 0; i < via_svm1->get_support_vector_count(); i++) {
-			const float * sv = via_svm1->get_support_vector(i);
-			int k = 0;
-			for (int j = 0; j < via_svm1->get_var_count(); j++)
-				k += sprintf(&s[k], "%f,", sv[j]);
-			qInfo(s);
+	//train via svm
+	via_svm.reset(train_svm(train_data_svm, label, weight));
+
+	//prepare train vwi svm
+	VWIFeature2Vector vwif2v[8];
+	vector<int> vwi_label_temp[8];
+	Mat vwi_label[8], train_vwi_svm[8];
+	for (auto & feature : features) {
+		for (int i = 0; i < 8; i++) {
+			int s;
+			s = feature.at<int>(0, 0) >> (i + 9) & 1;
+			if (s) {
+				Mat sample = vwif2v[i].compute_vwi_vec(feature, i);
+				s = feature.at<int>(0, 0) >> (i + 1) & 1;
+				train_vwi_svm[i].push_back(sample);
+				vwi_label_temp[i].push_back(s);
+			}
 		}
-		int mistake2 = 0;
-		for (int i = 0; i < train_data_svm.rows; i++) {
-			float response = -via_svm1->predict(train_data_svm.row(i), true);
-			if (response * label.at<float>(i) < 0)
-				mistake2++;
-			qInfo("ViaML:train poly, is_via=%d, predict=%f,s=%4f,g=%5.1f,%5.1f,%5.1f", (int)label.at<float>(i), response,
-				train_data_svm.at<float>(i, 1), train_data_svm.at<float>(i, 2),
-				train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));
-		}
-		if (mistake2 < mistake1) {
-			delete via_svm;
-			via_svm = via_svm1;
-		}
-		else
-			delete via_svm1;
 	}
+	for (int i = 0; i < 8; i++)
+	if (!vwi_label_temp[i].empty()) {
+		vwi_label[i].create((int)vwi_label_temp[i].size(), 1, CV_32FC1);
+		for (int j = 0; j < (int)vwi_label_temp[i].size(); j++)
+			vwi_label[i].at<float>(j) = vwi_label_temp[i][j];
+	}
+	if (flag & VIA_LR_SYMMETRY) {
+		train_vwi_svm[DIR_LEFT].push_back(train_vwi_svm[DIR_RIGHT]);
+		vwi_label[DIR_LEFT].push_back(vwi_label[DIR_RIGHT]);
+	}
+	if (flag & VIA_UD_SYMMETRY) {
+		train_vwi_svm[DIR_UP].push_back(train_vwi_svm[DIR_DOWN]);
+		vwi_label[DIR_UP].push_back(vwi_label[DIR_DOWN]);
+	}
+		
+	for (int i = 0; i < 8; i++)
+		vwif2v[i].get_addition_vec(train_vwi_svm[i], vwi_label[i]);
+
+	if (flag & VIA_LR_SYMMETRY) {
+		train_vwi_svm[DIR_RIGHT] = train_vwi_svm[DIR_LEFT];
+		vwi_label[DIR_RIGHT] = vwi_label[DIR_LEFT];
+	}
+	if (flag & VIA_UD_SYMMETRY) {
+		train_vwi_svm[DIR_DOWN] = train_vwi_svm[DIR_UP];
+		vwi_label[DIR_DOWN] = vwi_label[DIR_UP];
+	}
+	for (int i = 0; i < 8; i++) {
+		if (train_vwi_svm[i].rows > 0)
+			vwi_svm[i].reset(train_svm(train_vwi_svm[i], vwi_label[i], 0.5));
+	}
+		
 	return true;
 }
 
@@ -1574,9 +1702,9 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label, bool
 	compute_grad(img_via_rect, grad);
 	Mat feature2[2];
 
-	int choose = 0;
 	float max_response = -1;
 	ViaFeature2Vector f2v;
+	Mat best_feature;
 	for (auto d : via_dia) {
 		vector<Point> loc;
 		find_best_bright(lg, d, 2, loc, multi_thread);
@@ -1592,12 +1720,23 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label, bool
 				range.y = feature.at<int>(0, 3);
 				org.x = feature.at<int>(0, 0) + x0 + range.x / 2;
 				org.y = feature.at<int>(0, 1) + y0 + range.y / 2;
-				choose = i;
+				if (response > 0)
+					best_feature = feature.clone();
 			}
 		}
 	}
-	if (max_response > 0)
+	if (max_response > 0) {
 		label |= 1;
+		VWIFeature2Vector vwif2v;
+		for (int i = 0; i < 8; i++)
+		if (!vwi_svm[i].isNull()) {
+			label |= 1 << (9 + i);
+			Mat sample = vwif2v.compute_vwi_vec(best_feature, i);
+			float response = -vwi_svm[i]->predict(sample, true);
+			if (response > 0)
+				label |= 1 << (1 + i);
+		}
+	}
 	return max_response;
 }
 
@@ -1605,6 +1744,16 @@ VWfeature::VWfeature()
 {
 	retrain_via = false;
 	is_via_valid = false;
+	via_flag = 0;
+	via_weight = 0.5;
+}
+
+void VWfeature::set_via_para(int via_flag_, float via_weight_)
+{
+	if (via_flag != via_flag_ || via_weight != via_weight_)
+		retrain_via = true;
+	via_flag = via_flag_;
+	via_weight = via_weight_;
 }
 
 bool VWfeature::add_feature(const Mat & img, Point local, Point & global, Point & range, int min_d0, int max_d0, int label, vector<Point> * vs)
@@ -1646,10 +1795,30 @@ bool VWfeature::del_feature(Point global, int d0)
 			via_locs.erase(via_locs.begin() + i);
 			via_features.erase(via_features.begin() + i);
 			i--;
+			retrain_via = true;
 		}
-	}
-	retrain_via = true;
+	}	
 	return true;
+}
+
+int VWfeature::get_via_label(Point & global, int d0)
+{
+	int min_d = 10000;
+	int choose = -1;
+	for (int i = 0; i < via_locs.size(); i++) {
+		Point shift = global - via_locs[i];
+		if (abs(shift.x) <= d0 && abs(shift.y) <= d0) 
+			if (min_d > abs(shift.x) + abs(shift.y)) {
+				min_d = abs(shift.x) + abs(shift.y);
+				choose = i;
+			}
+	}
+
+	if (choose >= 0) {
+		global = via_locs[choose];
+		return via_features[choose].at<int>(0, 0);
+	}
+	return 0;
 }
 
 void VWfeature::clear_feature()
@@ -1734,7 +1903,7 @@ bool VWfeature::via_valid(bool multi_thread)
 {
 	if (retrain_via) {
 		CV_Assert(!multi_thread);
-		is_via_valid = vml.train(via_features);
+		is_via_valid = vml.train(via_features, via_flag, via_weight);
 		retrain_via = false;
 	}
 	return is_via_valid;
@@ -1756,8 +1925,8 @@ float VWfeature::via_judge(const Mat & img, Point & org, Point & range, int & la
 void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *> & vs, bool multi_thread)
 {
 	vs.clear();
-	if (!mark_dbg.empty())
-        mark_dbg = Scalar::all(0);
+	if (!via_valid(multi_thread))
+		return;
 	
 	//1 find min diameter and min via gray
 	int min_d0 = 1000, max_d0 = 0;
@@ -1822,10 +1991,10 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *>
 			if (pass) { 
 				Point org(x0, y0), range(0, 0);
 				if (!mark_dbg.empty())
-					mark_dbg.at<uchar>(org) = 100;
+					rectangle(mark_dbg, Point(org.x - 1, org.y - 1), Point(org.x + 1, org.y + 1), 0);
 				int label;
 				float ret = via_judge(img, org, range, label, multi_thread);
-				if (label & 1) {
+				if (label & VIA_IS_VIA) {
 					ElementObj * m = new ElementObj;
 					m->type = OBJ_POINT;
 					m->type2 = POINT_VIA_AUTO_EXTRACT;
@@ -1834,8 +2003,29 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *>
 					m->p1 = QPoint(range.x, range.y);
 					m->un.attach = 1;
 					vs.push_back(m);
+					if (!mark_dbg.empty()) {
+						rectangle(mark_dbg, Point(org.x - range.x / 2, org.y - range.y / 2),
+							Point(org.x - range.x / 2 + range.x, org.y - range.y / 2 + range.y), 255);
+						for (int i = 0; i < 8; i++) 
+						if (label >> i & 2) {
+							Point p0(org.x + range.x * dxy[i][1] / 2, org.y + range.y * dxy[i][0] / 2);
+							Point p1(org.x + range.x * dxy[i][1], org.y + range.y * dxy[i][0]);
+							line(mark_dbg, p0, p1, 255);
+						}
+					}
+				}
+				else 
+				if (ret > -0.3) {
+					ElementObj * m = new ElementObj;
+					m->type = OBJ_POINT;
+					m->type2 = POINT_NO_VIA;
+					m->prob = -ret * 2;
+					m->p0 = QPoint(org.x, org.y);
+					m->p1 = QPoint(range.x, range.y);
+					m->un.attach = 1;
+					vs.push_back(m);
 					if (!mark_dbg.empty())
-						rectangle(mark_dbg, Point(org.x - range.x / 2, org.y - range.y / 2), 
+						rectangle(mark_dbg, Point(org.x - range.x / 2, org.y - range.y / 2),
 						Point(org.x - range.x / 2 + range.x, org.y - range.y / 2 + range.y), 255);
 				}
 			}

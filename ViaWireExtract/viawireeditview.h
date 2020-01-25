@@ -60,12 +60,15 @@ public:
 	void set_brick_shape_ext_para(int ww, double iw, double ww1, int gi, int gw);
 	void get_via_diameter(int & _dia0, int & _dia1, int & _dia2, int & _dia3, int & _dia4, int & _dia5, int & _dia6, int & _dia7);
 	void set_via_diameter(int _dia0, int _dia1, int _dia2, int _dia3, int _dia4, int _dia5, int _dia6, int _dia7);
+	int get_via_center();
+	void set_via_center(int _via_at_center);
     void set_scale(int _scale);
     int get_scale();
 
 protected:
     vector <MarkObj> obj_set;
 	int dia[8];
+	int via_at_center;
 	string img_name;
 	vector<QImage> bk_img;
 	QImage bk_img_mask;

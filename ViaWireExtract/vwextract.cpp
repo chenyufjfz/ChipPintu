@@ -59,10 +59,12 @@ Mat prepare_raw_img(ICLayerWrInterface * ic_layer, int scale, QRect rect)
 
 struct ProcessData {
 	int x0, y0;
-	int img_pixel_x0, img_pixel_y0;
+	int img_pixel_x0, img_pixel_y0; //imgae left-top pixel
 	int layer;
 	Mat raw_img;
+	Mat * mark_debug; //only for debug
 	vector<ElementObj *> eo;
+	QPolygon * poly;
 	int ref_cnt;
 	ProcessData() {
 		ref_cnt = 0;
@@ -71,6 +73,7 @@ struct ProcessData {
 		img_pixel_x0 = -10000;
 		img_pixel_y0 = -10000;
 		layer = -1;
+		mark_debug = NULL;
 	}
 };
 
@@ -88,7 +91,7 @@ ProcessImageData process_img(const ProcessImageData & pi)
 
 	if (!pi.cpd->raw_img.empty()) {
 		Mat empty;
-		pi.vwf->via_search(pi.cpd->raw_img, empty, pi.cpd->eo, pi.multi_thread);
+		pi.vwf->via_search(pi.cpd->raw_img, (pi.cpd->mark_debug == NULL ? empty : *(pi.cpd->mark_debug)), pi.cpd->eo, pi.multi_thread);
 		QPoint tl(pi.cpd->img_pixel_x0, pi.cpd->img_pixel_y0);
 		for (auto & o : pi.cpd->eo) {
 			o->type3 = pi.cpd->layer;
@@ -137,8 +140,13 @@ void get_result(ProcessData * pd, vector<ElementObj *> & objs)
 		pd->raw_img.cols, pd->raw_img.rows, pd->eo.size());
 	for (auto & e : pd->eo) 
 	if (e->type == OBJ_POINT) {
-		if (e->un.attach == 1)
-			objs.push_back(e);
+		if (e->un.attach == 1) {
+			if (!pd->poly)
+				objs.push_back(e);
+			else
+			if (pd->poly->containsPoint(e->p0, Qt::OddEvenFill))
+				objs.push_back(e);
+		}
 		else
 			e->un.attach--;
 	}
@@ -197,7 +205,7 @@ int VWExtractML::set_train_param(int type, int d, int, int, int, int, int, int, 
 	return 0;
 }
 
-int VWExtractML::set_extract_param(int layer, int, int, int, int, int, int, int, int, float)
+int VWExtractML::set_extract_param(int layer, int _via_at_center, int, int, int, int, int, int, int, float)
 {
 	layer_min = layer & 0xff;
 	layer_max = layer >> 8 & 0xff;
@@ -206,6 +214,7 @@ int VWExtractML::set_extract_param(int layer, int, int, int, int, int, int, int,
 		vwf.resize(layer_max + 1);
 		via_mark.resize(layer_max + 1);
 	}
+	via_at_center = _via_at_center;
 	return 0;
 }
 
@@ -237,27 +246,96 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 		}
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
-		vwf[current_layer].read_file(project_path, current_layer);	
+		vwf[current_layer].read_file(project_path, current_layer);
 		for (auto & m : obj_sets) 
 		if (!del) {
 			if (m.type == OBJ_POINT && m.type3 == current_layer) {
-				Point range;
-				int label = (m.type2 == POINT_NO_VIA) ? 0 : 1;
-				vector<Point> vs;
-				label |= VIA_FEATURE;
-				Point loc = Point(m.p0.x(), m.p0.y());
-				bool ret = vwf[current_layer].add_feature(img, loc, loc, range,
-					via_diameter_min, via_diameter_max, label, &vs);
-				if (ret) {
-					m.p0 = QPoint(loc.x, loc.y);
-					m.p1 = QPoint(range.x, range.y);
-					for (auto p : vs)
-						via_mark[current_layer].at<uchar>(p) = 255;
+				if (m.type2 == POINT_NO_VIA || m.type2 == POINT_NORMAL_VIA0) { // add via or no via
+					Point range;
+					int label = (m.type2 == POINT_NO_VIA) ? 0 : VIA_IS_VIA;
+					vector<Point> vs;
+					label |= VIA_FEATURE;
+					Point loc = Point(m.p0.x(), m.p0.y());
+					bool ret = vwf[current_layer].add_feature(img, loc, loc, range,
+						via_diameter_min, via_diameter_max, label, &vs);
+					if (ret) { //add success
+						m.p0 = QPoint(loc.x, loc.y); //return location
+						m.p1 = QPoint(range.x, range.y); //return diameter
+						for (auto p : vs)
+							via_mark[current_layer].at<uchar>(p) = 255;
+					}
+					else
+						m.p1 = QPoint(0, 0); //add fail
+				}
+				else { //POINT_VIA_WIRE or POINT_VIA_INSU
+					Point loc = Point(m.p0.x(), m.p0.y());
+					Point center = loc;
+					int label = vwf[current_layer].get_via_label(center, via_diameter_max);
+					if (!(label & VIA_FEATURE) || !(label & VIA_IS_VIA)) {
+						m.p1 = QPoint(0, 0); //add fail
+						continue;
+					}
+					int dir, min_dis = 1000;
+					for (int i = 0; i < 4; i++) { //choose direction
+						Point loc1 = center + Point(dxy[i][1], dxy[i][0]) * (via_diameter_max / 2);
+						if (abs(loc1.x - loc.x) + abs(loc1.y - loc.y) < min_dis) {
+							min_dis = abs(loc1.x - loc.x) + abs(loc1.y - loc.y);
+							dir = i;
+						}
+					}
+					if (m.type2 == POINT_VIA_WIRE)
+						switch (dir) {
+						case DIR_UP:
+							label |= VIA_UP_VALID | VIA_UP_WIRE;
+							break;
+						case DIR_RIGHT:
+							label |= VIA_RIGHT_VALID | VIA_RIGHT_WIRE;
+							break;
+						case DIR_DOWN:
+							label |= VIA_DOWN_VALID | VIA_DOWN_WIRE;
+							break;
+						case DIR_LEFT:
+							label |= VIA_LEFT_VALID | VIA_LEFT_WIRE;
+							break;
+					}
+					else if (m.type2 == POINT_VIA_INSU)
+						switch (dir) {
+						case DIR_UP:
+							label |= VIA_UP_VALID;
+							label &= ~VIA_UP_WIRE;
+							break;
+						case DIR_RIGHT:
+							label |= VIA_RIGHT_VALID;
+							label &= ~VIA_RIGHT_WIRE;
+							break;
+						case DIR_DOWN:
+							label |= VIA_DOWN_VALID;
+							label &= ~VIA_DOWN_WIRE;
+							break;
+						case DIR_LEFT:
+							label |= VIA_LEFT_VALID;
+							label &= ~VIA_LEFT_WIRE;
+							break;
+					}
+					Point range;
+					vector<Point> vs;
+					bool ret = vwf[current_layer].add_feature(img, center, center, range,
+						via_diameter_min, via_diameter_max, label, &vs);
+					if (ret) { //add success
+						Point loc1 = center + Point(dxy[dir][1], dxy[dir][0]) * (via_diameter_max / 2);
+						Point loc2 = center + Point(dxy[dir][1], dxy[dir][0]) * via_diameter_max;
+						m.p0 = QPoint(loc1.x, loc1.y); //return location
+						m.p1 = QPoint(loc2.x, loc2.y); 
+						for (auto p : vs)
+							via_mark[current_layer].at<uchar>(p) = 255;
+					}
+					else
+						m.p1 = QPoint(0, 0); //add fail
 				}
 			}
 		}		
 		else 
-			if (m.type == OBJ_POINT && m.type3 == current_layer) {
+			if (m.type == OBJ_POINT && m.type3 == current_layer) { //delete via or no via
 				Point loc = Point(m.p0.x(), m.p0.y());
 				vwf[current_layer].del_feature(loc, via_diameter_max);
 			}
@@ -280,13 +358,12 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 			via_mark.resize(current_layer + 1);
 		}
 
-		via_mark[current_layer].create(img.rows, img.cols, CV_8U);
-        via_mark[current_layer] = Scalar::all(0);
-
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
 		if (!vwf[current_layer].read_file(project_path, current_layer))
 			return -1;
+		if (via_at_center >> current_layer & 1)
+			vwf[current_layer].set_via_para(VIA_LR_SYMMETRY | VIA_UD_SYMMETRY);
 		ProcessImageData pi;
 		ed[current_layer].x0 = 0;
 		ed[current_layer].y0 = 0;
@@ -294,6 +371,9 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		ed[current_layer].img_pixel_y0 = 0;
 		ed[current_layer].layer = current_layer;
 		ed[current_layer].raw_img = img;
+		ed[current_layer].poly = NULL;
+		via_mark[current_layer] = img.clone();
+		ed[current_layer].mark_debug = &(via_mark[current_layer]);
 		pi.vwf = &vwf[current_layer];
 		pi.lpd = NULL;
 		pi.upd = NULL;
@@ -332,7 +412,7 @@ int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj
 		if (!del) {				
 			if (m.type == OBJ_POINT && m.type3 == current_layer) {
 				Point range;
-				int label = (m.type2 == POINT_NO_VIA) ? 0 : 1;
+				int label = (m.type2 == POINT_NO_VIA) ? 0 : VIA_IS_VIA;
 				label |= VIA_FEATURE;
 				Point c = Point(m.p0.x() / scale, m.p0.y() / scale);
 				Point loc(PREPARE_IMG_RADIUS, PREPARE_IMG_RADIUS);
@@ -404,6 +484,8 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 		else {
 			if (area_poly.size() > 2) {
 				area_.push_back(SearchAreaPoly(area_poly, option));
+				for (int i = 0; i < area_poly.size(); i += 2)
+					qInfo("Poly (%x,%x) (%x,%x)", area_poly[i].x(), area_poly[i].y(), area_poly[i+1].x(), area_poly[i+1].y());
 				area_poly.clear();
 			}
 			area_.push_back(SearchAreaPoly(QPolygon(ar.rect), ar.option));
@@ -411,6 +493,8 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 	}
 	if (area_poly.size() > 2) {
 		area_.push_back(SearchAreaPoly(area_poly, option));
+		for (int i = 0; i < area_poly.size(); i += 2)
+			qInfo("Poly (%x,%x) (%x,%x)", area_poly[i].x(), area_poly[i].y(), area_poly[i + 1].x(), area_poly[i + 1].y());
 		area_poly.clear();
 	}
 	int block_x, block_y;
@@ -423,6 +507,10 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 		int extend = BORDER_SIZE * scale;
 		int parallel_search = area_[area_idx].option & OPT_PARALLEL_SEARCH;
 		QRect sr = area_[area_idx].poly.boundingRect().marginsAdded(QMargins(extend, extend, extend, extend));
+		QPolygon cur_poly;
+		for (int i = 0; i < area_[area_idx].poly.size(); i++)
+			cur_poly.push_back(QPoint(area_[area_idx].poly[i].x() / scale, area_[area_idx].poly[i].y() / scale));
+		
 		sr &= QRect(0, 0, block_x << 15, block_y << 15);
 		if (sr.width() <= 0x10000 || sr.height() <= 0x10000) {
 			vector<ProcessImageData> pis;
@@ -487,14 +575,18 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 					int y0 = xay - x0;
 					if (sb.contains(x0, y0)) { //load image per Tile
 						bool in_area = true;
+						bool need_check_inpoly = false;
 						cl_num++;
 						QPoint p0(x0 << 15, y0 << 15);
 						QPoint p1((x0 << 15) + 0x4000, (y0 << 15) + 0x4000);
 						QPoint p2((x0 << 15) + 0x8000 + BORDER_SIZE * scale, (y0 << 15) + 0x8000 + BORDER_SIZE * scale);
-						if (!area_[area_idx].poly.containsPoint(p0, Qt::OddEvenFill) &&
-							!area_[area_idx].poly.containsPoint(p1, Qt::OddEvenFill) &&
-							!area_[area_idx].poly.containsPoint(p2, Qt::OddEvenFill))
+						bool in0 = area_[area_idx].poly.containsPoint(p0, Qt::OddEvenFill);
+						bool in1 = area_[area_idx].poly.containsPoint(p1, Qt::OddEvenFill);
+						bool in2 = area_[area_idx].poly.containsPoint(p2, Qt::OddEvenFill);
+						if (!in0 && !in1 &&	!in2 && !(x0 == sb.left() && y0 == sb.top()))
 							in_area = false;
+						if (!in0 || !in1 || !in2)
+							need_check_inpoly = true;
 						//1.1 compute load image source and destination
 						int wide[3] = { 0 }, height[3] = { 0 }; //wide & height is image destination bound
 
@@ -543,6 +635,7 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 							d->layer = l;
 							d->x0 = x0;
 							d->y0 = y0;
+							d->poly = need_check_inpoly ? &cur_poly : NULL;
 							if (ewide == 0 && ehight == 0) {
 								d->img_pixel_x0 = sr_tl_pixel.x();
 								d->img_pixel_y0 = sr_tl_pixel.y();								

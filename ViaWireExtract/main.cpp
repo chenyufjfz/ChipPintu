@@ -671,11 +671,17 @@ void test_ml_extract()
 	}
 	QScopedPointer<VWExtract> vwe(VWExtract::create_extract(2));
 	vector<MarkObj> objs;
-	vwe->set_extract_param(0x0201, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	vwe->set_extract_param(0x0101, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 	vector<SearchArea> areas;
 	//QPoint tl(135680, 19968), rb(597505, 517121);
-	QPoint tl(135680, 369968), rb(397505, 517121);
-	areas.push_back(SearchArea(QRect(tl, rb), 0));
+	//QPoint tl(135680, 369968), rb(397505, 517121);
+	areas.push_back(SearchArea(QRect(128000, 128000, 256000, 128000), OPT_POLYGON_SEARCH));
+	areas.push_back(SearchArea(QRect(256000, 128000, 256000, 32000), OPT_POLYGON_SEARCH));
+	areas.push_back(SearchArea(QRect(256000, 32000, 384000, 32000), OPT_POLYGON_SEARCH));
+	areas.push_back(SearchArea(QRect(384000, 32000, 384000, 128000), OPT_POLYGON_SEARCH));
+	areas.push_back(SearchArea(QRect(384000, 128000, 512000, 128000), OPT_POLYGON_SEARCH));
+	areas.push_back(SearchArea(QRect(512000, 128000, 512000, 256000), OPT_POLYGON_SEARCH));
+	areas.push_back(SearchArea(QRect(512000, 256000, 128000, 256000), OPT_POLYGON_SEARCH | 1));
 	vwe->extract(pic, areas, objs);
 }
 
