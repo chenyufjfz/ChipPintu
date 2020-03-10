@@ -14,6 +14,10 @@ using namespace std;
 #define DIR_RIGHT			1
 #define DIR_DOWN			2
 #define DIR_LEFT			3
+#define DIR_UPRIGHT			4
+#define DIR_DOWNRIGHT		5
+#define DIR_DOWNLEFT		6
+#define DIR_UPLEFT			7
 
 #ifndef FEATEXT_C
 extern int dxy[8][2];

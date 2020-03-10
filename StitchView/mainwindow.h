@@ -80,6 +80,10 @@ private slots:
 
     void on_actionAlign_IdeaPos_triggered();
 
+    void on_actionSeperate_Image_triggered();
+
+    void on_actionChipVision_DB_triggered();
+
 protected:
 	void closeEvent(QCloseEvent * e);
 
@@ -91,6 +95,7 @@ private:
 	NavigateView * nview;
 	CornerEdge * ce_dlg;
 	int speed;
+	int output_format;
 };
 
 #endif // MAINWINDOW_H

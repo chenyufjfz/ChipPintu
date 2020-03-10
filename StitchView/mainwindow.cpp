@@ -54,6 +54,38 @@ MainWindow::MainWindow(QWidget *parent) :
 	ui->actionFast_But_Bad->setChecked(false);
 	ui->actionMiddle_And_Normal->setChecked(true);
 	ui->actionSlow_And_Good->setChecked(false);
+#if !(FUNCTION_MASK & ALLOW_YELLOW_EDGE)
+	ui->actionClear_Yellow_Fix_Edge->setVisible(false);
+	ui->actionClear_Red_Fix_edge->setVisible(false);
+#endif
+#if !(FUNCTION_MASK & ALLOW_IMPORT)
+	ui->actionImport->setVisible(false);
+#endif
+#if !(FUNCTION_MASK & ALLOW_FAST_OPTIMIZE)
+	ui->actionFast_But_Bad->setVisible(false);
+	ui->actionSlow_And_Good->setVisible(false);
+	ui->menuOptimize_Speed->menuAction()->setVisible(false);
+#endif
+#if !(FUNCTION_MASK & ALLOW_TUNE)
+	ui->actionTune_Para->setVisible(false);
+#endif
+	ui->actionChipVision_DB->setChecked(true);
+#if FUNCTION_MASK & ALLOW_OUTPUT_DB
+	output_format = OUTPUT_DB;
+#else
+	output_format = OUTPUT_PIC;
+	ui->actionChipVision_DB->setVisible(false);
+	ui->actionSeperate_Image->setVisible(false);
+	ui->menuOutputFormat->menuAction()->setVisible(false);
+#endif
+#if !(FUNCTION_MASK & ALLOW_FOREVER)
+	QDateTime current = QDateTime::currentDateTime();
+	QDateTime filetime = QDateTime::fromString("2020_05_30", "yyyy_MM_dd");
+	if (current > filetime) {
+		QMessageBox::warning(this, "Time check error", "Time check error");
+		exit(1);
+	}
+#endif
 }
 
 MainWindow::~MainWindow()
@@ -246,7 +278,7 @@ void MainWindow::on_actionOutput_layer_triggered()
 	QString pathname = QFileDialog::getExistingDirectory(this, tr("choose path"), dirname);
 	if (!pathname.isEmpty()) {
 		qInfo("UI: Output layer%d, %s", stitch_view->get_current_layer(), pathname.toStdString().c_str());
-		stitch_view->output_layer(-1, pathname.toStdString());
+		stitch_view->output_layer(-1, pathname.toStdString(), output_format);
 	}
 }
 
@@ -258,7 +290,7 @@ void MainWindow::on_actionOutput_all_triggered()
         int layer_num = stitch_view->get_layer_num();
 		for (int l = 0; l < layer_num; l++) {
 			qInfo("UI: Output layer%d, %s", l, pathname.toStdString().c_str());
-			stitch_view->output_layer(l, pathname.toStdString());
+			stitch_view->output_layer(l, pathname.toStdString(), output_format);
 		}
     }
 }
@@ -390,4 +422,18 @@ void MainWindow::closeEvent(QCloseEvent * e)
 	if (QMessageBox::question(this, "Quit", "Do you want to quicksave?", QMessageBox::Yes, QMessageBox::No) == QMessageBox::Yes) {
 		on_actionQuick_Save_triggered();
 	}
+}
+
+void MainWindow::on_actionSeperate_Image_triggered()
+{
+	output_format = OUTPUT_PIC;
+	ui->actionChipVision_DB->setChecked(false);
+	ui->actionSeperate_Image->setChecked(true);
+}
+
+void MainWindow::on_actionChipVision_DB_triggered()
+{
+	output_format = OUTPUT_DB;
+	ui->actionChipVision_DB->setChecked(true);
+	ui->actionSeperate_Image->setChecked(false);
 }

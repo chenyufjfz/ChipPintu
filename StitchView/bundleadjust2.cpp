@@ -2113,7 +2113,7 @@ void BundleAdjust2::output()
 			if (img0_root == img1_root) //img0 and img1 belong to same set
 				continue;
 			else { //pick pe, and bind img0 and img1 to same set
-				unsigned long long edge_mask = 1ULL << (EDGE_E(pe->diff->edge_idx)+48);
+				unsigned long long edge_mask = 1ULL << (EDGE_E(pe->diff->edge_idx) * 2 + compute_dir + 48);
 				if (EDGE_E(pe->diff->edge_idx))
 					corner_info(EDGE_Y(pe->diff->edge_idx), EDGE_X(pe->diff->edge_idx) + 1) |= edge_mask;
 				else

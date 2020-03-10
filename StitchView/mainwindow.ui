@@ -76,12 +76,20 @@
     <property name="title">
      <string>Layer</string>
     </property>
+    <widget class="QMenu" name="menuOutputFormat">
+     <property name="title">
+      <string>OutputFormat</string>
+     </property>
+     <addaction name="actionSeperate_Image"/>
+     <addaction name="actionChipVision_DB"/>
+    </widget>
     <addaction name="actionDelete_layer"/>
     <addaction name="actionLayer_Up"/>
     <addaction name="actionLayer_Down"/>
     <addaction name="separator"/>
     <addaction name="actionOutput_layer"/>
     <addaction name="actionOutput_all"/>
+    <addaction name="menuOutputFormat"/>
     <addaction name="actionGoto"/>
    </widget>
    <addaction name="menuFile"/>
@@ -240,6 +248,22 @@
   <action name="actionAlign_IdeaPos">
    <property name="text">
     <string>Align IdeaPos</string>
+   </property>
+  </action>
+  <action name="actionSeperate_Image">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Seperate Image</string>
+   </property>
+  </action>
+  <action name="actionChipVision_DB">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>ChipVision DB</string>
    </property>
   </action>
  </widget>

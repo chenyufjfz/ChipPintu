@@ -70,6 +70,9 @@ CornerEdge::CornerEdge(QWidget *parent) :
 	ui->nail_tbl0->setSelectionBehavior(QAbstractItemView::SelectRows);
 	reviewed_corner_idx = 0xffffffff;
 	reviewed_edge_idx = 0xffffffff;
+#if !(FUNCTION_MASK & ALLOW_DISPLAY_CORNER)
+	ui->corner_tbl0->hide();
+#endif
 }
 
 CornerEdge::~CornerEdge()

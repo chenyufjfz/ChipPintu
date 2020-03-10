@@ -25,6 +25,19 @@ typedef unsigned long long MapID;
 typedef unsigned long long MapID2;
 #define INVALID_MAP_ID 0xffffffffffffffff
 
+#define FUNCTION_MASK				0xffffffff
+#define ALLOW_DISPLAY_CORNER		0x00000001
+#define ALLOW_YELLOW_EDGE			0x00000002
+#define ALLOW_IMPORT				0x00000004
+#define ALLOW_FAST_OPTIMIZE			0x00000008
+#define ALLOW_TUNE					0x00000010
+#define ALLOW_DISPLAY_SPAN_TREE		0x00000020
+#define ALLOW_OUTPUT_DB				0x00000040
+#define ALLOW_FOREVER				0x80000000
+#define ALLOW_ANY_LICENSE			0x00000080
+
+#define OUTPUT_DB			1
+#define OUTPUT_PIC			0
 
 struct BkEncimg {
 	list <MapID>::iterator plist;
@@ -262,7 +275,7 @@ public:
 	void set_ceview(CornerEdge * _ceview);
 	void to_state_add_nail();
 	void to_state_change_nail();
-	int output_layer(int _layer, string pathname);
+	int output_layer(int _layer, string pathname, int output_format=1);
 	//if _layer==-1, means erase current layer
 	int delete_layer(int _layer);
 	int layer_up(int _layer);

@@ -606,18 +606,29 @@ void StitchView::paintEvent(QPaintEvent *)
 								painter.drawText(dst_edge_center + QPoint(-10, -30), val);
 							else
 								painter.drawText(dst_edge_center + QPoint(-60, -8), val);
+#if FUNCTION_MASK & ALLOW_DISPLAY_SPAN_TREE
 							if (!lf[layer]->corner_info.empty()) {
 								unsigned long long info = lf[layer]->corner_info(y, x)[1];
 								info = info << 32 | lf[layer]->corner_info(y, x)[0];
-								if (info & 1ULL << i + 48) {
-									painter.setPen(QPen(Qt::green));
-									painter.setBrush(QBrush(Qt::green));
-									if (i == 1)
-										painter.drawEllipse(dst_edge_center + QPoint(0, 10), 2, 2);
-									else
-										painter.drawEllipse(dst_edge_center + QPoint(10, 0), 2, 2);
+								int span_mask = (info >> i * 2 + 48) & 3;
+								if (span_mask) {
+									painter.setPen(QPen(Qt::cyan));
+									painter.setBrush(QBrush(Qt::cyan));
+									if (i == 1) {
+										if (span_mask & 1)
+											painter.drawLine(dst_edge_center + QPoint(0, 13), dst_edge_center + QPoint(0, 7));
+										if (span_mask & 2)
+											painter.drawLine(dst_edge_center + QPoint(3, 10), dst_edge_center + QPoint(-3, 10));
+									}
+									else {
+										if (span_mask & 1)
+											painter.drawLine(dst_edge_center + QPoint(10, 3), dst_edge_center + QPoint(10, -3));
+										if (span_mask & 2)
+											painter.drawLine(dst_edge_center + QPoint(13, 0), dst_edge_center + QPoint(7, 0));
+									}
 								}
 							}
+#endif
 						}
 					}
 				}
@@ -626,6 +637,7 @@ void StitchView::paintEvent(QPaintEvent *)
 
 		//3 Draw corner
 		painter.setPen(QPen(Qt::yellow, 1));
+
 		if (draw_corner) {
 			char val[50];
 			for (int y = lt.y; y <= rb.y; y++)
@@ -641,15 +653,20 @@ void StitchView::paintEvent(QPaintEvent *)
 					else {
 						unsigned long long info = lf[layer]->corner_info(y, x)[1];
 						info = info << 32 | lf[layer]->corner_info(y, x)[0];
+						QPoint center = (dst_corner - view_rect.topLeft()) / scale;
+#if FUNCTION_MASK & ALLOW_DISPLAY_CORNER
 						short val_x = info & 0xffff;
 						short val_y = (info >> 16) & 0xffff;
-						sprintf(val, "%d,%d", val_x, val_y);
-						QPoint center = (dst_corner - view_rect.topLeft()) / scale;
+						sprintf(val, "%d,%d", val_x, val_y);						
 						painter.drawText(center - QPoint(10, 5), val);
+#else
+						painter.drawEllipse(center, 2, 2);
+#endif
 					}
 				}
 			}
 		}
+
 	}
 	//4 draw grid
 	if (draw_grid) {
@@ -1200,6 +1217,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 					break;
 				//now nearest edge is alrady found
 				if (new_fix == 0) {
+#if FUNCTION_MASK & ALLOW_YELLOW_EDGE
 					const EdgeDiff * ed = lf[layer]->feature.get_edge(edge_idx);
 					unsigned i0, i1;
 					ed->get_img_idx(i0, i1);
@@ -1212,6 +1230,9 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 						new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale, 1, shift.x / lf[layer]->cpara.rescale, shift.y / lf[layer]->cpara.rescale);
 					else
 						new_fix = MAKE_FIX_EDGE(0, lf[layer]->cpara.rescale, 0, 0, 0);
+#else
+					new_fix = MAKE_FIX_EDGE(1, lf[layer]->cpara.rescale, 0, 0, 0);
+#endif
 				}
 				else {
 					if (FIX_EDGE_IDEA_POS(new_fix))
@@ -1223,6 +1244,7 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 						new_fix = 0;
 					
 				}
+
 				qInfo("change fix_edge, l=%d, e=%d, x=%d, y=%d to %d", layer, EDGE_E(edge_idx), EDGE_X(edge_idx), EDGE_Y(edge_idx), new_fix);
 				lf[layer]->flagb[EDGE_E(edge_idx)](EDGE_Y(edge_idx), EDGE_X(edge_idx)) = new_fix;
 			}
@@ -2036,7 +2058,7 @@ void StitchView::to_state_change_nail() {
 	mouse_state = ChangeNail;
 }
 
-int StitchView::output_layer(int _layer, string pathname) {
+int StitchView::output_layer(int _layer, string pathname, int output_format) {
 	if (compute_feature.isRunning()) {
 		QMessageBox::information(this, "Info", "Prepare is running, can't output layer");
 		return -2;
@@ -2045,19 +2067,27 @@ int StitchView::output_layer(int _layer, string pathname) {
 		_layer = layer;
 	if (_layer >= lf.size() || _layer < 0)
 		return -1;
-	string filename = pathname + "/" + lf[_layer]->layer_name + ".db";
-	ICLayerWrInterface *ic;
-	ICLayerInterface *icl;
-	try {
-		ic = ICLayerWrInterface::create(filename, license, false, 1, 1, 0, 0, 0, 0, 0);
-		icl = ic->get_iclayer_inf();
-	}
-	catch (std::exception & e) {
-		if (modified()) {
-			auto_save_file();
+	
+	string filename;
+	ICLayerWrInterface *ic = NULL;
+	ICLayerInterface *icl = NULL;
+	if (output_format == OUTPUT_DB) {
+		filename = pathname + "/" + lf[_layer]->layer_name + ".db";
+		try {
+#if FUNCTION_MASK & ALLOW_ANY_LICENSE
+			ic = ICLayerWrInterface::create(filename, license, false, 1, 1, 0, 0, 0, 0, 0);
+#else
+			ic = ICLayerWrInterface::create(filename, "0A(12)@20", false, 1, 1, 0, 0, 0, 0, 0);
+#endif
+			icl = ic->get_iclayer_inf();
 		}
-		QMessageBox::information(this, "Error", "Open file fail");
-		return -3;
+		catch (std::exception & e) {
+			if (modified()) {
+				auto_save_file();
+			}
+			QMessageBox::information(this, "Error", "Open file fail");
+			return -3;
+		}
 	}
 	int dst_w = ri->get_dst_wide();
 	Point max_bd(0, 0);
@@ -2069,7 +2099,8 @@ int StitchView::output_layer(int _layer, string pathname) {
 	int end_x = max_bd.x / dst_w + 1;
 	int end_y = max_bd.y / dst_w + 1;
 	qInfo("output_layer l=%d, file=%s, x=%d, y=%d", _layer, filename.c_str(), end_x, end_y);
-	icl->putBlockNumWidth(end_x, end_y, dst_w);
+	if (output_format == OUTPUT_DB)
+		icl->putBlockNumWidth(end_x, end_y, dst_w);
 	vector<MapID> map_id;
 	vector<MapID> draw_order;
 	for (int i = 0; i < 3; i++)
@@ -2086,14 +2117,22 @@ int StitchView::output_layer(int _layer, string pathname) {
 			ri->render_img(map_id, imgs, draw_order);
 			CV_Assert(imgs.size() == map_id.size());			
 			for (int i = 0; i < imgs.size(); i++) {
-				QByteArray ba;
-				QBuffer buffer(&ba);
-				buffer.open(QIODevice::WriteOnly);
-				imgs[i].save(&buffer, "JPG", IMAGE_OUTPUT_QUALITY);
-				vector<uchar> buff;
-				buff.resize(ba.size());
-				memcpy(buff.data(), ba.data(), ba.size());
-				icl->addRawImg(buff, MAPID_X(map_id[i]), MAPID_Y(map_id[i]), 0);
+				if (output_format == OUTPUT_DB) {
+					QByteArray ba;
+					QBuffer buffer(&ba);
+					buffer.open(QIODevice::WriteOnly);
+					imgs[i].save(&buffer, "JPG", IMAGE_OUTPUT_QUALITY);
+					vector<uchar> buff;
+					buff.resize(ba.size());
+					memcpy(buff.data(), ba.data(), ba.size());
+					icl->addRawImg(buff, MAPID_X(map_id[i]), MAPID_Y(map_id[i]), 0);
+				}
+				else {
+					char postfix[50];
+					sprintf(postfix, "_%d_%d.jpg", MAPID_Y(map_id[i]), MAPID_X(map_id[i]));
+					filename = pathname + "/" + lf[_layer]->layer_name + postfix;
+					imgs[i].save(QString::fromStdString(filename));
+				}
 			}
 			map_id.clear();
 			cnt += 16;
@@ -2101,31 +2140,37 @@ int StitchView::output_layer(int _layer, string pathname) {
 		}
 	}
 	CV_Assert(map_id.empty());
-	delete ic;
-	//Following generate zoom image
-	int ZOOM_IMAG_SIZE = 4096;
-	int s;
-	for (s = 0; (dst_w << s) < ZOOM_IMAG_SIZE; s++);
-	ic = ICLayerWrInterface::create(filename, "", true, 1, 1, 0, 0, 0, 0, 0);
-	s = max(ic->getMaxScale() - s - 1, 1);	
-	vector<uchar> buff;
-	QImage image0;
-	QImage image((end_x / (1 << s) + 1)* dst_w, (end_y / (1 << s) + 1) * dst_w, QImage::Format_RGB32);
-	image.fill(QColor(0, 0, 0));
-	QPainter painter(&image);
-	for (int y = 0, yy=0; y < end_y; y += 1 << s, yy++)
-	for (int x = 0, xx=0; x < end_x; x += 1 << s, xx++) {
-		if (ic->getRawImgByIdx(buff, x, y, s, 0, false) == 0) {
-			if (!image0.loadFromData((uchar *)&buff[0], (int)buff.size()))
-				qFatal("image format error, (x=%d,y=%d,s=%d)", x, y, s);
-			painter.drawImage(xx * dst_w, yy * dst_w, image0);
+	if (output_format == OUTPUT_DB) {
+		delete ic;
+		//Following generate zoom image
+		int ZOOM_IMAG_SIZE = 4096;
+		int s;
+		for (s = 0; (dst_w << s) < ZOOM_IMAG_SIZE; s++);
+#if FUNCTION_MASK & ALLOW_ANY_LICENSE
+		ic = ICLayerWrInterface::create(filename, "", true, 1, 1, 0, 0, 0, 0, 0);
+#else
+		ic = ICLayerWrInterface::create(filename, "0A(12)@20", true, 1, 1, 0, 0, 0, 0, 0);
+#endif
+		s = max(ic->getMaxScale() - s - 1, 1);
+		vector<uchar> buff;
+		QImage image0;
+		QImage image((end_x / (1 << s) + 1)* dst_w, (end_y / (1 << s) + 1) * dst_w, QImage::Format_RGB32);
+		image.fill(QColor(0, 0, 0));
+		QPainter painter(&image);
+		for (int y = 0, yy = 0; y < end_y; y += 1 << s, yy++)
+		for (int x = 0, xx = 0; x < end_x; x += 1 << s, xx++) {
+			if (ic->getRawImgByIdx(buff, x, y, s, 0, false) == 0) {
+				if (!image0.loadFromData((uchar *)&buff[0], (int)buff.size()))
+					qFatal("image format error, (x=%d,y=%d,s=%d)", x, y, s);
+				painter.drawImage(xx * dst_w, yy * dst_w, image0);
+			}
 		}
+		string zoomfilename = pathname + "/" + lf[_layer]->layer_name + "_zoom.jpg";
+		image.save(QString::fromStdString(zoomfilename));
+		delete ic;
 	}
-	string zoomfilename = pathname + "/" + lf[_layer]->layer_name + "_zoom.jpg";
-	image.save(QString::fromStdString(zoomfilename));
-	delete ic;
 	emit notify_progress(0);
-    return 0;
+	return 0;
 }
 
 int StitchView::delete_layer(int _layer)
@@ -2415,8 +2460,21 @@ int StitchView::read_file(string file_name, bool import)
 					else
 						lf[i]->feature_file = another_path;
 				}
-				if (!lf[i]->feature_file.empty())
+				if (!lf[i]->feature_file.empty()) {
+#if !(FUNCTION_MASK & ALLOW_FOREVER)
+					QDateTime current = QDateTime::currentDateTime();
+					string filename = lf[i]->feature_file;
+					filename = filename.substr(0, filename.find_last_of('-'));
+					filename = "20" + filename;
+					QDateTime filetime = QDateTime::fromString(QString::fromStdString(filename), "yyyy_MM_dd-hh.mm.ss.zzz");
+					QFileInfo fileinfo;
+					fileinfo.setFile(QString::fromStdString(lf[i]->feature_file));
+					if (current < filetime || current < fileinfo.lastModified()) 
+						QMessageBox::warning(this, "Time check error", "Time check error");
+					else
+#endif					
 					lf[i]->feature.read_diff_file(lf[i]->feature_file);
+				}
 			}
 				
 			MapXY0 mxy0;

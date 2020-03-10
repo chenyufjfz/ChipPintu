@@ -213,6 +213,7 @@ void CparaDialog::on_config_file_textChanged(const QString &arg1)
 		ui->img_num_w->setEnabled(false);
 		ui->img_num_h->setEnabled(false);
 		ui->rescale->setEnabled(false);
+		ui->new_layer->setChecked(false);
 	}
 }
 
