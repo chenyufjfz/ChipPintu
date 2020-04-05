@@ -189,6 +189,15 @@ public:
 #define CORNER_Y(idx) ((idx) >> 16 & 0x7fff)
 #define CORNER_X(idx) ((idx) & 0x7fff)
 
+enum {
+	EDGE_UNKNOW,
+	EDGE_HAS_CORNER,
+	EDGE_BUS_SHU,
+	EDGE_BUS_HENG,	
+	EDGE_BUS_XIE,
+	EDGE_BUS_XIE2,
+	EDGE_BLACK
+};
 class EdgeDiff {
 public:
 	Point offset; //it is nearby image top-left point - base image top-left point
@@ -196,13 +205,18 @@ public:
 	Mat_<int> dif;
 	int mind, submind, avg;
 	Point minloc, subminloc;
+	int min_num;
 	int img_num; //img_num=0 means edge not exist, it because adj image is invalid
+	int edge_type; //with min_num_x or min_num_y bigger, it is more like bus
 	int score;
 
 public:
 	EdgeDiff() {
 		img_num = 1;
+		edge_type = EDGE_UNKNOW;
 	}
+
+	//Input distance, subminloc is at least distance away from minloc
 	void compute_score() {
 		long long sum = 0;
 		int num = 0;
@@ -216,30 +230,48 @@ public:
 				}
 				CV_Assert(pd[x] >= 0);
 				if (pd[x] < mind) {
-					submind = mind;
-					subminloc = minloc;
 					mind = pd[x];
 					minloc.x = x;
 					minloc.y = y;
 				} 
-				else
-				if (pd[x] < submind) {
+			}
+		}
+		avg = sum / num;
+		for (int y = 1; y < dif.rows - 1; y++) {
+			int * pd1 = dif.ptr<int>(y + 1);
+			int * pd = dif.ptr<int>(y);
+			int * pd_1 = dif.ptr<int>(y - 1);
+			for (int x = 1; x < dif.cols - 1; x++) 
+			if (pd[x] < avg && (x != minloc.x || y != minloc.y)) {
+				if (pd[x] < submind && pd[x] < pd[x - 1] && pd[x] < pd[x + 1] && pd[x] < pd1[x] && pd[x] < pd_1[x] &&
+					pd[x] < pd1[x - 1] && pd[x] < pd1[x + 1] && pd[x] < pd_1[x - 1] && pd[x] < pd_1[x + 1])	{
 					submind = pd[x];
 					subminloc.x = x;
 					subminloc.y = y;
 				}
 			}
 		}
-		avg = sum / num;
+		if (submind == 0x7fffffff) {
+			submind = DIFF_NOT_CONTACT;
+			subminloc = Point(-1, -1);
+		}		
 		score = (submind - mind) * img_num;
 	}
+
+	void compute_edge_type(float th, float th2, int s, int filter_radius, int has_corner0, int dir0, int dir1);
 
 	void read_file(const FileNode& node) {
 		offset.y = (int) node["oy"];
 		offset.x = (int) node["ox"];
+		mind = (int)node["m"];
+		submind = (int)node["sm"];
+		avg = (int)node["avg"];
+		node["minloc"] >> minloc;
+		node["subminloc"] >> subminloc;
 		img_num = (int)node["img_num"];
+		edge_type = (int)node["edge_type"];
+		min_num = (int)node["min_num"];
 		read(node["dif"], dif);
-		compute_score();
 	}
 
 	void write_file(FileStorage& fs) const {
@@ -247,9 +279,12 @@ public:
 		fs << "ox" << offset.x;
 		fs << "m" << (int) mind;
 		fs << "sm" << (int) submind;
-		fs << "mx" << minloc.x;
-		fs << "my" << minloc.y;
+		fs << "avg" << (int)avg;
+		fs << "minloc" << minloc;
+		fs << "subminloc" << subminloc;
 		fs << "img_num" << img_num;
+		fs << "edge_type" << edge_type;
+		fs << "min_num" << min_num;
 		fs << "dif" << dif << "}";
 	}
 
@@ -392,6 +427,7 @@ public:
 	void set_tune_para(const TuningPara & _tpara);
 	void set_cfg_para(const ConfigPara & _cpara);
 	int filter_edge_diff(const FeatExt & fe1, int w0, int w1);
+	int filter_edge_diff1(const FeatExt & fe1, int w0, int w1);
 	bool is_valid() {
 		return (cpara.img_num_h != 0 && cpara.img_num_w != 0 && !cpara.offset.empty());
 	}
@@ -399,6 +435,7 @@ public:
 	Compute EdgeDiff based on cpara and tpara 
 	*/
 	void generate_feature_diff(int start_x = 0, int start_y=0, int debug_en=0);
+	void generate_post_process(int diff_method, int pp_method);
 	void write_diff_file(string filename);	
 	int read_diff_file(string filename);
 	float get_progress() {

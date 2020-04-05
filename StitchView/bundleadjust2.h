@@ -15,7 +15,8 @@ public:
 	static int image_width, image_height;
 	const EdgeDiff * diff;
 	Mat_<float> cost;
-	float hard_score; //higher means not easy to move
+	float hard_score_x, hard_score_y; //higher means not easy to move,negative means easy to move
+	float estimat_cost;
 	int mls[2]; //min location shift, mls0 for y, mls1 for x
 	int flagb; //scale, BIND_X_MASK, BIND_Y_MASK
 	Point idea_pos;//it is nearby image top-left point - base image top-left point
@@ -227,6 +228,7 @@ protected:
 	FourCorner * get_4corner(int y, int x);
 	FourCorner * get_4corner(int idx);
 	void compute_edge_cost(Edge2 * pe, float alpha, bool weak);
+	void compute_edge_cost2(Edge2 * pe, float alpha, bool weak);
 	void print_4corner_stat();
 	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border);
 	void undo(const UndoPatch & patch);

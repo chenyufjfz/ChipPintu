@@ -245,7 +245,7 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 	idea_pos.x = idea_pos.x / scale;
 	idea_pos.y = idea_pos.y / scale;
 	
-	pe->hard_score = COST_BIND;
+	float hard_score = COST_BIND;
 	for (int y = 0; y < pe->cost.rows; y++) {
 		const int * pdif_1 = (y>0) ? pe->diff->dif.ptr<int>(y - 1) : NULL;
 		const int * pdif = pe->diff->dif.ptr<int>(y);
@@ -270,16 +270,112 @@ void BundleAdjust2::compute_edge_cost(Edge2 * pe, float global_avg, bool weak)
 			if (y > 0 && x > 0 && y + 1 < pe->cost.rows && x + 1 < pe->cost.cols && pdif[x] != mind &&
 				pdif[x] < pdif_1[x] && pdif[x] < pdif1[x] && pdif[x] < pdif[x - 1] && pdif[x] < pdif[x + 1] &&
 				pdif[x] < pdif_1[x - 1] && pdif[x] < pdif_1[x + 1] && pdif[x] < pdif1[x - 1] && pdif[x] < pdif1[x + 1])
-				pe->hard_score = min(pe->hard_score, pcost[x]);
+				hard_score = min(hard_score, pcost[x]);
 		}
 	}
-	if (pe->hard_score >= COST_BIND - 10)
-		pe->hard_score = alpha;
+	if (hard_score >= COST_BIND - 10)
+		hard_score = alpha;
 	if (FIX_EDGE_ISBIND(pe->flagb) && FIX_EDGE_BINDX(pe->flagb) && FIX_EDGE_BINDY(pe->flagb))
-		pe->hard_score = COST_BIGER_THAN_AVG;
+		hard_score = COST_BIGER_THAN_AVG;
 	if (FIX_EDGE_ISBIND(pe->flagb) && !FIX_EDGE_BINDX(pe->flagb) && !FIX_EDGE_BINDY(pe->flagb))
-		pe->hard_score = 0;
+		hard_score = 0;
+	pe->hard_score_x = hard_score;
+	pe->hard_score_y = hard_score;
+	pe->estimat_cost = hard_score;
 	return;
+}
+
+void BundleAdjust2::compute_edge_cost2(Edge2 * pe, float global_avg, bool weak)
+{
+	float mind = pe->diff->mind;
+	float avg = pe->diff->avg;
+	float submind = min(pe->diff->submind, pe->diff->avg);
+	float alpha = pow((submind + 1) / (mind + 1), 0.375);
+	float upth = 9999;
+
+	if (avg - mind < VALID_COST_DIFF) {
+		qWarning("edge(%x) cost is all 0 because avg(%f) - mind(%f) is small", pe->diff->edge_idx, avg, mind);
+		weak = true;
+	}
+	
+	pe->cost.create(pe->diff->dif.size());
+	if (pe->diff->img_num == 0) { //black image return
+		pe->cost = 0;
+		pe->estimat_cost = 0;
+		pe->hard_score_x = pe->hard_score_y = -COST_BIGER_THAN_AVG - 1000;
+		return;
+	}
+	int nearby = FIX_EDGE_SCALE(pe->flagb) / scale;
+	int valid_x = FIX_EDGE_BINDX(pe->flagb) ? nearby / 2 : 100000;
+	int valid_y = FIX_EDGE_BINDY(pe->flagb) ? nearby / 2 : 100000;
+	if (weak || FIX_EDGE_ISBIND(pe->flagb)) 	//make zero
+		alpha = 0.01;	
+
+	pe->estimat_cost = (submind - mind) / mind * alpha;
+	Point idea_pos = pe->idea_pos - pe->diff->offset;
+	idea_pos.x = idea_pos.x / scale;
+	idea_pos.y = idea_pos.y / scale;
+	float min_nearby = COST_BIND;
+	for (int y = 0; y < pe->cost.rows; y++) {
+		const int * pdif = pe->diff->dif.ptr<int>(y);
+		float * pcost = pe->cost.ptr<float>(y);
+		for (int x = 0; x < pe->cost.cols; x++) {
+			float z = pdif[x];
+			int dy = abs(y - idea_pos.y), dx = abs(x - idea_pos.x);
+			if (dy <= nearby / 2 && dx <= nearby / 2) {
+				if (nearby <= 1)
+					pcost[x] = 0;
+				else
+					min_nearby = min(z, min_nearby);
+			}
+			else
+			if (abs(y - idea_pos.y) >valid_y || abs(x - idea_pos.x) > valid_x)
+				pcost[x] = COST_BIND + z;
+			else {
+				if (weak || FIX_EDGE_ISBIND(pe->flagb)) //weak or green fix edge
+					pcost[x] = (z - mind) / mind * alpha;
+				else
+				if (z > upth)
+					pcost[x] = COST_BIGER_THAN_AVG + (z - mind) / mind * alpha;
+				else
+				if (z > submind)
+					pcost[x] = COST_BIGER_THAN_AVG / 2 + (z - mind) / mind * alpha;
+				else
+					pcost[x] = (z - mind) / mind * alpha;
+			}
+		}
+	}
+
+	if (nearby > 1) {
+		for (int y = max(0, idea_pos.y - nearby); y < min(pe->cost.rows, idea_pos.y + nearby); y++) {
+			const int * pdif = pe->diff->dif.ptr<int>(y);
+			float * pcost = pe->cost.ptr<float>(y);
+			for (int x = max(0, idea_pos.x - nearby); x < min(pe->cost.cols, idea_pos.x + nearby); x++) {
+				float z = pdif[x];
+				int dy = abs(y - idea_pos.y), dx = abs(x - idea_pos.x);
+				if (dy <= nearby / 2 && dx <= nearby / 2)
+					pcost[x] = (z - min_nearby) / mind * alpha;
+			}
+		}
+	}
+
+	if (weak)
+		pe->hard_score_x = pe->hard_score_y = -COST_BIGER_THAN_AVG - 500;
+	else
+	if (pe->diff->edge_type == EDGE_HAS_CORNER)
+		pe->hard_score_x = pe->hard_score_y = alpha - pe->diff->min_num * 2;
+	else
+	if (pe->diff->edge_type == EDGE_BUS_HENG) {
+		pe->hard_score_x = -COST_BIGER_THAN_AVG;
+		pe->hard_score_y = alpha - pe->diff->min_num * 2;
+	}
+	else 
+	if (pe->diff->edge_type == EDGE_BUS_SHU) {
+		pe->hard_score_x = alpha - pe->diff->min_num * 2;
+		pe->hard_score_y = -COST_BIGER_THAN_AVG;
+	}
+	else
+		pe->hard_score_x = pe->hard_score_y = -COST_BIGER_THAN_AVG / 2;
 }
 
 Edge2 * BundleAdjust2::get_edge(int i, int y, int x)
@@ -518,7 +614,10 @@ void BundleAdjust2::init(const FeatExt & fet, int _img_num_h, int _img_num_w, co
 			if (get_4corner(img0)->bd == 0 || get_4corner(img1)->bd == 0)
 				weak = true; //it is border
 		}
-		compute_edge_cost(&eds[i][j], avg[i], weak);
+		if (eds[i][j].diff->edge_type == EDGE_UNKNOW)
+			compute_edge_cost(&eds[i][j], avg[i], weak);
+		else
+			compute_edge_cost2(&eds[i][j], avg[i], weak);
 	}
 	
 	//3 init best offset
@@ -1302,7 +1401,7 @@ Bundle BundleAdjust2::search_bundle(FourCorner * pc, int len_limit, int width_li
 				break;
 			}
 
-			cost += (queue < 6) ? pe->get_point_cost(newpos, scale) : pe->hard_score;
+			cost += (queue < 6) ? pe->get_point_cost(newpos, scale) : pe->estimat_cost;
 
 			dx += pc1->res_sft[1];
 			dy += pc1->res_sft[0];
@@ -2051,7 +2150,7 @@ void BundleAdjust2::output()
 		for (int j = 0; j < (int)eds[i].size(); j++) {
 			Point cur_edge_point = eds[i][j].get_current_point(scale);
 			float cur_edge_cost = eds[i][j].get_point_cost(cur_edge_point, scale);
-			float cur_hard_score = eds[i][j].hard_score;
+			float cur_hard_score = (compute_dir == DIR_UP) ? eds[i][j].hard_score_y : eds[i][j].hard_score_x;
 			int bind = (compute_dir == DIR_UP) ? FIX_EDGE_BINDY(eds[i][j].flagb) : FIX_EDGE_BINDX(eds[i][j].flagb);
 			if (bind)
 				cur_hard_score = COST_BOUNDARY; //for red fix edge, sort it in front of edge_cost

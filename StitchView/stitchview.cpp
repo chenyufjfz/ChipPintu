@@ -215,8 +215,22 @@ void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_val
 			Point src_corner1(lf->cpara.offset(y, x + 1)[1], lf->cpara.offset(y, x + 1)[0]);
 			const EdgeDiff * ed = feature->get_edge(1, y, x);
 			Point idea_pos = ed->offset + ed->minloc * lf->cpara.rescale;
-			//idea_pos = src_corner1 - src_corner - idea_pos;			
-			PRINT_COMPLEX(ed->avg - ed->submind <30, idea_pos.x, idea_pos.y); //output idea pos
+			//idea_pos = src_corner1 - src_corner - idea_pos;
+			if (ed->img_num == 0 || x == 0 && !fc_valid || y == 0 && !fr_valid || y + 1 == img_num_h && !lr_valid || x + 2 == img_num_w && !lc_valid)
+				pos_z(y, x) = 1;
+			else
+			switch (ed->edge_type) {
+			case EDGE_UNKNOW:
+				pos_z(y, x) = (ed->avg - ed->submind < 30) ? 1 : 0;
+				break;
+			case EDGE_HAS_CORNER:
+				pos_z(y, x) = (ed->min_num <= 2) ? 1 : 0;
+				break;
+			default:
+				pos_z(y, x) = 0;
+				break;
+			}
+			PRINT_COMPLEX(pos_z(y, x), idea_pos.x, idea_pos.y); //output idea pos
 			if (ed->img_num>0) {
 				col_minxy[x].x = (y == 0) ? idea_pos.x : min(col_minxy[x].x, idea_pos.x);
 				col_minxy[x].y = (y == 0) ? idea_pos.y : min(col_minxy[x].y, idea_pos.y);
@@ -227,13 +241,7 @@ void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_val
 				row_maxxy[y].x = (x == 0) ? idea_pos.x : max(row_maxxy[y].x, idea_pos.x);
 				row_maxxy[y].y = (x == 0) ? idea_pos.y : max(row_maxxy[y].y, idea_pos.y);
 			}
-			if (ed->img_num == 0 || ed->avg - ed->submind <30)
-				pos_z(y, x) = 1;
-			else
-			if (x == 0 && !fc_valid || y == 0 && !fr_valid || y + 1 == img_num_h && !lr_valid || x + 2 == img_num_w && !lc_valid )
-				pos_z(y, x) = 1;
-			else
-				pos_z(y, x) = 0;
+			
 			pos(y, x) = Vec2i(idea_pos.y, idea_pos.x);
 		}
 		PRINT_COMPLEX(0, row_minxy[y].x, row_minxy[y].y);
@@ -293,7 +301,22 @@ void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_val
 			const EdgeDiff * ed = feature->get_edge(0, y, x);
 			Point idea_pos = ed->offset + ed->minloc * lf->cpara.rescale;
 			//idea_pos = src_corner1 - src_corner - idea_pos;
-			PRINT_COMPLEX(ed->avg - ed->submind <30, idea_pos.x, idea_pos.y);
+			if (ed->img_num == 0 || x == 0 && !fc_valid || y == 0 && !fr_valid || y + 2 == img_num_h && !lr_valid || x + 1 == img_num_w && !lc_valid)
+				pos_z(y, x) = 1;
+			else
+			switch (ed->edge_type) {
+			case EDGE_UNKNOW:
+				pos_z(y, x) = (ed->avg - ed->submind < 30) ? 1 : 0;
+				break;
+			case EDGE_HAS_CORNER:
+				pos_z(y, x) = (ed->min_num <= 2) ? 1 : 0;
+				break;
+			default:
+				pos_z(y, x) = 0;
+				break;
+			}
+			
+			PRINT_COMPLEX(pos_z(y, x), idea_pos.x, idea_pos.y);
 			if (ed->img_num>0) {
 				col_minxy[x].x = (y == 0) ? idea_pos.x : min(col_minxy[x].x, idea_pos.x);
 				col_minxy[x].y = (y == 0) ? idea_pos.y : min(col_minxy[x].y, idea_pos.y);
@@ -304,13 +327,7 @@ void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_val
 				row_maxxy[y].x = (x == 0) ? idea_pos.x : max(row_maxxy[y].x, idea_pos.x);
 				row_maxxy[y].y = (x == 0) ? idea_pos.y : max(row_maxxy[y].y, idea_pos.y);
 			}
-			if (ed->img_num == 0 || ed->avg - ed->submind <30)
-				pos_z(y, x) = 1;
-			else
-			if (x == 0 && !fc_valid || y == 0 && !fr_valid || y + 2 == img_num_h && !lr_valid || x + 1 == img_num_w && !lc_valid)
-				pos_z(y, x) = 1;
-			else
-				pos_z(y, x) = 0;
+			
 			pos(y, x) = Vec2i(idea_pos.y, idea_pos.x);
 		}
 		PRINT_COMPLEX(0, row_minxy[y].x, row_minxy[y].y);
@@ -1074,7 +1091,8 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 			Point o1(lf[layer]->cpara.offset(prev_may_choose.y(), prev_may_choose.x())[1],
 				lf[layer]->cpara.offset(prev_may_choose.y(), prev_may_choose.x())[0]);
 			oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
-			minloc_shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
+			//minloc_shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
+			minloc_shift = Point(ed->edge_type, ed->min_num);
 			edge_cost = ed->get_dif(oo, lf[layer]->cpara.rescale) - ed->mind;
 		}
 	}
