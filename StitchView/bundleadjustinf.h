@@ -19,6 +19,8 @@
 #define BUNDLE_ADJUST_SPEED_FAST		0
 #define BUNDLE_ADJUST_SPEED_NORMAL		0x2
 #define BUNDLE_ADJUST_SPEED_SLOW		0x4
+#define BUNDLE_ADJUST_ALIGN				0x80
+
 struct FixEdge {
 	int idx;
 	Point shift;

@@ -16,12 +16,13 @@
 #endif
 #endif
 
-#define PARALLEL 1
+#define PARALLEL 0
 #define TOTAL_PROP 500
 #define MIN_OVERLAP 12
 
-#define SOLO_CORNER_TH0 1.39
-#define SOLO_CORNER_TH1 2.5
+#define SOLO_CORNER_TH0 5
+#define CORNER_SIMILAR_TH 0.7
+#define HIT_LEVEL 8
 
 int dxy[8][2] = {
 	//y , x
@@ -63,9 +64,8 @@ struct ImageDiff {
 
 
 bool greaterPoint3i(const Point3i & a, const Point3i & b) { return a.z > b.z; }
-bool lessPoint3i(const Point3i & a, const Point3i & b) { return a.z < b.z; }
 
-#define MORE_EIG_NUMBER  30
+#define MORE_EIG_NUMBER  10
 
 /*
 inout vs
@@ -97,31 +97,46 @@ input d2
 reduce vs.z if vs.x and vs.y is within range d1, d2. then resort, this is to prevent
 same line occupy too much weight.
 */
-static void resort_points(vector<Point3i> & vs, int remain_number, float d1, float d2)
+static void resort_points(vector<Point3i> & vs, int remain_number, float d0, float d1, float d2, int min_distance)
 {
+	if (vs.empty())
+		return;
+	sort(vs.begin(), vs.end(), greaterPoint3i);
 	for (int i = 1; i<(int)vs.size(); i++) {
 		double reduce = 1;
 		for (int j = 0; j < i; j++) {
 			int dx = abs(vs[i].x - vs[j].x);
 			int dy = abs(vs[i].y - vs[j].y);
-			if (dx <= d1) { //reduce vs[i].z
-				double w = (dx == d1) ? 0.9 : 0.85;
+			int d = dx * dx + dy * dy;
+
+			if (d <= min_distance) { //erase near corner
+				reduce = -1;
+				break;
+			}
+			if (dx <= d1) { //reduce same line
+				double w = (dx == d1) ? 0.95 : 0.9;
 				float r = dy / d2;
 				r = (r > 1) ? 1 : (1 - w) * r + w;
 				reduce = reduce * r;
 			}
-			if (dy <= d1) { //reduce vs[i].z
-				double w = (dy == d1) ? 0.9 : 0.85;
+			if (dy <= d1) { //reduce same line
+				double w = (dy == d1) ? 0.95 : 0.9;
 				float r = dx / d2;
 				r = (r > 1) ? 1 : (1 - w) * r + w;
 				reduce = reduce * r;
 			}
+			
+			float r = d / (d0 * d0);
+			if (r < 1) //reduce circle
+				reduce = reduce * (1 + r) / 2;
 		}
 		vs[i].z *= reduce;
 	}
 	sort(vs.begin(), vs.end(), greaterPoint3i);
-	if (vs.size() > remain_number)
+	if (vs.size() > remain_number) //keep only remain_number
 		vs.erase(vs.begin() + remain_number, vs.end());
+	while (vs.back().z < 0) //erase near corner
+		vs.pop_back();
 }
 
 template<typename T> struct greaterThanPtr
@@ -129,37 +144,6 @@ template<typename T> struct greaterThanPtr
 	bool operator()(const T* a, const T* b) const { return *a > *b; }
 };
 
-/*
-Input eig, corner or var
-Output pcorners, biggest value in eig
-Input th, threshold
-Find biggest value in eig and return in pcorners
-*/
-static void find_good_corner(const Mat & eig, vector<const float*> & pcorners, double th, int blocksize, bool need_dilate = true)
-{
-	Mat tmp;
-	int bs = blocksize;
-	if (need_dilate)
-		dilate(eig, tmp, Mat());
-
-	Size imgsize = eig.size();
-
-	// collect list of pointers to features - put them into vector
-	for (int y = bs; y < imgsize.height - bs; y++)
-	{
-		const float* eig_data = (const float*)eig.ptr(y);
-		const float* tmp_data = need_dilate ? (const float*)tmp.ptr(y) : eig_data;
-
-		for (int x = bs; x < imgsize.width - bs; x++)
-		{
-			float val = eig_data[x];
-			if (val > th && (val == tmp_data[x] || y == bs || x == bs || y + 1 == imgsize.height - bs || x + 1 == imgsize.width - bs))
-				pcorners.push_back(eig_data + x);
-		}
-	}
-
-	sort(pcorners, greaterThanPtr<float>());
-}
 
 /*
 Compute integrate and line integral
@@ -216,35 +200,143 @@ static void integral_square(const Mat & img, Mat & ig, Mat & iig, Mat & lg, Mat 
 }
 
 static int shape_dir[] = { //0 is updown, 1 is leftright, 2 is /, 3 is \.
-	0x10, 0x23, 0x10, 0x23, 0x10, 0x23, 0x10, 0x23,
-	0x30, 0x20, 0x21, 0x31, 0x30, 0x20, 0x21, 0x31,
-	0x40, 0x42, 0x41, 0x43, 0x40, 0x42, 0x41, 0x43
+	0x10, 0x23, 0x10, 0x23, 0x10, 0x23, 0x10, 0x23, //0..7 for 1/4 corner
+	0x30, 0x20, 0x21, 0x31, 0x30, 0x20, 0x21, 0x31, //8..15 for 3/8 corner
+	0x40, 0x42, 0x41, 0x43, 0x40, 0x42, 0x41, 0x43, //16..23 for 1/2 corner
+	0x20, 0x21, 0x31, 0x30, 0x20, 0x21, 0x31, 0x30, //24..31 for 5/8 corner
+	0x10, 0x23, 0x10, 0x23, 0x10, 0x23, 0x10, 0x23 //32..39 for 3/4 corner
+	//40..47 for 1/8 corner
+	//48..55 for 7/8 corner
 };
+#define IS_CORNER(x) ( x < 16 || x>=24 && x < 40)
 
+class ShapeDis {
+protected:
+	float cos_shape[56][56];
+	void shift_vec(vector<float> & s) const {
+		float a = s.back();
+		s.pop_back();
+		s.insert(s.begin(), a);
+	}
+	void normalize(vector<float> & s) const {
+		float avg = 0;
+		for (auto v : s)
+			avg += v;
+		avg /= s.size();
+		float sum = 0;
+		for (auto & v : s) {
+			v = v - avg;
+			sum += v*v;
+		}
+		sum = sqrt(sum);
+		for (auto & v : s)
+			v /= sum;
+	}
+
+	float inner_product(vector<float> & s1, vector<float> & s2) const {
+		float ret = 0;
+		for (int i = 0; i < (int)s1.size(); i++)
+			ret += s1[i] * s2[i];
+		return ret;
+	}
+	
+public:	
+	ShapeDis() {
+		float s[][8] = {
+			{ 1, 1, 0, 0, 0, 0, 0, 0 }, //1/4 corner
+			{ 1, 1, 1, 0, 0, 0, 0, 0 }, //3/8 corner
+			{ 1, 1, 1, 1, 0, 0, 0, 0 }, //1/2 corner
+			{ 1, 1, 1, 1, 1, 0, 0, 0 }, //5/8 corner
+			{ 1, 1, 1, 1, 1, 1, 0, 0 }, //3/4 corner
+			{ 1, 0, 0, 0, 0, 0, 0, 0 }, //1/8 corner
+			{ 1, 1, 1, 1, 1, 1, 1, 0 }  //7/8 corner
+		};
+
+		for (int i = 0; i < 7; i++) {
+			vector<float> s1;
+			s1.assign(&s[i][0], &s[i][8]);
+			normalize(s1);
+			for (int ri = 0; ri < 8; ri++) {
+				int s1_idx = i * 8 + ri;
+				for (int j = 0; j < 7; j++) {
+					vector<float> s2;
+					s2.assign(&s[j][0], &s[j][8]);
+					normalize(s2);
+					for (int rj = 0; rj < 8; rj++) {
+						int s2_idx = j * 8 + rj;
+						if (s2_idx > s1_idx)
+							break;						
+						float c = inner_product(s1, s2);
+						cos_shape[s1_idx][s2_idx] = c;
+						cos_shape[s2_idx][s1_idx] = cos_shape[s1_idx][s2_idx];
+						float d = 0;
+						for (int k = 0; k < (int)s1.size(); k++)
+							d += (s1[k] - s2[k]) * (s1[k] - s2[k]);
+						float e = d - (2 - 2 * c);
+						CV_Assert(fabs(e) < 0.001);
+						shift_vec(s2);
+					}
+				}
+				shift_vec(s1);
+			}
+		}
+	}
+
+	float distance(float var_a, uchar shape_a, float var_b, uchar shape_b) const {
+		if (shape_a >= 56)
+			return var_b;
+		if (shape_b >= 56)
+			return var_a;
+		return var_a + var_b - 2 * sqrt(var_a * var_b) * cos_shape[shape_a][shape_b];
+	}
+
+	float similar_num(Point c, Size sz, Mat & var, Mat & shape) const {
+		float v0 = var.at<float>(c.y, c.x);
+		uchar s0 = shape.at<uchar>(c.y, c.x);
+		float cnum = 1; //similar corner number
+		bool is_corner = IS_CORNER(s0);
+		int ex = sz.width, ey = sz.height;
+		for (int y = max(0, c.y - ey); y <= min(var.rows - 1, c.y + ey); y++) {
+			float * pvar = var.ptr<float>(y);
+			uchar * pshape = shape.ptr<uchar>(y);
+			int endx = min(var.cols - 1, c.x + ex);
+			for (int x = max(0, c.x - ex); x <= endx; x++) {
+				if (is_corner && !IS_CORNER(pshape[x]) || pshape[x] == 100)
+					continue;
+				float d = distance(v0, s0, pvar[x], pshape[x]); //difference distance
+				CV_Assert(d > -0.1);
+				if (d > 0.7 * v0)
+					continue;
+				cnum += 1 - d / v0; //new similare corner
+			}
+		}
+		return cnum;
+	}
+} shape_dis;
 /*
 Input image
-Ouput eig0, corner similar
 Ouput eig1, var
+Ouput eig2, corner similar
 Ouput shape, var's shape
 input blockSize, size for corner & var
-inout quality, for input, it is var ratio threshold to compute similar, save time.
-			   for output, it is var threshold
-output dir_stat, 
+input similar_th, it is similar threshold for corner
+input var_th, it is var ratio threshold to compute similar, save time.
 input ox, oy for corner search region
+input ex, ey for corner move
+output cpts, cpts[0] for corner, cpts[1] for edge
 */
-static void my_corner_eigenval(const Mat & image, Mat & eig0, Mat & eig1, Mat & shape, int blockSize, double & quality, int ox, int oy)
+static void my_corner_eigenval(const Mat & image, Mat & eig1, Mat & eig2, Mat & shape, 
+	int blockSize, double similar_th, double var_th, int ox, int oy, vector<Point3i> cpts[])
 {
 	CV_Assert(image.type() == CV_8UC1 && blockSize % 2 == 1);
 	if (ox < 0)
 		ox = image.cols / 2;
 	if (oy < 0)
 		oy = image.rows / 2;
-	Mat eig2;
-	eig0.create(image.size(), CV_32FC1);
+	
 	eig1.create(image.size(), CV_32FC1);
 	eig2.create(image.size(), CV_32FC1);
 	shape.create(image.size(), CV_8UC1);
-	eig0 = Scalar::all(0);
 	eig1 = Scalar::all(0);
 	eig2 = Scalar::all(0);
 	shape = Scalar::all(100);
@@ -374,15 +466,15 @@ static void my_corner_eigenval(const Mat & image, Mat & eig0, Mat & eig1, Mat & 
 		int agg = 0;
 		for (int i = 1023; i > 1; i--) {
 			agg += stat[j][i];
-			if (agg >= total[j] * quality) {
+			if (agg >= total[j] * var_th) {
 				th[j] = i * 8;
 				break;
 			}
 		}
 	}
-	quality = min(min(th[0], th[1]), min(th[2], th[3])) * 2;
-	qInfo("th0=%4f, th1=%4f, th2=%4f, th3=%4f, quality=%4f", th[0], th[1], th[2], th[3], quality);
-	vector<Point> corner_pts;
+	qInfo("th0=%4f, th1=%4f, th2=%4f, th3=%4f", th[0], th[1], th[2], th[3]);
+	vector<Point> corner_pts;//corner_pts contain 1/4 and 3/8 corner
+	vector<Point3i> edge_pts; // edge_pts contain 1/2 corner
 	for (int y = border; y < image.rows - border; y++) {
 		float * peig1 = eig1.ptr<float>(y);
 		float * peig2 = eig2.ptr<float>(y);
@@ -399,21 +491,30 @@ static void my_corner_eigenval(const Mat & image, Mat & eig0, Mat & eig1, Mat & 
 				continue;
 			}
 
-			uchar mi = 255, ma = 0;
 			int s = peig2[x];
-			int avg = s / offset_size;
+			float avg = (float) s / offset_size;
 			const uchar * p0 = pi + x;
+			int low_avg = 0, high_avg = 0, low_num = 0, high_num = 0;
 			for (int i = 0; i < offset_size; i++) { //compute min, max avg
 				uchar a = p0[offset[i]];
-				mi = min(mi, a);
-				ma = max(ma, a);
+				if (a >= avg) {
+					high_num++;
+					high_avg += a;
+				}
+				else {
+					low_num++;
+					low_avg += a;
+				}
 			}
-			bool choose_min = (avg - mi < ma - avg); //choose min-adjust or max-adjust			
+			bool choose_min = (low_num > high_num); //choose min-adjust or max-adjust	
+			low_avg = low_avg / low_num;
+			high_avg = high_avg / high_num;
 			int bs[9] = { 0 }; //store eight sum
 			int ss = 0;
 			//following compute xiang guan
 			for (int i = 0; i < offset_size; i++) { 
-				int a = choose_min ? p0[offset[i]] - mi : ma - p0[offset[i]];
+				int a = p0[offset[i]];
+				a = choose_min ? a - low_avg : high_avg - a;
 				if (b[i] >= 32) {
 					bs[b[i] >> 5] += a / 2;
 					bs[b[i] & 31] += a / 2;
@@ -436,66 +537,120 @@ static void my_corner_eigenval(const Mat & image, Mat & eig0, Mat & eig1, Mat & 
 			cor[22] = bs[0] + bs[7] + bs[8] + bs[1] + bs[2];
 			cor[23] = bs[0] + bs[8] + bs[1] + bs[2] + bs[3];
 			float mc0 = -1, mc1 = -1, mc2 = -1, mc3 = -1, max_cor, max_cor0;
-			int shape1, shape2, shape3;
-			for (int i = 0; i < 8; i++)
-				mc0 = max(mc0, (float)bs[i]);
+			int shape0, shape1, shape2, shape3;
+			for (int i = 0; i < 8; i++) 
+			if (mc0 < bs[i]) {
+				mc0 = bs[i];
+				shape0 = 40 + i;
+			}
 			mc0 = mc0 * mc0 / (a0 * ss);
 			for (int i = 0; i < 8; i++)
 			if (mc1 < cor[i]) {
 				mc1 = cor[i];
-				shape1 = i;
+				shape1 = i; //for 1/4 corner
 			}
 			mc1 = mc1 * mc1 / (a1 * ss);
 			for (int i = 8; i < 16; i++)
 			if (mc2 < cor[i]) {
 				mc2 = cor[i];
-				shape2 = i;
+				shape2 = i; //for 3/8 corner
 			}
 			mc2 = mc2 * mc2 / (a2 * ss);
 			for (int i = 16; i < 24; i++)
 			if (mc3 < cor[i]) {
 				mc3 = cor[i];
-				shape3 = i;
+				shape3 = i; //for 1/2 corner
 			}
 			mc3 = mc3 * mc3 / (a3 * ss);
 			max_cor = max(mc1, mc2);
 			max_cor0 = max(mc3, mc0);
-			CV_Assert(max_cor <= 1);
-			if (max_cor > 0.6667 && max_cor > max_cor0) {
-				peig2[x] = max_cor; //1/4 or 3/8 corner
-				corner_pts.push_back(Point(x, y));
-				shape2 = (shape2 >= 12) ? shape2 - 4 : shape2;
-				pshape[x] = mc1 > mc2 ? shape1 : shape2;
+			CV_Assert(max_cor <= 1.001 && max_cor0 <= 1.001); //between 0 to 1			
+			if (max_cor > max_cor0) {
+				peig2[x] = max_cor;
+				if (max_cor > similar_th)
+					corner_pts.push_back(Point(x, y));
+				shape1 = choose_min ? shape1 : (shape1 >= 6 ? 26 + shape1: 34 + shape1); //1/4 corner change to 3/4 corner if !choose_min
+				shape2 = choose_min ? shape2 : (shape2 >= 13 ? 11 + shape2 : 19 + shape2); //3/8 corner change to 5/8 corner if !choose_min
+				pshape[x] = mc1 > mc2 ? shape1 : shape2; //1/4 or 3/8 corner
 			}
 			else {
-				peig2[x] = max_cor0; //1/2 corner
-				pshape[x] = (shape3 >= 20) ? shape3 - 4 : shape3;
+				peig2[x] = max_cor0;
+				if (!choose_min)
+					shape3 = (shape3 < 20) ? shape3 + 4 : shape3 - 4; //1/2 corner change to 1/2 corner if !choose_min
+				shape0 = choose_min ? shape0 : (shape0 == 47 ? shape0 + 1 : shape0 + 9); //1/8 corner change to 7/8 corner if !choose_min
+				pshape[x] = mc3 > mc0 ? shape3 : shape0; //1/8 or 1/2 corner
+				if (mc3 > mc0 && max_cor0 > similar_th)
+					edge_pts.push_back(Point3i(x, y, peig1[x]));
 			}
 		}
 	}
+	qDebug("Found corner=%d, edge=%d", (int)corner_pts.size(), (int)edge_pts.size());
 
-	for (auto & c : corner_pts) {
+#define T(x) ((x >= 20) ? x-4:x)
+	for (auto & c : corner_pts) { //choose cpts[0] from corner_pts, reduce corner number to save MIPs later
 		float * peig2 = eig2.ptr<float>(c.y, c.x);
 		uchar * pshape = shape.ptr<uchar>(c.y, c.x);
 		uchar * pshape1 = shape.ptr<uchar>(c.y + 1, c.x);
 		uchar * pshape_1 = shape.ptr<uchar>(c.y - 1, c.x);
+
+		bool in_void = (pshape[1] == 100 && pshape[-1] == 100) || (pshape1[0] == 100 && pshape_1[0] == 100)
+				|| (pshape1[1] == 100 && pshape_1[-1] == 100) || (pshape1[-1] == 100 && pshape_1[1] == 100);
+		if (in_void)
+			continue;
+
+		bool check_fake = (T(pshape_1[0]) == 16 && T(pshape1[0]) == 16 ||
+			T(pshape_1[-1]) == 19 && T(pshape1[1]) == 19 ||
+			T(pshape_1[1]) == 17 && T(pshape1[-1]) == 17 ||
+			T(pshape[1]) == 18 && T(pshape[-1]) == 18); //in line
+
+		if (check_fake)
+			continue;
+		
+		bool pass = false;
+		if (peig2[0] >= 8 && peig2[0] < 32) {// 3/8 or 5/8 corner, choose local best point
+			if ((peig2[0] > peig2[1] || !IS_CORNER(pshape[1])) && (peig2[0] > peig2[-1] || !IS_CORNER(pshape[-1]))
+				&& (peig2[0] > eig2.at<float>(c.y - 1, c.x) || !IS_CORNER(pshape_1[0]))
+				&& (peig2[0] > eig2.at<float>(c.y + 1, c.x) || !IS_CORNER(pshape1[0])))
+				pass = true;
+		}
+		else {// 1/4 or 3/4 corner, choose local best point
+			CV_Assert(peig2[0] < 40);
+			if (peig2[0] > peig2[1] && peig2[0] > peig2[-1]	&& peig2[0] > eig2.at<float>(c.y - 1, c.x) 
+				&& peig2[0] > eig2.at<float>(c.y + 1, c.x))
+				pass = true;
+		}
+		if (!pass)
+			continue;
+		cpts[0].push_back(Point3i(c.x, c.y, 2 * (peig2[0] - 0.5) * sqrt(eig1.at<float>(c.y, c.x))));
+	}
+	sort(cpts[0].begin(), cpts[0].end(), greaterPoint3i);
+	for (auto & c : edge_pts) { //choose cpts[1] from edge_pts, reduce edge number to save MIPs later
+		float * peig2 = eig2.ptr<float>(c.y, c.x);
+		float * peig1 = eig2.ptr<float>(c.y, c.x);
+		float * peig1_1 = eig2.ptr<float>(c.y - 1, c.x);
+		float * peig11 = eig2.ptr<float>(c.y + 1, c.x);
+		uchar * pshape = shape.ptr<uchar>(c.y, c.x);
+		uchar * pshape1 = shape.ptr<uchar>(c.y + 1, c.x);
+		uchar * pshape_1 = shape.ptr<uchar>(c.y - 1, c.x);
+
 		bool in_void = (pshape[1] == 100 && pshape[-1] == 100) || (pshape1[0] == 100 && pshape_1[0] == 100)
 			|| (pshape1[1] == 100 && pshape_1[-1] == 100) || (pshape1[-1] == 100 && pshape_1[1] == 100);
-		if (!in_void)
-		if (peig2[0] > peig2[1] && peig2[0] > peig2[-1] &&
-			peig2[0] > eig2.at<float>(c.y - 1, c.x) && peig2[0] > eig2.at<float>(c.y + 1, c.x))
-			eig0.at<float>(c) = 3000 * (peig2[0] - 0.6667);
-		else
-		if (pshape[0] >= 8 && pshape[0] < 16) {
-			bool check_fake = (pshape[0] == 8 && (pshape_1[0] == 16 && pshape1[0] == 16 || pshape_1[-1] == 19 && pshape1[1] == 19) ||
-				pshape[0] == 9 && (pshape_1[1] == 17 && pshape1[-1] == 17 || pshape_1[0] == 16 && pshape1[0] == 16) ||
-				pshape[0] == 10 && (pshape[1] == 18 && pshape[-1] == 18 || pshape_1[1] == 17 && pshape1[-1] == 17) ||
-				pshape[0] == 11 && (pshape_1[-1] == 19 && pshape1[1] == 19 || pshape[1] == 18 && pshape[-1] == 18));
-
-			if (!check_fake)
-				eig0.at<float>(c) = 2500 * (peig2[0] - 0.6667);
-		}
+		if (in_void)
+			continue;
+		int check = peig1[0] > peig1[1] ? 1 : 0;
+		check += peig1[0] > peig1[-1] ? 1 : 0;
+		check += peig1[0] > peig11[0] ? 1 : 0;
+		check += peig1[0] > peig11[-1] ? 1 : 0;
+		check += peig1[0] > peig11[1] ? 1 : 0;
+		check += peig1[0] > peig1_1[0] ? 1 : 0;
+		check += peig1[0] > peig1_1[-1] ? 1 : 0;
+		check += peig1[0] > peig1_1[1] ? 1 : 0;
+		if (check >=7)
+			cpts[1].push_back(c);
 	}
+#undef T(x)
+	sort(cpts[1].begin(), cpts[1].end(), greaterPoint3i);
+	qDebug("Filter corner=%d, edge=%d", (int)cpts[0].size(), (int)cpts[1].size());
 }
 
 struct CornerInfo {
@@ -510,14 +665,15 @@ Inout img, output img's medianBlur
 inout cinfo
 Input scale
 Input ox, oy, define corner search region, up is [0,oy), left is [0,ox), down is [h-oy,h), right is [w-ox,w)
+Input sz, shift range
 Output dir_stat
 */
-static void good_features_to_track(Mat & img, CornerInfo * cinfo, int scale, int ox, int oy, int dir_stat[4][5], bool debug_en)
+static void good_features_to_track(Mat & img, CornerInfo * cinfo, int scale, int ox, int oy, Size sz[], bool debug_en)
 {
 	CV_Assert(cinfo[1].minDistance >= cinfo[0].minDistance);
 	int blockSize, ksize;
-	Mat eig[2], cov, shape;
-	vector<const float*> tmpCorners[2];
+	Mat eig[2], cov, shape; //eig[1] is var, eig[0] is similar
+
 	if (ox < 0)
 		ox = img.cols / 4;
 	if (oy < 0)
@@ -528,6 +684,7 @@ static void good_features_to_track(Mat & img, CornerInfo * cinfo, int scale, int
 	Mat image;
 
 	blockSize = (scale == 4) ? 5 : 9;
+	cinfo[0].th /= 100;
 	cinfo[1].th /= 100;
 	if (scale == 1) {
 		resize(img, image, Size(img.cols / 2, img.rows / 2)); //save compute time
@@ -535,81 +692,121 @@ static void good_features_to_track(Mat & img, CornerInfo * cinfo, int scale, int
 		cinfo[1].minDistance /= 2;
 		ox = ox / 2;
 		oy = oy / 2;
+		for (int i = 0; i < 2; i++) {
+			sz[i].width = sz[i].width / 2;
+			sz[i].height = sz[i].height / 2;
+		}
 	}
-	else
+	else {
 		image = img;
-	my_corner_eigenval(image, eig[0], eig[1], shape, blockSize, cinfo[1].th, ox, oy);
-	find_good_corner(eig[0], tmpCorners[0], cinfo[0].th, blockSize, false); //eig[0] stores corner
-	find_good_corner(eig[1], tmpCorners[1], cinfo[1].th, blockSize, false); //eig[1] stores edge
+		for (int i = 0; i < 2; i++) {
+			sz[i].width = sz[i].width / scale;
+			sz[i].height = sz[i].height / scale;
+		}
+	}
+	vector<Point3i> cpts[2];
+	my_corner_eigenval(image, eig[1], eig[0], shape, blockSize, cinfo[0].th, cinfo[1].th, ox, oy, cpts);
 
-	for (int i = 0; i < 4; i++)
-	for (int j = 0; j <= 4; j++)
-		dir_stat[i][j] = 0;
-
+	int total_num = cinfo[0].max_number + cinfo[1].max_number;
 	for (int eig_idx = 0; eig_idx < 2; eig_idx++) {
 		CornerInfo & c = cinfo[eig_idx];
 		c.minDistance *= c.minDistance;
-		for (int i = 0; i < (int)tmpCorners[eig_idx].size(); i++)
+		for (auto & v : cpts[eig_idx])
 		{
-			int ofs = (int)((const uchar*)tmpCorners[eig_idx][i] - eig[eig_idx].data);
-			int y = (int)(ofs / eig[eig_idx].step);
-			int x = (int)((ofs - y * eig[eig_idx].step) / sizeof(float));
 			//push to different corner set
-			Point3i v(x, y, eig[eig_idx].at<float>(y, x) + 0.5f);
-			if (y < oy && c.corners[DIR_UP].size() < c.max_number * MORE_EIG_NUMBER) //push more than needed for resort
-				push_point(c.corners[DIR_UP], v, c.minDistance);
-			if (y > image.rows - oy && c.corners[DIR_DOWN].size() < c.max_number * MORE_EIG_NUMBER)
-				push_point(c.corners[DIR_DOWN], v, c.minDistance);
-			if (x < ox && c.corners[DIR_LEFT].size() < c.max_number * MORE_EIG_NUMBER)
-				push_point(c.corners[DIR_LEFT], v, c.minDistance);
-			if (x > image.cols - ox && c.corners[DIR_RIGHT].size() < c.max_number * MORE_EIG_NUMBER)
-				push_point(c.corners[DIR_RIGHT], v, c.minDistance);
-		}
-		if (eig_idx == 0) {
-			resort_points(cinfo[0].corners[DIR_UP], c.max_number, 4 / scale, image.cols / 2); //only pick max_number
-			resort_points(cinfo[0].corners[DIR_DOWN], c.max_number, 4 / scale, image.cols / 2);
-			resort_points(cinfo[0].corners[DIR_LEFT], c.max_number, 4 / scale, image.rows / 2);
-			resort_points(cinfo[0].corners[DIR_RIGHT], c.max_number, 4 / scale, image.rows / 2);
-			for (int i = 0; i < 4; i++)
-				cinfo[1].corners[i] = cinfo[0].corners[i];
-			cinfo[1].max_number += cinfo[0].max_number;
-		}
-		else {
-			for (int i = 0; i < 4; i++)
-				cinfo[1].corners[i].erase(cinfo[1].corners[i].begin(), cinfo[1].corners[i].begin() + cinfo[0].corners[i].size());
-			cinfo[1].max_number -= cinfo[0].max_number;
-			resort_points(cinfo[1].corners[DIR_UP], c.max_number, 4 / scale, image.cols / 2); //only pick max_number
-			resort_points(cinfo[1].corners[DIR_DOWN], c.max_number, 4 / scale, image.cols / 2);
-			resort_points(cinfo[1].corners[DIR_LEFT], c.max_number, 4 / scale, image.rows / 2);
-			resort_points(cinfo[1].corners[DIR_RIGHT], c.max_number, 4 / scale, image.rows / 2);
-			for (int i = 0; i < 4; i++) {
-				for (auto & v : cinfo[1].corners[i]) {
-					int s = shape.at<uchar>(v.y, v.x);
-					if (s < sizeof(shape_dir) / sizeof(shape_dir[0])) {
-						int d0 = shape_dir[s] & 0xf;
-						int d1 = shape_dir[s] >> 4;
-						dir_stat[i][d0]++;
-						dir_stat[i][d1]++;
-					}
+			Point3i v1 = v;
+			float s0 = eig[0].at<float>(v.y, v.x);
+			float v0 = eig[1].at<float>(v.y, v.x);
+			if (v.y < oy && c.corners[DIR_UP].size() < c.max_number * MORE_EIG_NUMBER) {//push more than needed for resort
+				bool check = true;
+				if (eig_idx == 1) {
+					if (!push_point(cinfo[0].corners[DIR_UP], v1, c.minDistance, true) ||
+						!push_point(cinfo[1].corners[DIR_UP], v1, c.minDistance, true))
+						check = false;
+				}
+				if (check) {
+					float cnum = shape_dis.similar_num(Point(v.x, v.y), sz[0], eig[1], shape);
+					int ex = sz[0].width, ey = sz[0].height;
+					v1.z = (s0 - 0.5) * 2 * sqrt(v0) / cnum * 2 * ex * min(oy - v.y, ey);
+					c.corners[DIR_UP].push_back(v1);
+				}
+			}
+			if (v.y > image.rows - oy && c.corners[DIR_DOWN].size() < c.max_number * MORE_EIG_NUMBER) {
+				bool check = true;
+				if (eig_idx == 1) {
+					if (!push_point(cinfo[0].corners[DIR_DOWN], v1, c.minDistance, true) ||
+						!push_point(cinfo[1].corners[DIR_DOWN], v1, c.minDistance, true))
+						check = false;
+				}
+				if (check) {
+					float cnum = shape_dis.similar_num(Point(v.x, v.y), sz[0], eig[1], shape);
+					int ex = sz[0].width, ey = sz[0].height;
+					v1.z = (s0 - 0.5) * 2 * sqrt(v0) / cnum * 2 * ex * min(v.y + oy - image.rows, ey);
+					c.corners[DIR_DOWN].push_back(v1);
+				}
+			}
+			if (v.x < ox && c.corners[DIR_LEFT].size() < c.max_number * MORE_EIG_NUMBER) {
+				bool check = true;
+				if (eig_idx == 1) {
+					if (!push_point(cinfo[0].corners[DIR_LEFT], v1, c.minDistance, true) ||
+						!push_point(cinfo[1].corners[DIR_LEFT], v1, c.minDistance, true))
+						check = false;
+				}
+				if (check) {
+					float cnum = shape_dis.similar_num(Point(v.x, v.y), sz[1], eig[1], shape);
+					int ex = sz[1].width, ey = sz[1].height;
+					v1.z = (s0 - 0.5) * 2 * sqrt(v0) / cnum * 2 * ey * min(ox - v.x, ex);
+					c.corners[DIR_LEFT].push_back(v1);
+				}
+			}
+			if (v.x > image.cols - ox && c.corners[DIR_RIGHT].size() < c.max_number * MORE_EIG_NUMBER) {
+				bool check = true;
+				if (eig_idx == 1) {
+					if (!push_point(cinfo[0].corners[DIR_RIGHT], v1, c.minDistance, true) ||
+						!push_point(cinfo[1].corners[DIR_RIGHT], v1, c.minDistance, true))
+						check = false;
+				}
+				if (check) {
+					float cnum = shape_dis.similar_num(Point(v.x, v.y), sz[1], eig[1], shape);
+					int ex = sz[1].width, ey = sz[1].height;
+					v1.z = (s0 - 0.5) * 2 * sqrt(v0) / cnum * 2 * ey * min(v.x + ox - image.cols, ex);
+					c.corners[DIR_RIGHT].push_back(v1);
 				}
 			}
 		}
+		qDebug("Before resort eig%d, up=%d, down=%d, left=%d, right=%d", eig_idx, c.corners[DIR_UP].size(), c.corners[DIR_DOWN].size(),
+			c.corners[DIR_LEFT].size(), c.corners[DIR_RIGHT].size());
+		int num = (eig_idx == 0) ? c.max_number : total_num - cinfo[0].corners[DIR_UP].size();
+		resort_points(c.corners[DIR_UP], num, 48 / scale, 4 / scale, image.cols / 2, c.minDistance); //only pick max_number
+		num = (eig_idx == 0) ? c.max_number : total_num - cinfo[0].corners[DIR_DOWN].size();
+		resort_points(c.corners[DIR_DOWN], num, 48 / scale, 4 / scale, image.cols / 2, c.minDistance);
+		num = (eig_idx == 0) ? c.max_number : total_num - cinfo[0].corners[DIR_LEFT].size();
+		resort_points(c.corners[DIR_LEFT], num, 48 / scale, 4 / scale, image.rows / 2, c.minDistance);
+		num = (eig_idx == 0) ? c.max_number : total_num - cinfo[0].corners[DIR_RIGHT].size();
+		resort_points(c.corners[DIR_RIGHT], num, 48 / scale, 4 / scale, image.rows / 2, c.minDistance);
+		qDebug("After resort eig%d, up=%d, down=%d, left=%d, right=%d", eig_idx, c.corners[DIR_UP].size(), c.corners[DIR_DOWN].size(),
+			c.corners[DIR_LEFT].size(), c.corners[DIR_RIGHT].size());
 	}
 
 	if (debug_en)
 	for (int eig_idx = 0; eig_idx < 2; eig_idx++)
 	for (int i = 0; i < 4; i++) {
-		char line[1000];
+		char line[1000] = { 0 };
 		int idx = 0;
 		for (int j = 0; j < min((int)cinfo[eig_idx].corners[i].size(), 5); j++) {
 			int x = cinfo[eig_idx].corners[i][j].x;
 			int y = cinfo[eig_idx].corners[i][j].y;
-			idx += sprintf(line + idx, "%4d,%4d,%5.0f,%5.0f  ", y, x,
+			idx += sprintf(line + idx, "%4d,%4d,%2d,%4.2f,%5.0f  ", y, x, (int) shape.at<uchar>(y,x),
 				eig[0].at<float>(y, x), eig[1].at<float>(y, x));
 		}
 		qInfo(line);
 	}
 
+	for (int eig_idx = 0; eig_idx < 2; eig_idx++)
+	for (int i = 0; i < 4; i++) 
+	for (auto & c : cinfo[eig_idx].corners[i])
+		c.z = shape.at<uchar>(c.y, c.x);
+	
 	if (scale == 1)
 	for (int eig_idx = 0; eig_idx < 2; eig_idx++) {
 		for (int i = 0; i < 4; i++)
@@ -621,175 +818,198 @@ static void good_features_to_track(Mat & img, CornerInfo * cinfo, int scale, int
 }
 
 /*
-Input th, used to judge valid min point
-Input s, used to check min point distance
-Input method, now only support DIFF_WEIGHT
-Input filter_radius, used to recompute score around min point
+Input e, edge.dif is mark
+Input dif, dif is raw score
+Input th2, minimum threshold
+Output minloc, local min location
+Return min value
 */
-void EdgeDiff::compute_edge_type(float th, float th2, int s, int filter_radius, int has_corner0, int dir0, int dir1)
+int find_local_minimum(const EdgeDiff & e, const Mat & dif, int th, Point & minloc, bool check_local_min)
 {
-	vector<Point3i> vs, v1; //vs is preliminary election, v1 is min point set
-
-	int upper = 10000;
-	avg = upper;
-	edge_type = EDGE_BLACK;
+	int mind = DIFF_AVG_VALUE;
 	for (int y = 0; y < dif.rows; y++) {
-		int * pd = dif.ptr<int>(y);
-		for (int x = 0; x < dif.cols; x++) {
-			if (pd[x] < mind * th && pd[x] < 10000) //preliminary election
-				vs.push_back(Point3i(x, y, pd[x]));
+		const int * pd = dif.ptr<int>(y);
+		const int * pd1 = (y + 1 == dif.rows) ? pd : dif.ptr<int>(y + 1);
+		const int * pd_1 = (y == 0) ? pd : dif.ptr<int>(y - 1);
+		const int * pe = e.dif.ptr<int>(y);
+		for (int x = 0; x < dif.cols; x++)
+		if (pe[x] < 0 && pd[x] < th && pd[x] < mind) {
+			if (check_local_min) {
+				if (pd[x] > pd1[x] || pd[x] > pd_1[x])
+					continue;
+				if (x > 0 && (pd[x] > pd1[x - 1] || pd[x] > pd_1[x - 1] || pd[x] > pd[x - 1]))
+					continue;
+				if (x + 1 < dif.cols && (pd[x] > pd1[x + 1] || pd[x] > pd_1[x + 1] || pd[x] > pd[x + 1]))
+					continue;
+			}
+			mind = pd[x];
+			minloc = Point(x, y);
 		}
 	}
+	return mind;
+}
 
-	if (vs.size() <= 1) {
-		v1 = vs; //mind is at begin
+/*
+Input score
+Output e
+Input th0, minimum value threshold
+Input th1, min threshold
+Input th2, submin threshold
+*/
+void compute_edge_type2(EdgeDiff & e, const Mat & score, int filter_radius, int bus_len, int check_bus, int max_level, bool debug_en)
+{
+	e.dif.create(score.size());
+	e.dif = -1; //at begining baned all location
+	e.avg = DIFF_AVG_VALUE;
+	//find min point	
+	Point minloc;
+	int mind = find_local_minimum(e, score, DIFF_AVG_VALUE - 1, minloc, false);
+
+	vector<int> mins;
+	int min_th = DIFF_AVG_VALUE;
+	if (mind == DIFF_AVG_VALUE || check_bus == EDGE_NEARLY_BLACK) {
+		e.mind = DIFF_AVG_VALUE;
+		e.minloc = Point(score.cols / 2, score.rows / 2);
+		e.submind = DIFF_AVG_VALUE;
+		e.edge_type = EDGE_NEARLY_BLACK;	
 	}
 	else {
-		sort(vs, lessPoint3i); //mind is at begin
-		for (auto & v : vs)
-			push_point(v1, v, s * s); //pick v1 from vs, each min point has space s
-	}
-
-	if ((has_corner0 || v1.size() <= 5 || dir1 != EDGE_BLACK) && mind < 10000)
-		edge_type = EDGE_HAS_CORNER;
-	else
-	if (dir0 != EDGE_BLACK && mind < 10000)
-		edge_type = dir0;
-	else
-		edge_type = EDGE_BLACK;
-
-	if (edge_type == EDGE_HAS_CORNER) {
-		int r = filter_radius;
-		for (int i = 0; i < (int) v1.size(); i++) { //recompute min points nearby score
-			int x0 = v1[i].x;
-			int y0 = v1[i].y;
-			float k = (i + 1 == (int)v1.size()) ? (v1[i].z - upper) / (float)r : (v1[i].z - v1[i + 1].z) / (float)r;
-			if (k > 0)
-				break;
-			for (int y = max(0, y0 - r); y <= min(dif.rows - 1, y0 + r); y++) {
-				int * pd = dif.ptr<int>(y);
-				int dy = y - y0;
-				for (int x = max(0, x0 - r); x <= min(dif.cols - 1, x0 + r); x++) {
-					if (pd[x] >= DIFF_NOT_CONTACT)
-						continue;
-					int dx = x - x0;
-					float len = sqrt(dy * dy + dx * dx);
-					if (len < r + 0.01) //refilter circle
-						pd[x] = min(pd[x], (int)(v1[i].z - k * len));
+		e.mind = mind;
+		e.minloc = minloc;
+		e.edge_type = EDGE_HAS_CORNER;
+		if (check_bus >= EDGE_BUS_SHU && check_bus <= EDGE_BUS_XIE2) { //double check if it is bus
+			min_th = min(mind + max_level * 9, DIFF_AVG_VALUE);
+			//compute bus type
+			int count[8] = { 0 }; //count for each direction
+			for (int i = 0; i < 8; i++) {
+				for (int j = 1; 1; j++) {
+					Point loc = minloc + Point(j * dxy[i][1], j * dxy[i][0]);
+					if (loc.x >= 0 && loc.x < score.cols && loc.y >= 0 && loc.y < score.rows) { //check bus len
+						if (score.at<int>(loc) < min_th)
+							count[i]++;
+					}
+					else
+						break;
 				}
 			}
+			if (check_bus == EDGE_BUS_SHU && count[0] + count[2] >= bus_len)
+				e.edge_type = EDGE_BUS_SHU;
+			
+			if (check_bus == EDGE_BUS_HENG && count[1] + count[3] >= bus_len)
+				e.edge_type = EDGE_BUS_HENG;
+				
+			if (check_bus == EDGE_BUS_XIE2 && count[4] + count[6] >= bus_len)
+				e.edge_type = EDGE_BUS_XIE2;
+				
+			if (check_bus == EDGE_BUS_XIE && count[5] + count[7] >= bus_len)
+				e.edge_type = EDGE_BUS_XIE;
 		}
-		//fill others to 10000
-		for (int y = 0; y < dif.rows; y++) {
-			int * pd = dif.ptr<int>(y);
-			for (int x = 0; x < dif.cols; x++) {
-				if (pd[x] >= DIFF_NOT_CONTACT)
-					continue;
-				bool check_range = false;
-				for (int i = 0; i < (int)v1.size(); i++)
-				if ((x - v1[i].x) * (x - v1[i].x) + (y - v1[i].y) * (y - v1[i].y) <= r * r)
-					check_range = true;
-				if (!check_range)
-					pd[x] = upper;
-			}
-		}
-
-		if (v1.size() >= 2) {
-			min_num = v1.size();
-			submind = v1[v1.size() / 2].z; //not solo corner, bundle adjust can move to other corner
-			subminloc = Point(v1[1].x, v1[1].y);			
+		int th1, th2;
+		if (e.edge_type != EDGE_HAS_CORNER) {
+			th1 = max_level * 5;
+			th2 = max_level * 9;
+			min_th = DIFF_AVG_VALUE;
 		}
 		else {
-			min_num = 1;
-			submind = DIFF_NOT_CONTACT; //solo corner, bundle adjust can't move to other corner
-			subminloc = Point(-1, -1);
+			th1 = max_level * 3;
+			th2 = max_level * 6;
+			min_th = DIFF_AVG_VALUE - 1;
 		}
-		return;
+		e.submind = min(mind + th1, min_th);
+		min_th = min(mind + th2, min_th);
 	}
-
-	if (edge_type == EDGE_BLACK) { //black image
-		mind = upper;
-		minloc = Point(dif.cols / 2, dif.rows / 2);
-		dif = upper;
-		img_num = 0;
-		min_num = dif.cols * dif.rows;
-		submind = DIFF_NOT_CONTACT;
-		subminloc = Point(-1, -1);
-		return;
-	}
-
-	//following handle bus
-	int ax = 0, ay = 0, c = 0; 
-	switch (edge_type) {
-	case EDGE_BUS_SHU:
-		ax = 1;
-		break;
-	case EDGE_BUS_HENG:
-		ay = 1;
-		break;
-	case EDGE_BUS_XIE:
-		ax = 1;
-		ay = 1;
-		break;
-	case EDGE_BUS_XIE2:
-		ax = 1;
-		ay = -1;
-		c = dif.rows;
-		break;
-	}
-	vector<int> good_num(dif.rows + dif.cols, 0); //Point number < 10000
-	vector<int> bad_num(dif.rows + dif.cols, 0); //Point number >=10000
-	vector<int> maxxy(dif.rows + dif.cols, 0);
-
-	for (int y = 0; y < dif.rows; y++) {
-		int * pd = dif.ptr<int>(y);
-		for (int x = 0; x < dif.cols; x++) {
-			if (pd[x] >= DIFF_NOT_CONTACT)
-				continue;
-			int idx = ax * x + ay * y + c; //compute good_num and bad_num in line
-			if (pd[x] > 10000)
-				bad_num[idx]++;
+	if (e.edge_type != EDGE_NEARLY_BLACK) {
+		//now compute subminloc
+		vector<int> sy(score.rows, 0);
+		vector<int> sx(score.cols, 0);
+		for (int y = 0; y < score.rows; y++) {
+			const int * ps = score.ptr<int>(y);
+			for (int x = 0; x < score.cols; x++)
+			if (ps[x] < e.submind) {
+				sy[y] |= 2; //mark y row exist submin
+				sx[x] |= 2; //mark x col exist submin
+			}
 			else
-			if (pd[x] < 10000)
-				good_num[idx]++;
-			maxxy[idx] = max(maxxy[idx], 10000 - pd[x]);
+			if (ps[x] < min_th) {
+				sy[y] |= 1;
+				sx[x] |= 1;
+			}
+		}
+		e.subminloc = Point(0, 0);
+		for (int y = 0; y < score.rows; y++)
+		if (sy[y] & 2)
+			e.subminloc.y += 3;
+		else
+		if (sy[y] & 1)
+			e.subminloc.y++;
+		for (int x = 0; x < score.cols; x++)
+		if (sx[x] & 2)
+			e.subminloc.x += 3;
+		else
+		if (sx[x] & 1)
+			e.subminloc.x++;
+
+		while (mind < DIFF_AVG_VALUE) {
+			if (debug_en)
+				qDebug("Type=%d, New min=%d, minloc=(x=%d,y=%d)", e.edge_type, mind, minloc.x, minloc.y);
+			mins.push_back(mind);
+			//fill minloc near domain
+			for (int y = max(0, minloc.y - filter_radius); y <= min(score.rows - 1, minloc.y + filter_radius); y++) {
+				const int * pd = score.ptr<int>(y);
+				int * pe = e.dif.ptr<int>(y);
+				for (int x = max(0, minloc.x - filter_radius); x <= min(score.cols - 1, minloc.x + filter_radius); x++)
+				if (pd[x] < DIFF_AVG_VALUE && pe[x] < 0) {
+					pe[x] = 10000 - 10000 * (DIFF_AVG_VALUE - pd[x]) / (DIFF_AVG_VALUE - mind);
+					if (pe[x] < 0) {
+						qCritical("Mind=%d, Minloc=(%d,%d), pd=%d, (%d,%d)", mind, minloc.x, minloc.y,
+							pd[x], x, y);
+						pe[x] = 0;
+					}
+					pe[x] |= (mins.size() - 1) << 16;
+				}
+			}
+			mind = find_local_minimum(e, score, min_th, minloc, e.edge_type == EDGE_HAS_CORNER);
 		}
 	}
-
-	for (int y = 0; y < dif.rows; y++) {
-		int * pd = dif.ptr<int>(y);
-		for (int x = 0; x < dif.cols; x++) {
-			if (pd[x] >= DIFF_NOT_CONTACT)
+	else
+		e.subminloc = Point(1000, 1000);
+	
+	e.min_num = (e.edge_type == EDGE_NEARLY_BLACK) ? score.cols * score.rows : mins.size();
+	
+	for (int y = 0; y < score.rows; y++) {
+		const int * pd = score.ptr<int>(y);
+		int * pe = e.dif.ptr<int>(y);
+		for (int x = 0; x < score.cols; x++) {
+			if (pd[x] >= DIFF_NOT_CONTACT) {
+				pe[x] = DIFF_NOT_CONTACT;
 				continue;
-			int idx = ax * x + ay * y + c;
-			if (good_num[idx] <= 2 * bad_num[idx] || maxxy[idx] < (10000 - mind) / th2)
-				pd[x] = upper;
+			}
+			if (e.edge_type == EDGE_NEARLY_BLACK) {
+				pe[x] = pd[x];
+				continue;
+			}
+			if (pe[x] < 0)
+				pe[x] = DIFF_AVG_VALUE;
 			else {
-				int n = 10000 - maxxy[idx];
-				pd[x] = min(pd[x], n);
+				int min_idx = pe[x] >> 16;
+				float coef = (pe[x] & 0xffff) / 10000.0;
+				CV_Assert(min_idx < (int)mins.size() && coef < 1.001);
+				float k = (min_idx + 1 == (int)mins.size()) ? (mins.back() - DIFF_AVG_VALUE) : mins[min_idx] - mins[min_idx + 1];
+				pe[x] = min(pd[x], (int)(mins[min_idx] - k * coef));
 			}
 		}
 	}
-	min_num = 0;
-	for (int i = 0; i < (int) good_num.size(); i++)
-	if (good_num[i] > 2 * bad_num[i])
-		min_num++;
-	submind = 10000 - (10000 - mind) / th;
-	subminloc = Point(-1, -1);
 }
 
 /*     31..24  23..16   15..8   7..0
 opt0:					method layer
 opt1: debug_opt method corner_num edge_num
 opt2: corner_distance edge_distance corner_th edge_th
-opt3: max_weight_corner(16) max_weight_edge(16)
-opt4: has_corner edge_reduce overlapx overlapy
 */
 static void prepare_corner(ImageData & img_d, const ParamItem & param)
 {
 	int method = param.pi[0] >> 8 & 0xff;
 	int debug_opt = param.pi[1] >> 24 & 0xff;
-	int edge_reduce = param.pi[4] >> 16 & 0xff;
 	CornerInfo cinfo[2];
 	int scale = img_d.cvar->rescale;
 
@@ -804,76 +1024,40 @@ static void prepare_corner(ImageData & img_d, const ParamItem & param)
 	cinfo[0].th = param.pi[2] >> 8 & 0xff;
 	cinfo[1].th = param.pi[2] & 0xff;
 
-	int weight_th[2] = { param.pi[3] >> 16 & 0xffff, param.pi[3] & 0xffff };
-	int overlap_x = img_d.v[0].d.cols / (param.pi[4] >> 8 & 0xff);
-	int overlap_y = img_d.v[0].d.rows / (param.pi[4] & 0xff);
-	int dir_stat[4][5];
-	good_features_to_track(img_d.v[0].d, cinfo, scale, overlap_x, overlap_y, dir_stat, debug_opt & 2);
+	int overlap_x = (img_d.x > 0) ? img_d.cvar->offset(img_d.y, img_d.x)[1] - img_d.cvar->offset(img_d.y, img_d.x - 1)[1]
+		: img_d.cvar->offset(img_d.y, img_d.x + 1)[1] - img_d.cvar->offset(img_d.y, img_d.x)[1];
+	overlap_x = img_d.v[0].d.cols - (overlap_x - img_d.cvar->max_lr_xshift) / scale;
+	int overlap_y = (img_d.y > 0) ? img_d.cvar->offset(img_d.y, img_d.x)[0] - img_d.cvar->offset(img_d.y - 1, img_d.x)[0]
+		: img_d.cvar->offset(img_d.y + 1, img_d.x)[0] - img_d.cvar->offset(img_d.y, img_d.x)[0];
+	overlap_y = img_d.v[0].d.rows - (overlap_y - img_d.cvar->max_ud_yshift) / scale;
+	Size sz[2];
+	sz[0] = Size(img_d.cvar->max_ud_xshift, img_d.cvar->max_ud_yshift);
+	sz[1] = Size(img_d.cvar->max_lr_xshift, img_d.cvar->max_lr_yshift);
+	good_features_to_track(img_d.v[0].d, cinfo, scale, overlap_x, overlap_y, sz, debug_opt & 2);
 
 	if (debug_opt & 1) {
 		Mat cf = img_d.v[0].d.clone();
 		for (int i = 0; i < 4; i++) {
 			for (auto & v : cinfo[0].corners[i])
 				circle(cf, Point(v.x, v.y), 1, Scalar::all(255));
+			for (auto & v : cinfo[1].corners[i]) {
+				circle(cf, Point(v.x, v.y), 1, Scalar::all(255));
+				cf.at<uchar>(Point(v.x, v.y)) = 255;
+			}
 		}
 		string filename = img_d.filename.substr(0, img_d.filename.find_last_of("."));
 		filename += "_c.jpg";
 		imwrite(filename, cf);
 	}
 
-	//limit weight
-	int corner0_num[4];
-	for (int i = 0; i < 4; i++)
-		corner0_num[i] = (int) cinfo[0].corners[i].size();
 	cinfo[0].max_number += cinfo[1].max_number;
-	for (int eig_idx = 0; eig_idx < 2; eig_idx++)
-	for (int i = 0; i < 4; i++) {
-		for (auto & v : cinfo[eig_idx].corners[i]) {
-			if (method == 0) {
-				if (v.z > weight_th[eig_idx])
-					v.z = sqrt(v.z * weight_th[eig_idx]); //make corner weight smaller
-				if (eig_idx == 1 && cinfo[0].corners[i].size() < cinfo[0].max_number) {
-					v.z /= edge_reduce;
-					cinfo[0].corners[i].push_back(v);
-				}
-			}
-			else {
-				if (eig_idx == 1 && cinfo[0].corners[i].size() < cinfo[0].max_number) {
-					v.z = edge_reduce;
-					cinfo[0].corners[i].push_back(v); //append cinfo[1] to cinfo[0]
-				}				
-			}
-		}
-		if (eig_idx == 1)
-			img_d.v[i + 1].d = Mat(cinfo[0].corners[i], true); //change vector to mat
-	}
 	
-	vector<Point3i> dd; //store compute_edge_type input 
 	for (int i = 0; i < 4; i++) {
-		int max_dir = 0, max_stat = dir_stat[i][0];
-		int snd_dir = -1, snd_stat = 0;
-		for (int j = 1; j < 4; j++) {
-			if (dir_stat[i][j] > max_stat) {
-				snd_dir = max_dir;
-				snd_stat = max_stat;
-				max_dir = j;
-				max_stat = dir_stat[i][j];
-			}
-			else
-			if (dir_stat[i][j] > snd_stat) {
-				snd_dir = j;
-				snd_stat = dir_stat[i][j];
-			}
-		}
-		qInfo("%d: d0=(%d,%d), d1=(%d,%d)",  i, max_dir, max_stat, snd_dir, snd_stat);
-		Point3i d;
-		int edge_th = 3;
-		d.x = corner0_num[i];
-		d.y = (max_stat >= edge_th) ? EDGE_BUS_SHU + max_dir : EDGE_BLACK;
-		d.z = (snd_stat >= edge_th) ? EDGE_BUS_SHU + snd_dir : EDGE_BLACK;
-		dd.push_back(d);
+		for (auto v : cinfo[1].corners[i])
+		if (cinfo[0].corners[i].size() < cinfo[0].max_number) 			
+			cinfo[0].corners[i].push_back(v); //append cinfo[1] to cinfo[0]			
+		img_d.v[i + 1].d = Mat(cinfo[0].corners[i], true); //change vector to mat
 	}
-	img_d.v[5].d = Mat(dd, true);
 }
 
 #define SCALE_COMPARE_RANGE(scale) ((scale == 4) ? 3 : (scale == 2) ? 5 : 7)
@@ -944,21 +1128,79 @@ static float abs(vector<float> & g1)
 	return sum;
 }
 
-#define FILTER_R(s) ((s == 4) ? 2 : (s == 2) ? 4 : 6)
+#define FILTER_R(s) ((s == 4) ? 2 : (s == 2) ? 3 : 4)
+#define BUS_LEN(s) ((s == 4) ? 13 : (s == 2) ? 15 : 22)
+
+/*
+Input snr
+Input n1, 5 score stage
+Input n2, 0 score stage
+Input th, 
+Output score
+Return 1 if min_snr < th, give bonus; else return 0, don't give bonus
+*/
+static int bonus(const Mat_<Vec2f> & snr, float n1, float n2, float th, float top_bonus, Mat & score, int debug_en)
+{
+	CV_Assert(snr.size() == score.size() && n1 > 0 && n2 > 0);
+	float min0 = 10000, min1 = 10000, min2 = 10000;
+	for (int y = 0; y < snr.rows; y++) {
+		const Vec2f *pv = snr.ptr<Vec2f>(y);
+		for (int x = 0; x < snr.cols; x++) {
+			float n = pv[x][0] / pv[x][1];
+			min0 = min(min0, n);
+			n = (pv[x][0] + n1) / pv[x][1];
+			min1 = min(min1, n);
+			n = (pv[x][0] + n2) / pv[x][1];
+			min2 = min(min2, n);
+		}
+	}
+	if (min0 > th || min2 > 0.9)
+		return 0;
+	if (debug_en)
+		qDebug("min0=%f, min1=%f, min2=%f", min0, min1, min2);
+	float half_bonus = top_bonus / 2;
+	for (int y = 0; y < snr.rows; y++) {
+		const Vec2f *pv = snr.ptr<Vec2f>(y);
+		int * pscore = score.ptr<int>(y);
+		for (int x = 0; x < snr.cols; x++) {
+			float n = pv[x][0] / pv[x][1];
+			if (n > min2)
+				continue;
+			if (n > min1) {
+				n = (n - min1) * half_bonus / (min2 - min1);
+				n += half_bonus;
+			}
+			else
+				n = (n - min0) * half_bonus / (min1 - min0);
+			int s = top_bonus + 0.49 - n;
+			CV_Assert(s >= 0 && s <= top_bonus);
+			pscore[x] += s;
+		}
+	}
+	return 1;
+}
+
 /*
       31..24  23..16   15..8   7..0
 opt0:				   method layer
-opt1: debug_opt          var_th(16)
-opt2:    fenzi0(16)      fenmu0(16)
-opt3:              solo_th1(8) solo_th0(8)
+opt1: debug_opt method(8) var_th(16)
+opt2: lvl_th(8) hit_th(8) level5(8) level10(8)
+opt3:                 var_th2(8) edge_reduce(8)
 */
 static void compute_weight_diff(const ImageDiff & gd, const ParamItem & param)
 {
 	int debug_opt = param.pi[1] >> 24 & 0xff;
 	int method = param.pi[0] >> 8 & 0xff;
-	int fenzi0 = param.pi[2] >> 16 & 0xffff; //initial fenzi
-	int fenmu0 = param.pi[2] & 0xffff;		//initial fenmu
 	float var_th = param.pi[1] & 0xffff;
+	int lvl_th = param.pi[2] >> 24 & 0xff;
+	int hit_th = param.pi[2] >> 16 & 0xff;
+	float level5 = param.pi[2] >> 8 & 0xff;
+	level5 /= 10;
+	float level10 = param.pi[2] & 0xff;
+	level10 /= 10;
+	float edge_reduce = param.pi[3] & 0xff;
+	int var_th2 = param.pi[3] >> 8 & 0xff;
+	edge_reduce /= 100;
 	int scale = gd.cvar->rescale;
 	int x_shift = (gd.dir) ? gd.cvar->max_lr_xshift / scale : gd.cvar->max_ud_xshift / scale; //dif size x
 	int y_shift = (gd.dir) ? gd.cvar->max_lr_yshift / scale : gd.cvar->max_ud_yshift / scale; //dif size y
@@ -966,23 +1208,32 @@ static void compute_weight_diff(const ImageDiff & gd, const ParamItem & param)
 	int y_org0 = (gd.dir) ? gd.shift / scale : gd.img_d0->v[0].d.rows - gd.overlap / scale;
 	gd.e->offset.x = (x_org0 - x_shift) * scale;
 	gd.e->offset.y = (y_org0 - y_shift) * scale;
+
 	qDebug("compute_weight_diff for img1=%s, img2=%s", gd.img_d0->filename.c_str(), gd.img_d1->filename.c_str());
-	gd.e->dif.create(2 * y_shift + 1, 2 * x_shift + 1); //start compute dif
-	Mat_<int> dif_vo(2 * y_shift + 1, 2 * x_shift + 1); //var only diff
 	if (gd.img_d0->is_black_img || gd.img_d1->is_black_img || gd.overlap <= 0) {
+		gd.e->dif.create(2 * y_shift + 1, 2 * x_shift + 1); //start compute dif
 		gd.e->img_num = 0;
-		gd.e->dif = 10000;
-		gd.e->compute_score();
+		gd.e->edge_type = EDGE_BLACK;
+		gd.e->mind = gd.e->submind = DIFF_AVG_VALUE;
+		gd.e->minloc = Point(x_shift, y_shift);
+		gd.e->subminloc = Point(0, 0);
+		gd.e->dif = DIFF_AVG_VALUE;
+		gd.e->min_num = (2 * x_shift + 1) * (2 * y_shift + 1);
 		return;
 	}
+	Mat_<Vec2f> snr1(2 * y_shift + 1, 2 * x_shift + 1); 
+	Mat_<Vec2f> snr2(2 * y_shift + 1, 2 * x_shift + 1);
+	Mat_<Vec2f> hit_rate[HIT_LEVEL];
+	Mat score(2 * y_shift + 1, 2 * x_shift + 1, CV_32SC1);
+	score = Scalar::all(0);
+	for (int i = 0; i < HIT_LEVEL; i++)
+		hit_rate[i].create(2 * y_shift + 1, 2 * x_shift + 1);
+
 	Mat img[2];
 	img[0] = gd.img_d0->v[0].d, img[1] = gd.img_d1->v[0].d; //load image
 	CV_Assert(img[0].type() == img[1].type() && img[0].size() == img[1].size() && img[0].type() == CV_8UC1);
 	vector<Point3i> corners[2]; //load corner
-	vector<Point3i> dd0, dd1;
-	dd0 = Mat_<Point3i>(gd.img_d0->v[5].d);
-	dd1 = Mat_<Point3i>(gd.img_d1->v[5].d);
-	int dir0, dir1, d0_idx, d1_idx;
+	int d0_idx, d1_idx;
 	if (gd.dir) {
 		d0_idx = DIR_RIGHT;
 		d1_idx = DIR_LEFT;
@@ -990,52 +1241,74 @@ static void compute_weight_diff(const ImageDiff & gd, const ParamItem & param)
 	else {
 		d0_idx = DIR_DOWN;
 		d1_idx = DIR_UP;
-	}
-	int corner0_num[2] = { dd0[d0_idx].x, dd1[d1_idx].x };
-	//following pick up most probability dir
-	if (dd0[d0_idx].y == dd1[d1_idx].y) {
-		dir0 = dd0[d0_idx].y;
-		dir1 = (dd0[d0_idx].z == EDGE_BLACK) ? dd1[d1_idx].z : dd0[d0_idx].z; //2nd dir choos
-	}
-	else {
-		if (dd0[d0_idx].y == EDGE_BLACK) {
-			dir0 = dd1[d1_idx].y;
-			dir1 = dd1[d1_idx].z;
-		}
-		else {
-			dir0 = dd0[d0_idx].y;
-			dir1 = (dd1[d1_idx].y == EDGE_BLACK) ? dd0[d0_idx].z : dd1[d1_idx].y;
-		}
-	}
+	}	
 	corners[0] = Mat_<Point3i>(gd.img_d0->v[1 + d0_idx].d); //corners[0] store img[0] corner
 	corners[1] = Mat_<Point3i>(gd.img_d1->v[1 + d1_idx].d); //corners[1] store img[1] corner
+
 	vector<int> offset;
 	prepare_gray_vec(img[0], offset, scale);
 	vector<vector<float> > corner_gray[2]; //corner_gray is corner nearby gray "feature vector"
 	vector<float> corner_gray_abs[2]; //corner_gray_abs = sum{corner_gray^2}
 	vector<float> corner_var_th[2]; //corner weight
-	float fenzi[2], fenmu[2];
+	vector<float> arrow[2]; //if arrow's var big enough, it is 1.0 else it < 1.0
+	vector<int> is_edge[2];
 
+	int dir_eng[4] = { 0 };
+	int tot_eng = 0;
+	int total_eng[2] = { 0 };
+	float tot_arrow = 0;
+	int tot_edge = 0;
 	for (int i = 0; i < 2; i++) { //prepare corner_gray and corner_gray_abs
-		fenzi[i] = fenzi0;
-		fenmu[i] = fenmu0;
 		for (const auto & c : corners[i]) {
 			vector<float> g;
 			if (!get_gray_vec(img[i], Point(c.x, c.y), g, offset, scale)) //get corner nearby feature
 				CV_Assert(0);
 			corner_gray[i].push_back(g);
 			float var = abs(g);
-			corner_gray_abs[i].push_back(var);
+			corner_gray_abs[i].push_back(var); //get absolute var
 			var = var / g.size();			
+			if (IS_CORNER(c.z))
+				is_edge[i].push_back(0);
+			else {
+				is_edge[i].push_back(1);
+				var *= edge_reduce; //reduce edge var
+			}
 			if (var > var_th)
-				var = pow(var * var_th * var_th * var_th, 0.25);
-			corner_var_th[i].push_back(var * c.z * 0.08); //suppose c.z peak is 1000
-			fenzi[i] += 0.5 * corner_var_th[i].back();
-			fenmu[i] += corner_var_th[i].back();
+				var = pow(var * var_th * var_th * var_th, 0.25); //limite corner and edge var
+			corner_var_th[i].push_back(var);
+			tot_eng += var;
+			total_eng[i] += var;
+			if (!IS_CORNER(c.z)) {
+				dir_eng[shape_dir[c.z] & 0xf] += var;
+				tot_edge++;
+			}
 		}
-	}	
-	int exp_bad = 5000 * fenzi[0] / fenmu[0] + 5000 * fenzi[1] / fenmu[1]; //score in very bad case
-	int exp_good = 5000 * fenzi0 / fenmu[0] + 5000 * fenzi0 / fenmu[1]; //score in very good case
+	}
+	for (int i = 0; i < 2; i++) 
+	if (!corner_var_th[i].empty()) {
+		total_eng[i] /= corner_var_th[i].size();
+		int new_var_th2 = min(total_eng[i], var_th2);
+		for (int j = 0; j < (int)corner_var_th[i].size(); j++) {
+			arrow[i].push_back((corner_var_th[i][j] > new_var_th2) ? 1 : corner_var_th[i][j] / new_var_th2);
+			tot_arrow += arrow[i].back();
+		}
+	}
+	int total_dir_eng = dir_eng[0] + dir_eng[1] + dir_eng[2] + dir_eng[3];
+	int max_dir, max_dir_eng, other_dir_eng;
+	int avg_eng = (tot_edge == 0) ? 0 : total_dir_eng / tot_edge;
+	max_dir = max_element(dir_eng, dir_eng + 4) - dir_eng;
+	max_dir_eng = dir_eng[max_dir];
+	other_dir_eng = total_dir_eng - max_dir_eng;
+	qDebug("Total arrow %d, tot_eng=%d, max_d_eng=%d, oth_d_eng=%d, valid_arrow=%f, avg_eng=%d", corners[0].size() + corners[1].size(),
+		tot_eng, max_dir_eng, other_dir_eng, tot_arrow, avg_eng);
+	int check_bus = EDGE_HAS_CORNER;
+	if (max_dir_eng > other_dir_eng * 6) {
+		check_bus = (max_dir == 0) ? EDGE_BUS_SHU :
+			(max_dir == 1) ? EDGE_BUS_HENG :
+			(max_dir == 2) ? EDGE_BUS_XIE2 : EDGE_BUS_XIE;
+		level5 += 0.5;
+		level10 += 1.0;
+	}
 
 	for (int yy = -y_shift; yy <= y_shift; yy++)
 	for (int xx = -x_shift; xx <= x_shift; xx++) {
@@ -1043,50 +1316,76 @@ static void compute_weight_diff(const ImageDiff & gd, const ParamItem & param)
 		int x_org = x_org0 + xx;
 		int y_overlap = img[0].rows - abs(y_org);
 		int x_overlap = img[0].cols - abs(x_org);
-		if (x_overlap >= MIN_OVERLAP && y_overlap >= MIN_OVERLAP) {			
-			float fenzi_vo[2], fenmu_vo[2];
+		bool out_border = false;
+		if (x_overlap >= MIN_OVERLAP && y_overlap >= MIN_OVERLAP) {	
+			float fenzi = 0, fenmu = 0, fenzi2 = 0, fenmu2 = 0; //compute snr, fenzi is noise, fenmu is signal
+			int hit[HIT_LEVEL] = { 0 }; //arrow hit for snr = 50%, 40%, 30%, 20%, 10%
+			int tot_hit = 0; //total hit arrow number
 			for (int i = 0; i < 2; i++) {
 				int xs = (i == 0) ? x_org : -x_org;
 				int ys = (i == 0) ? y_org : -y_org;
-				int j = 0;
-				fenzi[i] = fenzi_vo[i] = fenzi0;
-				fenmu[i] = fenmu_vo[i] = fenmu0;
-				for (const auto & c : corners[1 - i]) {
-					float s = abs_diff_gray(img[i], Point(c.x + xs, c.y + ys), corner_gray[1 - i][j], offset, scale);
-					if (s < 0) {
-						j++;
+				for (int j = 0; j < (int) corners[1 - i].size(); j++) {
+					Point3i c = corners[1 - i][j];
+					float r = abs_diff_gray(img[i], Point(c.x + xs, c.y + ys), corner_gray[1 - i][j], offset, scale);
+					if (r < 0)  //corner out of range						
 						continue;
+					
+					r = r / corner_gray_abs[1 - i][j]; //compute SNR
+					r = min(r, 3.0f);
+					int h_idx = r / 0.1f;
+					for (int k = 0; k < HIT_LEVEL; k++)
+					if (k >= h_idx)
+						hit[k] += arrow[1 - i][j];
+					tot_hit += arrow[1 - i][j];
+					fenzi += r * corner_var_th[1 - i][j];
+					fenmu += corner_var_th[1 - i][j];
+					if (is_edge[1 - i][j]) {
+						fenzi2 += r * corner_var_th[1 - i][j];
+						fenmu2 += corner_var_th[1 - i][j];
 					}
-					s = s / corner_gray_abs[1 - i][j]; //compute similar
-					s = min(s, 2.5f);
-					fenzi[i] += s * corner_var_th[1 - i][j];
-					fenmu[i] += corner_var_th[1 - i][j];
-					if (j >= corner0_num[1 - i]) {
-						fenzi_vo[i] += s * corner_var_th[1 - i][j];
-						fenmu_vo[i] += corner_var_th[1 - i][j];
-					}
-					j++;
-				}
-			}			
-			gd.e->dif(yy + y_shift, xx + x_shift) = 5000 * fenzi[0] / fenmu[0] + 5000 * fenzi[1] / fenmu[1];
-			dif_vo(yy + y_shift, xx + x_shift) = 5000 * fenzi_vo[0] / fenmu_vo[0] + 5000 * fenzi_vo[1] / fenmu_vo[1];
+				}				
+			}
+			if (tot_hit < tot_arrow / 5 || tot_hit < hit_th)
+				out_border = true;
+			else {
+				CV_Assert(fenmu > 0);
+				for (int i = 0; i < HIT_LEVEL; i++)
+					hit_rate[i](yy + y_shift, xx + x_shift) = Vec2f(tot_hit - hit[i], tot_hit);
+				snr1(yy + y_shift, xx + x_shift) = Vec2f(fenzi, fenmu);
+				snr2(yy + y_shift, xx + x_shift) = Vec2f(fenzi2, fenmu2);
+			}
 		}
 		else {
-			gd.e->dif(yy + y_shift, xx + x_shift) = DIFF_NOT_CONTACT;
-			dif_vo(yy + y_shift, xx + x_shift) = DIFF_NOT_CONTACT;
+			out_border = true;
+			score.at<int>(yy + y_shift, xx + x_shift) = -DIFF_NOT_CONTACT;
+		}
+		if (out_border) {
+			for (int i = 0; i < HIT_LEVEL; i++)
+				hit_rate[i](yy + y_shift, xx + x_shift) = Vec2f(100, 100);
+			snr1(yy + y_shift, xx + x_shift) = Vec2f(10000, 10000);
+			snr2(yy + y_shift, xx + x_shift) = Vec2f(10000, 10000);
 		}
 	}
-	gd.e->compute_score();
-	qInfo("Edge 0x%x, Score expect region [%d,%d], actual=%d", gd.e->edge_idx, exp_good, exp_bad, gd.e->mind);
-	int has_corner = (corner0_num[0] > 0 || corner0_num[1] > 0) ? 1 : 0;
-	if (gd.e->mind > exp_bad) {
-		gd.e->dif = dif_vo;
-		gd.e->compute_score();
-		has_corner = 0;
-		qInfo("exceed range, new score = %d", gd.e->mind);
+	
+	int max_level = 0;
+
+	for (int i = 0; i < HIT_LEVEL; i++) {
+		max_level += bonus(hit_rate[i], level5, level10, 0.2, 10, score, debug_opt & 1);
+		if (max_level >= 5)
+			break;
 	}
-	int filter_r = FILTER_R(scale);
-	gd.e->compute_edge_type(SOLO_CORNER_TH0, SOLO_CORNER_TH1, filter_r, filter_r, has_corner, dir0, dir1);
+	if (max_level <= 1)
+		check_bus = EDGE_NEARLY_BLACK;
+	if (avg_eng > 0) {
+		max_level += bonus(snr1, level5 * avg_eng, level10 * avg_eng, 0.6, 20, score, debug_opt & 1) * 2;
+		//max_level += bonus(snr2, level5 * avg_eng, level10 * avg_eng, 0.6, 10, score, debug_opt & 1);
+	}
+	gd.e->dif.create(2 * y_shift + 1, 2 * x_shift + 1);
+	score = DIFF_AVG_VALUE - score;
+	max_level = max(lvl_th, max_level);
+	//gd.e->dif = score;
+	//gd.e->compute_score();
+	compute_edge_type2(*(gd.e), score, FILTER_R(scale), BUS_LEN(scale), check_bus, max_level, debug_opt & 1);
 }
 
 static void edge_mixer(const Mat & img_in, const Mat & mask, Mat & img_out, char lut[], int lut_size)
@@ -1452,7 +1751,7 @@ void compute_diff1(const ImageDiff & gd, const ParamItem & param)
 			int x_org = x_org0 + xx;
 			int y_overlap = m0.rows - abs(y_org);
 			int x_overlap = m0.cols - abs(x_org);
-			unsigned sum;
+			unsigned sum = 0;
             if (x_overlap >= MIN_OVERLAP && y_overlap >= MIN_OVERLAP) {
 				vector<int> last_row(x_overlap + 2, 0x10000000), this_row(x_overlap + 2), last_row_m(x_overlap + 2, 0x10000000);
 				this_row[0] = 0x10000000, this_row[x_overlap + 1] = 0x10000000;
@@ -1486,7 +1785,7 @@ void compute_diff1(const ImageDiff & gd, const ParamItem & param)
 			int x_org = x_org0 + xx;
 			int y_overlap = m0.rows - abs(y_org);
 			int x_overlap = m0.cols - abs(x_org);
-			unsigned sum;
+			unsigned sum = 0;
             if (y_overlap > 2 && x_overlap > 2) {
 				vector<int> last_row(x_overlap + 2, 0x10000000), this_row(x_overlap + 2), last_row_m(x_overlap + 2, 0x10000000);
 				this_row[0] = 0x10000000, this_row[x_overlap + 1] = 0x10000000;
@@ -1613,7 +1912,7 @@ void FeatExt::set_cfg_para(const ConfigPara & _cpara)
 int FeatExt::filter_edge_diff(const FeatExt & fe1, int w0, int w1)
 {
 	if (fe1.edge[0][0].edge_type != EDGE_UNKNOW)
-		return filter_edge_diff1(fe1, w0, w1);
+		return 0;
 
 	*this = fe1;
 	int row = edge[0][0].dif.rows;
@@ -1719,7 +2018,7 @@ int FeatExt::filter_edge_diff1(const FeatExt & fe1, int w0, int w1)
 	int upgrade_bus = 0;
 	int upgrade_solo = 0;
 	for (int e = 0; e <= 1; e++) {//e=0 is up down edge
-		float a0, a1; //a0 for shoot corner, a1 for shoot bus
+		int a0, a1; //a0 for shoot corner, a1 for shoot bus
 		int strength = (e == 0) ? w0 : w1;
 		switch (strength) {
 		case 0:
@@ -1727,38 +2026,40 @@ int FeatExt::filter_edge_diff1(const FeatExt & fe1, int w0, int w1)
 			a1 = 1;
 			break;
 		case 1:
-			a0 = (SOLO_CORNER_TH0 - 1) / 5 + 1;
-			a1 = (SOLO_CORNER_TH0 - 1) / 8 + 1;
+			a0 = 2;
+			a1 = 2;
 			break;
 		case 2:
-			a0 = (SOLO_CORNER_TH0 - 1) / 4 + 1;
-			a1 = (SOLO_CORNER_TH0 - 1) / 7 + 1;
+			a0 = 3;
+			a1 = 3;
 			break;
 		default:
-			a0 = (SOLO_CORNER_TH0 - 1) / 3 + 1;
-			a1 = (SOLO_CORNER_TH0 - 1) / 6 + 1;
+			a0 = 4;
+			a1 = 4;
 			break;
 		}
 		int yend = (e == 0) ? cpara.img_num_h - 1 : cpara.img_num_h;
 		int xend = (e == 0) ? cpara.img_num_w : cpara.img_num_w - 1;
 		for (int y = 0; y < yend; y++) 
 		for (int x = 0; x < xend; x++) {
-			edge[e][y*xend + x].dif = fe1.edge[e][y*xend + x].dif.clone();
-			if (edge[e][y*xend + x].edge_type == EDGE_HAS_CORNER && edge[e][y*xend + x].min_num == 1)
+			EdgeDiff * ptarget = &edge[e][y*xend + x];			
+			if (ptarget->edge_type == EDGE_HAS_CORNER && ptarget->min_num == 1) {
+				ptarget->dif = fe1.edge[e][y*xend + x].dif.clone();
 				continue;
-			EdgeDiff * ptarget = &edge[e][y*xend + x];
+			}
+			
+			Mat_<int> dif = fe1.edge[e][y*xend + x].dif.clone();
 			int len = 2; //for bus and black, len = 2 means 8 bullets
-			float a = a1; //for bus, a = a1
+			int a = a1; //for bus, a = a1
 			int has_corner = 0; //for bus
 			CV_Assert(ptarget->edge_type != EDGE_UNKNOW);
 			if (ptarget->edge_type == EDGE_HAS_CORNER) { //len=1 means 4 bullets
-				len = 1;
 				a = a0;
 				has_corner = 1;
 			}
 			int hit = 0;
 			Point avg_loc(0, 0);
-			for (int dir = 0; dir < 4; dir++) 
+			for (int dir = 1 - e; dir < 4; dir+=2) 
 			for (int l = 1; l <= len; l++) {
 				int y0 = y + dxy[dir][0] * l;
 				int x0 = x + dxy[dir][0] * l;
@@ -1771,8 +2072,8 @@ int FeatExt::filter_edge_diff1(const FeatExt & fe1, int w0, int w1)
 				Point shoot_loc = shoot_min_pos - ptarget->offset;
 				shoot_loc.x /= scale;
 				shoot_loc.y /= scale;
-				if (shoot_loc.x < 0 || shoot_loc.x >= ptarget->dif.cols ||
-					shoot_loc.y < 0 || shoot_loc.y >= ptarget->dif.rows)
+				if (shoot_loc.x < 0 || shoot_loc.x >= dif.cols ||
+					shoot_loc.y < 0 || shoot_loc.y >= dif.rows) //shoot off
 					continue;
 				//now bullet is ready
 				hit++;
@@ -1780,27 +2081,25 @@ int FeatExt::filter_edge_diff1(const FeatExt & fe1, int w0, int w1)
 				if (ptarget->edge_type != EDGE_BLACK)
 				for (int dy = -filter_r; dy <= filter_r; dy++)
 				for (int dx = -filter_r; dx <= filter_r; dx++)
-				if (dy * dy + dx * dx <= filter_r * filter_r &&
-					shoot_loc.y + dy >= 0 && shoot_loc.y + dy < ptarget->dif.rows &&
-					shoot_loc.x + dx >= 0 && shoot_loc.x + dx < ptarget->dif.cols) { //bullet range
+				if (shoot_loc.y + dy >= 0 && shoot_loc.y + dy < dif.rows &&
+					shoot_loc.x + dx >= 0 && shoot_loc.x + dx < dif.cols) { //bullet range
 					Point loc = shoot_loc + Point(dx, dy);
-					int v = ptarget->dif(loc);
-					if (v >= 10000)
+					int v = dif(loc);
+					if (v >= DIFF_AVG_VALUE)
 						continue;
-					ptarget->dif(loc) = v / a;
+					dif(loc) = max(0, v - a);
 				}				
 			}
-			ptarget->compute_score();
-			if (ptarget->edge_type != EDGE_BLACK && hit >= 3) { //for bus upgrade to corner
-				has_corner = 1;
-				upgrade_bus++;
-			}
+			
 			int prev_min_num = ptarget->min_num;
-			ptarget->compute_edge_type(SOLO_CORNER_TH0, SOLO_CORNER_TH1, filter_r, filter_r, has_corner, ptarget->edge_type, EDGE_BLACK);
+			//compute_edge_type2(*ptarget, dif, filter_r, BUS_LEN(scale), ptarget->edge_type, false);
 			if (ptarget->edge_type == EDGE_BLACK && hit > 1) {
 				ptarget->minloc.x = avg_loc.x / hit;
 				ptarget->minloc.y = avg_loc.y / hit;
 			}
+			if (ptarget->edge_type == EDGE_HAS_CORNER && !has_corner) //for bus upgrade to corner
+				upgrade_bus++;
+			
 			if (has_corner) {
 				if (prev_min_num > 1 && ptarget->min_num == 1)
 					upgrade_solo++;

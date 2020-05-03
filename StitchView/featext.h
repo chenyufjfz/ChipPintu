@@ -23,8 +23,9 @@ using namespace std;
 extern int dxy[8][2];
 #endif
 
-
 #define DIFF_NOT_CONTACT			100000000
+#define DIFF_AVG_VALUE				100
+
 class TuningPara {
 public:
 	vector<ParamItem> params;
@@ -147,9 +148,22 @@ public:
 		if (ypos == string::npos) {
 			ypos = img_path.find("%2y", 0);
 			if (ypos == string::npos) {
-				char filename[50];
-				sprintf(filename, "%d_%d.jpg", y + 1, x + 1); //image name postfix
-				return img_path + filename;
+				ypos = img_path.find("%3y", 0);
+				if (ypos == string::npos) {
+					char filename[50];
+					sprintf(filename, "%d_%d.jpg", y + 1, x + 1); //image name postfix
+					return img_path + filename;
+				}
+				else {
+					char filename[10];
+					sprintf(filename, "%03d", y + 1);
+					string s = img_path;
+					s.replace(ypos, 3, filename, 0, strlen(filename));
+					xpos = s.find("%3x", 0);
+					sprintf(filename, "%03d", x + 1);
+					s.replace(xpos, 3, filename, 0, strlen(filename));
+					return s;
+				}
 			}
 			else {
 				char filename[10];
@@ -194,8 +208,9 @@ enum {
 	EDGE_HAS_CORNER,
 	EDGE_BUS_SHU,
 	EDGE_BUS_HENG,	
-	EDGE_BUS_XIE,
-	EDGE_BUS_XIE2,
+	EDGE_BUS_XIE, 
+	EDGE_BUS_XIE2, //it is /
+	EDGE_NEARLY_BLACK,
 	EDGE_BLACK
 };
 class EdgeDiff {
@@ -236,7 +251,7 @@ public:
 				} 
 			}
 		}
-		avg = sum / num;
+		avg = (num == 0) ? DIFF_NOT_CONTACT : sum / num;
 		for (int y = 1; y < dif.rows - 1; y++) {
 			int * pd1 = dif.ptr<int>(y + 1);
 			int * pd = dif.ptr<int>(y);
@@ -257,8 +272,6 @@ public:
 		}		
 		score = (submind - mind) * img_num;
 	}
-
-	void compute_edge_type(float th, float th2, int s, int filter_radius, int has_corner0, int dir0, int dir1);
 
 	void read_file(const FileNode& node) {
 		offset.y = (int) node["oy"];

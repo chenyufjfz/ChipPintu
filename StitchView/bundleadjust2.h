@@ -230,7 +230,9 @@ protected:
 	void compute_edge_cost(Edge2 * pe, float alpha, bool weak);
 	void compute_edge_cost2(Edge2 * pe, float alpha, bool weak);
 	void print_4corner_stat();
-	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border);
+	Point2f check_res_sft(bool update_corner_info);
+	void align();
+	void init(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, bool week_border, bool need_align);
 	void undo(const UndoPatch & patch);
 	void adjust_edge_mls(FourCorner * ps, FourCorner * pt, int sidx, int modify, queue<unsigned> & rq, vector<SourceInfo> & source, int change_id, UndoPatch * patch, float cost_th, bool border_is_source);
 	void relax(FourCorner * pc, const Rect & range, queue<unsigned> & rq, vector<SourceInfo> & source, UndoPatch * patch, float cost_th, bool border_is_source);

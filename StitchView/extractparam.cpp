@@ -213,31 +213,20 @@ bool ExtractParam::read_file(string filename)
 				int edge_distance = (int)(*it)["edge_distance"]; 
 				int corner_th = (int)(*it)["corner_th"]; 
 				int edge_th = (int)(*it)["edge_th"];
-				int weight_corner = (int)(*it)["max_weight_corner"];
-				int weight_edge = (int)(*it)["max_weight_edge"];
-				int overlap_x = (int)(*it)["overlap_x"];
-				int overlap_y = (int)(*it)["overlap_y"];
-				int edge_reduce = (int)(*it)["edge_reduce"];
+				
 				if (edge_num > 255 || corner_num > 255 || corner_distance > 255 || edge_distance > 255) {
 					qCritical("ParamItems file error, name=%s, edge_num=%d, corner_num=%d, corner_distance=%d, edge_distance=%d",
 						name.c_str(), edge_num, corner_num, corner_distance, edge_distance);
 					check_pass = false;
 				}
-				if (corner_th > 255 || edge_th > 255 || edge_reduce > 255 || overlap_x > 255 || overlap_y > 255) {
-					qCritical("ParamItems file error, name=%s, corner_th=%d, edge_th=%d, edge_reduce=%d, overlap_x=%d, overlap_y=%d",
-						name.c_str(), corner_th, edge_th, edge_reduce, overlap_x, overlap_y);
-					check_pass = false;
-				}
-				if (weight_corner > 65535 || weight_edge > 65535) {
-					qCritical("ParamItems file error, name=%s, weight_corner=%d, weight_edge=%d",
-						name.c_str(), weight_corner, weight_edge);
+				if (corner_th > 255 || edge_th > 255) {
+					qCritical("ParamItems file error, name=%s, corner_th=%d, edge_th=%d",
+						name.c_str(), corner_th, edge_th);
 					check_pass = false;
 				}
 				param.pi[0] = method << 8 | layer;
 				param.pi[1] = debug_opt << 24 | PP_COMPUTE_CORNER << 16 | corner_num << 8 | edge_num;
 				param.pi[2] = corner_distance << 24 | edge_distance << 16 | corner_th << 8 | edge_th;
-				param.pi[3] = weight_corner << 16 | weight_edge;
-				param.pi[4] = edge_reduce << 16 | overlap_x << 8 | overlap_y;
 			}
 			break;
 
@@ -273,18 +262,23 @@ bool ExtractParam::read_file(string filename)
 			{
 				int layer = (int)(*it)["layer"];
 				int debug_opt = (int)(*it)["debug_opt"];
+				int hit_th = (int)(*it)["hit_th"];
+				int lvl_th = (int)(*it)["lvl_th"];
 				int var_th = (int)(*it)["var_th"];
+				int var_th2 = (int)(*it)["var_th2"];
 				int method = (int)(*it)["method"];
-				int fenzi0 = (int)(*it)["fenzi0"];
-				int fenmu0 = (int)(*it)["fenmu0"];
-				if (fenzi0 > 65535 || fenmu0 > 65535 || var_th > 65535) {
-					qCritical("ParamItems file error, name=%s, var_th=%d, fenzi0=%d, fenmu0=%d",
-						name.c_str(), var_th, fenzi0, fenmu0);
+				int edge_reduce = (int)(*it)["edge_reduce"];
+				int level5 = (int)(*it)["level5"];
+				int level10 = (int)(*it)["level10"];
+				if (level5 > 255 || level10 > 255 || var_th > 65535 || edge_reduce > 100 || var_th2 > 255 || hit_th > 255 || lvl_th > 255) {
+					qCritical("ParamItems file error, name=%s, var_th=%d, level5=%d, level10=%d, edge_reduce=%d, var_th2=%d, hit_th=%d, lvl_th=%d",
+						name.c_str(), var_th, level5, level10, edge_reduce, var_th2, hit_th, lvl_th);
 					check_pass = false;
 				}
 				param.pi[0] = method << 8 | layer;
 				param.pi[1] = debug_opt << 24 | DIFF_WEIGHT << 16 | var_th;
-				param.pi[2] = fenzi0 << 16 | fenmu0;
+				param.pi[2] = lvl_th << 24 | hit_th << 16 | level5 << 8 | level10;
+				param.pi[3] = var_th2 << 8 | edge_reduce;
 			}
 			break;
 

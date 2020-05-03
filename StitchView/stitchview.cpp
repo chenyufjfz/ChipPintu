@@ -1947,7 +1947,7 @@ int StitchView::optimize_offset(int _layer, int optimize_option)
 			}
 		}
 	}
-	thread_bundle_adjust(ba, &lf[_layer]->feature, &adjust_offset, &lf[_layer]->corner_info, &fe, ri->get_src_img_size(layer), optimize_option);
+	thread_bundle_adjust(ba, &lf[_layer]->feature, &adjust_offset, &lf[_layer]->corner_info, &fe, ri->get_src_img_size(layer), optimize_option | BUNDLE_ADJUST_ALIGN);
 	lf[_layer]->cpara.offset = adjust_offset;
 	self_check_offset(_layer);
 	adjust_offset.release();

@@ -974,25 +974,34 @@ int main(int argc, char** argv)
     cpara.clip_r = 0;
     cpara.clip_u = 0;
     cpara.clip_d = 0;
-	cpara.rescale = 2;
-    cpara.max_lr_xshift = 200;
+	cpara.rescale = 4;
+    /*cpara.max_lr_xshift = 200;
     cpara.max_lr_yshift = 100;
     cpara.max_ud_xshift = 100;
     cpara.max_ud_yshift = 120;
-    cpara.img_path = "c:/chenyu/data/A01/M_";
-    cpara.img_num_w = 3;
+    cpara.img_path = "c:/chenyu/data/A01/M_";*/
+	cpara.max_lr_xshift = 120;
+	cpara.max_lr_yshift = 60;
+	cpara.max_ud_xshift = 60;
+	cpara.max_ud_yshift = 80;
+	cpara.img_path = "c:/chenyu/data/A01/ST_";
+    cpara.img_num_w = 2;
 	cpara.img_num_h = 2;
     cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
     for (int y = 0; y < cpara.img_num_h; y++) {
         for (int x = 0; x < cpara.img_num_w; x++) {
-			cpara.offset(y, x)[1] = 1500 * x;
-			cpara.offset(y, x)[0] = 1150 * y;
+	//		cpara.offset(y, x)[1] = 1500 * x;
+	//		cpara.offset(y, x)[0] = 1150 * y;
+			cpara.offset(y, x)[1] = 1248 * x;
+			cpara.offset(y, x)[0] = 948 * y;
         }
     }
 	ExtractParam ep;
 	ep.read_file("./tune.xml");
 	TuningPara _tpara(ep, "Default");
-	int start_y = 21, start_x = 34;
+	int start_y = 7, start_x = 2;
+	//int start_y = 21, start_x = 34;
+	//int start_y = 4, start_x = 22;
 #if 1
 	feature.set_cfg_para(cpara);
 	feature.set_tune_para(_tpara);
@@ -1003,8 +1012,8 @@ int main(int argc, char** argv)
 #endif
     double minval, maxval;
     Point minloc, maxloc;
-	int y0 = 0, x0 = 0, y1 = 1, x1 = 0;
-	//int y0 = 0, x0 = 0, y1 = 0, x1 = 1;
+	int y0 = 0, x0 = 0, y1 = 0, x1 = 1;
+	//int y0 = 0, x0 = 1, y1 = 0, x1 = 2;
 	char img1_name[50], img2_name[50];
 	sprintf(img1_name, "%d_%d.jpg", start_y + y0, start_x + x0);
 	sprintf(img2_name, "%d_%d.jpg", start_y + y1, start_x + x1);
@@ -1030,8 +1039,8 @@ int main(int argc, char** argv)
 	imshow(img1_name, left);
 	imshow(img2_name, right);
 
-	//y0 = 0, x0 = 1, y1 = 1, x1 = 1;
-	y0 = 0, x0 = 1, y1 = 1, x1 = 1;	
+	//y0 = 1, x0 = 1, y1 = 1, x1 = 2;
+	y0 = 1, x0 = 0, y1 = 1, x1 = 1;	
 	sprintf(img1_name, "%d_%d.jpg", start_y + y0, start_x + x0);
 	sprintf(img2_name, "%d_%d.jpg", start_y + y1, start_x + x1);
 	minMaxLoc(feature.get_edge((y0 == y1) ? 1 : 0, y0, x0)->dif, &minval, &maxval, &minloc, &maxloc);

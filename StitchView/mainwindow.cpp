@@ -119,18 +119,18 @@ void MainWindow::on_actionConfig_Para_triggered()
 		cpara.clip_u = 0;
 		cpara.clip_d = 0;
 		cpara.rescale = 8;
-		cpara.max_lr_xshift = 36;
-		cpara.max_lr_yshift = 16;
-		cpara.max_ud_xshift = 16;
-		cpara.max_ud_yshift = 36;
-		cpara.img_path = "C:/chenyu/data/A01/M1/M1_";
-		cpara.img_num_w = 3;
-		cpara.img_num_h = 3;
+		cpara.max_lr_xshift = 200;
+		cpara.max_lr_yshift = 100;
+		cpara.max_ud_xshift = 100;
+		cpara.max_ud_yshift = 120;
+		cpara.img_path = "c:/chenyu/data/91/91-M1-1500X/M_";
+		cpara.img_num_w = 36;
+		cpara.img_num_h = 37;
 		cpara.offset.create(2, 2);
 		cpara.offset(0, 0) = Vec2i(0, 0);
-		cpara.offset(0, 1) = Vec2i(0, 1817);
-		cpara.offset(1, 0) = Vec2i(1558, 0);
-		cpara.offset(1, 1) = Vec2i(1558, 1817);
+		cpara.offset(0, 1) = Vec2i(0, 1500);
+		cpara.offset(1, 0) = Vec2i(1150, 0);
+		cpara.offset(1, 1) = Vec2i(1150, 1500);
 	}
 	cpara.rescale = 4;
 
