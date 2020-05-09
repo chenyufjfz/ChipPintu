@@ -16,6 +16,7 @@ class TParaDialog : public QDialog
 public:
     TuningPara tpara;
 	ExtractParam ep;
+	bool is_default;
     explicit TParaDialog(string filename, QWidget *parent = 0);
     ~TParaDialog();
 

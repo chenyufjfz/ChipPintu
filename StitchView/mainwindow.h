@@ -96,6 +96,7 @@ private:
 	CornerEdge * ce_dlg;
 	int speed;
 	int output_format;
+	bool use_default_compare;
 };
 
 #endif // MAINWINDOW_H

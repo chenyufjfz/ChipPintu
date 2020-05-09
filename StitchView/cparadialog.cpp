@@ -5,12 +5,13 @@
 #include <QMessageBox>
 #include <QFileDialog>
 
-CparaDialog::CparaDialog(ConfigPara _cpara, bool _new_layer, QWidget *parent) :
+CparaDialog::CparaDialog(ConfigPara _cpara, bool _new_layer, bool _update_scale_en, QWidget *parent) :
     QDialog(parent),
     ui(new Ui::CparaDialog)
 {
     cpara = _cpara;
 	new_layer = _new_layer;
+	update_scale_en = _update_scale_en;
     ui->setupUi(this);
 
 	ui->rescale->setText(QString::number(cpara.rescale));
@@ -226,4 +227,45 @@ void CparaDialog::on_ConfigButton_clicked()
     if (!filename.isEmpty()) {
         ui->config_file->setText(filename);
     }
+}
+
+void CparaDialog::on_max_lr_xshift_textChanged(const QString &arg1)
+{
+	if (update_scale_en)
+		update_scale();
+}
+
+void CparaDialog::on_max_lr_yshift_textChanged(const QString &arg1)
+{
+	if (update_scale_en)
+		update_scale();
+}
+
+void CparaDialog::on_max_ud_xshift_textChanged(const QString &arg1)
+{
+	if (update_scale_en)
+		update_scale();
+}
+
+void CparaDialog::on_max_ud_yshift_textChanged(const QString &arg1)
+{
+	if (update_scale_en)
+		update_scale();
+}
+
+void CparaDialog::update_scale()
+{
+	int max_lr_xshift = ui->max_lr_xshift->text().toInt();
+	int max_lr_yshift = ui->max_lr_yshift->text().toInt();
+	int max_ud_xshift = ui->max_ud_xshift->text().toInt();
+	int max_ud_yshift = ui->max_ud_yshift->text().toInt();
+	
+	int s = max(max_lr_xshift * max_lr_yshift, max_ud_xshift * max_ud_yshift);
+	if (s <= 960)
+		ui->rescale->setText(QString::number(1));
+	else
+	if (s <= 3900)
+		ui->rescale->setText(QString::number(2));
+	else
+		ui->rescale->setText(QString::number(4));
 }

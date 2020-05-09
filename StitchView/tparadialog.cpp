@@ -7,6 +7,7 @@ TParaDialog::TParaDialog(string filename, QWidget *parent) :
 {
 	vector<string> actions;
     ui->setupUi(this);
+	is_default = true;
 	ep.read_file(filename);
 	ep.get_param_set_list(actions);
 	for (int i = 0; i < actions.size(); i++)
@@ -26,4 +27,5 @@ void TParaDialog::on_buttonBox_accepted()
 void TParaDialog::on_action_list_itemClicked(QListWidgetItem *item)
 {
 	tpara.read(ep, item->text().toStdString());
+	is_default = (item->text() == "Default");
 }

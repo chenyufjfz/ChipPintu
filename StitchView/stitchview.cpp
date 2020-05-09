@@ -224,7 +224,7 @@ void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_val
 				pos_z(y, x) = (ed->avg - ed->submind < 30) ? 1 : 0;
 				break;
 			case EDGE_HAS_CORNER:
-				pos_z(y, x) = (ed->min_num <= 2) ? 1 : 0;
+				pos_z(y, x) = (ed->min_num <= 2) ? 0 : 1;
 				break;
 			default:
 				pos_z(y, x) = 0;
@@ -415,7 +415,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
     scale = 8;
 	center = QPoint(0, 0);
     layer = ABS_LAYER;
-	edge_cost = 0;
+	edge_cost = Point(0, 0);
 	minloc_shift = Point(0, 0);
 	feature_layer = -1;
 	draw_corner = 0;
@@ -1060,9 +1060,9 @@ void StitchView::keyPressEvent(QKeyEvent *e)
 	char info[200];
 	QPoint mouse_point = cur_mouse_point * scale + view_rect.topLeft();
 	Point src_point = ri->dst2src(layer, TOPOINT(mouse_point));
-	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,mx=%d,my=%d,c=%d",
-		mouse_point.x(), mouse_point.y(), src_point.x, src_point.y,
-		may_choose.x() + 1, may_choose.y() + 1, minloc_shift.x, minloc_shift.y, edge_cost);
+	sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,et=%d,mx=%d,my=%d,mn=%d,c=%d,min=%d",
+		mouse_point.x(), mouse_point.y(), src_point.x, src_point.y, may_choose.x() + 1, may_choose.y() + 1,
+		edge_type.x, minloc_shift.x, minloc_shift.y, edge_type.y, edge_cost.x, edge_cost.y);
 	emit MouseChange(info);
 }
 
@@ -1092,14 +1092,16 @@ void StitchView::mouseMoveEvent(QMouseEvent *event)
 				lf[layer]->cpara.offset(prev_may_choose.y(), prev_may_choose.x())[0]);
 			oo = (o1.y + o1.x > o0.y + o0.x) ? o1 - o0 : o0 - o1;
 			//minloc_shift = oo - ed->offset - ed->minloc * lf[layer]->cpara.rescale;
-			minloc_shift = Point(ed->edge_type, ed->min_num);
-			edge_cost = ed->get_dif(oo, lf[layer]->cpara.rescale) - ed->mind;
+			edge_type = Point(ed->edge_type, ed->min_num);
+			minloc_shift = ed->subminloc;
+			edge_cost.x = ed->get_dif(oo, lf[layer]->cpara.rescale) - ed->mind;
+			edge_cost.y = ed->mind;
 		}
 	}
 	char info[200];
-    sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,ox=%d,oy=%d,mx=%d,my=%d,c=%d", 
-		mouse_point.x(), mouse_point.y(), src_point.x, src_point.y,
-		may_choose.x() + 1, may_choose.y() + 1, oo.x, oo.y, minloc_shift.x, minloc_shift.y, edge_cost);
+    sprintf(info, "x=%d,y=%d,sx=%d,sy=%d,ix=%d,iy=%d,ox=%d,oy=%d,et=%d,mx=%d,my=%d,mn=%d,c=%d,min=%d", 
+		mouse_point.x(), mouse_point.y(), src_point.x, src_point.y, may_choose.x() + 1, may_choose.y() + 1,
+		oo.x, oo.y, edge_type.x, minloc_shift.x, minloc_shift.y, edge_type.y, edge_cost.x, edge_cost.y);
 	emit MouseChange(info);
 	QWidget::mouseMoveEvent(event);
 }
@@ -2491,7 +2493,7 @@ int StitchView::read_file(string file_name, bool import)
 						QMessageBox::warning(this, "Time check error", "Time check error");
 					else
 #endif					
-					lf[i]->feature.read_diff_file(lf[i]->feature_file);
+					int ret = lf[i]->feature.read_diff_file(lf[i]->feature_file);
 				}
 			}
 				

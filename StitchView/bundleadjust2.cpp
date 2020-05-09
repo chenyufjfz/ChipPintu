@@ -338,10 +338,10 @@ void BundleAdjust2::compute_edge_cost2(Edge2 * pe, float global_avg, bool weak)
 					pcost[x] = (z - mind) / mind * alpha;
 				else
 				if (z > upth)
-					pcost[x] = COST_BIGER_THAN_AVG + (z - mind) / mind * alpha;
+					pcost[x] = COST_BIGER_THAN_AVG + (z - mind) / mind * alpha; //not allow to move to this loc
 				else
 				if (z > submind)
-					pcost[x] = COST_BIGER_THAN_AVG / 2 + (z - mind) / mind * alpha;
+					pcost[x] = COST_BIGER_THAN_AVG / 2 + (z - mind) / mind * alpha; //not allow to move to two (>submind) loc
 				else
 					pcost[x] = (z - mind) / mind * alpha;
 				CV_Assert(pcost[x] < COST_BIND / 4);
@@ -626,7 +626,7 @@ void BundleAdjust2::align()
 						rxy[i].x = 0; //beacon allow range is 0
 					}
 					int t = 0.4 * ixy[tx].x + 0.4 * ixy[i].x + 0.2 * sx;
-					int r = (abs(ixy[tx].x - ixy[i].x) + 1) / 2;
+					int r = (abs(ixy[tx].x - ixy[i].x) + scale) / 2;
 					if (abs(t - sx) >= r)
 						r += scale;
 					for (int j = tx + 1; j < i; j++) {
@@ -655,7 +655,7 @@ void BundleAdjust2::align()
 						rxy[i].y = 0; //beacon allow range is 0
 					}
 					int t = 0.4 * ixy[ty].y + 0.4 * ixy[i].y + 0.2 * sy;
-					int r = (abs(ixy[ty].y - ixy[i].y) + 1) / 2;
+					int r = (abs(ixy[ty].y - ixy[i].y) + scale) / 2;
 					if (abs(t - sy) >= r)
 						r += scale;
 					for (int j = ty + 1; j < i; j++) {
@@ -2501,7 +2501,7 @@ void BundleAdjust2::output()
 						corner_info(EDGE_Y(pe->diff->edge_idx), EDGE_X(pe->diff->edge_idx) + 1) |= edge_mask;
 					else
 						corner_info(EDGE_Y(pe->diff->edge_idx) + 1, EDGE_X(pe->diff->edge_idx)) |= edge_mask;
-				}
+                }
 				total_cost += edge_cost[i].first;
 				pe->flagb |= 0x80000000;
 				if (img0_root < img1_root)

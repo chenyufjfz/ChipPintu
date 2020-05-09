@@ -970,21 +970,26 @@ int main(int argc, char** argv)
     FeatExt feature;
     ConfigPara cpara;
 
-    cpara.clip_l = 0;
+    cpara.clip_l = 30;
     cpara.clip_r = 0;
     cpara.clip_u = 0;
     cpara.clip_d = 0;
-	cpara.rescale = 4;
+	cpara.rescale = 2;
     /*cpara.max_lr_xshift = 200;
     cpara.max_lr_yshift = 100;
     cpara.max_ud_xshift = 100;
     cpara.max_ud_yshift = 120;
-    cpara.img_path = "c:/chenyu/data/A01/M_";*/
+    cpara.img_path = "c:/chenyu/data/A01/M_";
 	cpara.max_lr_xshift = 120;
 	cpara.max_lr_yshift = 60;
 	cpara.max_ud_xshift = 60;
 	cpara.max_ud_yshift = 80;
-	cpara.img_path = "c:/chenyu/data/A01/ST_";
+	cpara.img_path = "c:/chenyu/data/A01/ST_";*/
+	cpara.max_lr_xshift = 100;
+	cpara.max_lr_yshift = 60;
+	cpara.max_ud_xshift = 100;
+	cpara.max_ud_yshift = 100;
+	cpara.img_path = "c:/chenyu/data/A01/M3_";
     cpara.img_num_w = 2;
 	cpara.img_num_h = 2;
     cpara.offset.create(cpara.img_num_h, cpara.img_num_w);
@@ -992,14 +997,15 @@ int main(int argc, char** argv)
         for (int x = 0; x < cpara.img_num_w; x++) {
 	//		cpara.offset(y, x)[1] = 1500 * x;
 	//		cpara.offset(y, x)[0] = 1150 * y;
-			cpara.offset(y, x)[1] = 1248 * x;
-			cpara.offset(y, x)[0] = 948 * y;
+			cpara.offset(y, x)[1] = 1350 * x;
+			cpara.offset(y, x)[0] = 850 * y;
         }
     }
 	ExtractParam ep;
 	ep.read_file("./tune.xml");
 	TuningPara _tpara(ep, "Default");
-	int start_y = 7, start_x = 2;
+	int start_y = 2, start_x = 25;
+	//int start_y = 7, start_x = 2;
 	//int start_y = 21, start_x = 34;
 	//int start_y = 4, start_x = 22;
 #if 1
@@ -1008,7 +1014,8 @@ int main(int argc, char** argv)
 	feature.generate_feature_diff(start_x - 1, start_y - 1, 1);
     feature.write_diff_file("diff.xml");
 #else
-	feature.read_diff_file("diff.xml");
+	int ret = feature.read_diff_file("diff.xml");
+	CV_Assert(ret == 0);
 #endif
     double minval, maxval;
     Point minloc, maxloc;

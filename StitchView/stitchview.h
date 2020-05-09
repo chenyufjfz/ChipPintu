@@ -189,8 +189,7 @@ protected:
 	QPoint choose[3];
 	QRect view_rect; //view_rect unit is pixel for dst file image
 	QPoint center;
-	int edge_cost;
-	Point minloc_shift;
+	Point edge_cost, minloc_shift, edge_type;
 	RenderImage * ri;
 	int draw_corner;
 	//upper is for drawing layer and rect

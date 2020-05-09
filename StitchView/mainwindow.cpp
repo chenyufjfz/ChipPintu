@@ -51,6 +51,7 @@ MainWindow::MainWindow(QWidget *parent) :
 	connect(stitch_view, SIGNAL(title_change(QString)), this, SLOT(title_change(QString)));
 
 	speed = BUNDLE_ADJUST_SPEED_NORMAL;
+	use_default_compare = true;
 	ui->actionFast_But_Bad->setChecked(false);
 	ui->actionMiddle_And_Normal->setChecked(true);
 	ui->actionSlow_And_Good->setChecked(false);
@@ -119,22 +120,22 @@ void MainWindow::on_actionConfig_Para_triggered()
 		cpara.clip_u = 0;
 		cpara.clip_d = 0;
 		cpara.rescale = 8;
-		cpara.max_lr_xshift = 200;
-		cpara.max_lr_yshift = 100;
+		cpara.max_lr_xshift = 100;
+		cpara.max_lr_yshift = 60;
 		cpara.max_ud_xshift = 100;
-		cpara.max_ud_yshift = 120;
-		cpara.img_path = "c:/chenyu/data/91/91-M1-1500X/M_";
-		cpara.img_num_w = 36;
-		cpara.img_num_h = 37;
+		cpara.max_ud_yshift = 100;
+		cpara.img_path = "c:/chenyu/data/M4_1/M3_";
+		cpara.img_num_w = 26;
+		cpara.img_num_h = 9;
 		cpara.offset.create(2, 2);
 		cpara.offset(0, 0) = Vec2i(0, 0);
-		cpara.offset(0, 1) = Vec2i(0, 1500);
-		cpara.offset(1, 0) = Vec2i(1150, 0);
-		cpara.offset(1, 1) = Vec2i(1150, 1500);
+		cpara.offset(0, 1) = Vec2i(0, 1350);
+		cpara.offset(1, 0) = Vec2i(850, 0);
+		cpara.offset(1, 1) = Vec2i(850, 1350);
 	}
 	cpara.rescale = 4;
 
-	CparaDialog para_dlg(cpara, true, this);
+	CparaDialog para_dlg(cpara, true, use_default_compare, this);
 	if (para_dlg.exec() == QDialog::Accepted) {
 		if (cpara.rescale != 1 && cpara.rescale != 2 && cpara.rescale != 4 && cpara.rescale != 8) {
 			QMessageBox::information(this, "Info", "rescale must be 1, 2, 4 or 8");
@@ -162,6 +163,7 @@ void MainWindow::on_actionTune_Para_triggered()
 
 	TParaDialog para_dlg("tune.xml", this);
 	if (para_dlg.exec() == QDialog::Accepted) {
+		use_default_compare = para_dlg.is_default;
 		stitch_view->set_tune_para(-1, para_dlg.tpara);
 	}
 }
@@ -190,7 +192,7 @@ void MainWindow::on_actionPrepare_Next_Iter_triggered()
 		cpara.offset(0, 1) = Vec2i(1558, 1817);
 	}
 
-	CparaDialog para_dlg(cpara, false, this);
+	CparaDialog para_dlg(cpara, false, use_default_compare, this);
 	if (para_dlg.exec() == QDialog::Accepted) {
 		if (para_dlg.cpara.rescale != 1 && para_dlg.cpara.rescale != 2 && para_dlg.cpara.rescale != 4 && para_dlg.cpara.rescale != 8) {
 			QMessageBox::information(this, "Info", "rescale must be 1, 2, 4 or 8");
