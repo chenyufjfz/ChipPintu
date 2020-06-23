@@ -38,6 +38,7 @@ MainWindow::MainWindow(QWidget *parent) :
     mark_action_group->addAction(ui->actionMark_Wire);
     mark_action_group->addAction(ui->actionSelect);
 	mark_action_group->addAction(ui->actionMark_NoVia);
+	mark_action_group->addAction(ui->actionMark_Wire_Insu);
     ui->actionSelect->setChecked(true);
 
     ui->actionShow_Via->setChecked(false);
@@ -83,12 +84,12 @@ void MainWindow::on_actionGenerate_Grid_triggered()
 
 void MainWindow::on_actionMark_Insulator_triggered()
 {
-    vw_view->set_mark(OBJ_AREA, AREA_LEARN);
+	vw_view->set_mark(OBJ_POINT, POINT_INSU);
 }
 
 void MainWindow::on_actionMark_Wire_triggered()
 {
-	vw_view->set_mark(OBJ_LINE, LINE_NORMAL_WIRE0);
+	vw_view->set_mark(OBJ_POINT, POINT_WIRE);
 }
 
 void MainWindow::on_actionMark_Cell_triggered()
@@ -266,4 +267,14 @@ void MainWindow::on_actionMark_Via_Wire_triggered()
 void MainWindow::on_actionMark_Via_NoWire_triggered()
 {
 	vw_view->set_mark(OBJ_POINT, POINT_VIA_INSU);
+}
+
+void MainWindow::on_actionMark_Learn_Area_triggered()
+{
+	vw_view->set_mark(OBJ_AREA, AREA_LEARN);
+}
+
+void MainWindow::on_actionMark_Wire_Insu_triggered()
+{
+	vw_view->set_mark(OBJ_POINT, POINT_WIRE_INSU);
 }

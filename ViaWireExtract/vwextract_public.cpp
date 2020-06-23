@@ -5,6 +5,10 @@
 #include <QRect>
 #include <algorithm>
 #include <qdir.h>
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include<functional>
 using namespace cv;
 
 #ifdef Q_OS_WIN
@@ -18,6 +22,7 @@ using namespace cv;
 
 #define VIA_MINIMUM_GRAD -1000
 #define NOVIA_MINIMUM_GRAD -1500
+#define CIRCLE_EDGE_AVG_LEN 6
 
 int dxy[8][2] = {
 	//y , x
@@ -521,10 +526,10 @@ void clip_img(Mat & img, int gray_low, int gray_high, Mat & new_img)
 	}
 }
 
-static Mat Horizon = (Mat_<char>(5, 5) << -1, -1, 0, 1, 1, -1, -2, 0, 2, 1, -2, -4, 0, 4, 2, -1, -2, 0, 2, 1, -1, -1, 0, 1, 1);
-static Mat Vert = (Mat_<char>(5, 5) << -1, -1, -2, -1, -1, -1, -2, -4, -2, -1, 0, 0, 0, 0, 0, 1, 2, 4, 2, 1, 1, 1, 2, 1, 1);
-static Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -2, -1, 0, -1, -2, -3, 0, 1, -2, -3, 0, 3, 2, -1, 0, 3, 2, 1, 0, 1, 2, 1, 0);
-static Mat Deg135 = (Mat_<char>(5, 5) << 0, 1, 2, 1, 0, -1, 0, 3, 2, 1, -2, -3, 0, 3, 2, -1, -2, -3, 0, 1, 0, -1, -2, -1, 0);
+static const Mat Horizon = (Mat_<char>(5, 5) << -1, -1, 0, 1, 1, -1, -2, 0, 2, 1, -2, -4, 0, 4, 2, -1, -2, 0, 2, 1, -1, -1, 0, 1, 1);
+static const Mat Vert = (Mat_<char>(5, 5) << -1, -1, -2, -1, -1, -1, -2, -4, -2, -1, 0, 0, 0, 0, 0, 1, 2, 4, 2, 1, 1, 1, 2, 1, 1);
+static const Mat Deg45 = (Mat_<char>(5, 5) << 0, -1, -2, -1, 0, -1, -2, -3, 0, 1, -2, -3, 0, 3, 2, -1, 0, 3, 2, 1, 0, 1, 2, 1, 0);
+static const Mat Deg135 = (Mat_<char>(5, 5) << 0, 1, 2, 1, 0, -1, 0, 3, 2, 1, -2, -3, 0, 3, 2, -1, -2, -3, 0, 1, 0, -1, -2, -1, 0);
 
 void CircleCheck::init(int _d0, int _th, const Mat * d, const Mat * s)
 {
@@ -860,89 +865,6 @@ int compute_circle_dx1(int d, vector<Vec3i> & d0)
 	return n;
 }
 
-uchar _find_middle(uchar * s16, uchar * s128, int midnum, int odd)
-{
-	int n = 0;
-	for (int i = 0; i < 16; i++) {
-		if (n + s16[i] >= midnum) {
-			int j = 8 * i - 1;
-			do {
-				j++;
-				n += s128[j];
-			} while (n < midnum);
-			if (n == midnum) {
-				if (odd)
-					return 2 * j + 1;
-				int k = j;
-				do {
-					k++;
-					n += s128[k];
-				} while (n == midnum);
-				return j + k; // 2 * j + k - j
-			}
-			else //n > midnum
-				return 2 * j;
-		}
-		n += s16[i];
-	}
-	return 128;
-}
-uchar middle_sort(const vector<uchar> & data)
-{
-	uchar s16[16];
-	uchar s128[128];
-	memset(s16, 0, sizeof(s16));
-	memset(s128, 0, sizeof(s128));
-	for (auto d : data) {
-		s16[d >> 4]++;
-		s128[d >> 1]++;
-	}
-	return _find_middle(s16, s128, (int) data.size() / 2, (int) data.size() % 2);
-}
-
-/*
-Input img, image
-Input start_pt, start point
-Input dir0, scan direction
-Input dir1, middle sort direction, vertical to scan direction
-Input num0, scan number
-Input num1, middle sort number = num1 *2
-Output flt_out, its size is num0
-middle_sort_line move a rectangle [2, num1] in dir0 direction.
-*/
-void middle_sort_line(const Mat & img, Point start_pt, int dir0, int dir1, int num0, int num1, vector<uchar> & flt_out)
-{
-	int d0_shift = ((dxy[dir0][0] * (int)img.step.p[0] + dxy[dir0][1] * (int)img.step.p[1]) / sizeof(uchar));
-	int d1_shift = ((dxy[dir1][0] * (int)img.step.p[0] + dxy[dir1][1] * (int)img.step.p[1]) / sizeof(uchar));
-	uchar s16[16];
-	uchar s128[128];
-	memset(s16, 0, sizeof(s16));
-	memset(s128, 0, sizeof(s128));
-	flt_out.resize(num0);
-	const uchar * p_img = img.ptr<uchar>(start_pt.y, start_pt.x);
-	const uchar * p_img_1 = NULL;
-	const uchar * p_img_2 = NULL;
-	for (int i = 0; i < num0 + 1; i++) {
-		for (int j = 0, s = 0; j < num1; j++, s+=d1_shift) {
-			uchar data = p_img[s];
-			s16[data >> 4]++;
-			s128[data >> 1]++;
-		}
-		if (p_img_2) {
-			for (int j = 0, s = 0; j < num1; j++, s+=d1_shift) {
-				uchar data = p_img_2[s];
-				s16[data >> 4]--;
-				s128[data >> 1]--;
-			}
-		}
-		if (p_img_1)
-			flt_out[i - 1] = _find_middle(s16, s128, num1, 0);
-		p_img_2 = p_img_1;
-		p_img_1 = p_img;
-		p_img += d0_shift;
-	}
-}
-
 void compute_grad(const Mat & img, Mat & grad)
 {
 	grad.create(img.rows, img.cols, CV_32SC2);
@@ -982,6 +904,57 @@ void compute_grad(const Mat & img, Mat & grad)
 	}
 }
 
+/*
+Input img
+Output grad, v[0] is vertical,
+faster than compute_grad*/
+void compute_grad_fast(const Mat & img, Mat & grad)
+{
+	Mat grad0(img.rows, img.cols, CV_32SC2);
+	grad.create(img.rows, img.cols, CV_32SC2);
+	for (int y = 0; y < img.rows; y++) {
+		Vec2i * p_grad0 = grad0.ptr<Vec2i>(y);
+		const uchar * p_img = img.ptr<uchar>(y);
+		for (int x = 2; x < img.cols - 2; x++) {
+			int a1 = 2 * p_img[x + 1] + p_img[x + 2];
+			int a2 = 2 * p_img[x - 1] + p_img[x - 2];
+			p_grad0[x] = Vec2i(a1 + a2 + 3 * p_img[x], a1 - a2);
+		}
+	}
+	for (int y = 2; y < img.rows - 2; y++) {
+		Vec2i * p_grad0_2 = grad0.ptr<Vec2i>(y - 2);
+		Vec2i * p_grad0_1 = grad0.ptr<Vec2i>(y - 1);
+		Vec2i * p_grad0 = grad0.ptr<Vec2i>(y);
+		Vec2i * p_grad01 = grad0.ptr<Vec2i>(y + 1);
+		Vec2i * p_grad02 = grad0.ptr<Vec2i>(y + 2);
+		Vec2i * p_grad = grad.ptr<Vec2i>(y);
+		for (int x = 2; x < img.cols - 2; x++) {
+			int a1 = p_grad0[x][1] * 3 + (p_grad01[x][1] + p_grad0_1[x][1]) * 2 + p_grad02[x][1] + p_grad0_2[x][1];
+			int a0 = (p_grad01[x][0] - p_grad0_1[x][0]) * 2 + p_grad02[x][0] - p_grad0_2[x][0];
+			p_grad[x] = Vec2i(a0 / 27, a1 / 27);
+		}
+	}
+	for (int y = 0; y < 2; y++) {
+		Vec2i * p_grad = grad.ptr<Vec2i>(y);
+		Vec2i * p_grad2 = grad.ptr<Vec2i>(2);
+		for (int x = 2; x < img.cols - 2; x++)
+			p_grad[x] = p_grad2[x];
+	}
+	for (int y = img.rows - 2; y < img.rows; y++) {
+		Vec2i * p_grad = grad.ptr<Vec2i>(y);
+		Vec2i * p_grad2 = grad.ptr<Vec2i>(img.rows - 3);
+		for (int x = 2; x < img.cols - 2; x++)
+			p_grad[x] = p_grad2[x];
+	}
+	for (int y = 0; y < img.rows; y++) {
+		Vec2i * p_grad = grad.ptr<Vec2i>(y);
+		p_grad[0] = p_grad[2];
+		p_grad[1] = p_grad[2];
+		p_grad[img.cols - 2] = p_grad[img.cols - 3];
+		p_grad[img.cols - 1] = p_grad[img.cols - 3];
+	}
+}
+
 void convert_element_obj(const vector<ElementObj *> & es, vector<MarkObj> & ms, int scale)
 {
 	ms.reserve(ms.size() + es.size());
@@ -1002,7 +975,7 @@ void convert_element_obj(const vector<ElementObj *> & es, vector<MarkObj> & ms, 
 	}
 }
 
-CvSVM * train_svm(Mat & train_data_svm, Mat & label, float weight)
+CvSVM * train_svm(Mat & train_data_svm, Mat & label, float weight, double cost, bool force_poly=false)
 {
 	CvSVM * ret_svm = new CvSVM;
 	// Set up SVM's parameters
@@ -1015,32 +988,36 @@ CvSVM * train_svm(Mat & train_data_svm, Mat & label, float weight)
 	params.svm_type = CvSVM::C_SVC;
 	params.kernel_type = CvSVM::LINEAR;
 	params.term_crit = cvTermCriteria(CV_TERMCRIT_ITER, 100, 1e-6);
-	params.C = 6;
+	params.C = cost;
 	params.class_weights = &class_wts_cv;
-	ret_svm->train(train_data_svm, label, Mat(), Mat(), params);
-	qInfo("SVM:train linear, var_cnt=%d, sup_vec_cnt=%d", ret_svm->get_var_count(), ret_svm->get_support_vector_count());
-	char s[600];
-	for (int i = 0; i < ret_svm->get_support_vector_count(); i++) {
-		const float * sv = ret_svm->get_support_vector(i);
-		int k = 0;
-		for (int j = 0; j < ret_svm->get_var_count(); j++)
-			k += sprintf(&s[k], "%f,", sv[j]);
-		qInfo(s);
-	}
 	int mistake1 = 0;
-	for (int i = 0; i < train_data_svm.rows; i++) {
-		float response = -ret_svm->predict(train_data_svm.row(i), true);
-		if (response * label.at<float>(i) < 0)
-			mistake1++;
-		if (train_data_svm.cols == 5)
-			qInfo("ViaML:train linear, is_via=%d, predict=%3f,d=%4f,s=%4f,g=%5.1f,%5.1f,%5.1f", (int)label.at<float>(i), 
-			response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1), 
-			train_data_svm.at<float>(i, 2),	train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));
-		else
-			qInfo("ViaML:train linear, is_vwi=%d, predict=%3f,g=%5.1f,s=%5f,%5f", (int)label.at<float>(i),
-			response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1),
-			train_data_svm.at<float>(i, 2));
+	if (!force_poly) {
+		ret_svm->train(train_data_svm, label, Mat(), Mat(), params);
+		qInfo("SVM:train linear, var_cnt=%d, sup_vec_cnt=%d", ret_svm->get_var_count(), ret_svm->get_support_vector_count());
+		char s[600];
+		for (int i = 0; i < ret_svm->get_support_vector_count(); i++) {
+			const float * sv = ret_svm->get_support_vector(i);
+			int k = 0;
+			for (int j = 0; j < ret_svm->get_var_count(); j++)
+				k += sprintf(&s[k], "%f,", sv[j]);
+			qInfo(s);
+		}
+
+		for (int i = 0; i < train_data_svm.rows; i++) {
+			float response = -ret_svm->predict(train_data_svm.row(i), true);
+			if (response * label.at<float>(i) < 0)
+				mistake1++;
+			if (train_data_svm.cols == 5)
+				qInfo("ViaML:train linear, is_via=%d, predict=%3f,d=%4f,s=%4f,g=%5.1f,%5.1f,%5.1f", (int)label.at<float>(i),
+				response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1),
+				train_data_svm.at<float>(i, 2), train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));
+			else
+				qInfo("Edge:train linear, is_vwi=%d, predict=%3f,d=%5f,g=%5f", (int)label.at<float>(i),
+				response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1));
+		}
 	}
+	else
+		mistake1 = 1000000;
 	if (mistake1 > 0) {
 		params.kernel_type = CvSVM::POLY;
 		params.degree = 2;
@@ -1067,9 +1044,8 @@ CvSVM * train_svm(Mat & train_data_svm, Mat & label, float weight)
 				response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1), 
 				train_data_svm.at<float>(i, 2),	train_data_svm.at<float>(i, 3), train_data_svm.at<float>(i, 4));
 			else
-				qInfo("ViaML:train poly, is_vwi=%d, predict=%3f,g=%5.1f,s=%5f,%5f", (int)label.at<float>(i),
-				response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1),
-				train_data_svm.at<float>(i, 2));
+				qInfo("Edge:train poly, is_vwi=%d, predict=%3f,d=%5f,g=%5f", (int)label.at<float>(i),
+				response, train_data_svm.at<float>(i, 0), train_data_svm.at<float>(i, 1));
 		}
 		if (mistake2 < mistake1) {
 			delete ret_svm;
@@ -1080,6 +1056,444 @@ CvSVM * train_svm(Mat & train_data_svm, Mat & label, float weight)
 	}
 	return ret_svm;
 }
+
+CvSVM * train_svm(vector<vector<int> > train_data_svm, vector<int> label, float weight, double cost, bool force_poly = false)
+{
+	CV_Assert(train_data_svm.size() == label.size());
+	Mat train_m((int)label.size(), (int) train_data_svm[0].size(), CV_32FC1);
+	Mat label_m((int)label.size(), 1, CV_32FC1);
+	for (int i = 0; i < (int)label.size(); i++) {
+		for (int j = 0; j < train_m.cols; j++)
+			train_m.at<float>(i, j) = train_data_svm[i][j];
+		label_m.at<float>(i) = label[i];
+	}
+
+	return train_svm(train_m, label_m, weight, cost, force_poly);
+}
+
+#define EdgeFeatureVecLen		3
+#define POINT_TOT_PROB			128
+//POINT_IS_NOT_EDGE = POINT_IS_INSU + POINT_IS_WIRE
+//POINT_IS_NOT_CARE = POINT_IS_VIA + POINT_IS_EDGE_VIA_WIRE + POINT_IS_EDGE_VIA_INSU
+#define POINT_IS_INSU			0
+#define POINT_IS_WIRE			1
+#define POINT_IS_EDGE_WIRE_INSU 2
+#define POINT_DIR				3
+#define MINIMUM_EDGE_GRAD		5
+
+static const int dark_pick[8][4][2] = {
+	//y , x
+	{ { -1, 0 }, { -2, -1 }, { -2, 0 }, { -2, 1 } },
+	{ { 0, 1 }, { 1, 2 }, { 0, 2 }, { -1, 2 } },
+	{ { 1, 0 }, { 2, -1 }, { 2, 0 }, { 2, 1 } },
+	{ { 0, -1 }, { 1, -2 }, { 0, -2 }, { -1, -2 } },
+	{ { -1, 1 }, { -1, 2 }, { -2, 1 }, { -2, 2 } },
+	{ { 1, 1 }, { 1, 2 }, { 2, 1 }, { 2, 2 } },
+	{ { 1, -1 }, { 1, -2 }, { 2, -1 }, { 2, -2 } },
+	{ { -1, -1 }, { -1, -2 }, { -2, -1 }, { -2, -2 } }
+};
+
+
+void EdgeFeatureML::get_feature_vector(const Mat & img, const Mat &grad, Point o, int e[], int & dir)
+{
+	CV_Assert(o.x >= 4 && o.y >= 4 && o.x < img.cols - 4 && o.y < img.rows - 4);
+	const Vec2i * p_grad = grad.ptr<Vec2i>(o.y, o.x);
+	int gv = p_grad[0][0];
+	int gh = p_grad[0][1];
+	int g1 = gv * 0.717 + gh * 0.717;
+	int g2 = gv * 0.717 - gh * 0.717;
+	int max_g = max(max(abs(gv), abs(gh)), max(abs(g1), abs(g2)));
+
+	if (dir < 0) { //if dir is not specified, find max grad as dir
+		if (max_g == abs(gv))
+			dir = (gv > 0) ? DIR_UP : DIR_DOWN;
+		else
+		if (max_g == abs(gh))
+			dir = (gh > 0) ? DIR_LEFT : DIR_RIGHT;
+		else
+		if (max_g == abs(g1))
+			dir = (g1 > 0) ? DIR_UPLEFT : DIR_DOWNRIGHT;
+		else
+			dir = (g2 > 0) ? DIR_UPRIGHT : DIR_DOWNLEFT;
+	}
+	//compute insu gray
+	uchar dark[4]; //all 4 is insu, 
+	e[0] = 0; //e[0] is sum of 3 low dark
+	uchar max_dark = 0; //most bright insu,
+	for (int i = 0; i < 4; i++) {
+		dark[i] = img.at<uchar>(o.y + dark_pick[dir][i][0], o.x + dark_pick[dir][i][1]);
+		e[0] += dark[i];
+		max_dark = max(max_dark, dark[i]);
+	}
+	e[0] = (e[0] - max_dark) / 3; // /3 range is [0.255}, /4 is compress range to [0..191]
+	const Vec2i * p_grad1 = grad.ptr<Vec2i>(o.y + dxy[dir_2[dir]][0], o.x + dxy[dir_2[dir]][1]); //acc in edge direction
+	const Vec2i * p_grad2 = grad.ptr<Vec2i>(o.y + dxy[dir_1[dir_2[dir]]][0], o.x + dxy[dir_1[dir_2[dir]]][1]); //acc in edge direction
+	o.y += dxy[dir][0];
+	o.x += dxy[dir][1];
+	const Vec2i * p_grad3 = grad.ptr<Vec2i>(o.y, o.x);
+	const Vec2i * p_grad4 = grad.ptr<Vec2i>(o.y + dxy[dir_2[dir]][0], o.x + dxy[dir_2[dir]][1]); //acc in edge direction
+	const Vec2i * p_grad5 = grad.ptr<Vec2i>(o.y + dxy[dir_1[dir_2[dir]]][0], o.x + dxy[dir_1[dir_2[dir]]][1]); //acc in edge direction
+	switch (dir) {
+	case DIR_UP:
+	case DIR_DOWN:
+		e[1] = (p_grad[0][0] + p_grad1[0][0] + p_grad2[0][0] + p_grad3[0][0] + p_grad4[0][0] + p_grad5[0][0]) / 6;
+		break;
+	case DIR_LEFT:
+	case DIR_RIGHT:
+		e[1] = (p_grad[0][1] + p_grad1[0][1] + p_grad2[0][1] + p_grad3[0][1] + p_grad4[0][1] + p_grad5[0][1]) / 6;
+		break;
+	case DIR_UPLEFT:
+	case DIR_DOWNRIGHT:
+		e[1] = (p_grad[0][0] + p_grad1[0][0] + p_grad2[0][0] + p_grad3[0][0] + p_grad4[0][0] + p_grad5[0][0]
+			+ p_grad[0][1] + p_grad1[0][1] + p_grad2[0][1] + p_grad3[0][1] + p_grad4[0][1] + p_grad5[0][1]) * 0.11785;
+		break;
+	default:
+		e[1] = (p_grad[0][0] + p_grad1[0][0] + p_grad2[0][0] + p_grad3[0][0] + p_grad4[0][0] + p_grad5[0][0]
+			- p_grad[0][1] - p_grad1[0][1] - p_grad2[0][1] - p_grad3[0][1] - p_grad4[0][1] - p_grad5[0][1]) * 0.11785;
+		break;
+	}
+	e[1] = abs(e[1]);
+	CV_Assert(e[0] < 256 && e[1] < 256);
+	e[2] = dir;
+}
+
+#if 0	
+int EdgeFeatureML::compute_prob(const int e[], uchar prob[])
+{
+	Mat sample = (Mat_<float>(1, EdgeFeatureVecLen - 1) << e[0], e[1]);
+	float response = -insu_svm[e[2]]->predict(sample, true);
+	int total = POINT_TOT_PROB;
+	if (response >= 1.0) {
+		prob[POINT_IS_INSU] = total;
+		prob[POINT_IS_WIRE] = 0;
+		return 0;
+	}
+	prob[POINT_IS_INSU] = (response > -1) ? total * (1 + response) / 2 : 0;
+	total -= prob[POINT_IS_INSU];
+	response = -wire_svm[e[2]]->predict(sample, true);
+	prob[POINT_IS_WIRE] = (response > 1) ? total :
+		(response > -1) ? total * (1 + response) / 2 : 0;
+	CV_Assert(total - prob[POINT_IS_WIRE] >= 0);
+	return total - prob[POINT_IS_WIRE];
+}
+#else
+int EdgeFeatureML::compute_prob(const int e[], uchar prob[])
+{
+	Mat sample = (Mat_<float>(1, EdgeFeatureVecLen - 1) << e[0], e[1]);
+	float insu = max(-insu_svm[e[2]]->predict(sample, true) + 1, 0.0f);
+	float wire = max(-wire_svm[e[2]]->predict(sample, true) + 1, 0.0f);
+	float edge = max(-edge_svm[e[2]]->predict(sample, true) + 1, 0.0f);
+	float total = insu + wire + edge;
+	prob[POINT_IS_INSU] = insu / total * POINT_TOT_PROB;
+	prob[POINT_IS_WIRE] = wire / total * POINT_TOT_PROB;
+	CV_Assert(POINT_TOT_PROB - prob[POINT_IS_WIRE] - prob[POINT_IS_INSU] >= 0);
+	return POINT_TOT_PROB - prob[POINT_IS_WIRE] - prob[POINT_IS_INSU];
+}
+#endif
+
+bool EdgeFeatureML::feature_extract(const Mat & img, Point & org, Point & range, int label, vector<vector<int> > & features)
+{
+	Mat grad;
+	compute_grad_fast(img, grad);
+	features.clear();
+	int x0 = max(4, org.x - range.x);
+	int x1 = min(img.cols - 5, org.x + range.x);
+	int y0 = max(4, org.y - range.y);
+	int y1 = min(img.rows - 5, org.y + range.y);
+	int max_grad = 0;
+	//now find point with max grad
+	int e[EdgeFeatureVecLen + 1];
+	for (int y = y0; y <= y1; y++)
+	for (int x = x0; x <= x1; x++) {
+		int dir = -1;
+		get_feature_vector(img, grad, Point(x, y), e, dir);
+		if (e[1] > max_grad) {
+			max_grad = e[1];
+			org = Point(x, y);
+		}
+	}
+	Point org1 = org;
+	if (label & EDGE_IS_WIRE_INSU) {
+		if (max_grad < MINIMUM_EDGE_GRAD)
+			return false;
+		int dir = -1;
+		get_feature_vector(img, grad, org1, e, dir);
+		e[EdgeFeatureVecLen] = label;
+		features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge wire-insu
+		org1.y += dxy[dir][0] * 2;
+		org1.x += dxy[dir][1] * 2;
+		get_feature_vector(img, grad, org1, e, dir);
+		e[EdgeFeatureVecLen] = EDGE_FEATURE | EDGE_IS_INSU;
+		features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge insu
+		org1.y -= dxy[dir][0] * 4;
+		org1.x -= dxy[dir][1] * 4;
+		get_feature_vector(img, grad, org1, e, dir);
+		range = org1;
+		e[EdgeFeatureVecLen] = EDGE_FEATURE | EDGE_IS_WIRE; //push wire
+		features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge insu
+	}
+	else
+	if (label & EDGE_IS_INSU) {
+		int dir = -1;
+		get_feature_vector(img, grad, org1, e, dir);
+		e[EdgeFeatureVecLen] = label;
+		features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge insu
+	}
+	else
+	if (label & EDGE_IS_WIRE) {
+		int dir = -1;
+		get_feature_vector(img, grad, org1, e, dir);
+		e[EdgeFeatureVecLen] = label;
+		features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge wire
+	}
+	qInfo("Edge feature_extract %d", label & 7);
+	return true;
+}
+
+bool EdgeFeatureML::train(const vector<vector<int> > & features) 
+{
+	int edge_num = 0;
+	int wire_num = 0;
+	int wire_bright_max = 0;
+
+	//1 prepare insu vector and train insu svm
+	vector<vector<int> > train_insu(features.size());
+	vector<int> label_insu(features.size());
+	for (int i = 0; i < (int)features.size(); i++) {
+		const vector<int> & v = features[i];
+		CV_Assert(v.size() == EdgeFeatureVecLen + 1);
+		label_insu[i] = (v[EdgeFeatureVecLen] & EDGE_IS_INSU) ? 1 : -1;
+		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE) {
+			wire_num++;
+			wire_bright_max = max(wire_bright_max, v[0]);
+		}
+		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE_INSU)
+			edge_num++;
+		train_insu[i].resize(EdgeFeatureVecLen - 1); //v[EdgeFeatureVecLen-1] is dir
+		for (int j = 0; j < EdgeFeatureVecLen - 1; j++)
+			train_insu[i][j] = v[j];
+	}
+	if (edge_num == 0 || wire_num == 0 || (int) features.size() == edge_num + wire_num)
+		return false;
+	insu_svm[0].reset(train_svm(train_insu, label_insu, 0.5, 6, true)); //train insu SVM
+	for (int i = 1; i < 8; i++)
+		insu_svm[i] = insu_svm[0];
+
+	//2 prepare wire vector and train wire svm
+	qInfo("edge train, insu_num=%d, edge_num=%d, wire_num=%d, wire_bright_max=%d", features.size() - edge_num - wire_num,
+		edge_num, wire_num, wire_bright_max);
+	vector<vector<int> > train_wire(wire_num + edge_num + features.size());
+	vector<int> label_wire(wire_num + edge_num + features.size());
+	vector<vector<int> > train_edge(wire_num + edge_num + features.size());
+	vector<int> label_edge(wire_num + edge_num + features.size());
+	int i = 0;
+	for (auto & v : features) {
+		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE) {
+			train_wire[i].resize(EdgeFeatureVecLen - 1);
+			train_edge[i].resize(EdgeFeatureVecLen - 1);
+			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
+				train_wire[i][j] = v[j];
+				train_edge[i][j] = train_wire[i][j];
+			}
+			label_wire[i] = 1; //push wire vector
+			label_edge[i++] = -1;
+			train_wire[i].resize(EdgeFeatureVecLen - 1);
+			train_edge[i].resize(EdgeFeatureVecLen - 1);
+			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
+				train_wire[i][j] = (j == 0) ? v[j] : 0;
+				train_edge[i][j] = train_wire[i][j];
+			}
+			label_wire[i] = 1; //push wire vector
+			label_edge[i++] = -1;
+		}
+		else
+		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE_INSU) {
+			train_wire[i].resize(EdgeFeatureVecLen - 1);
+			train_edge[i].resize(EdgeFeatureVecLen - 1);
+			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
+				train_wire[i][j] = v[j];
+				train_edge[i][j] = train_wire[i][j];
+			}
+			label_wire[i] = -1; //push edge vecotr
+			label_edge[i++] = 1;
+			train_wire[i].resize(EdgeFeatureVecLen - 1);
+			train_edge[i].resize(EdgeFeatureVecLen - 1);
+			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) { //wire vector with same v[1] & v[2], this is to make v[0] as major affect.
+				train_wire[i][j] = (j == 0) ? wire_bright_max : v[j];
+				train_edge[i][j] = train_wire[i][j];
+			}
+			label_wire[i] = 1; //push wire vector
+			label_edge[i++] = -1;
+		}
+		else {
+			train_wire[i].resize(EdgeFeatureVecLen - 1);
+			train_edge[i].resize(EdgeFeatureVecLen - 1);
+			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
+				train_wire[i][j] = v[j];
+				train_edge[i][j] = train_wire[i][j];
+			}
+			label_wire[i] = -1; //push insu vector
+			label_edge[i++] = -1;
+		}
+	}
+	CV_Assert(i == train_wire.size());
+	wire_svm[0].reset(train_svm(train_wire, label_wire, 0.5, 6, true)); //train wire SVM
+	edge_svm[0].reset(train_svm(train_edge, label_edge, 0.5, 6, true)); //train edge SVM
+	for (int i = 1; i < 8; i++) {
+		wire_svm[i] = wire_svm[0];
+		edge_svm[i] = edge_svm[0];
+	}
+
+	//compute prob table
+	memset(wi_prob, 0, sizeof(wi_prob));
+	dark_no_wire = 0, dark_no_insu = 0;
+	grad_wire_th = 255;
+	dark_all_wire = MAX_DARK_LEVEL;
+	for (int dark = 0; dark < MAX_DARK_LEVEL; dark++) {
+		int e[EdgeFeatureVecLen] = { dark, 0, 0 };
+		uchar prob[10];
+		compute_prob(e, prob);
+		if (prob[POINT_IS_INSU] == POINT_TOT_PROB) {
+			dark_no_wire = dark;
+			CV_Assert(dark_no_insu == 0);
+		}
+		else
+		if (prob[POINT_IS_WIRE] == POINT_TOT_PROB) {
+			if (dark_no_insu == 0)
+				dark_no_insu = dark;
+			e[1] = MAX_GRAD_LEVEL - 1;
+			compute_prob(e, prob);
+			if (prob[POINT_IS_WIRE] == POINT_TOT_PROB) {
+				dark_all_wire = dark;
+				break;
+			}
+		}
+		else
+			CV_Assert(dark_no_insu == 0);
+		for (int g0 = 0; g0 < MAX_GRAD_LEVEL; g0++) {
+			e[1] = g0;
+			int edge_prob = compute_prob(e, wi_prob[dark][g0]);
+			if (edge_prob >= POINT_TOT_PROB / 10)
+				grad_wire_th = min(grad_wire_th, edge_prob);
+			if (edge_prob == POINT_TOT_PROB)
+				break;
+		}
+	}
+	for (int dark = dark_all_wire; dark < MAX_DARK_LEVEL; dark++)
+	for (int g0 = 0; g0 < MAX_GRAD_LEVEL; g0++) {
+		wi_prob[dark][g0][POINT_IS_INSU] = 0;
+		wi_prob[dark][g0][POINT_IS_WIRE] = POINT_TOT_PROB;
+	}
+	qInfo("Edge train, dark_no_wire=%d,dark_no_insu=%d,dark_all_wire=%d,grad_wire=%d",
+		dark_no_wire, dark_no_insu, dark_all_wire, grad_wire_th);
+	return true;
+}
+
+void EdgeFeatureML::judge(const Mat & img, Mat & prob, const Mat & mask, Mat & debug_mark)
+{
+	Mat grad;
+	CV_Assert(img.type() == CV_8UC1);
+	compute_grad_fast(img, grad);
+	prob.create(img.rows, img.cols, CV_8UC4);
+	int shift[8][10];
+	for (int dir = 0; dir < 8; dir++) {
+		for (int i = 0; i < 4; i++)
+			shift[dir][i] = (dark_pick[dir][i][0] * (int)img.step.p[0] + dark_pick[dir][i][1] * (int)img.step.p[1]) / sizeof(uchar);
+		shift[dir][4] = 0;
+		int dir2 = dir_2[dir];
+		int dir3 = dir_1[dir_2[dir]];
+		shift[dir][5] = (dxy[dir2][0] * (int)grad.step.p[0] + dxy[dir2][1] * (int)grad.step.p[1]) / sizeof(Vec2i);
+		shift[dir][6] = (dxy[dir3][0] * (int)grad.step.p[0] + dxy[dir3][1] * (int)grad.step.p[1]) / sizeof(Vec2i);
+		shift[dir][7] = (dxy[dir][0] * (int)grad.step.p[0] + dxy[dir][1] * (int)grad.step.p[1]) / sizeof(Vec2i);
+		shift[dir][8] = shift[dir][5] + shift[dir][7];
+		shift[dir][9] = shift[dir][6] + shift[dir][7];
+	}
+	for (int y = 3; y < img.rows - 3; y++) {
+		const Vec2i * p_grad = grad.ptr<Vec2i>(y);
+		const uchar * p_img = img.ptr<uchar>(y);
+		Vec4b * p_prob = prob.ptr<Vec4b>(y);
+		const uchar * p_mask = mask.empty() ? NULL : mask.ptr<uchar>(y);
+		Vec3b * p_debugm = debug_mark.empty() ? NULL : debug_mark.ptr<Vec3b>(y);
+		for (int x = 3; x < img.cols - 3; x++) 
+		if (!p_mask || !p_mask[x]) {
+			int dir;
+			const Vec2i * p_gradx = p_grad + x;
+			int gv = p_gradx[0][0];
+			int gh = p_gradx[0][1];
+			int g1 = gv * 0.717 + gh * 0.717;
+			int g2 = gv * 0.717 - gh * 0.717;
+			int max_g = max(max(abs(gv), abs(gh)), max(abs(g1), abs(g2)));
+			if (max_g == abs(gv))
+				dir = (gv > 0) ? DIR_UP : DIR_DOWN;
+			else
+			if (max_g == abs(gh))
+				dir = (gh > 0) ? DIR_LEFT : DIR_RIGHT;
+			else
+			if (max_g == abs(g1))
+				dir = (g1 > 0) ? DIR_UPLEFT : DIR_DOWNRIGHT;
+			else
+				dir = (g2 > 0) ? DIR_UPRIGHT : DIR_DOWNLEFT;
+
+			int e[EdgeFeatureVecLen] = { 0, 0, dir };
+			uchar max_dark = 0; //most bright insu,
+			for (int i = 0; i < 4; i++) {
+				uchar d = p_img[x + shift[dir][i]];
+				e[0] += d;
+				max_dark = max(max_dark, d);
+			}
+			e[0] = (e[0] - max_dark) / 3;			
+			switch (dir) {
+			case DIR_UP:
+			case DIR_DOWN:
+				e[1] = (p_gradx[0][0] + p_gradx[shift[dir][5]][0] + p_gradx[shift[dir][6]][0] +
+					p_gradx[shift[dir][7]][0] + p_gradx[shift[dir][8]][0] + p_gradx[shift[dir][9]][0]) / 6;
+				break;
+			case DIR_LEFT:
+			case DIR_RIGHT:
+				e[1] = (p_gradx[0][1] + p_gradx[shift[dir][5]][1] + p_gradx[shift[dir][6]][1] + 
+					p_gradx[shift[dir][7]][1] + p_gradx[shift[dir][8]][1] + p_gradx[shift[dir][9]][1]) / 6;
+				break;
+			case DIR_UPLEFT:
+			case DIR_DOWNRIGHT:
+				e[1] = (p_gradx[0][0] + p_gradx[shift[dir][5]][0] + p_gradx[shift[dir][6]][0] +
+					p_gradx[shift[dir][7]][0] + p_gradx[shift[dir][8]][0] + p_gradx[shift[dir][9]][0] +
+					p_gradx[0][1] + p_gradx[shift[dir][5]][1] + p_gradx[shift[dir][6]][1] +
+					p_gradx[shift[dir][7]][1] + p_gradx[shift[dir][8]][1] + p_gradx[shift[dir][9]][1]) * 0.11785;
+				break;
+			default:
+				e[1] = (p_gradx[0][0] + p_gradx[shift[dir][5]][0] + p_gradx[shift[dir][6]][0] +
+					p_gradx[shift[dir][7]][0] + p_gradx[shift[dir][8]][0] + p_gradx[shift[dir][9]][0] -
+					p_gradx[0][1] - p_gradx[shift[dir][5]][1] - p_gradx[shift[dir][6]][1] -
+					p_gradx[shift[dir][7]][1] - p_gradx[shift[dir][8]][1] - p_gradx[shift[dir][9]][1]) * 0.11785;
+				break;
+			}
+			e[1] = abs(e[1]);
+			if (e[0] >= dark_all_wire) {
+				p_prob[x][POINT_IS_INSU] = 0;
+				p_prob[x][POINT_IS_WIRE] = POINT_TOT_PROB;
+			} else
+			if (e[1] >= MAX_GRAD_LEVEL) {
+				p_prob[x][POINT_IS_INSU] = 0;
+				p_prob[x][POINT_IS_WIRE] = 0;
+			}
+			else {
+				p_prob[x][POINT_IS_INSU] = wi_prob[e[0]][e[1]][POINT_IS_INSU];
+				p_prob[x][POINT_IS_WIRE] = wi_prob[e[0]][e[1]][POINT_IS_WIRE];
+			}
+			p_prob[x][POINT_IS_EDGE_WIRE_INSU] = POINT_TOT_PROB - p_prob[x][POINT_IS_INSU] - p_prob[x][POINT_IS_WIRE];
+			p_prob[x][POINT_DIR] = dir;
+			if (p_debugm) {
+				if (p_prob[x][POINT_IS_INSU] > POINT_TOT_PROB * 0.8)
+					p_debugm[x][POINT_IS_INSU] += 20;
+				if (p_prob[x][POINT_IS_WIRE] > POINT_TOT_PROB * 0.8)
+					p_debugm[x][POINT_IS_WIRE] += 20;
+				if (p_prob[x][POINT_IS_EDGE_WIRE_INSU] > POINT_TOT_PROB * 0.8)
+					p_debugm[x][POINT_IS_EDGE_WIRE_INSU] += 20;
+			}
+		}
+	}
+}
+
 
 class ViaFeature2Vector {
 public:
@@ -1096,7 +1510,7 @@ public:
 		for (int j = 0; j < 8; j++)
 			g.push_back(feature.at<int>(1, j));
 		sort(g.begin(), g.end());
-		int s = feature.at<int>(0, 0) & 1;
+		int s = feature.at<int>(0, 0) & VIA_IS_VIA;
 		int d1 = feature.at<int>(0, 2);
 		int d2 = feature.at<int>(0, 3);
 		float diameter = (d1 + d2) * 5;
@@ -1135,7 +1549,7 @@ public:
 			if (need_adjust) {
 				Mat sample(1, 5, CV_32F);
 				for (int i = 0; i < train_vec.rows; i++)
-				if (!train_label[i] && train_vec.at<float>(i, 2) < 0) { //make g[0] as 0
+				if (!train_label[i] && train_vec.at<float>(i, 2) < 0) { //if g[0]<0,make g[0] as 0
 					train_vec.row(i).copyTo(sample);
 					float temp = sample.at<float>(0, 3) + sample.at<float>(0, 2);
 					sample.at<float>(0, 3) = max(temp, 0.0f);
@@ -1150,70 +1564,16 @@ public:
 	}
 };
 
-class VWIFeature2Vector {
-public:
-	Mat compute_vwi_vec(const Mat & feature, int dir) {
-		CV_Assert(feature.cols == 8 && feature.rows == FEATURE_ROW);
-		int min_s = 100000, submin_s = 100000;
-		for (int i = 2; i < 6; i++) 
-		if (feature.at<int>(i, dir) < min_s) {
-			submin_s = min_s;
-			min_s = feature.at<int>(i, dir);
-		}
-		else 
-		if (feature.at<int>(i, dir) < submin_s)
-			submin_s = feature.at<int>(i, dir);
-		
-		Mat sample = (Mat_<float>(1, 3) << feature.at<int>(1, dir) * 0.1, min_s * 10, submin_s * 10);
-		return sample;
-	}
-	void get_addition_vec(Mat & train_data_svm, Mat & label) {
-		CV_Assert(train_data_svm.rows == label.rows);
-		if (label.rows == 0)
-			return;
-		bool has_vwi[2] = { false, false };
-		for (int i = 0; i < label.rows; i++)
-		if (label.at<float>(i) > 0)
-			has_vwi[1] = true;
-		else
-			has_vwi[0] = true;
-		if (has_vwi[0] && has_vwi[1])
-			return;
-		if (has_vwi[0]) {
-			Mat t = train_data_svm.clone();
-			Mat l(train_data_svm.rows, 1, CV_32FC1);
-			for (int i = 0; i < t.rows; i++) { //make sum and grad reduce for non-via training
-				float g = t.at<float>(i, 0) + t.at<float>(i, 1);
-				if (g > t.at<float>(i, 1) && g > t.at<float>(i, 2)) {
-					t.at<float>(i, 0) = 0;
-					for (int j = 1; j < t.cols; j++)
-						t.at<float>(i, j) = g;					
-					l.at<float>(i, 0) = 1;
-				} 
-				else
-					l.at<float>(i, 0) = -1;
-			}
-			train_data_svm.push_back(t);
-			label.push_back(l);
-		}
-		if (has_vwi[1]) {
-			Mat t = train_data_svm.clone();
-			Mat l(train_data_svm.rows, 1, CV_32FC1);
-			for (int i = 0; i < t.rows; i++) { //make sum and grad reduce for non-via training
-				float g = t.at<float>(i, 0) + t.at<float>(i, 1);				
-				t.at<float>(i, 0) = g;
-				for (int j = 1; j < t.cols; j++)
-					t.at<float>(i, j) = 0;
-				l.at<float>(i, 0) = -1;				
-			}
-			train_data_svm.push_back(t);
-			label.push_back(l);
-		}
-	}
-};
-
 ViaML::ViaML()
 {
+	dir_remap[0] = DIR_RIGHT;
+	dir_remap[1] = DIR_UPRIGHT;
+	dir_remap[2] = DIR_UP;
+	dir_remap[3] = DIR_UPLEFT;
+	dir_remap[4] = DIR_LEFT;
+	dir_remap[5] = DIR_DOWNLEFT;
+	dir_remap[6] = DIR_DOWN;
+	dir_remap[7] = DIR_DOWNRIGHT;
 }
 
 ViaML::~ViaML()
@@ -1259,10 +1619,11 @@ void ViaML::find_best_bright(const Mat & lg, int d, int sep0, vector<Point> & lo
 	}
 }
 
+bool greaterPoint3i(const Point3i & a, const Point3i & b) { return a.z > b.z; }
 
 int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d, const vector<Point> & loc, Mat features[], bool multi_thread, int score_min)
 {
-	CV_Assert(grad.type() == CV_32SC2 && img.type() == CV_8UC1);
+	CV_Assert(grad.type() == CV_32SC2 && img.type() == CV_8UC1 && d > 5);
 	int score0 = score_min, score1 = score_min;
 	features[0].release();
 	features[1].release();
@@ -1278,6 +1639,8 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 			const Vec2i *p_grad = grad.ptr<Vec2i>(org.y, org.x);
 			for (int d1 = d - 1; d1 <= d + 1; d1++)
 			for (int d2 = d - 1; d2 <= d + 1; d2++) { //search all shape, d1 for x, d2 for y
+				if (abs(d1 - d2) > 1)
+					continue;
 				float r1 = d1 * 0.5f;
 				float r2 = d2 * 0.5f;
 				auto circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
@@ -1326,80 +1689,48 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 					circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
 				}
 				vector<vector<Vec3i> > & cir = circle_it->second; //cir[i] is one edge, cir[i][j] is one point
-				auto circle_edges_it = circle_edges.find(d1 * 100 + d2);
+				int dd = max(d1, d2);
+				float rr = dd * 0.5 + 1;
+				auto circle_edges_it = circle_edges.find(dd);
 
 				if (circle_edges_it == circle_edges.end()) {
 					//following compute circle_edges outside
 					CV_Assert(!multi_thread);
-					vector<Vec6i> v6(8);					
-					for (int i = 0; i < 8; i++) {
-						Point2f p1;
-						switch (i) {
-						case 0:
-							v6[i][3] = DIR_RIGHT;
-							v6[i][4] = 2 * r2 * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_DOWN;
-							p1 = Point2f(r1 + 1, -r2 * sinf(M_PI_4 / 2));
-							break;
-						case 1:
-							v6[i][3] = DIR_UPRIGHT;
-							v6[i][4] = (r1 + r2) * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_UPLEFT;
-							p1 = Point2f((r1 + 1) * cosf(M_PI_4 / 2), -(r2 + 1) * sinf(M_PI_4 / 2));
-							break;
-						case 2:
-							v6[i][3] = DIR_UP;
-							v6[i][4] = 2 * r1 * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_RIGHT;
-							p1 = Point2f(-r1 * sinf(M_PI_4 / 2), -r2 - 1);
-							break;
-						case 3:
-							v6[i][3] = DIR_UPLEFT;
-							v6[i][4] = (r1 + r2) * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_DOWNLEFT;
-							p1 = Point2f(-(r1 + 1) * sinf(M_PI_4 / 2), -(r2 + 1) * cosf(M_PI_4 / 2));
-							break;
-						case 4:
-							v6[i][3] = DIR_LEFT;
-							v6[i][4] = 2 * r2 * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_DOWN;
-							p1 = Point2f(-r1 - 1, -r2 * sinf(M_PI_4 / 2));
-							break;
-						case 5:
-							v6[i][3] = DIR_DOWNLEFT;
-							v6[i][4] = (r1 + r2) * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_DOWNRIGHT;
-							p1 = Point2f(-(r1 + 1) * cosf(M_PI_4 / 2), (r2 + 1) * sinf(M_PI_4 / 2));
-							break;
-						case 6:
-							v6[i][3] = DIR_DOWN;
-							v6[i][4] = 2 * r1 * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_RIGHT;
-							p1 = Point2f(-r1 * sinf(M_PI_4 / 2), r2 + 1);
-							break;
-						case 7:
-							v6[i][3] = DIR_DOWNRIGHT;
-							v6[i][4] = (r1 + r2) * sinf(M_PI_4 / 2);
-							v6[i][5] = DIR_UPRIGHT;
-							p1 = Point2f((r1 + 1) * sinf(M_PI_4 / 2), (r2 + 1) * cosf(M_PI_4 / 2));
-							break;
-						}
-						v6[i][0] = p1.y - tl.y;
-						v6[i][1] = p1.x - tl.x;
+					vector<vector<Point3i> > vec(FEATURE_ROW - 2);
+					for (int y = -FEATURE_ROW - dd / 2 - 2; y <= FEATURE_ROW + dd / 2 + 2; y++) 
+					for (int x = -FEATURE_ROW - dd / 2 - 2; x <= FEATURE_ROW + dd / 2 + 2; x++) {
+						float r = sqrt(y * y + x * x);
+						if (r < rr + 1 || r >= rr + FEATURE_ROW)
+							continue;
+						int sita = atan2(-y, x) * 180 / M_PI;
+						if (sita < 0)
+							sita += 360;
+						r -= rr + 1;
+						int ir = (int)r;
+						CV_Assert(ir >= 0 && ir <= FEATURE_ROW - 2);
+						if (ir < FEATURE_ROW - 2)
+							vec[ir].push_back(Point3i(x, y, sita));
+						if (ir >= 1)
+							vec[ir - 1].push_back(Point3i(x, y, sita));
 					}
-					circle_edges[d1 * 100 + d2] = v6;
-					circle_edges_it = circle_edges.find(d1 * 100 + d2);
+					for (int i = 0; i < (int)vec.size(); i++) {
+						sort(vec[i].begin(), vec[i].end(), greaterPoint3i); //now vec is in clockwise
+						for (int j = 0; j < (int)vec[i].size(); j++) {
+							vec[i][j].x = vec[i][j].x - tl.x;
+							vec[i][j].y = vec[i][j].y - tl.y;
+						}
+					}
+					circle_edges[dd] = vec;
+					circle_edges_it = circle_edges.find(dd);
 				}
 				
-				vector<Vec6i> & cir_edge = circle_edges_it->second;
-				CV_Assert(cir.size() == 8);
 				int min_es = 0x20000000, submin_es = 0x20000000, total_es = 0;
 				Vec8i e8;
 				for (int i = 0; i < 8; i++) {
 					int es = 0;
 					for (auto v3 : cir[i]) {
-						int cross = p_grad[v3[2]][0] * v3[0] + p_grad[v3[2]][1] * v3[1];
-						es += (cross >= 0) ? cross : cross * 4;
+						int cross = p_grad[v3[2]][0] * v3[0] + p_grad[v3[2]][1] * v3[1]; //grad and dir-vector inner product
+						es += (cross >= 0) ? cross : cross * 4; //cross <0 ,punish
 					}
 					es = es / (int) cir[i].size();
 					es = es / 16; //grad sum is 16
@@ -1412,7 +1743,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 						submin_es = es;
 					if (es < score_min)
 						break;
-					e8[i] = es;
+					e8[i] = es; //output feature is grad * 100
 					total_es += es;
 				}
 				if (min_es < score_min)
@@ -1425,7 +1756,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 					feature.at<int>(0, 2) = d1; 
 					feature.at<int>(0, 3) = d2; 
 					for (int i = 0; i < 8; i++)
-						feature.at<int>(1, cir_edge[i][3]) = e8[i];
+						feature.at<int>(1, dir_remap[i]) = e8[i];
 				}
 			}
 		}
@@ -1449,16 +1780,62 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 		Point org(features[k].at<int>(0, 0), features[k].at<int>(0, 1));
 		int d1 = features[k].at<int>(0, 2);
 		int d2 = features[k].at<int>(0, 3);
-		vector<Vec6i> & cir_edge = circle_edges.find(d1 * 100 + d2)->second;
-		CV_Assert(cir_edge.size() == 8);
-
+		vector<vector<Point3i> > & cir_edge = circle_edges.find(max(d1, d2))->second;
+		CV_Assert(cir_edge.size() == FEATURE_ROW - 2);
+#if 0
 		vector<uchar> flt_out;
-		for (int i = 0; i < 8; i++) {
-			Point start_pt(org.x + cir_edge[i][1], org.y + cir_edge[i][0]);
-			middle_sort_line(img, start_pt, cir_edge[i][3], cir_edge[i][5], FEATURE_ROW - 2, cir_edge[i][4], flt_out);
-			for (int j = 0; j < FEATURE_ROW - 2; j++)
-				features[k].at<int>(j + 2, cir_edge[i][3]) = flt_out[j];
+		for (int i = 0; i < (int)cir_edge.size(); i++) {
+			vector<uchar> img_gray;
+			int circle_edge_avg_len = max(CIRCLE_EDGE_AVG_LEN, (int) cir_edge[i].size() / 8);
+			img_gray.reserve(cir_edge[i].size() + circle_edge_avg_len);
+			for (int j = 0; j < (int)cir_edge[i].size(); j++) {
+				Point pt(org.x + cir_edge[i][j].x, org.y + cir_edge[i][j].y);
+				img_gray.push_back(img.at<uchar>(pt));
+			}
+			vector<int> img_sum(cir_edge[i].size()), img_dif(cir_edge[i].size());
+			img_sum[0] = 0;
+			for (int j = 0; j < circle_edge_avg_len; j++) {
+				img_sum[0] += img_gray[j + 1];
+				img_gray.push_back(img_gray[j]); //fill img_gray to easy handle as a circle
+			}
+			for (int j = 1; j < (int)img_sum.size(); j++)
+				img_sum[j] = img_sum[j - 1] - img_gray[j] + img_gray[j + circle_edge_avg_len];
+			for (int j = 0; j < (int)img_dif.size(); j++) {
+				int kk = j - circle_edge_avg_len - 1;
+				img_dif[j] = img_sum[j] - img_sum[kk < 0 ? kk + (int)cir_edge[i].size() : kk]; //img_dif is in clockwise, 6:00 - 5:00
+				img_dif[j] = (abs(img_dif[j]) << 10) + j;
+			}
+			sort(img_dif.begin(), img_dif.end(), greater<int>());
+			for (int j = 0; j < (int)img_sum.size(); j++)
+				img_sum[j] /= circle_edge_avg_len;
+			vector<int> choose;
+
+			for (auto d : img_dif) {
+				bool pass = true;
+				int l = cir_edge[i][d & 0x3ff].z;
+				int ll = (l > 270) ? l - 360 : l;
+				for (auto c : choose)
+				if (abs(l - cir_edge[i][c].z) < 45 || abs(ll - cir_edge[i][c].z) < 45) {
+					pass = false;
+					break;
+				}
+				if (pass)
+					choose.push_back(d & 0x3ff);
+			}
+						
+			for (int j = 0; j < 8; j++) {
+				if (j >= choose.size()) {
+					features[k].at<int>(i + 2, j) = 0;
+					continue;
+				}
+				int idx = choose[j];
+				int idx1 = idx - circle_edge_avg_len - 1;
+				if (idx1 < 0)
+					idx1 += (int)cir_edge[i].size();
+				features[k].at<int>(i + 2, j) = cir_edge[i][idx].z * 1000000 + img_sum[idx] * 1000 + img_sum[idx1];
+			}
 		}
+#endif
 
 		vector<Vec3i> & dd = d0s.find(100 * d1 + d2)->second;
 		int s = 0, n = 0;
@@ -1596,9 +1973,8 @@ Input features
 Input weight
 Return true if success
 */
-bool ViaML::train(const vector<Mat> & features, int flag, float weight)
+bool ViaML::train(const vector<Mat> & features, float weight)
 {
-	//Mat train_data_svm((int)features.size(), 5, CV_32FC1);
 	Mat train_data_svm;
 	Mat label((int)features.size(), 1, CV_32FC1);
 	//prepare train via svm
@@ -1627,60 +2003,11 @@ bool ViaML::train(const vector<Mat> & features, int flag, float weight)
 			via_dia.insert(diameter);
 	}
 	via_svm.reset();
-	for (int i = 0; i < 8; i++)
-		vwi_svm[i].reset();
 	if (!has_via[1])
 		return false;
 	f2v.get_addition_vec(train_data_svm, label);
 	//train via svm
-	via_svm.reset(train_svm(train_data_svm, label, weight));
-
-	//prepare train vwi svm
-	VWIFeature2Vector vwif2v[8];
-	vector<int> vwi_label_temp[8];
-	Mat vwi_label[8], train_vwi_svm[8];
-	for (auto & feature : features) {
-		for (int i = 0; i < 8; i++) {
-			int s;
-			s = feature.at<int>(0, 0) >> (i + 9) & 1;
-			if (s) {
-				Mat sample = vwif2v[i].compute_vwi_vec(feature, i);
-				s = feature.at<int>(0, 0) >> (i + 1) & 1;
-				train_vwi_svm[i].push_back(sample);
-				vwi_label_temp[i].push_back(s);
-			}
-		}
-	}
-	for (int i = 0; i < 8; i++)
-	if (!vwi_label_temp[i].empty()) {
-		vwi_label[i].create((int)vwi_label_temp[i].size(), 1, CV_32FC1);
-		for (int j = 0; j < (int)vwi_label_temp[i].size(); j++)
-			vwi_label[i].at<float>(j) = vwi_label_temp[i][j];
-	}
-	if (flag & VIA_LR_SYMMETRY) {
-		train_vwi_svm[DIR_LEFT].push_back(train_vwi_svm[DIR_RIGHT]);
-		vwi_label[DIR_LEFT].push_back(vwi_label[DIR_RIGHT]);
-	}
-	if (flag & VIA_UD_SYMMETRY) {
-		train_vwi_svm[DIR_UP].push_back(train_vwi_svm[DIR_DOWN]);
-		vwi_label[DIR_UP].push_back(vwi_label[DIR_DOWN]);
-	}
-		
-	for (int i = 0; i < 8; i++)
-		vwif2v[i].get_addition_vec(train_vwi_svm[i], vwi_label[i]);
-
-	if (flag & VIA_LR_SYMMETRY) {
-		train_vwi_svm[DIR_RIGHT] = train_vwi_svm[DIR_LEFT];
-		vwi_label[DIR_RIGHT] = vwi_label[DIR_LEFT];
-	}
-	if (flag & VIA_UD_SYMMETRY) {
-		train_vwi_svm[DIR_DOWN] = train_vwi_svm[DIR_UP];
-		vwi_label[DIR_DOWN] = vwi_label[DIR_UP];
-	}
-	for (int i = 0; i < 8; i++) {
-		if (train_vwi_svm[i].rows > 0)
-			vwi_svm[i].reset(train_svm(train_vwi_svm[i], vwi_label[i], 0.5));
-	}
+	via_svm.reset(train_svm(train_data_svm, label, weight, 6));
 		
 	return true;
 }
@@ -1725,18 +2052,8 @@ float ViaML::judge(const Mat & img, Point & org, Point & range, int &label, bool
 			}
 		}
 	}
-	if (max_response > 0) {
-		label |= 1;
-		VWIFeature2Vector vwif2v;
-		for (int i = 0; i < 8; i++)
-		if (!vwi_svm[i].isNull()) {
-			label |= 1 << (9 + i);
-			Mat sample = vwif2v.compute_vwi_vec(best_feature, i);
-			float response = -vwi_svm[i]->predict(sample, true);
-			if (response > 0)
-				label |= 1 << (1 + i);
-		}
-	}
+	if (max_response > 0)
+		label |= VIA_IS_VIA;
 	return max_response;
 }
 
@@ -1744,15 +2061,14 @@ VWfeature::VWfeature()
 {
 	retrain_via = false;
 	is_via_valid = false;
-	via_flag = 0;
+	retrain_edge = false;
 	via_weight = 0.5;
 }
 
-void VWfeature::set_via_para(int via_flag_, float via_weight_)
+void VWfeature::set_via_para(float via_weight_)
 {
-	if (via_flag != via_flag_ || via_weight != via_weight_)
+	if (via_weight != via_weight_)
 		retrain_via = true;
-	via_flag = via_flag_;
 	via_weight = via_weight_;
 }
 
@@ -1766,24 +2082,40 @@ bool VWfeature::add_feature(const Mat & img, Point local, Point & global, Point 
 		qCritical("add_feature (%d,%d) out of range", local.x, local.y);
 		return false;
 	}
-	range = Point(0, 0);
-	vector<Mat> features;
 	Point local1 = local, global1;
-	bool ret = vml.feature_extract(img, local1, range, min_d0, max_d0, label, features, vs, false);
-	if (!ret)
-		return false;
-	global1 = global + local1 - local;
-	del_feature(global1, max_d0);
-	for (int i = 0; i < features.size(); i++) {
-		via_locs.push_back(global1);
-		via_features.push_back(features[i]);
+	if (label & VIA_FEATURE) {
+		range = Point(0, 0);
+		vector<Mat> features;
+		bool ret = vml.feature_extract(img, local1, range, min_d0, max_d0, label, features, vs, false);
+		if (!ret)
+			return false;
+		global1 = global + local1 - local;
+		del_feature(global1, max_d0);
+		for (int i = 0; i < features.size(); i++) {
+			via_locs.push_back(global1);
+			via_features.push_back(features[i]);
+		}
+		if (vs) {
+			for (int i = 0; i < (int)vs->size(); i++)
+				(*vs)[i] += global - local;
+		}
+		global = global1;
+		retrain_via = true;
 	}
-	if (vs) {
-		for (int i = 0; i < (int)vs->size(); i++)
-			(*vs)[i] += global - local;
+	if (label & EDGE_FEATURE) {
+		vector<vector<int> > features;
+		bool ret = eml.feature_extract(img, local1, range, label, features);
+		if (!ret)
+			return false;
+		global1 = global + local1 - local;
+		del_feature(global1, 2);
+		for (int i = 0; i < features.size(); i++) {
+			edge_locs.push_back(global1);
+			edge_features.push_back(features[i]);
+		}
+		global = global1;
+		retrain_edge = true;
 	}
-	global = global1;
-	retrain_via = true;
 	return true;
 }
 
@@ -1797,7 +2129,16 @@ bool VWfeature::del_feature(Point global, int d0)
 			i--;
 			retrain_via = true;
 		}
-	}	
+	}
+	for (int i = 0; i < edge_locs.size(); i++) {
+		Point shift = global - edge_locs[i];
+		if (abs(shift.x) <= d0 && abs(shift.y) <= d0) {
+			edge_locs.erase(edge_locs.begin() + i);
+			edge_features.erase(edge_features.begin() + i);
+			i--;
+			retrain_edge = true;
+		}
+	}
 	return true;
 }
 
@@ -1826,6 +2167,9 @@ void VWfeature::clear_feature()
 	via_locs.clear();
 	via_features.clear();
 	retrain_via = true;
+	edge_locs.clear();
+	edge_features.clear();
+	retrain_edge = true;
 }
 
 int VWfeature::get_max_d()
@@ -1855,7 +2199,7 @@ void VWfeature::write_file(string project_path, int layer)
 	sprintf(sh, "vwfeature%d.txt", layer);
 	filename = filename + sh;
 	FILE * fp = fopen(filename.c_str(), "wt");
-	fprintf(fp, "%d\n", (int) via_features.size());
+	fprintf(fp, "vias=%d\n", (int) via_features.size());
 	for (int i = 0; i < (int)via_features.size(); i++) {
 		fprintf(fp, "%10d%10d\n", via_locs[i].x, via_locs[i].y);
 		for (int y = 0; y < FEATURE_ROW; y++) {
@@ -1863,6 +2207,13 @@ void VWfeature::write_file(string project_path, int layer)
 				fprintf(fp, "%10d", via_features[i].at<int>(y, x));
 			fprintf(fp, "\n");
 		}
+	}
+	fprintf(fp, "edges=%d\n", (int)edge_features.size());
+	for (int i = 0; i < (int)edge_features.size(); i++) {
+		fprintf(fp, "%10d%10d\n", edge_locs[i].x, edge_locs[i].y);
+		for (int j = 0; j < (int)edge_features[i].size(); j++)
+			fprintf(fp, "%10d", edge_features[i][j]);
+		fprintf(fp, "\n");
 	}
 	fclose(fp);
 }
@@ -1880,7 +2231,8 @@ bool VWfeature::read_file(string project_path, int layer)
 	if (fp == NULL)
 		return false;
 	int s, t;
-	fscanf(fp, "%d", &s);
+	if (fscanf(fp, "vias=%d", &s) != 1)
+		return false;
 	via_features.resize(s);
 	via_locs.resize(s);
 	for (int i = 0; i < (int)via_features.size(); i++) {
@@ -1896,6 +2248,21 @@ bool VWfeature::read_file(string project_path, int layer)
 			}
 		}
 	}
+	if (fscanf(fp, "\nedges=%d", &s) != 1)
+		return false;
+	retrain_edge = true;
+	edge_features.resize(s);
+	edge_locs.resize(s);
+	for (int i = 0; i < (int)edge_features.size(); i++) {
+		if (fscanf(fp, "%d%d", &s, &t) != 2)
+			return false;
+		edge_locs[i] = Point(s, t);
+		edge_features[i].resize(EdgeFeatureVecLen + 1);
+		for (int j = 0; j <= EdgeFeatureVecLen; j++)
+		if (fscanf(fp, "%d", &edge_features[i][j]) != 1)
+			return false;
+	}
+	fclose(fp);
 	return true;
 }
 
@@ -1903,7 +2270,7 @@ bool VWfeature::via_valid(bool multi_thread)
 {
 	if (retrain_via) {
 		CV_Assert(!multi_thread);
-		is_via_valid = vml.train(via_features, via_flag, via_weight);
+		is_via_valid = vml.train(via_features, via_weight);
 		retrain_via = false;
 	}
 	return is_via_valid;
@@ -2006,12 +2373,6 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *>
 					if (!mark_dbg.empty()) {
 						rectangle(mark_dbg, Point(org.x - range.x / 2, org.y - range.y / 2),
 							Point(org.x - range.x / 2 + range.x, org.y - range.y / 2 + range.y), 255);
-						for (int i = 0; i < 8; i++) 
-						if (label >> i & 2) {
-							Point p0(org.x + range.x * dxy[i][1] / 2, org.y + range.y * dxy[i][0] / 2);
-							Point p1(org.x + range.x * dxy[i][1], org.y + range.y * dxy[i][0]);
-							line(mark_dbg, p0, p1, 255);
-						}
 					}
 				}
 				else 
@@ -2031,4 +2392,16 @@ void VWfeature::via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *>
 			}
 		}
 	}
+}
+
+void VWfeature::edge_search(const Mat & img, Mat prob, const Mat & mask, Mat & debug_mark, bool multi_thread)
+{
+	if (retrain_edge) {
+		CV_Assert(!multi_thread);
+		is_edge_valid = eml.train(edge_features);
+		retrain_edge = false;
+	}
+	if (!is_edge_valid)
+		return;
+	eml.judge(img, prob, mask, debug_mark);
 }

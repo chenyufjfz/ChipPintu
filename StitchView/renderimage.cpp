@@ -6,7 +6,7 @@
 #include <QtConcurrent>
 
 #define PARALLEL 1
-#define PRINT_LOAD_IMAGE 0
+#define PRINT_LOAD_IMAGE 1
 #define DISTANCE(p0, p1) sqrt((p0.x - p1.x) * (p0.x - p1.x) + (p0.y - p1.y) *(p0.y - p1.y))
 #define DISTANCE2(p0, p1) ((p0.x - p1.x) * (p0.x - p1.x) + (p0.y - p1.y) *(p0.y - p1.y))
 
@@ -855,6 +855,7 @@ bool compare_premap_img(const PremapTailorImg & l, const PremapTailorImg & r)
 	return l.draw_order > r.draw_order;
 }
 
+#define INVALID_X_Y 100000000
 /*
 Input cpara
 Input p, pixel unit
@@ -900,9 +901,9 @@ Point find_src_map(const ConfigPara & cpara, const Point & p, const Size & wh, i
 	}
 
 	if (method != 0)
-		return Point(100000000, 100000000);
+		return Point(INVALID_X_Y, INVALID_X_Y);
 	else
-		return Point(-100000000, -100000000);
+		return Point(-INVALID_X_Y, -INVALID_X_Y);
 }
 
 struct MapRequest {
@@ -929,7 +930,7 @@ void thread_map_image(MapRequest & pr)
 	Point2d src_lt, src_rb, src_lb, src_rt;
 
 #if 1
-	if (MAPID_X(pr.id) == 7 && MAPID_Y(pr.id) == 11)
+	if (MAPID_X(pr.id) == 36 && MAPID_Y(pr.id) == 2)
 		dst_w = dst_w * 2 - dst_w;
 #endif
 	Point dst_lt(dst_w * MAPID_X(pr.id), dst_w * MAPID_Y(pr.id));
@@ -943,14 +944,23 @@ void thread_map_image(MapRequest & pr)
 	src_lb = pxy->dst2src(dst_lb);
 	src_rt = pxy->dst2src(dst_rt);
 
+	/*
 	double minx = min(min(src_lt.x, src_rb.x), min(src_lb.x, src_rt.x));
 	double miny = min(min(src_lt.y, src_rb.y), min(src_lb.y, src_rt.y));
 	double maxx = max(max(src_lt.x, src_rb.x), max(src_lb.x, src_rt.x));
-	double maxy = max(max(src_lt.y, src_rb.y), max(src_lb.y, src_rt.y));
+	double maxy = max(max(src_lt.y, src_rb.y), max(src_lb.y, src_rt.y));*/
 	//now Point(minx,miny) is src left top, Point (max, maxy) is src right bottom
+	Point lt0 = find_src_map(*(pr.cpara), src_lt, pr.src, 1);
+	Point lb0 = find_src_map(*(pr.cpara), Point(src_lb.x, src_lb.y + 1), pr.src, 1);
+	if (lb0.x >= INVALID_X_Y)
+		lb0 = Point(INVALID_X_Y, -INVALID_X_Y);
+	Point rt0 = find_src_map(*(pr.cpara), Point(src_rt.x + 1, src_rt.y), pr.src, 1);
+	if (rt0.x >= INVALID_X_Y)
+		rt0 = Point(-INVALID_X_Y, INVALID_X_Y);
+	Point rb0 = find_src_map(*(pr.cpara), Point(src_rb.x + 1, src_rb.y + 1), pr.src, 0);
 
-	lt = find_src_map(*(pr.cpara), Point(minx, miny), pr.src, 1);
-	rb = find_src_map(*(pr.cpara), Point(maxx + 1, maxy + 1), pr.src, 0);
+	lt = Point(min(lt0.x, lb0.x), min(lt0.y, rt0.y));
+	rb = Point(max(rt0.x, rb0.x), max(lb0.y, rb0.y));
 
 	vector<PremapTailorImg> src_map;
 	PreMapCache * pmc = pr.premap_cache;

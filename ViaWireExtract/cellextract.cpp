@@ -3,6 +3,7 @@
 
 #define FEATURE0_SIZE 27
 #define FEATURE1_SIZE 16
+#define DUMP_TRAIN_IMG 0
 //TODO use auto FEATURE_SIZE instead of fixed FEATURE_SIZE
 static string get_time_str()
 {
@@ -534,7 +535,6 @@ int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, std::vector<Mark
                     cal_bins(image, QRect(0, 0, image.cols, image.rows), bins, 3);
                     cal_threshold(bins, th, 0.5, 0.02);
                     threshold(image, mark, th[1], 1, THRESH_BINARY);
-
                     QRect cr(xx << 15, yy << 15, 32768, 32768);
                     QRect ir = cr & rect;
                     QPoint lt = (ir.topLeft() - cr.topLeft()) / scale;
@@ -547,6 +547,9 @@ int CellExtract::train(vector<ICLayerWrInterface *> & ic_layer, std::vector<Mark
                     mark(Rect(lt.x(), lt.y(), size.width(), size.height())).copyTo(
                         img(Rect(mlt.x(), mlt.y(), size.width(), size.height())));
                 }
+#if DUMP_TRAIN_IMG
+            imwrite("train_cell.jpg", img * 100);
+#endif
             Mat ig;
             CellFeatures cf;
             integral(img, ig, CV_32S);
@@ -644,7 +647,7 @@ int CellExtract::extract(vector<ICLayerWrInterface *> & ic_layer, const vector<S
         for (list<SearchArea>::iterator pa = area.begin(); pa != area.end();) {
             QRect r = pa->rect;
             QRect ur = r.united(cr);
-            if ((ur.bottom() >> 15) - (ur.y() >> 15) > 3)
+			if ((ur.bottom() >> 15) - (ur.y() >> 15) > 3 && (ur.right() >> 15) - (ur.x() >> 15) > 2)
                 break;
             if (OCCUPY(r) + OCCUPY(cr) > OCCUPY(ur)) {
                 cr = ur;

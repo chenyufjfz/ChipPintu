@@ -39,11 +39,13 @@
     <addaction name="separator"/>
     <addaction name="actionMark_Wire"/>
     <addaction name="actionMark_Via"/>
+    <addaction name="actionMark_Insulator"/>
+    <addaction name="actionMark_Wire_Insu"/>
+    <addaction name="actionMark_Learn_Area"/>
     <addaction name="actionMark_NoVia"/>
     <addaction name="actionMark_Via_Wire"/>
     <addaction name="actionMark_Via_NoWire"/>
     <addaction name="actionMark_Cell"/>
-    <addaction name="actionMark_Insulator"/>
     <addaction name="actionSelect"/>
     <addaction name="actionClear_All"/>
     <addaction name="separator"/>
@@ -52,6 +54,7 @@
     <addaction name="actionExtract"/>
     <addaction name="separator"/>
     <addaction name="actionSingle_Wire_Para"/>
+    <addaction name="separator"/>
     <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -104,7 +107,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>Mark Learn Area</string>
+    <string>Mark Insu</string>
    </property>
   </action>
   <action name="actionSelect">
@@ -253,6 +256,19 @@
   <action name="actionMark_Via_NoWire">
    <property name="text">
     <string>Mark Via NoWire</string>
+   </property>
+  </action>
+  <action name="actionMark_Learn_Area">
+   <property name="text">
+    <string>Mark Learn Area</string>
+   </property>
+  </action>
+  <action name="actionMark_Wire_Insu">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Mark Wire Insu</string>
    </property>
   </action>
  </widget>

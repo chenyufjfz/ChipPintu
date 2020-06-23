@@ -97,7 +97,7 @@ void print_stack(void);
 #define OPT_PARALLEL_SEARCH		1
 #define OPT_POLYGON_SEARCH		2
 
-#define FEATURE_ROW			8
+#define FEATURE_ROW			3
 struct Brick {
 	int a[3][3];
 	int shape;
@@ -194,37 +194,82 @@ public:
 int compute_circle_dx(int d, vector<Vec3i> & d0);
 
 #define VIA_FEATURE			0x40000000
+#define EDGE_FEATURE		0x20000000
 #define VIA_IS_VIA			1
-#define VIA_UP_WIRE			2
-#define VIA_RIGHT_WIRE		4
-#define VIA_DOWN_WIRE		8
-#define VIA_LEFT_WIRE		16
-#define VIA_UPRIGHT_WIRE	32
-#define VIA_DOWNRIGHT_WIRE	64
-#define VIA_DOWNLEFT_WIRE	128
-#define VIA_UPLEFT_WIRE		0x100
-#define VIA_UP_VALID		0x200
-#define VIA_RIGHT_VALID		0x400
-#define VIA_DOWN_VALID		0x800
-#define VIA_LEFT_VALID		0x1000
-#define VIA_UPRIGHT_VALID	0x2000
-#define VIA_DOWNRIGHT_VALID 0x4000
-#define VIA_DOWNLEFT_VALID	0x8000
-#define VIA_LR_SYMMETRY		1
-#define VIA_UD_SYMMETRY		2
+#define EDGE_IS_WIRE_INSU	1
+#define EDGE_IS_WIRE		2
+#define EDGE_IS_INSU		4
+
+#define MAX_DARK_LEVEL		150
+#define MAX_GRAD_LEVEL		196
+class EdgeFeatureML {
+protected:
+	QSharedPointer<CvSVM> insu_svm[8];
+	QSharedPointer<CvSVM> wire_svm[8];
+	QSharedPointer<CvSVM> edge_svm[8];
+	uchar wi_prob[MAX_DARK_LEVEL][MAX_GRAD_LEVEL][2];
+	int grad_wire_th, dark_no_wire, dark_no_insu, dark_all_wire;
+	/*
+	Input img: raw image
+	Input grad: image's grad
+	Input o: get o's edge vector
+	output e: edge vector
+	inout dir: feature vector in dir, if input dir <0, it will search max grad as dir,
+	if dir>=0, it will search specified dir.
+	*/
+	void get_feature_vector(const Mat & img, const Mat &grad, Point o, int e[], int & dir);
+	/*
+	input e[], it is result of get_feature_vector [0..255]
+	output prob[],
+	Return edge's prob
+	Compute prob based on Edge Feature Vector, using SVM
+	*/
+	int compute_prob(const int e[], uchar prob[]);
+public:
+	/*
+	input img, raw image
+	input grad, image grad
+	inout org, for intput it is edge nearby point, for output it is edge point
+	input range, search range
+	input label
+	output features
+	return true, if find feature, false, not find feature
+	Single sample feature extract, after collect several samples, call train
+	*/
+	bool feature_extract(const Mat & img, Point & org, Point & range, int label, vector<vector<int> > & features);
+	/*
+	input feature, it is output from feature_extrac
+	return true, if train success, false if wrong
+	Before train, need collect several sample feature
+	*/
+	bool train(const vector<vector<int> > & features);
+	/*
+	Input img
+	output prob
+	Input mask
+	Output debug_mark
+	Use case
+	feature_extract
+	feature_extract
+	feature_extract
+	....
+	train
+	judge
+	*/
+	void judge(const Mat & img, Mat & prob, const Mat & mask, Mat & debug_mark);
+};
 
 class ViaML {
 protected:
 	QSharedPointer<CvSVM> via_svm; //it is via or not, trained by feature
-	QSharedPointer<CvSVM> vwi_svm[8]; //via connect to wire or insu, trained by feature
+	int dir_remap[8];
 	set<int> via_dia;  //it is trained by feature
 	map<int, vector<Vec3i> > d0s; //d0s.second store one circle xy, d0s.second[0] is (y, x1, x2), (x2, y) to (x1, y) forms circle in-points
 	map<int, vector<vector<Vec3i> > > circles; //circles.second is octagon, circles.second[i] is one edge, circles.second[i][j] is edge's point,
 	//circles.second[i][j][0] is y-grad, circles.second[i][j][1] is x-grad, circles.second[i][j][2] is edge's shift
-	map<int, vector<Vec6i> > circle_edges; //circle_edges is octagon,
-	//circle_edges.second[i][0] and circle_edges.second[i][1] is outside edge start point
-	//circle_edges.second[i][3] is direction, circles.second[i][4] is outside edge's len
-	//circles.second[i][5] is scan line direction for middle sort
+	map<int, vector<vector<Point3i> > > circle_edges; //circle_edges is circle extern edge circle_edges.second[0] are point sets in circle r+1.
+	//circle_edges.second[1] are point set in circle r+2, circle_edges.second[0][0] is circle r+1 1st point.
+	//circle_edges.second[0][0].x & y is offset, circle_edges.second[0][0].z is degree
 	/*
 	input lg, line sum mat
 	input d, via diameter
@@ -253,28 +298,48 @@ protected:
 	input d, via diameter
 	output feature, feature[0][0] is label which is filled by caller, feature[0][2], feature[0][3] is diameter-x, diameter-y
 	output vs, via circle xy
-	return true, if find feature, false, not find feature
+	input multi_thread, run in multi_thread or not
+	return feature score
 	*/
 	int feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs, bool multi_thread, int score_min);
 public:
 	ViaML();
 	~ViaML();
-	
+
+	/*
+	input img,
+	inout org, for input, it is a point inside via, for output it is via's center
+	inout range, for intput, search range = max{d} + range, normally it is 0, for output it is via's diameter
+	input min_d0, max_d0, via diameter range
+	input label, via or not via
+	output features, 
+	output vs, via circle xy
+	input multi_thread, run in multi_thread or not
+	return true, if find feature, false, not find feature
+	Single sample feature extract, after collect several samples, call train
+	*/
 	bool feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, 
 		vector<Point> * vs, bool multi_thread);
 	/*
 	input feature, it is output from feature_extract
-	input flag, only for via-wire & via-insu training
 	input weight, weight for miss via vs false via
 	return true, if train success, false if wrong
+	Before train, need collect several sample feature
 	*/
-	bool train(const vector<Mat> & feature, int flag = 0, float weight = 0.5f);
+	bool train(const vector<Mat> & feature, float weight = 0.5f);
 	/*
 	Input img
 	Inout org, via location
 	Input range, normally it is 0
 	output label
 	Return probability, bigger is via, smaller is no-via
+	Use case
+	feature_extract
+	feature_extract
+	feature_extract
+	....
+	train
+	judge
 	*/
 	float judge(const Mat & img, Point & org, Point & range, int &label, bool multi_thread);
 };
@@ -289,11 +354,12 @@ void convert_element_obj(const vector<ElementObj *> & es, vector<MarkObj> & ms, 
 class VWfeature {
 protected:
 	ViaML vml;
-	bool retrain_via, is_via_valid;
-	int via_flag;
+	EdgeFeatureML eml;
+	bool retrain_via, is_via_valid, retrain_edge, is_edge_valid;
 	float via_weight;
 	vector<Mat> via_features;
-	vector<Point> via_locs;
+	vector<Point> via_locs, edge_locs;
+	vector<vector<int> > edge_features;
 
 	/*
 	Input img
@@ -301,12 +367,12 @@ protected:
 	Inout range, for input, it is search range= max{d} + range, for output it is diameter
 	Output label, via & wire label
 	input multi_thread, if call with multi_thread, true
-	Return probability, bigger is via, smaller is no via
+	Return probability, bigger is via, smaller is no via, it call vml judge
 	*/
 	float via_judge(const Mat & img, Point & org, Point & range, int & label, bool multi_thread);
 public:
 	VWfeature();
-	void set_via_para(int via_flag_, float via_weight_ = 0.5f);
+	void set_via_para(float via_weight_ = 0.5f);
 
 	/*
 	Input img
@@ -342,8 +408,17 @@ public:
 	input img
 	output vs, vs.p0 is via center, vs.p1 is via diameter.
 	input multi_thread, true means multithread search
+	It calls via_judge to check every via
 	*/
 	void via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *> & vs, bool multi_thread);
+	/*
+	input img
+	output prob
+	input mask
+	output debug_mark
+	call EdgeFeatureML::judge
+	*/
+	void edge_search(const Mat & img, Mat prob, const Mat & mask, Mat & debug_mark, bool multi_thread);
 };
 
 

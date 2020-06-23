@@ -2361,7 +2361,7 @@ public:
 				if (sbs[i].dir == -1) {
 					via.prob = 1;
 					via.p0 = QPoint(sbs[i].bch.first.x, sbs[i].bch.first.y);
-					via.p1 = via.p0;
+					via.p1 = QPoint(10, 10);
 					obj_sets.push_back(via);
 				}
 				for (int j = 0; j < sbs[i].final_out.size(); j++) {
@@ -5374,7 +5374,7 @@ static void image_enhance2(PipeData & d, ProcessParameter & cpara)
 	}
 	Mat & via_mask = d.l[layer].v[idx1].d;
 	if (enhance_opt & IMAGE_ENHANCE2_VIA_MASK && d.l[layer].v[idx1].type != TYPE_REMOVE_VIA_MASK) {
-		qCritical("coarse_line_search idx1[%d]=%d, error", idx1, d.l[layer].v[idx1].type);
+		qCritical("image_enhance2 idx1[%d]=%d, error", idx1, d.l[layer].v[idx1].type);
 		return;
 		if (via_mask.type() != CV_8UC1) {
 			qCritical("coarse_line_search,  via_mask.type(%d)!=%d", via_mask.type(), CV_8UC1);

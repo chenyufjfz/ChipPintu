@@ -99,7 +99,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	bse_param.i_wide = 0.4;
 	bse_param.w_wide1 = 0.3;
 	for (int i = 0; i < 8; i++)
-		dia[i] = 11;
+		dia[i] = 15;
 	via_at_center = 0;
 }
 
@@ -205,8 +205,13 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 			switch (obj.type2) {
 			case POINT_NO_VIA:
 			case POINT_VIA_INSU:
+			case POINT_WIRE:
 				painter.setPen(QPen(Qt::red, 1));
 				painter.setBrush(QBrush(Qt::red, Qt::NoBrush));
+				break;
+			case POINT_INSU:
+				painter.setPen(QPen(Qt::yellow, 1));
+				painter.setBrush(QBrush(Qt::yellow, Qt::NoBrush));
 				break;
 			default: 
 				painter.setPen(QPen(Qt::green, 1));
@@ -220,7 +225,9 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 				QPoint br(obj.p0.x() - obj.p1.x() / 2 + obj.p1.x(), obj.p0.y() - obj.p1.y() / 2 + obj.p1.y());
 				painter.drawEllipse(QRect(tl, br));
 			}
-			else
+			if (obj.type2 == POINT_INSU || obj.type2 == POINT_WIRE)
+				painter.drawRect(obj.p0.x() - 1, obj.p0.y() - 1, 3, 3);
+			if (obj.type2 == POINT_WIRE_INSU)
 				painter.drawLine(obj.p0, obj.p1);
         }
         break;
@@ -599,6 +606,15 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
             current_obj.p0 = event->pos() / scale;
 			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_NORMAL_VIA0 || current_obj.type2 == POINT_NO_VIA
 				|| current_obj.type2 == POINT_VIA_WIRE || current_obj.type2 == POINT_VIA_INSU)) {
+				vector<MarkObj> ms;
+				ms.push_back(current_obj);
+				vwe_ml->set_train_param(OBJ_POINT, (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->train(img_name, ms);
+				current_train = vwe_ml;
+				current_obj = ms[0];
+			}
+			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_WIRE_INSU || current_obj.type2 == POINT_WIRE
+				|| current_obj.type2 ==POINT_INSU) ) {
 				vector<MarkObj> ms;
 				ms.push_back(current_obj);
 				vwe_ml->set_train_param(OBJ_POINT, (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);

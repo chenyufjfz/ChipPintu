@@ -62,7 +62,9 @@ struct ProcessData {
 	int img_pixel_x0, img_pixel_y0; //imgae left-top pixel
 	int layer;
 	Mat raw_img;
-	Mat * mark_debug; //only for debug
+	Mat prob;
+	Mat * via_mark_debug; //only for debug
+	Mat * edge_mark_debug; //only for debug
 	vector<ElementObj *> eo;
 	QPolygon * poly;
 	int ref_cnt;
@@ -73,7 +75,8 @@ struct ProcessData {
 		img_pixel_x0 = -10000;
 		img_pixel_y0 = -10000;
 		layer = -1;
-		mark_debug = NULL;
+		via_mark_debug = NULL;
+		edge_mark_debug = NULL;
 	}
 };
 
@@ -91,7 +94,8 @@ ProcessImageData process_img(const ProcessImageData & pi)
 
 	if (!pi.cpd->raw_img.empty()) {
 		Mat empty;
-		pi.vwf->via_search(pi.cpd->raw_img, (pi.cpd->mark_debug == NULL ? empty : *(pi.cpd->mark_debug)), pi.cpd->eo, pi.multi_thread);
+		pi.vwf->via_search(pi.cpd->raw_img, (pi.cpd->via_mark_debug == NULL ? empty : *(pi.cpd->via_mark_debug)), pi.cpd->eo, pi.multi_thread);
+		pi.vwf->edge_search(pi.cpd->raw_img, pi.cpd->prob, Mat(), (pi.cpd->edge_mark_debug == NULL ? empty : *(pi.cpd->edge_mark_debug)), pi.multi_thread);
 		QPoint tl(pi.cpd->img_pixel_x0, pi.cpd->img_pixel_y0);
 		for (auto & o : pi.cpd->eo) {
 			o->type3 = pi.cpd->layer;
@@ -205,7 +209,7 @@ int VWExtractML::set_train_param(int type, int d, int, int, int, int, int, int, 
 	return 0;
 }
 
-int VWExtractML::set_extract_param(int layer, int _via_at_center, int, int, int, int, int, int, int, float)
+int VWExtractML::set_extract_param(int layer, int , int, int, int, int, int, int, int, float)
 {
 	layer_min = layer & 0xff;
 	layer_max = layer >> 8 & 0xff;
@@ -213,8 +217,8 @@ int VWExtractML::set_extract_param(int layer, int _via_at_center, int, int, int,
 	if (layer_max >= (int)vwf.size()) {
 		vwf.resize(layer_max + 1);
 		via_mark.resize(layer_max + 1);
+		edge_mark.resize(layer_max + 1);
 	}
-	via_at_center = _via_at_center;
 	return 0;
 }
 
@@ -225,6 +229,13 @@ Mat VWExtractML::get_mark(int layer)
 	return Mat();
 }
 
+Mat VWExtractML::get_mark1(int layer)
+{
+	if (layer < edge_mark.size())
+		return edge_mark[layer];
+	return Mat();
+}
+
 int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 {
 	layer_min = 200, layer_max = 0;
@@ -232,14 +243,15 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 		layer_min = (layer_min > m.type3) ? m.type3 : layer_min;
 		layer_max = (layer_max < m.type3) ? m.type3 : layer_max;
 	}
+	if (layer_max >= (int)vwf.size()) {
+		vwf.resize(layer_max + 1);
+		via_mark.resize(layer_max + 1);
+		edge_mark.resize(layer_max + 1);
+	}
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		string file_name(img_name);
 		file_name[file_name.length() - 5] = current_layer + '0';
 		Mat img = imread(file_name, 0);
-		if (current_layer >= (int)vwf.size()) {
-			vwf.resize(current_layer + 1);
-			via_mark.resize(current_layer + 1);
-		}
 		if (via_mark[current_layer].empty()) {
 			via_mark[current_layer].create(img.rows, img.cols, CV_8U);
             via_mark[current_layer] = Scalar::all(0);
@@ -267,67 +279,17 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 					else
 						m.p1 = QPoint(0, 0); //add fail
 				}
-				else { //POINT_VIA_WIRE or POINT_VIA_INSU
+				if (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE || m.type2 == POINT_INSU) {
+					Point range = m.type2 == POINT_WIRE_INSU ? Point(2, 2) : Point(1, 1);
 					Point loc = Point(m.p0.x(), m.p0.y());
-					Point center = loc;
-					int label = vwf[current_layer].get_via_label(center, via_diameter_max);
-					if (!(label & VIA_FEATURE) || !(label & VIA_IS_VIA)) {
-						m.p1 = QPoint(0, 0); //add fail
-						continue;
-					}
-					int dir, min_dis = 1000;
-					for (int i = 0; i < 4; i++) { //choose direction
-						Point loc1 = center + Point(dxy[i][1], dxy[i][0]) * (via_diameter_max / 2);
-						if (abs(loc1.x - loc.x) + abs(loc1.y - loc.y) < min_dis) {
-							min_dis = abs(loc1.x - loc.x) + abs(loc1.y - loc.y);
-							dir = i;
-						}
-					}
-					if (m.type2 == POINT_VIA_WIRE)
-						switch (dir) {
-						case DIR_UP:
-							label |= VIA_UP_VALID | VIA_UP_WIRE;
-							break;
-						case DIR_RIGHT:
-							label |= VIA_RIGHT_VALID | VIA_RIGHT_WIRE;
-							break;
-						case DIR_DOWN:
-							label |= VIA_DOWN_VALID | VIA_DOWN_WIRE;
-							break;
-						case DIR_LEFT:
-							label |= VIA_LEFT_VALID | VIA_LEFT_WIRE;
-							break;
-					}
-					else if (m.type2 == POINT_VIA_INSU)
-						switch (dir) {
-						case DIR_UP:
-							label |= VIA_UP_VALID;
-							label &= ~VIA_UP_WIRE;
-							break;
-						case DIR_RIGHT:
-							label |= VIA_RIGHT_VALID;
-							label &= ~VIA_RIGHT_WIRE;
-							break;
-						case DIR_DOWN:
-							label |= VIA_DOWN_VALID;
-							label &= ~VIA_DOWN_WIRE;
-							break;
-						case DIR_LEFT:
-							label |= VIA_LEFT_VALID;
-							label &= ~VIA_LEFT_WIRE;
-							break;
-					}
-					Point range;
-					vector<Point> vs;
-					bool ret = vwf[current_layer].add_feature(img, center, center, range,
-						via_diameter_min, via_diameter_max, label, &vs);
+					int label = EDGE_FEATURE;
+					label |= (m.type2 == POINT_WIRE_INSU) ? EDGE_IS_WIRE_INSU :
+						(m.type2 == POINT_WIRE) ? EDGE_IS_WIRE : EDGE_IS_INSU;
+					bool ret = vwf[current_layer].add_feature(img, loc, loc, range,
+						via_diameter_min, via_diameter_max, label, NULL);
 					if (ret) { //add success
-						Point loc1 = center + Point(dxy[dir][1], dxy[dir][0]) * (via_diameter_max / 2);
-						Point loc2 = center + Point(dxy[dir][1], dxy[dir][0]) * via_diameter_max;
-						m.p0 = QPoint(loc1.x, loc1.y); //return location
-						m.p1 = QPoint(loc2.x, loc2.y); 
-						for (auto p : vs)
-							via_mark[current_layer].at<uchar>(p) = 255;
+						m.p0 = QPoint(loc.x, loc.y); //return location
+						m.p1 = QPoint(range.x, range.y); //return diameter
 					}
 					else
 						m.p1 = QPoint(0, 0); //add fail
@@ -337,7 +299,10 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 		else 
 			if (m.type == OBJ_POINT && m.type3 == current_layer) { //delete via or no via
 				Point loc = Point(m.p0.x(), m.p0.y());
-				vwf[current_layer].del_feature(loc, via_diameter_max);
+				if (m.type2 == POINT_NO_VIA || m.type2 == POINT_NORMAL_VIA0) // del via or no via
+					vwf[current_layer].del_feature(loc, via_diameter_max);
+				if (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE || m.type2 == POINT_INSU)
+					vwf[current_layer].del_feature(loc, 2);
 			}
 		vwf[current_layer].write_file(project_path, current_layer);
 	}
@@ -349,21 +314,19 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 	vector<ProcessImageData> pis;
 	ProcessData ed[100];
 	obj_sets.clear();
+	if (layer_max >= (int)vwf.size()) {
+		vwf.resize(layer_max + 1);
+		via_mark.resize(layer_max + 1);
+		edge_mark.resize(layer_max + 1);
+	}
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		string file_name(img_name);
 		file_name[file_name.length() - 5] = current_layer + '0';
 		Mat img = imread(file_name, 0);
-		if (current_layer >= (int)vwf.size()) {
-			vwf.resize(current_layer + 1);
-			via_mark.resize(current_layer + 1);
-		}
-
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
 		if (!vwf[current_layer].read_file(project_path, current_layer))
 			return -1;
-		if (via_at_center >> current_layer & 1)
-			vwf[current_layer].set_via_para(VIA_LR_SYMMETRY | VIA_UD_SYMMETRY);
 		ProcessImageData pi;
 		ed[current_layer].x0 = 0;
 		ed[current_layer].y0 = 0;
@@ -373,7 +336,9 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		ed[current_layer].raw_img = img;
 		ed[current_layer].poly = NULL;
 		via_mark[current_layer] = img.clone();
-		ed[current_layer].mark_debug = &(via_mark[current_layer]);
+		cvtColor(img, edge_mark[current_layer], CV_GRAY2BGR);
+		ed[current_layer].via_mark_debug = &(via_mark[current_layer]);
+		ed[current_layer].edge_mark_debug = &(edge_mark[current_layer]);
 		pi.vwf = &vwf[current_layer];
 		pi.lpd = NULL;
 		pi.upd = NULL;

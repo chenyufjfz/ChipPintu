@@ -18,7 +18,7 @@
 
 #define FEAT_EXT_VERSION 20
 
-#define PARALLEL 0
+#define PARALLEL 1
 #define BLOCK4_SIZE 5
 #define BLOCK2_SIZE 7
 #define K4_SIZE 1
@@ -348,8 +348,8 @@ static void my_corner_eigenval(const Mat & image, Mat & eig1, Mat & eig2, Mat & 
 	eig2 = Scalar::all(0);
 	shape = Scalar::all(100);
 
-	Mat ig, iig;
-	integral_square(image, ig, iig, Mat(), Mat(), false);
+	Mat ig, iig, nomat0, nomat1;
+	integral_square(image, ig, iig, nomat0, nomat1, false);
 
 	vector<int> offset; //offset
 	vector<int> b; //eighth belong
@@ -693,7 +693,7 @@ static void good_features_to_track(Mat & img, CornerInfo * cinfo, int scale, int
 	cinfo[0].th /= 100;
 	cinfo[1].th /= 100;
 	if (scale == 1) {
-		resize(img, image, Size(img.cols / 2, img.rows / 2)); //save compute time
+		resize(img, image, Size(img.cols / 2, img.rows / 2), 0, 0, CV_INTER_AREA); //save compute time
 		cinfo[0].minDistance /= 2;
 		cinfo[1].minDistance /= 2;
 		ox = ox / 2;
@@ -1053,7 +1053,9 @@ static void prepare_corner(ImageData & img_d, const ParamItem & param)
 			}
 		}
 		string filename = img_d.filename.substr(0, img_d.filename.find_last_of("."));
-		filename += "_c.jpg";
+		char append[20];
+		sprintf(append, "_c%d.jpg", scale);
+		filename += append;
 		imwrite(filename, cf);
 	}
 
@@ -1676,7 +1678,7 @@ void prepare_extract(ImageData & img_dat)
 		const ConfigPara * cvar = img_dat.cvar;
 		Mat tailor_mat = img_in(Rect(cvar->clip_l, cvar->clip_u, img_in.cols - cvar->clip_l - cvar->clip_r, img_in.rows - cvar->clip_u - cvar->clip_d));
 		if (cvar->rescale != 1)
-			resize(tailor_mat, img_dat.v[0].d, Size(tailor_mat.cols / cvar->rescale, tailor_mat.rows / cvar->rescale));
+			resize(tailor_mat, img_dat.v[0].d, Size(tailor_mat.cols / cvar->rescale, tailor_mat.rows / cvar->rescale), 0, 0, CV_INTER_AREA);
 		else
 			img_dat.v[0].d = tailor_mat;
 

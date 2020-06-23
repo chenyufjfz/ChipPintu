@@ -496,7 +496,7 @@ ICLayerM::ICLayerM(const string & _file, uint64 _key, bool _read)
 			decrypt((char*)&img_len[0], sizeof(unsigned)* head.total_num, 0x87654321 ^ (key & 0xffffffff) ^ (key >> 32 & 0xffffffff));
 		for (int i = 0; i < total_num; i++)
 		if (img_len[i] > 0x50000000) {
-			qCritical("License is invalid");
+			qCritical("License key = %lld is invalid", key);
 			fin.close();
 			return;
 		}
