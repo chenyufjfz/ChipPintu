@@ -97,7 +97,18 @@ void print_stack(void);
 #define OPT_PARALLEL_SEARCH		1
 #define OPT_POLYGON_SEARCH		2
 
-#define FEATURE_ROW			3
+#define FEATURE_ROW				3
+#define POINT_TOT_PROB			100
+
+#define EdgeFeatureVecLen		3
+//POINT_IS_NOT_EDGE = POINT_IS_INSU + POINT_IS_WIRE
+//POINT_IS_NOT_CARE = POINT_IS_VIA + POINT_IS_EDGE_VIA_WIRE + POINT_IS_EDGE_VIA_INSU
+#define POINT_IS_INSU			0
+#define POINT_IS_WIRE			1
+#define POINT_IS_EDGE_WIRE_INSU 2
+#define POINT_DIR				3
+#define MINIMUM_EDGE_GRAD		5
+#define EDGE_JUDGE_BORDER		3
 struct Brick {
 	int a[3][3];
 	int shape;
@@ -226,6 +237,8 @@ protected:
 	*/
 	int compute_prob(const int e[], uchar prob[]);
 public:
+	EdgeFeatureML();
+	bool is_valid;
 	/*
 	input img, raw image
 	input grad, image grad
@@ -246,7 +259,7 @@ public:
 	/*
 	Input img
 	output prob
-	Input mask
+	Input via_mark, via mark which is result of ViaML::judge
 	Output debug_mark
 	Use case
 	feature_extract
@@ -256,7 +269,7 @@ public:
 	train
 	judge
 	*/
-	void judge(const Mat & img, Mat & prob, const Mat & mask, Mat & debug_mark);
+	void judge(const Mat & img, Mat & grad, Mat & prob, const Mat & via_mark, Mat & debug_mark);
 };
 
 class ViaML {
@@ -305,7 +318,7 @@ protected:
 public:
 	ViaML();
 	~ViaML();
-
+	bool is_valid;
 	/*
 	input img,
 	inout org, for input, it is a point inside via, for output it is via's center
@@ -329,6 +342,7 @@ public:
 	bool train(const vector<Mat> & feature, float weight = 0.5f);
 	/*
 	Input img
+	output via_mark, output for edge_search
 	Inout org, via location
 	Input range, normally it is 0
 	output label
@@ -341,7 +355,7 @@ public:
 	train
 	judge
 	*/
-	float judge(const Mat & img, Point & org, Point & range, int &label, bool multi_thread);
+	float judge(const Mat & img, Mat & via_mark, Point & org, Point & range, int &label, bool multi_thread);
 };
 
 /*
@@ -354,22 +368,28 @@ void convert_element_obj(const vector<ElementObj *> & es, vector<MarkObj> & ms, 
 class VWfeature {
 protected:
 	ViaML vml;
-	EdgeFeatureML eml;
-	bool retrain_via, is_via_valid, retrain_edge, is_edge_valid;
+	EdgeFeatureML eml, veml;
+	bool retrain_via, retrain_edge;
 	float via_weight;
 	vector<Mat> via_features;
 	vector<Point> via_locs, edge_locs;
 	vector<vector<int> > edge_features;
-
+	/*
+	split edge_features to edge_via and edge_no_via
+	edge_via contain edges which have vias nearby,
+	edge_no_via contain edges which have no via nearby.
+	*/
+	void split_via_edges(vector<vector<int> > & edge_via, vector<vector<int> > & edge_no_via);
 	/*
 	Input img
+	output via_mark
 	Inout org, for input, it is a point inside via, for output it is via center
 	Inout range, for input, it is search range= max{d} + range, for output it is diameter
 	Output label, via & wire label
 	input multi_thread, if call with multi_thread, true
 	Return probability, bigger is via, smaller is no via, it call vml judge
 	*/
-	float via_judge(const Mat & img, Point & org, Point & range, int & label, bool multi_thread);
+	float via_judge(const Mat & img, Mat & via_mark, Point & org, Point & range, int & label, bool multi_thread);
 public:
 	VWfeature();
 	void set_via_para(float via_weight_ = 0.5f);
@@ -406,19 +426,20 @@ public:
 	bool via_valid(bool multi_thread);
 	/*
 	input img
+	output via_mark, via mark to be used by edge_search
 	output vs, vs.p0 is via center, vs.p1 is via diameter.
 	input multi_thread, true means multithread search
 	It calls via_judge to check every via
 	*/
-	void via_search(const Mat & img, Mat & mark_dbg, vector<ElementObj *> & vs, bool multi_thread);
+	void via_search(const Mat & img, Mat & via_mark, Mat & mark_dbg, vector<ElementObj *> & vs, bool multi_thread);
 	/*
 	input img
 	output prob
-	input mask
+	input via_mark, it is via_search output
 	output debug_mark
 	call EdgeFeatureML::judge
 	*/
-	void edge_search(const Mat & img, Mat prob, const Mat & mask, Mat & debug_mark, bool multi_thread);
+	void edge_search(const Mat & img, Mat & prob, const Mat & via_mark, Mat & debug_mark, bool multi_thread);
 };
 
 

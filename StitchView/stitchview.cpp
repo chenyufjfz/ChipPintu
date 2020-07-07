@@ -226,6 +226,14 @@ void write_edge_corner(const LayerFeature * lf, string project_path, bool fc_val
 			case EDGE_HAS_CORNER:
 				pos_z(y, x) = (ed->min_num <= 2) ? 0 : 1;
 				break;
+			case EDGE_BLACK:
+			case EDGE_NEARLY_BLACK:
+			case EDGE_BUS_SHU:
+			case EDGE_BUS_HENG:
+			case EDGE_BUS_XIE:
+			case EDGE_BUS_XIE2:
+				pos_z(y, x) = 1; //TODO add pos_z for x and y
+				break;
 			default:
 				pos_z(y, x) = 0;
 				break;
@@ -440,6 +448,7 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	new_nail_num = 0;
 	ba = BundleAdjustInf::create_instance(2);
 	license = "";
+	span_tree_dir = 2;
 }
 
 StitchView::~StitchView()
@@ -624,25 +633,43 @@ void StitchView::paintEvent(QPaintEvent *)
 							else
 								painter.drawText(dst_edge_center + QPoint(-60, -8), val);
 #if FUNCTION_MASK & ALLOW_DISPLAY_SPAN_TREE
+							/*
 							if (!lf[layer]->corner_info.empty()) {
 								unsigned long long info = lf[layer]->corner_info(y, x)[1];
-								info = info << 32 | lf[layer]->corner_info(y, x)[0];
+								info = info << 32 | (unsigned) lf[layer]->corner_info(y, x)[0];
 								int span_mask = (info >> i * 2 + 48) & 3;
 								if (span_mask) {
 									painter.setPen(QPen(Qt::cyan));
 									painter.setBrush(QBrush(Qt::cyan));
 									if (i == 1) {
 										if (span_mask & 1)
-											painter.drawLine(dst_edge_center + QPoint(0, 13), dst_edge_center + QPoint(0, 7));
+											painter.drawLine(dst_edge_center + QPoint(-30, 13), dst_edge_center + QPoint(-30, 7));
 										if (span_mask & 2)
-											painter.drawLine(dst_edge_center + QPoint(3, 10), dst_edge_center + QPoint(-3, 10));
+											painter.drawLine(dst_edge_center + QPoint(3, -20), dst_edge_center + QPoint(-3, -20));
 									}
 									else {
 										if (span_mask & 1)
-											painter.drawLine(dst_edge_center + QPoint(10, 3), dst_edge_center + QPoint(10, -3));
+											painter.drawLine(dst_edge_center + QPoint(-20, 3), dst_edge_center + QPoint(-20, -3));
 										if (span_mask & 2)
-											painter.drawLine(dst_edge_center + QPoint(13, 0), dst_edge_center + QPoint(7, 0));
+											painter.drawLine(dst_edge_center + QPoint(13, -30), dst_edge_center + QPoint(7, -30));
 									}
+								}
+							}
+							*/
+							if (span_tree_edges.find(ed->edge_idx) != span_tree_edges.end()) {
+								painter.setPen(QPen(Qt::magenta));
+								painter.setBrush(QBrush(Qt::magenta));
+								if (i == 1) {
+									if (span_tree_dir == 0)
+										painter.drawLine(dst_edge_center + QPoint(0, 15), dst_edge_center + QPoint(0, 5));
+									if (span_tree_dir == 1)
+										painter.drawLine(dst_edge_center + QPoint(5, 10), dst_edge_center + QPoint(-5, 10));
+								}
+								else {
+									if (span_tree_dir == 0)
+										painter.drawLine(dst_edge_center + QPoint(10, 5), dst_edge_center + QPoint(10, -5));
+									if (span_tree_dir == 1)
+										painter.drawLine(dst_edge_center + QPoint(15, 0), dst_edge_center + QPoint(5, 0));
 								}
 							}
 #endif
@@ -669,7 +696,7 @@ void StitchView::paintEvent(QPaintEvent *)
 					}
 					else {
 						unsigned long long info = lf[layer]->corner_info(y, x)[1];
-						info = info << 32 | lf[layer]->corner_info(y, x)[0];
+						info = info << 32 | (unsigned) lf[layer]->corner_info(y, x)[0];
 						QPoint center = (dst_corner - view_rect.topLeft()) / scale;
 #if FUNCTION_MASK & ALLOW_DISPLAY_CORNER
 						short val_x = info & 0xffff;
@@ -1170,7 +1197,8 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 	case IDLE: 
 	if (layer != ABS_LAYER) {
 		Point src_point = ri->dst2src(layer, TOPOINT(mouse_point));
-		if (QApplication::keyboardModifiers() == Qt::ShiftModifier || QApplication::keyboardModifiers() == Qt::ControlModifier) {
+		if (QApplication::keyboardModifiers() == Qt::ShiftModifier || QApplication::keyboardModifiers() == Qt::ControlModifier
+			|| QApplication::keyboardModifiers() == Qt::AltModifier) {
 			int y = may_choose.y(), x = may_choose.x();
 			//1 find nearest edge to fix
 			Point src_corner(lf[layer]->cpara.offset(y, x)[1], lf[layer]->cpara.offset(y, x)[0]);
@@ -1203,6 +1231,31 @@ void StitchView::mousePressEvent(QMouseEvent *event)
 					min_dis = abs(dis.x) + abs(dis.y);
 					choose = i;
 				}
+			}
+			if (QApplication::keyboardModifiers() == Qt::AltModifier) {
+				unsigned edge_idx = 0xffffffff;
+				switch (choose) {
+				case 0:
+					edge_idx = MAKE_EDGE_IDX(x - 1, y, 1);
+					break;
+				case 1:
+					edge_idx = MAKE_EDGE_IDX(x, y - 1, 0);
+					break;
+				case 2:
+					edge_idx = MAKE_EDGE_IDX(x, y, 0);
+					break;
+				case 3:
+					edge_idx = MAKE_EDGE_IDX(x, y, 1);
+					break;
+				}
+				if (edge_idx == 0xffffffff)
+					break;
+				span_tree_dir = (span_tree_dir + 1) % 3;
+				if (span_tree_dir == 2)
+					span_tree_edges.clear();
+				else
+					find_span_tree(edge_idx, span_tree_dir);
+				break;				
 			}
 			if (QApplication::keyboardModifiers() == Qt::ShiftModifier) {
 				unsigned edge_idx = 0xffffffff;
@@ -2078,7 +2131,8 @@ void StitchView::to_state_change_nail() {
 	mouse_state = ChangeNail;
 }
 
-int StitchView::output_layer(int _layer, string pathname, int output_format) {
+int StitchView::output_layer(int _layer, string pathname, int output_format, int qua) {
+#ifndef CVE_MAC_LIMIT
 	if (compute_feature.isRunning()) {
 		QMessageBox::information(this, "Info", "Prepare is running, can't output layer");
 		return -2;
@@ -2141,7 +2195,7 @@ int StitchView::output_layer(int _layer, string pathname, int output_format) {
 					QByteArray ba;
 					QBuffer buffer(&ba);
 					buffer.open(QIODevice::WriteOnly);
-					imgs[i].save(&buffer, "JPG", IMAGE_OUTPUT_QUALITY);
+					imgs[i].save(&buffer, "JPG", qua /*IMAGE_OUTPUT_QUALITY*/);
 					vector<uchar> buff;
 					buff.resize(ba.size());
 					memcpy(buff.data(), ba.data(), ba.size());
@@ -2190,6 +2244,7 @@ int StitchView::output_layer(int _layer, string pathname, int output_format) {
 		delete ic;
 	}
 	emit notify_progress(0);
+#endif
 	return 0;
 }
 
@@ -2277,6 +2332,105 @@ int StitchView::layer_down(int _layer)
     update_title();
 	update();
 	return 0;
+}
+
+void StitchView::find_span_tree(int edge_idx, int compute_dir)
+{
+	span_tree_edges.clear();
+	if (lf[layer]->corner_info.empty())
+		return;
+	int x = EDGE_X(edge_idx);
+	int y = EDGE_Y(edge_idx);
+	unsigned img_idx0, img_idx1;
+	if (EDGE_E(edge_idx)) {
+		img_idx0 = MAKE_IMG_IDX(x, y);
+		img_idx1 = MAKE_IMG_IDX(x + 1, y);
+	}
+	else {
+		img_idx0 = MAKE_IMG_IDX(x, y);
+		img_idx1 = MAKE_IMG_IDX(x, y + 1);
+	}
+	vector<pair<unsigned, unsigned> > search_queue;
+	int head = -1;
+	search_queue.push_back(make_pair(img_idx0, 0x7fffffff));
+	bool found = false;
+	//following do broad first search
+	while (search_queue.size() < lf[layer]->cpara.img_num_w * lf[layer]->cpara.img_num_h - 1
+		&& head < (int) search_queue.size() && !found) {
+		pair<unsigned, unsigned> img_parent = search_queue[++head];
+		for (int i = 0; i < 4; i++) {
+			int x0 = IMG_X(img_parent.first); //x0, y0, e0 is edge idx
+			int y0 = IMG_Y(img_parent.first);
+			int e0 = (i == DIR_UP || i == DIR_DOWN) ? 0 : 1;
+			unsigned long long edge_mask = 1ULL << (e0 * 2 + compute_dir + 48);
+			unsigned long long info;
+			if (i == DIR_UP)
+				y0--;
+			if (i == DIR_LEFT)
+				x0--;
+			if (x0 < 0 || y0 < 0)
+				continue;
+			if (e0) {
+				if (x0 + 1 >= lf[layer]->corner_info.cols)
+					continue;
+				info = lf[layer]->corner_info(y0, x0 + 1)[1];
+				info = info << 32 | (unsigned) lf[layer]->corner_info(y0, x0 + 1)[0];
+			}
+			else {
+				if (y0 + 1 >= lf[layer]->corner_info.rows)
+					continue;
+				info = lf[layer]->corner_info(y0 + 1, x0)[1];
+				info = info << 32 | (unsigned) lf[layer]->corner_info(y0 + 1, x0)[0];
+			}
+			if (info & edge_mask) { //push new image idx
+				if (i == DIR_DOWN)
+					y0++;
+				if (i == DIR_RIGHT)
+					x0++; //now x0, y0 is image idx
+				if (x0 >= lf[layer]->cpara.img_num_w || y0 >= lf[layer]->cpara.img_num_h)
+					continue; //it seems this line can be deleted, because it already checked,
+				unsigned img_idx = MAKE_IMG_IDX(x0, y0);
+				if (img_parent.second != 0x7fffffff && img_idx == search_queue[img_parent.second].first)
+					continue;
+				if (img_idx == img_idx1) {
+					found = true;
+					break;
+				}
+				search_queue.push_back(make_pair(img_idx, head));
+			}
+		}
+	}
+	if (found) {
+		if (IMG_X(img_idx0) == IMG_X(img_idx1)) {
+			if (IMG_Y(img_idx1) == IMG_Y(img_idx0) + 1)
+				span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx0), IMG_Y(img_idx0), 0));
+			else
+				span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx1), IMG_Y(img_idx1), 0));
+		}
+		if (IMG_Y(img_idx0) == IMG_Y(img_idx1)) {
+			if (IMG_X(img_idx1) == IMG_X(img_idx0) + 1)
+				span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx0), IMG_Y(img_idx0), 1));
+			else
+				span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx1), IMG_Y(img_idx1), 1));
+		}
+		do {
+			unsigned img_idx = search_queue[head].first;
+			if (IMG_X(img_idx) == IMG_X(img_idx1)) {
+				if (IMG_Y(img_idx1) == IMG_Y(img_idx) + 1)
+					span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx), IMG_Y(img_idx), 0));
+				else
+					span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx1), IMG_Y(img_idx1), 0));
+			}
+			if (IMG_Y(img_idx) == IMG_Y(img_idx1)) {
+				if (IMG_X(img_idx1) == IMG_X(img_idx) + 1)
+					span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx), IMG_Y(img_idx), 1));
+				else
+					span_tree_edges.insert(MAKE_EDGE_IDX(IMG_X(img_idx1), IMG_Y(img_idx1), 1));
+			}
+			img_idx1 = img_idx;
+			head = search_queue[head].second;
+		} while (head != 0x7fffffff);
+	}
 }
 
 double StitchView::refilter_edge(int _layer, int w0, int w1, int option)

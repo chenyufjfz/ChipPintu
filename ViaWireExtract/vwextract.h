@@ -12,7 +12,7 @@ protected:
 	int layer_min, layer_max, del;
 	int via_diameter_min, via_diameter_max;
 	vector<Mat> via_mark;
-	vector<Mat> edge_mark;
+	vector<Mat> edge_mark, edge_mark1, edge_mark2;
 public:
 	VWExtractML();
 	~VWExtractML() {}
@@ -20,8 +20,8 @@ public:
 	int set_extract_param(int layer, int , int , int , int , int , int , int , int , float );
 	Mat get_mark(int layer);
 	Mat get_mark1(int layer);
-	Mat get_mark2(int ) { return Mat();}
-	Mat get_mark3(int) { return Mat(); }
+	Mat get_mark2(int layer);
+	Mat get_mark3(int layer);
 	int train(string img_name, vector<MarkObj> & obj_sets);
 	int extract(string file_name, QRect rect, vector<MarkObj> & obj_sets);
 	int train(vector<ICLayerWrInterface *> &, vector<MarkObj> &);

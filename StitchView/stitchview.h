@@ -5,6 +5,7 @@
 #include <vector>
 #include <QImage>
 #include <map>
+#include <set>
 #include <list>
 #include <string>
 #include <functional>
@@ -210,6 +211,7 @@ protected:
 	//Following is for bundleadjust
 	BundleAdjustInf * ba;
 	int auto_save;
+	int span_tree_dir;
 	//upper is for bundleadjust
 
 	//Following is for nail
@@ -222,6 +224,7 @@ protected:
 	void notify_nail_info(int layer);
 	Nail search_nail(LayerFeature * lf, Point p, int range);
 	vector<double> generate_mapxy();
+	set<unsigned> span_tree_edges;
 	int which_layer(LayerFeature * l);
 	void self_check_offset(int _layer);
 	Nail cur_nail;
@@ -274,11 +277,12 @@ public:
 	void set_ceview(CornerEdge * _ceview);
 	void to_state_add_nail();
 	void to_state_change_nail();
-	int output_layer(int _layer, string pathname, int output_format=1);
+	int output_layer(int _layer, string pathname, int output_format=1, int qua=75);
 	//if _layer==-1, means erase current layer
 	int delete_layer(int _layer);
 	int layer_up(int _layer);
 	int layer_down(int _layer);
+	void find_span_tree(int edge_idx, int compute_dir);
     double refilter_edge(int _layer, int w0, int w1, int option);
 	void update_title();
 	QPoint point2choose(QPoint mouse_point);

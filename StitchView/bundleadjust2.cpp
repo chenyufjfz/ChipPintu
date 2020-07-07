@@ -2496,12 +2496,11 @@ void BundleAdjust2::output()
 				continue;
 			else { //pick pe, and bind img0 and img1 to same set
 				unsigned long long edge_mask = 1ULL << (EDGE_E(pe->diff->edge_idx) * 2 + compute_dir + 48);
-				if (edge_cost[i].first > COST_BIGER_THAN_AVG / 2) {
-					if (EDGE_E(pe->diff->edge_idx))
-						corner_info(EDGE_Y(pe->diff->edge_idx), EDGE_X(pe->diff->edge_idx) + 1) |= edge_mask;
-					else
-						corner_info(EDGE_Y(pe->diff->edge_idx) + 1, EDGE_X(pe->diff->edge_idx)) |= edge_mask;
-                }
+				if (EDGE_E(pe->diff->edge_idx))
+					corner_info(EDGE_Y(pe->diff->edge_idx), EDGE_X(pe->diff->edge_idx) + 1) |= edge_mask;
+				else
+					corner_info(EDGE_Y(pe->diff->edge_idx) + 1, EDGE_X(pe->diff->edge_idx)) |= edge_mask;
+                
 				total_cost += edge_cost[i].first;
 				pe->flagb |= 0x80000000;
 				if (img0_root < img1_root)
@@ -2515,7 +2514,7 @@ void BundleAdjust2::output()
 				}
 			}
 		}
-		qInfo("BundleAdjust2 total_cost=%f", total_cost / 32);
+		qInfo("BundleAdjust2 total_cost=%f, connect_num=%d", total_cost / 32, connect_num);
 		//3 connect all selected edge
 		vector<unsigned> search_queue;
 		search_queue.push_back(0);
@@ -2595,7 +2594,6 @@ void BundleAdjust2::output()
 		cost = (cost << 32) | ((unsigned long long) sft(y, x) << 45);
 		corner_info(y, x) |= cost;
 	}
-
 }
 
 int BundleAdjust2::arrange(const FeatExt & fet, int _img_num_h, int _img_num_w, const vector<FixEdge> * fe, Size s, int option)

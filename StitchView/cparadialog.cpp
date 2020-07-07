@@ -136,13 +136,14 @@ void CparaDialog::on_config_file_textChanged(const QString &arg1)
 			}
 		}
 		if (state == 1) {
-			int v1, v2, v3, v4, v5, v6;
-			if (sscanf(item.c_str(), "LR err distribute,%d %d,%d %d,%d %d,", &v1, &v2, &v3, &v4, &v5, &v6) != 6) {
+			int v1, v2, v3, v4, v5, v6, v7, v8, v9, v10;
+			if (sscanf(item.c_str(), "LR err distribute,%d %d,%d %d,%d %d,%d %d,%d %d,", &v1, &v2, 
+				&v3, &v4, &v5, &v6, &v7, &v8, &v9, &v10) != 10) {
 				config_file.clear();
 				break;
 			}
-			cpara.max_lr_xshift = v5; //97% cover
-			cpara.max_lr_yshift = v6;
+			cpara.max_lr_xshift = v9; //99% cover
+			cpara.max_lr_yshift = v10;
 			cx.push_back(Point(0, 0));
 			for (int i = 0; i < cpara.img_num_w - 1; i++) {
 				getline(fr, item, ',');
@@ -158,13 +159,14 @@ void CparaDialog::on_config_file_textChanged(const QString &arg1)
 				cx[1].x * (cpara.img_num_w - 1), cx[1].y * (cpara.img_num_w - 1), cx.back().x, cx.back().y);
 		}
 		if (state == 2) {
-			int v1, v2, v3, v4, v5, v6;
-			if (sscanf(item.c_str(), "UD err distribute,%d %d,%d %d,%d %d,", &v1, &v2, &v3, &v4, &v5, &v6) != 6) {
+			int v1, v2, v3, v4, v5, v6, v7, v8, v9, v10;
+			if (sscanf(item.c_str(), "UD err distribute,%d %d,%d %d,%d %d,%d %d,%d %d,", &v1, &v2,
+				&v3, &v4, &v5, &v6, &v7, &v8, &v9, &v10) != 10) {
 				config_file.clear();
 				break;
 			}
-			cpara.max_ud_xshift = v5;
-			cpara.max_ud_yshift = v6;
+			cpara.max_ud_xshift = v9;
+			cpara.max_ud_yshift = v10;
 			cy.push_back(Point(0, 0));
 			for (int i = 0; i < cpara.img_num_h - 1; i++) {
 				getline(fr, item, ',');
