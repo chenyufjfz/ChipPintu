@@ -20,9 +20,12 @@ using namespace cv;
 #endif
 #endif
 
-#define VIA_MINIMUM_GRAD -1000
-#define NOVIA_MINIMUM_GRAD -1500
-#define CIRCLE_EDGE_AVG_LEN 6
+#define VIA_MINIMUM_GRAD			-1000
+#define NOVIA_MINIMUM_GRAD			-1500
+#define CIRCLE_EDGE_AVG_LEN			6
+#define TRAIN_NUM_TH				5
+#define MIN_DARK_GAP				5
+#define EDGE_GRAD_GAP				4
 
 int dxy[8][2] = {
 	//y , x
@@ -68,6 +71,8 @@ int dir_3[8] = {
 	DIR_LEFT,
 	DIR_UP
 };
+
+bool lessPoint2(const Point & a, const Point & b) { return a.x < b.x; }
 
 bool contain_dir(int d1, int d2)
 {
@@ -427,6 +432,104 @@ void deldir(const string &path)
 			file.dir().remove(file.fileName());
 		else
 			deldir(file.absoluteFilePath().toStdString());
+	}
+}
+
+/*
+input pt1, pt2
+output pts, line points include [pt1,pt2)
+go with - / or | /
+*/
+void get_line_pts(Point pt1, Point pt2, vector <Point> & pts)
+{
+	int dx = abs(pt2.x - pt1.x);
+	int dy = abs(pt2.y - pt1.y);
+	bool dir = dx > dy;
+	int ix = (pt2.x - pt1.x > 0) ? 1 : -1;
+	int iy = (pt2.y - pt1.y > 0) ? 1 : -1;
+	pts.clear();
+	if (dir) {
+		int dy2 = 2 * dy;
+		int dy2dx2 = 2 * dy - 2 * dx;
+		int d = 2 * dy - dx;
+		int x = pt1.x, y = pt1.y;
+		for (; x != pt2.x; x += ix) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dy2;
+			else {
+				d += dy2dx2;
+				y += iy;
+			}
+		}
+		CV_Assert(y == pt2.y);
+	}
+	else {
+		int dx2 = 2 * dx;
+		int dx2dy2 = 2 * dx - 2 * dy;
+		int d = 2 * dx - dy;
+		int x = pt1.x, y = pt1.y;
+		for (; y != pt2.y; y += iy) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dx2;
+			else {
+				d += dx2dy2;
+				x += ix;
+			}
+		}
+		CV_Assert(x == pt2.x);
+	}
+}
+
+/*
+input pt1, pt2
+output pts, line points include [pt1,pt2]
+go with - |
+*/
+void get_line_pts2(Point pt1, Point pt2, vector <Point> & pts)
+{
+	int dx = abs(pt2.x - pt1.x);
+	int dy = abs(pt2.y - pt1.y);
+	bool dir = dx > dy;
+	int ix = (pt2.x - pt1.x > 0) ? 1 : -1;
+	int iy = (pt2.y - pt1.y > 0) ? 1 : -1;
+	pts.clear();
+	if (dir) {
+		int dy2 = 2 * dy;
+		int dy2dx2 = 2 * dy - 2 * dx;
+		int d = 2 * dy - dx;
+		int x = pt1.x, y = pt1.y;
+		for (; x != pt2.x; x += ix) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dy2;
+			else {
+				d += dy2dx2;
+				pts.push_back(Point(x + ix, y));
+				y += iy;
+			}
+		}
+		pts.push_back(Point(x, y));
+		CV_Assert(y == pt2.y);
+	}
+	else {
+		int dx2 = 2 * dx;
+		int dx2dy2 = 2 * dx - 2 * dy;
+		int d = 2 * dx - dy;
+		int x = pt1.x, y = pt1.y;
+		for (; y != pt2.y; y += iy) {
+			pts.push_back(Point(x, y));
+			if (d < 0)
+				d += dx2;
+			else {
+				d += dx2dy2;
+				pts.push_back(Point(x, y + iy));
+				x += ix;
+			}
+		}
+		pts.push_back(Point(x, y));
+		CV_Assert(x == pt2.x);
 	}
 }
 
@@ -1091,6 +1194,13 @@ EdgeFeatureML::EdgeFeatureML()
 	is_valid = false;
 }
 
+/*
+Input image raw image
+Input grad, raw image grad
+Input o, edge location
+output e: e[0] is gray level, e[1] is grad in dir, e[2] is dir
+inout: dir, if dir<0, find max grad dir, else  search specified dir.
+*/
 void EdgeFeatureML::get_feature_vector(const Mat & img, const Mat &grad, Point o, int e[], int & dir)
 {
 	CV_Assert(o.x >= 4 && o.y >= 4 && o.x < img.cols - 4 && o.y < img.rows - 4);
@@ -1156,40 +1266,6 @@ void EdgeFeatureML::get_feature_vector(const Mat & img, const Mat &grad, Point o
 	e[2] = dir;
 }
 
-#if 1
-int EdgeFeatureML::compute_prob(const int e[], uchar prob[])
-{
-	Mat sample = (Mat_<float>(1, EdgeFeatureVecLen - 1) << e[0], e[1]);
-	float response = -insu_svm[e[2]]->predict(sample, true);
-	int total = POINT_TOT_PROB;
-	if (response >= 1.0) {
-		prob[POINT_IS_INSU] = total;
-		prob[POINT_IS_WIRE] = 0;
-		return 0;
-	}
-	prob[POINT_IS_INSU] = (response > -1) ? total * (1 + response) / 2 : 0;
-	total -= prob[POINT_IS_INSU];
-	response = -wire_svm[e[2]]->predict(sample, true);
-	prob[POINT_IS_WIRE] = (response > 1) ? total :
-		(response > -1) ? total * (1 + response) / 2 : 0;
-	CV_Assert(total - prob[POINT_IS_WIRE] >= 0);
-	return total - prob[POINT_IS_WIRE];
-}
-#else
-int EdgeFeatureML::compute_prob(const int e[], uchar prob[])
-{
-	Mat sample = (Mat_<float>(1, EdgeFeatureVecLen - 1) << e[0], e[1]);
-	float insu = max(-insu_svm[e[2]]->predict(sample, true) + 1, 0.0f);
-	float wire = max(-wire_svm[e[2]]->predict(sample, true) + 1, 0.0f);
-	float edge = max(-edge_svm[e[2]]->predict(sample, true) + 1, 0.0f);
-	float total = insu + wire + edge;
-	prob[POINT_IS_INSU] = insu / total * POINT_TOT_PROB;
-	prob[POINT_IS_WIRE] = wire / total * POINT_TOT_PROB;
-	CV_Assert(POINT_TOT_PROB - prob[POINT_IS_WIRE] - prob[POINT_IS_INSU] >= 0);
-	return POINT_TOT_PROB - prob[POINT_IS_WIRE] - prob[POINT_IS_INSU];
-}
-#endif
-
 bool EdgeFeatureML::feature_extract(const Mat & img, Point & org, Point & range, int label, vector<vector<int> > & features)
 {
 	Mat grad;
@@ -1221,18 +1297,18 @@ bool EdgeFeatureML::feature_extract(const Mat & img, Point & org, Point & range,
 		features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge wire-insu
 		org1.y += dxy[dir][0] * 2;
 		org1.x += dxy[dir][1] * 2;
-		int dir1 = -1;
+		int dir1 = dir_2[dir]; //use edge dir instead of grad dir
 		get_feature_vector(img, grad, org1, e, dir1);
 		if (e[0] + e[1] + MINIMUM_EDGE_GRAD < features.back()[0] + features.back()[1]) {
-			e[EdgeFeatureVecLen] = EDGE_FEATURE | EDGE_IS_INSU;
+			e[EdgeFeatureVecLen] = EDGE_FEATURE | EDGE_IS_INSU | (label & EDGE_NEAR_VIA);
 			features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge insu
 		}
 		org1.y -= dxy[dir][0] * 5;
 		org1.x -= dxy[dir][1] * 5;
-		dir1 = -1;
+		dir1 = dir_2[dir]; //use edge dir instead of grad dir
 		get_feature_vector(img, grad, org1, e, dir1);
 		range = org1;
-		e[EdgeFeatureVecLen] = EDGE_FEATURE | EDGE_IS_WIRE; //push wire
+		e[EdgeFeatureVecLen] = EDGE_FEATURE | EDGE_IS_WIRE | (label & EDGE_NEAR_VIA); //push wire
 		features.push_back(vector<int>(e, e + EdgeFeatureVecLen + 1)); //push edge insu
 	}
 	else
@@ -1253,152 +1329,232 @@ bool EdgeFeatureML::feature_extract(const Mat & img, Point & org, Point & range,
 	return true;
 }
 
+/*
+Input low: sorted from big to small
+Input high: sorted from small to big
+Output: pdf, probability distributed function
+Inout: tran_zone, tran_zone.start and .end is for transition zone
+Return best seperate point
+*/
+int compute_pdf(const vector<int> & low, const vector<int> & high, vector<int> & pdf, Range &tran_zone)
+{
+	int min_s = 100000, best_start, best_end;
+	int margin = tran_zone.start;
+	tran_zone = Range(0, pdf.size() - 1);
+	for (int i = 0; i < (int)pdf.size(); i++) {
+		int s = 0; //s is wrong number
+		for (int j = 0; j < (int)low.size(); j++)
+		if (low[j] >= i) //acc low number >= i
+			s++;
+		else
+			break;
+		for (int j = 0; j < (int)high.size(); j++)
+		if (high[j] <= i) //acc low number <= i
+			s++;
+		else
+			break;
+		if (min_s > s) { //best_start and best_end is location with min wrong number={(low number > location) + (high number < location)}
+			min_s = s;
+			best_start = i;
+			best_end = i;
+		} 
+		else
+		if (min_s == s)
+			best_end = i;
+	}
+	int best_sep = (best_start + best_end) / 2; //best_start and best_end has same wrong number
+	margin = min(margin, best_sep / 2);
+	for (int i = 0; i < pdf.size(); i++)
+		pdf[i] = (i < best_sep) ? 0 : (i == best_sep) ? POINT_TOT_PROB / 2 : POINT_TOT_PROB;
+	for (int i = best_sep; i < (int)pdf.size(); i++) {
+		if (low[0] >= i || i==best_sep) {
+			pdf[i] = POINT_TOT_PROB / 2;
+			for (int j = i + 1; j < min(i + margin, (int)pdf.size()); j++) //extend to margin
+				pdf[j] = POINT_TOT_PROB / 2 + POINT_TOT_PROB * (j - i) / (2 * margin);
+			continue;
+		}
+		int s = 0, s1 = 0; //s is low number which is higher than i - margin
+		for (int j = 0; j < (int)low.size(); j++)
+		if (low[j] + margin >= i)
+			s++;
+		else
+			break; //above already extend margin, quit directly
+		if (s == 0) {
+			tran_zone.end = i;
+			break;
+		}
+		for (int j = 0; j < (int)high.size(); j++)
+		if (high[j] < i)
+			s1++;
+		else
+			break;
+		s1 = high.size() - s1; //s1 is high number which is higher than i
+		int v = POINT_TOT_PROB - POINT_TOT_PROB * s * high.size() / (s1 * low.size()); //v is (low number > location) / (high number > location)
+		if (v < pdf[i - 1])
+			v = pdf[i - 1];
+		pdf[i] = min(v, pdf[i]);
+	}
+	for (int i = best_sep; i >= 0; i--) {
+		if (high[0] <= i || i == best_sep) {
+			pdf[i] = POINT_TOT_PROB / 2;
+			for (int j = i - 1; j > max(0, i - margin); j--) //extend to margin
+				pdf[j] = POINT_TOT_PROB / 2 - POINT_TOT_PROB * (i - j) / (2 * margin);
+			continue;
+		}
+		int s = 0, s1 = 0; //s is hign number which is lower than i + margin
+		for (int j = 0; j < (int)high.size(); j++)
+		if (high[j] <= i + margin)
+			s++;
+		else
+			break;
+		if (s == 0) {
+			tran_zone.start = i;
+			break;
+		}
+		for (int j = 0; j < (int)low.size(); j++)
+		if (low[j] > i)
+			s1++;
+		else
+			break;
+		s1 = low.size() - s1; //s1 is low number which is lower than i
+		int v = POINT_TOT_PROB * s * low.size() / (s1 * high.size());
+		if (v > pdf[i + 1])
+			v = pdf[i + 1];
+		pdf[i] = max(v, pdf[i]);
+	}
+	for (int i = 0; i < (int)pdf.size() - 1; i++)
+		CV_Assert(pdf[i] <= pdf[i + 1]);
+	return best_sep;
+}
+
 bool EdgeFeatureML::train(const vector<vector<int> > & features) 
 {
-	int edge_num = 0;
 	int wire_num = 0;
 	int wire_bright_max = 0;
 
 	//1 prepare insu vector and train insu svm
-	vector<vector<int> > train_insu(features.size());
-	vector<int> label_insu(features.size());
-	for (int i = 0; i < (int)features.size(); i++) {
-		const vector<int> & v = features[i];
-		CV_Assert(v.size() == EdgeFeatureVecLen + 1);
-		label_insu[i] = (v[EdgeFeatureVecLen] & EDGE_IS_INSU) ? 1 : -1;
+	vector<int> insu_dark;
+	vector<int> wire_dark;
+	vector<Point> edge_point;
+	vector<Point> wi_point;
+	for (auto & v : features) {
 		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE) {
-			wire_num++;
-			wire_bright_max = max(wire_bright_max, v[0]);
+			wire_dark.push_back(v[0]);
+			wi_point.push_back(Point(v[0], v[1]));
 		}
+		else
+		if (v[EdgeFeatureVecLen] & EDGE_IS_INSU) {
+			insu_dark.push_back(v[0]);
+			wi_point.push_back(Point(v[0], v[1]));
+		}
+		else
 		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE_INSU)
-			edge_num++;
-		train_insu[i].resize(EdgeFeatureVecLen - 1); //v[EdgeFeatureVecLen-1] is dir
-		for (int j = 0; j < EdgeFeatureVecLen - 1; j++)
-			train_insu[i][j] = v[j];
+			edge_point.push_back(Point(v[0], v[1]));
 	}
-	if (edge_num == 0 || wire_num == 0 || (int)features.size() == edge_num + wire_num) {
+	if (wire_dark.empty() || insu_dark.empty() || edge_point.empty()) {
 		is_valid = false;
 		return false;
 	}
-	insu_svm[0].reset(train_svm(train_insu, label_insu, 0.5, 6, true)); //train insu SVM
-	for (int i = 1; i < 8; i++)
-		insu_svm[i] = insu_svm[0];
+	//2 compute insu and wire pdf
+	sort(wire_dark.begin(), wire_dark.end()); //dark for wire
+	sort(insu_dark.begin(), insu_dark.end(), greater<int>());
 
-	//2 prepare wire vector and train wire svm
-	qInfo("edge train, insu_num=%d, edge_num=%d, wire_num=%d, wire_bright_max=%d", features.size() - edge_num - wire_num,
-		edge_num, wire_num, wire_bright_max);
-	vector<vector<int> > train_wire(wire_num + edge_num + features.size() + 1);
-	vector<int> label_wire(wire_num + edge_num + features.size() + 1);
-	vector<vector<int> > train_edge(wire_num + edge_num + features.size() + 1);
-	vector<int> label_edge(wire_num + edge_num + features.size() + 1);
-	int i = 0;
-	train_wire[i].resize(EdgeFeatureVecLen - 1);
-	train_edge[i].resize(EdgeFeatureVecLen - 1);
-	for (int j = 0; j < EdgeFeatureVecLen - 1; j++) { //let via-insu not be false judge as wire-insu
-		train_wire[i][j] = (j == 0) ? wire_bright_max : 200;
-		train_edge[i][j] = train_wire[i][j];
+	vector<int> wire_pdf(MAX_DARK_LEVEL);
+	Range wi_range(MIN_DARK_GAP, MIN_DARK_GAP);
+	int dark_sep = compute_pdf(insu_dark, wire_dark, wire_pdf, wi_range);
+	qInfo("train, dark_sep=%d, insu_high=%d, wire_low=%d", dark_sep, wi_range.start, wi_range.end);
+
+	//3 compute edge pdf for each dark level
+	vector<vector<int> > edge_pdf; //edge_pdf is pdf for different tp, edge_pdf[0] is for tp[0]
+	vector<int> tp; //tp is dark level
+	if (edge_point.size() <= TRAIN_NUM_TH) {
+		tp.push_back(0);
+		vector<int> wi_grad;
+		vector<int> edge_grad;
+		for (auto & v : features) {
+			if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE)
+				wi_grad.push_back(v[1]);
+			else
+			if (v[EdgeFeatureVecLen] & EDGE_IS_INSU)
+				wi_grad.push_back(v[1]);
+			else
+			if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE_INSU)
+				edge_grad.push_back(v[1]);
+		}
+		sort(edge_grad.begin(), edge_grad.end());
+		sort(wi_grad.begin(), wi_grad.end(), greater<int>());
+		vector<int> temp_pdf(MAX_GRAD_LEVEL);
+		Range temp(EDGE_GRAD_GAP, EDGE_GRAD_GAP);
+		int edge_sep = compute_pdf(wi_grad, edge_grad, temp_pdf, temp);
+		edge_pdf.push_back(temp_pdf);
+		qInfo("train, edge_sep=%d, edge_high=%d, edge_low=%d", edge_sep, temp.start, temp.end);
 	}
-	label_wire[i] = 1; //push wire vector
-	label_edge[i++] = -1;
-	for (auto & v : features) {
-		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE) {
-			train_wire[i].resize(EdgeFeatureVecLen - 1);
-			train_edge[i].resize(EdgeFeatureVecLen - 1);
-			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
-				train_wire[i][j] = v[j];
-				train_edge[i][j] = train_wire[i][j];
-			}
-			label_wire[i] = 1; //push wire vector
-			label_edge[i++] = -1;
-			train_wire[i].resize(EdgeFeatureVecLen - 1);
-			train_edge[i].resize(EdgeFeatureVecLen - 1);
-			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
-				train_wire[i][j] = (j == 0) ? v[j] : 0;
-				train_edge[i][j] = train_wire[i][j];
-			}
-			label_wire[i] = 1; //push wire vector
-			label_edge[i++] = -1;
+	else {
+		sort(wi_point.begin(), wi_point.end(), lessPoint2);
+		sort(edge_point.begin(), edge_point.end(), lessPoint2);
+		vector<int> wi_point_acc_x; //wi_point_acc_x is accumulate of wi_point x
+		int acc_temp = 0;
+		for (int i = 0; i < (int)wi_point.size(); i++) {
+			wi_point_acc_x.push_back(acc_temp);
+			acc_temp += wi_point[i].x;
 		}
-		else
-		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE_INSU) {
-			train_wire[i].resize(EdgeFeatureVecLen - 1);
-			train_edge[i].resize(EdgeFeatureVecLen - 1);
-			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
-				train_wire[i][j] = v[j];
-				train_edge[i][j] = train_wire[i][j];
+		for (int i = 0; i < (int) edge_point.size() - TRAIN_NUM_TH + 1; i++) {
+			vector<int> wi_grad;
+			vector<int> edge_grad;
+			int x0 = 0;
+			for (int j = i; j < i + TRAIN_NUM_TH; j++) {
+				edge_grad.push_back(edge_point[j].y);
+				x0 += edge_point[j].x;
 			}
-			label_wire[i] = -1; //push edge vecotr
-			label_edge[i++] = 1;
-			train_wire[i].resize(EdgeFeatureVecLen - 1);
-			train_edge[i].resize(EdgeFeatureVecLen - 1);
-			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) { //wire vector with same v[1], this is to make v[0] as major affect.
-				train_wire[i][j] = (j == 0) ? wire_bright_max : v[j];
-				train_edge[i][j] = train_wire[i][j];
+			int best_diff = 100000, best_idx; //best_idx is best location for wi_point
+			for (int j = 0; j < wi_point_acc_x.size() - TRAIN_NUM_TH; j++) {
+				int x = wi_point_acc_x[j + TRAIN_NUM_TH] - wi_point_acc_x[j];
+				if (abs(x - x0) < best_diff) {
+					best_diff = abs(x - x0);
+					best_idx = j;
+				}
 			}
-			label_wire[i] = 1; //push wire vector
-			label_edge[i++] = -1;
+			for (int j = best_idx; j < best_idx + TRAIN_NUM_TH; j++)
+				wi_grad.push_back(wi_point[j].y);
+			sort(edge_grad.begin(), edge_grad.end()); 
+			sort(wi_grad.begin(), wi_grad.end(), greater<int>());
+			vector<int> temp_pdf(MAX_GRAD_LEVEL);
+			Range temp(EDGE_GRAD_GAP, EDGE_GRAD_GAP);
+			int edge_sep = compute_pdf(wi_grad, edge_grad, temp_pdf, temp);
+			edge_pdf.push_back(temp_pdf);
+			tp.push_back(x0 / TRAIN_NUM_TH);
+			qInfo("train, tp=%d,edge_sep=%d, edge_high=%d, edge_low=%d", tp.back(), edge_sep, temp.start, temp.end);
 		}
-		else {
-			train_wire[i].resize(EdgeFeatureVecLen - 1);
-			train_edge[i].resize(EdgeFeatureVecLen - 1);
-			for (int j = 0; j < EdgeFeatureVecLen - 1; j++) {
-				train_wire[i][j] = v[j];
-				train_edge[i][j] = train_wire[i][j];
-			}
-			label_wire[i] = -1; //push insu vector
-			label_edge[i++] = -1;
-		}
-	}
-	CV_Assert(i == train_wire.size());
-	wire_svm[0].reset(train_svm(train_wire, label_wire, 0.5, 6, true)); //train wire SVM
-	edge_svm[0].reset(train_svm(train_edge, label_edge, 0.5, 6, true)); //train edge SVM
-	for (int i = 1; i < 8; i++) {
-		wire_svm[i] = wire_svm[0];
-		edge_svm[i] = edge_svm[0];
 	}
 
-	//compute prob table
-	memset(wi_prob, 0, sizeof(wi_prob));
-	dark_no_wire = 0, dark_no_insu = 0;
-	grad_wire_th = 255;
-	dark_all_wire = MAX_DARK_LEVEL;
-	for (int dark = 0; dark < MAX_DARK_LEVEL; dark++) {
-		int e[EdgeFeatureVecLen] = { dark, 0, 0 };
-		uchar prob[10];
-		compute_prob(e, prob);
-		if (prob[POINT_IS_INSU] == POINT_TOT_PROB) {
-			dark_no_wire = dark;
-			CV_Assert(dark_no_insu == 0);
-		}
-		else
-		if (prob[POINT_IS_WIRE] == POINT_TOT_PROB) {
-			if (dark_no_insu == 0)
-				dark_no_insu = dark;
-			e[1] = MAX_GRAD_LEVEL - 1;
-			compute_prob(e, prob);
-			if (prob[POINT_IS_WIRE] == POINT_TOT_PROB) {
-				dark_all_wire = dark;
-				break;
+	//4 combine wire_pdf and edge_pdf with linear interpolate
+	memset(wi_prob, 0, sizeof(wi_prob)); 
+	for (int g = 0; g < MAX_GRAD_LEVEL; g++) {
+		for (int dark = 0, j = 0; dark < MAX_DARK_LEVEL; dark++) {
+			int wi_tot;
+			if (dark >= wi_range.end + MIN_DARK_GAP - 1)
+				wi_tot = 0;
+			else
+			if (j >= tp.size()) {
+				int x1 = wi_range.end + MIN_DARK_GAP - 1 - dark;
+				wi_tot = edge_pdf.back()[g] * x1 / (wi_range.end + MIN_DARK_GAP - 1 - tp.back());
 			}
-		}
-		else
-			CV_Assert(dark_no_insu == 0);
-		for (int g0 = 0; g0 < MAX_GRAD_LEVEL; g0++) {
-			e[1] = g0;
-			int edge_prob = compute_prob(e, wi_prob[dark][g0]);
-			if (edge_prob >= POINT_TOT_PROB / 10)
-				grad_wire_th = min(grad_wire_th, edge_prob);
-			if (edge_prob == POINT_TOT_PROB)
-				break;
+			else
+			if (dark < tp[0])
+				wi_tot = edge_pdf[0][g];
+			else
+			if (dark == tp[j]) {
+				wi_tot = edge_pdf[j][g];
+				j++;				
+			}
+			else 
+				wi_tot = (edge_pdf[j][g] * (dark - tp[j - 1]) + edge_pdf[j - 1][g] * (tp[j] - dark)) / (tp[j] - tp[j - 1]);
+			
+			wi_tot = POINT_TOT_PROB - wi_tot;			
+			wi_prob[dark][g][POINT_IS_WIRE] = wi_tot * wire_pdf[dark] / POINT_TOT_PROB;
+			wi_prob[dark][g][POINT_IS_INSU] = wi_tot - wi_prob[dark][g][POINT_IS_WIRE];
 		}
 	}
-	for (int dark = dark_all_wire; dark < MAX_DARK_LEVEL; dark++)
-	for (int g0 = 0; g0 < MAX_GRAD_LEVEL; g0++) {
-		wi_prob[dark][g0][POINT_IS_INSU] = 0;
-		wi_prob[dark][g0][POINT_IS_WIRE] = POINT_TOT_PROB;
-	}
-	qInfo("Edge train, dark_no_wire=%d,dark_no_insu=%d,dark_all_wire=%d,grad_wire=%d",
-		dark_no_wire, dark_no_insu, dark_all_wire, grad_wire_th);
 	is_valid = true;
 	return true;
 }
@@ -1426,9 +1582,9 @@ void EdgeFeatureML::judge(const Mat & img, Mat & grad, Mat & prob, const Mat & v
 		const uchar * p_img = img.ptr<uchar>(y);
 		Vec4b * p_prob = prob.ptr<Vec4b>(y);
 		const uchar * p_mask = via_mark.empty() ? NULL : via_mark.ptr<uchar>(y);
-		Vec3b * p_debugm = debug_mark.empty() ? NULL : debug_mark.ptr<Vec3b>(y);
 		for (int x = EDGE_JUDGE_BORDER; x < img.cols - EDGE_JUDGE_BORDER; x++)
 		if (!p_mask || p_mask[x] == 1) {
+			//following is same as get_feature_vector
 			int dir;
 			const Vec2i * p_gradx = p_grad + x;
 			int gv = p_gradx[0][0];
@@ -1483,7 +1639,7 @@ void EdgeFeatureML::judge(const Mat & img, Mat & grad, Mat & prob, const Mat & v
 				break;
 			}
 			e[1] = abs(e[1]);
-			if (e[0] >= dark_all_wire) {
+			if (e[0] >= MAX_DARK_LEVEL) {
 				p_prob[x][POINT_IS_INSU] = 0;
 				p_prob[x][POINT_IS_WIRE] = POINT_TOT_PROB;
 			} else
@@ -1492,19 +1648,11 @@ void EdgeFeatureML::judge(const Mat & img, Mat & grad, Mat & prob, const Mat & v
 				p_prob[x][POINT_IS_WIRE] = 0;
 			}
 			else {
-				p_prob[x][POINT_IS_INSU] = wi_prob[e[0]][e[1]][POINT_IS_INSU];
+				p_prob[x][POINT_IS_INSU] = wi_prob[e[0]][e[1]][POINT_IS_INSU]; //compute prob based on wi_prob table
 				p_prob[x][POINT_IS_WIRE] = wi_prob[e[0]][e[1]][POINT_IS_WIRE];
 			}
 			p_prob[x][POINT_IS_EDGE_WIRE_INSU] = POINT_TOT_PROB - p_prob[x][POINT_IS_INSU] - p_prob[x][POINT_IS_WIRE];
 			p_prob[x][POINT_DIR] = dir;
-			if (p_debugm) {
-				if (p_prob[x][POINT_IS_INSU] > POINT_TOT_PROB * 0.8)
-					p_debugm[x][POINT_IS_INSU] += 20;
-				if (p_prob[x][POINT_IS_WIRE] > POINT_TOT_PROB * 0.8)
-					p_debugm[x][POINT_IS_WIRE] += 20;
-				if (p_prob[x][POINT_IS_EDGE_WIRE_INSU] > POINT_TOT_PROB * 0.8)
-					p_debugm[x][POINT_IS_EDGE_WIRE_INSU] += 20;
-			}
 		}
 	}
 	for (int y = 0; y < EDGE_JUDGE_BORDER; y++) {
@@ -2058,7 +2206,7 @@ bool ViaML::train(const vector<Mat> & features, float weight)
 	}
 	f2v.get_addition_vec(train_data_svm, label);
 	//train via svm
-	via_svm.reset(train_svm(train_data_svm, label, weight, 6));
+	via_svm.reset(train_svm(train_data_svm, label, weight, 5));
 	is_valid = true;
 	return true;
 }
@@ -2251,6 +2399,50 @@ void VWfeature::clear_feature()
 	retrain_edge = true;
 }
 
+void VWfeature::get_features(vector<MarkObj> & obj_sets)
+{
+	CV_Assert(via_locs.size() == via_features.size() && edge_locs.size() == edge_features.size());
+	for (int i = 0; i < (int)via_locs.size(); i++) {
+		MarkObj o;
+		int label = via_features[i].at<int>(0, 0);
+		o.type = OBJ_POINT;
+		o.type2 = (label & VIA_IS_VIA) ? POINT_NORMAL_VIA0 : POINT_NO_VIA;
+		o.prob = 1;
+		o.state = 0;
+		o.p0 = QPoint(via_locs[i].x, via_locs[i].y);
+		o.p1 = QPoint(via_features[i].at<int>(0, 2), via_features[i].at<int>(0, 3));
+		obj_sets.push_back(o);
+	}		
+	
+	for (int i = 0; i < (int)edge_locs.size(); i++) {
+		MarkObj o;
+		bool same = false;
+		for (int j = 0; j < i; j++)
+		if (edge_locs[j] == edge_locs[i]) {
+			same = true;
+			break;
+		}
+		if (same)
+			continue;
+		int label = edge_features[i][EdgeFeatureVecLen];
+		o.type = OBJ_POINT;
+		o.p0 = QPoint(edge_locs[i].x, edge_locs[i].y);
+		o.p1 = o.p0;
+		if (label & EDGE_IS_WIRE_INSU) {
+			o.type2 = (label & EDGE_NEAR_VIA) ? POINT_WIRE_INSU_V : POINT_WIRE_INSU;
+			int dir = edge_features[i][2];
+			o.p1 += QPoint(dxy[dir][1] * -3, dxy[dir][0] * -3);
+		}
+		if (label & EDGE_IS_WIRE)
+			o.type2 = (label & EDGE_NEAR_VIA) ? POINT_WIRE_V : POINT_WIRE;
+		if (label & EDGE_IS_INSU)
+			o.type2 = (label & EDGE_NEAR_VIA) ? POINT_INSU_V : POINT_INSU;		
+		o.prob = 1;
+		o.state = 0;
+		obj_sets.push_back(o);
+	}
+}
+
 int VWfeature::get_max_d()
 {
 	int max_d0 = 0;
@@ -2263,7 +2455,7 @@ int VWfeature::get_max_d()
 	return max_d0;
 }
 
-void VWfeature::write_file(string project_path, int layer)
+void VWfeature::write_file(string project_path, int layer, int insu_min, int wire_min)
 {
 	string filename = project_path + "/WorkData/";
 	QDir work_dir(QString::fromStdString(filename));
@@ -2278,6 +2470,7 @@ void VWfeature::write_file(string project_path, int layer)
 	sprintf(sh, "vwfeature%d.txt", layer);
 	filename = filename + sh;
 	FILE * fp = fopen(filename.c_str(), "wt");
+	fprintf(fp, "insu_min=%d, wire_min=%d\n", insu_min, wire_min);
 	fprintf(fp, "vias=%d\n", (int) via_features.size());
 	for (int i = 0; i < (int)via_features.size(); i++) {
 		fprintf(fp, "%10d%10d\n", via_locs[i].x, via_locs[i].y);
@@ -2297,7 +2490,7 @@ void VWfeature::write_file(string project_path, int layer)
 	fclose(fp);
 }
 
-bool VWfeature::read_file(string project_path, int layer)
+bool VWfeature::read_file(string project_path, int layer, int & insu_min, int & wire_min)
 {
 	string filename = project_path + "/WorkData/";
 	char sh[100];
@@ -2310,36 +2503,53 @@ bool VWfeature::read_file(string project_path, int layer)
 	if (fp == NULL)
 		return false;
 	int s, t;
-	if (fscanf(fp, "vias=%d", &s) != 1)
+	if (fscanf(fp, "insu_min=%d, wire_min=%d\n", &insu_min, &wire_min) != 2) {
+		qCritical("%s corrupted, no insu or wire min", filename.c_str());
+		insu_min = 2;
+		wire_min = 5;
+	}
+	if (fscanf(fp, "vias=%d", &s) != 1) {
+		qCritical("%s corrupted, no vias", filename.c_str());
 		return false;
+	}
 	via_features.resize(s);
 	via_locs.resize(s);
 	for (int i = 0; i < (int)via_features.size(); i++) {
 		via_features[i].create(FEATURE_ROW, 8, CV_32S);
-		if (fscanf(fp, "%d%d", &s, &t) != 2)
+		if (fscanf(fp, "%d%d", &s, &t) != 2) {
+			qCritical("%s corrupted, no via loc", filename.c_str());
 			return false;
+		}
 		via_locs[i] = Point(s, t);
 		for (int y = 0; y < FEATURE_ROW; y++) {
 			for (int x = 0; x < 8; x++) {
-				if (fscanf(fp, "%d", &s) != 1)
+				if (fscanf(fp, "%d", &s) != 1) {
+					qCritical("%s corrupted, no via feature", filename.c_str());
 					return false;
+				}
 				via_features[i].at<int>(y, x) = s;
 			}
 		}
 	}
-	if (fscanf(fp, "\nedges=%d", &s) != 1)
+	if (fscanf(fp, "\nedges=%d", &s) != 1) {
+		qCritical("%s corrupted, no edges", filename.c_str());
 		return false;
+	}
 	retrain_edge = true;
 	edge_features.resize(s);
 	edge_locs.resize(s);
 	for (int i = 0; i < (int)edge_features.size(); i++) {
-		if (fscanf(fp, "%d%d", &s, &t) != 2)
+		if (fscanf(fp, "%d%d", &s, &t) != 2) {
+			qCritical("%s corrupted, no edge loc", filename.c_str());
 			return false;
+		}
 		edge_locs[i] = Point(s, t);
 		edge_features[i].resize(EdgeFeatureVecLen + 1);
 		for (int j = 0; j <= EdgeFeatureVecLen; j++)
-		if (fscanf(fp, "%d", &edge_features[i][j]) != 1)
+		if (fscanf(fp, "%d", &edge_features[i][j]) != 1) {
+			qCritical("%s corrupted, no edge feature", filename.c_str());
 			return false;
+		}
 	}
 	fclose(fp);
 	return true;
@@ -2362,10 +2572,11 @@ void VWfeature::split_via_edges(vector<vector<int> > & edge_via, vector<vector<i
 	edge_no_via.clear();
 	CV_Assert(edge_locs.size() == edge_features.size());
 	for (int i = 0; i < (int)edge_locs.size(); i++) {
-		bool near_via = false;
+		int near_via = edge_features[i][EdgeFeatureVecLen] & EDGE_NEAR_VIA;
+		if (!near_via)
 		for (auto v : via_locs) 
 		if (abs(edge_locs[i].x - v.x) < d0 && abs(edge_locs[i].y - v.y) < d0 * 2) {
-			near_via = true;
+			near_via = 1;
 			break;
 		}
 		if (near_via)

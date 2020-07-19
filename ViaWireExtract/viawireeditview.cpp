@@ -98,8 +98,10 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	bse_param.w_wide = 0;
 	bse_param.i_wide = 0.4;
 	bse_param.w_wide1 = 0.3;
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < 8; i++) {
 		dia[i] = 15;
+		wid[i] = 0x503;
+	}
 	via_at_center = 0;
 }
 
@@ -204,12 +206,13 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
         if (obj.state !=4 && obj.type3 == layer) {
 			switch (obj.type2) {
 			case POINT_NO_VIA:
-			case POINT_VIA_INSU:
+			case POINT_WIRE_V:
 			case POINT_WIRE:
 				painter.setPen(QPen(Qt::red, 1));
 				painter.setBrush(QBrush(Qt::red, Qt::NoBrush));
 				break;
 			case POINT_INSU:
+			case POINT_INSU_V:
 				painter.setPen(QPen(Qt::yellow, 1));
 				painter.setBrush(QBrush(Qt::yellow, Qt::NoBrush));
 				break;
@@ -225,9 +228,9 @@ void ViaWireEditView::draw_obj(QPainter &painter, const MarkObj & obj)
 				QPoint br(obj.p0.x() - obj.p1.x() / 2 + obj.p1.x(), obj.p0.y() - obj.p1.y() / 2 + obj.p1.y());
 				painter.drawEllipse(QRect(tl, br));
 			}
-			if (obj.type2 == POINT_INSU || obj.type2 == POINT_WIRE)
+			if (obj.type2 == POINT_INSU || obj.type2 == POINT_WIRE || obj.type2 == POINT_INSU_V || obj.type2 == POINT_WIRE_V)
 				painter.drawRect(obj.p0.x() - 1, obj.p0.y() - 1, 3, 3);
-			if (obj.type2 == POINT_WIRE_INSU)
+			if (obj.type2 == POINT_WIRE_INSU || obj.type2 == POINT_WIRE_INSU_V)
 				painter.drawLine(obj.p0, obj.p1);
         }
         break;
@@ -286,7 +289,20 @@ void ViaWireEditView::load_bk_image(QString file_path)
 	if (size() != bk_img[layer].size()*scale)
 		resize(bk_img[layer].size()*scale);
 	bk_img_mask = bk_img[layer];
+	load_train_objs();
     update();
+}
+
+void ViaWireEditView::load_train_objs()
+{
+	obj_set.clear();
+	for (int i = 0; i < (int)bk_img.size(); i++) {
+		vector<MarkObj> ol;
+		vwe_ml->set_train_param(TRAIN_CMD_GET << 16 | i, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		vwe_ml->train(img_name, ol);
+		obj_set.insert(obj_set.end(), ol.begin(), ol.end());
+	}
+	vwe_ml->set_extract_param(layer << 8 | layer, via_at_center, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
 void ViaWireEditView::set_grid_size(double high, double width)
@@ -394,6 +410,22 @@ void ViaWireEditView::set_via_diameter(int _dia0, int _dia1, int _dia2, int _dia
 	dia[2] = _dia2, dia[3] = _dia3;
 	dia[4] = _dia4, dia[5] = _dia5;
 	dia[6] = _dia6, dia[7] = _dia7;
+}
+
+void ViaWireEditView::get_wid(int & _wi0, int & _wi1, int & _wi2, int & _wi3, int & _wi4, int & _wi5, int & _wi6, int & _wi7)
+{
+	_wi0 = wid[0], _wi1 = wid[1];
+	_wi2 = wid[2], _wi3 = wid[3];
+	_wi4 = wid[4], _wi5 = wid[5];
+	_wi6 = wid[6], _wi7 = wid[7];
+}
+
+void ViaWireEditView::set_wid(int _wi0, int _wi1, int _wi2, int _wi3, int _wi4, int _wi5, int _wi6, int _wi7)
+{
+	wid[0] = _wi0, wid[1] = _wi1;
+	wid[2] = _wi2, wid[3] = _wi3;
+	wid[4] = _wi4, wid[5] = _wi5;
+	wid[6] = _wi6, wid[7] = _wi7;
 }
 
 int ViaWireEditView::get_scale()
@@ -509,9 +541,11 @@ void ViaWireEditView::extract()
 {
 	if (current_train == NULL)
 		return;
-    obj_set.clear();
+	load_train_objs();
     current_obj.type = OBJ_NONE;
-	current_train->extract(img_name, QRect(0, 0, 1, 1), obj_set);
+	vector<MarkObj> os;
+	current_train->extract(img_name, QRect(0, 0, 1, 1), os);
+	obj_set.insert(obj_set.end(), os.begin(), os.end());
     update();
 }
 
@@ -604,20 +638,20 @@ void ViaWireEditView::mousePressEvent(QMouseEvent *event)
 				current_obj.type3 = POWER_UP;
 			current_obj.state = 0;
             current_obj.p0 = event->pos() / scale;
-			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_NORMAL_VIA0 || current_obj.type2 == POINT_NO_VIA
-				|| current_obj.type2 == POINT_VIA_WIRE || current_obj.type2 == POINT_VIA_INSU)) {
+			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_NORMAL_VIA0 || current_obj.type2 == POINT_NO_VIA)) {
 				vector<MarkObj> ms;
 				ms.push_back(current_obj);
-				vwe_ml->set_train_param(OBJ_POINT, (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->set_train_param(TRAIN_CMD_INSERT << 16 | layer, current_obj.type2 << 8 | current_obj.type, (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0);
 				vwe_ml->train(img_name, ms);
 				current_train = vwe_ml;
 				current_obj = ms[0];
 			}
 			if (current_obj.type == OBJ_POINT && (current_obj.type2 == POINT_WIRE_INSU || current_obj.type2 == POINT_WIRE
-				|| current_obj.type2 ==POINT_INSU) ) {
+				|| current_obj.type2 == POINT_INSU || current_obj.type2 == POINT_WIRE_INSU_V 
+				|| current_obj.type2 == POINT_WIRE_V || current_obj.type2 == POINT_INSU_V)) {
 				vector<MarkObj> ms;
 				ms.push_back(current_obj);
-				vwe_ml->set_train_param(OBJ_POINT, (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->set_train_param(TRAIN_CMD_INSERT << 16 | layer, current_obj.type2 << 8 | current_obj.type, wid[layer], 0, 0, 0, 0, 0, 0, 0);
 				vwe_ml->train(img_name, ms);
 				current_train = vwe_ml;
 				current_obj = ms[0];
@@ -723,7 +757,7 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 						select_idx = i;
 					}
 				}	
-				if (obj_set[i].type == OBJ_POINT && current_obj.type2 != POINT_VIA_WIRE && current_obj.type2 != POINT_VIA_INSU) {
+				if (obj_set[i].type == OBJ_POINT) {
 					dis = distance_p2l(obj_set[i].p0, obj_set[i].p0, move_pos / scale, wp);
 					if (min_dis > dis) {
 						min_dis = dis;
@@ -980,7 +1014,18 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 			if (select_obj.type == OBJ_POINT &&	(select_obj.type2 == POINT_NORMAL_VIA0 || select_obj.type2 == POINT_NO_VIA)) {
 				vector<MarkObj> ms;
 				ms.push_back(select_obj);
-				vwe_ml->set_train_param(OBJ_POINT, 1 << 16 | (dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->set_train_param(TRAIN_CMD_DELETE << 16 | layer, current_obj.type2 << 8 | current_obj.type,
+					(dia[layer] + 1) << 8 | dia[layer], 0, 0, 0, 0, 0, 0, 0);
+				vwe_ml->train(img_name, ms);
+				current_train = vwe_ml;
+			}
+			if (select_obj.type == OBJ_POINT && (select_obj.type2 == POINT_WIRE_INSU || select_obj.type2 == POINT_WIRE
+				|| select_obj.type2 == POINT_INSU || select_obj.type2 == POINT_WIRE_INSU_V
+				|| select_obj.type2 == POINT_WIRE_V || select_obj.type2 == POINT_INSU_V)) {
+				vector<MarkObj> ms;
+				ms.push_back(select_obj);
+				vwe_ml->set_train_param(TRAIN_CMD_DELETE << 16 | layer, current_obj.type2 << 8 | current_obj.type,
+					wid[layer], 0, 0, 0, 0, 0, 0, 0);
 				vwe_ml->train(img_name, ms);
 				current_train = vwe_ml;
 			}

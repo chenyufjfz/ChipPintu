@@ -17,8 +17,9 @@ public:
 	int dst_w;
 	int max_pt_err;
 	int merge_distance;
+	QRect output_rect;
 public:
-	explicit MapxyDialog(double _beta, double _zx, double _zy, int _merge, int _dst_w, int _max_pt_err, int _merge_distance, QWidget *parent = 0);
+	explicit MapxyDialog(double _beta, double _zx, double _zy, int _merge, int _dst_w, int _max_pt_err, int _merge_distance, QRect _output_rect, QWidget *parent = 0);
     ~MapxyDialog();
 
 private slots:

@@ -193,6 +193,7 @@ protected:
 	Point edge_cost, minloc_shift, edge_type;
 	RenderImage * ri;
 	int draw_corner;
+	QRect output_rect;
 	//upper is for drawing layer and rect
 	
 	//Following is for feature compute and store
@@ -268,6 +269,12 @@ public:
     void clear_yellow_fix_edge(int _layer);
 	string get_project_path() {
 		return project_path;
+	}
+	QRect get_output_rect() {
+		return output_rect;
+	}
+	void set_output_rect(QRect & r) {
+		output_rect = r;
 	}
 	int get_current_layer() { return layer; }
 	int set_current_layer(int _layer);

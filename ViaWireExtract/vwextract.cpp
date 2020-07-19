@@ -13,6 +13,20 @@
 #endif
 
 #define WEAK_EDGE_LEN		6
+#define STRONG_EDGE_WEIGHT  14
+#define GOOD_EDGE_TH		95
+#define GOOD_WIRE_TH		95
+#define CANNY_EDGE_TH1      60
+#define CANNY_EDGE_TH2      36
+
+#define MARK_EDGE			1
+#define MARK_STRONG_WIRE	2
+#define MARK_WEAK_WIRE		4
+#define MARK_STRONG_INSU	8
+#define MARK_WEAK_INSU		16
+#define MARK_VIA			32
+#define MARK_BORDER			128
+
 typedef unsigned long long LINE_TYPE;
 class DxyDegree {
 public:
@@ -41,7 +55,7 @@ public:
 } dxy_degree;
 
 struct EdgeLine {
-	int weight;
+	int weight, id; //id may be len or wire id
 	Point p0, p1;
 	uchar d0, d1; //d0 is grad dir, d1 is edge dir, they are orthogo
 
@@ -52,6 +66,7 @@ struct EdgeLine {
 		d1 = _d1;
 		CV_Assert(d1 == DIR_DOWN || d1 == DIR_RIGHT || d1 == DIR_DOWNRIGHT || d1 == DIR_DOWNLEFT);
 		weight = max(y1 - y0, x1 - x0);
+		id = weight + 1;
 		CV_Assert(weight > 0 && y1 >= y0);
 	}
 
@@ -106,11 +121,13 @@ struct EdgeLine {
 			case DIR_UPLEFT:
 			case DIR_UPRIGHT:
 				check_wire = -1;
+				break;
 			case DIR_DOWN:
 			case DIR_RIGHT:
 			case DIR_DOWNLEFT:
 			case DIR_DOWNRIGHT:
 				check_wire = 1;
+				break;
 			default:
 				CV_Assert(0);
 			}
@@ -130,23 +147,26 @@ struct EdgeLine {
 	/*
 	inout o
 	input wire, wire.start means minimum wire, wire.end means max sweet wire length
+	input insu_min, min insu length
 	*/
 	void interact(EdgeLine & o, Range wire, int insu_min) {
 		int s = dxy_degree(d0, o.d0);
-		int bonus = 0, d, d1, dd, dd1;
+		int bonus = 0, d, c, dd, dd1;
 		int not_check_wire = -1;
 		int is_wire = d0, is_wire1 = o.d0;
 		switch (s) {
 		case 0:
-			if (project_distance(o, d1, not_check_wire) >= wire.start + insu_min)
+			if (project_distance(o, d1, not_check_wire) >= wire.start + insu_min) //not intersect, don't punish
 				return;
 			bonus = project_distance(o, d0, not_check_wire);
 			if (bonus > 0) //not intersect, don't punish
 				return;
-			//bonus < 0, punish
+			if (-bonus == id || -bonus == o.id) //inclusive
+				bonus = -1000000;
 			break;
 		case 1:
 		case 7:
+			return;
 			if (project_distance(o, d1, not_check_wire) >= wire.start + insu_min ||
 				project_distance(o, o.d1, not_check_wire) >= wire.start + insu_min)
 				return;
@@ -166,45 +186,53 @@ struct EdgeLine {
 			if (is_wire) {
 				if (d >= wire.start) //sweet len, give bonus; else wire too narrow, punish
 					bonus = -bonus;
+				else
+				if (-bonus == id || -bonus == o.id) //wire too narrow inclusive
+					bonus = -1000000;
 			}
 			else {
 				if (d >= insu_min) //insu wide big enough, do nothing; else insu too narrow, punish
 					return;
+				else
+				if (-bonus == id || -bonus == o.id) //insu too narrow inclusive
+					bonus = -1000000;
 			}
 			break;
 		case 2:
 		case 6:
+			return;
 			d = project_distance(o, d1, not_check_wire);
-			d1 = project_distance(o, o.d1, not_check_wire);
-			if (d1 < 0 && d < insu_min || d < 0 && d1 < insu_min) 
-				bonus = -min(weight, o.weight);
+			c = project_distance(o, o.d1, not_check_wire);
+			if (c < 0 && d < insu_min || d < 0 && c < insu_min) 
+				bonus = -wire.start;
 			else
 				return;
 			break;
 		case 3:
 		case 5:
+			return;
 			d = project_distance(o, d1, is_wire);
-			d1 = project_distance(o, o.d1, is_wire1);
+			c = project_distance(o, o.d1, is_wire1);
 			dd = project_distance(o, d0, not_check_wire);
 			dd1 = project_distance(o, o.d0, not_check_wire);
 			if (dd >= insu_min || dd1 >= insu_min)
 				return;
 			if (dd < 0 && dd1 < 0) { //project intersect				
-				if (d1 < d) {
-					d1 = d;
+				if (d < c) {
+					d = c;
 					is_wire1 = is_wire;
-				} //now d1 is distance
+				} //now d is distance
 				bonus = max(dd, dd1); //bonus is overlap
 				if (is_wire1) {
-					if (d1 >= wire.end) //too far away, do nothing
+					if (d >= wire.end) //too far away, do nothing
 						return;
-					if (d1 >= wire.start) //sweet len, give bonus; else do nothing
+					if (d >= wire.start) //sweet len, give bonus; else do nothing
 						bonus = min(-bonus, wire.size());
 					else
-						return; //how about d1 < insu_min
+						return; //how about d < insu_min
 				}
 				else {
-					if (d1 >= insu_min)
+					if (d >= insu_min)
 						return;
 					bonus = max(bonus, -insu_min);
 				}
@@ -216,13 +244,15 @@ struct EdgeLine {
 			CV_Assert(0);
 		}
 		//reduce both weight and o.weight
-		if (weight > o.weight) {
-			weight += bonus / 2;
+		if (bonus > 0) {
+			weight += bonus;
 			o.weight += bonus;
 		}
 		else {
-			weight += bonus;
-			o.weight += bonus / 2;
+			if (id >= o.id)
+				o.weight += bonus;
+			else
+				weight += bonus;
 		}
 	}
 };
@@ -285,6 +315,7 @@ struct ProcessData {
 	Mat * edge_mark_debug; //only for debug
 	Mat * edge_mark_debug1; //only for debug
 	Mat * edge_mark_debug2; //only for debug
+	Mat * edge_mark_debug3;
 	vector<ElementObj *> eo;
 	QPolygon * poly;
 	int ref_cnt;
@@ -299,6 +330,7 @@ struct ProcessData {
 		edge_mark_debug = NULL;
 		edge_mark_debug1 = NULL;
 		edge_mark_debug2 = NULL;
+		edge_mark_debug3 = NULL;
 	}
 };
 
@@ -307,10 +339,12 @@ struct ProcessImageData {
 	ProcessData * lpd;
 	ProcessData * upd;
 	ProcessData * cpd;
+	Range wire_sweet_len;
+	int insu_min;
 	bool multi_thread;
 };
 
-static void prob_color(const Mat & prob, Mat & debug_mark)
+static void prob_color(const Mat & prob, Mat & debug_mark, float th = 0.8)
 {
 	CV_Assert(prob.type() == CV_8UC4 && debug_mark.type() == CV_8UC3);
 	for (int y = EDGE_JUDGE_BORDER; y < prob.rows - EDGE_JUDGE_BORDER; y++) {
@@ -324,13 +358,39 @@ static void prob_color(const Mat & prob, Mat & debug_mark)
 		}
 		else
 		{
-			if (p_prob[x][POINT_IS_INSU] > POINT_TOT_PROB * 0.8)
+			if (p_prob[x][POINT_IS_INSU] > POINT_TOT_PROB * th)
 				p_debugm[x][POINT_IS_INSU] += 20;
 			else
-			if (p_prob[x][POINT_IS_WIRE] > POINT_TOT_PROB * 0.8)
+			if (p_prob[x][POINT_IS_WIRE] > POINT_TOT_PROB * th)
 				p_debugm[x][POINT_IS_WIRE] += 20;
 			else
-			if (p_prob[x][POINT_IS_EDGE_WIRE_INSU] > POINT_TOT_PROB * 0.8)
+			if (p_prob[x][POINT_IS_EDGE_WIRE_INSU] > POINT_TOT_PROB * th)
+				p_debugm[x][POINT_IS_EDGE_WIRE_INSU] += 20;
+		}
+	}
+}
+
+static void mark_color(const Mat & mark, Mat & debug_mark)
+{
+	CV_Assert(mark.type() == CV_8UC1 && debug_mark.type() == CV_8UC3);
+	for (int y = EDGE_JUDGE_BORDER; y < mark.rows - EDGE_JUDGE_BORDER; y++) {
+		const uchar * pm = mark.ptr<uchar>(y);
+		Vec3b * p_debugm = debug_mark.ptr<Vec3b>(y);
+		for (int x = EDGE_JUDGE_BORDER; x < mark.cols - EDGE_JUDGE_BORDER; x++)
+		if (pm[x] & MARK_VIA) {//Via
+			p_debugm[x][0] = 255;
+			p_debugm[x][1] = 255;
+			p_debugm[x][2] = 255;
+		}
+		else
+		{
+			if (pm[x] & MARK_STRONG_INSU)
+				p_debugm[x][POINT_IS_INSU] += 20;
+			else
+			if (pm[x] & MARK_STRONG_WIRE)
+				p_debugm[x][POINT_IS_WIRE] += 20;
+			else
+			if (pm[x] & MARK_EDGE)
 				p_debugm[x][POINT_IS_EDGE_WIRE_INSU] += 20;
 		}
 	}
@@ -338,6 +398,7 @@ static void prob_color(const Mat & prob, Mat & debug_mark)
 /*
 Input prob
 Output rst
+For edge add 1*5, for wire or insu, add 3*3
 */
 static void filter_prob(const Mat & prob, Mat & rst)
 {
@@ -366,6 +427,7 @@ static void filter_prob(const Mat & prob, Mat & rst)
 				p_rst[x] = p_prob[x];
 				continue;
 			}
+			/*
 			bool y_in_range = (y > EDGE_JUDGE_BORDER && y < prob.rows - EDGE_JUDGE_BORDER - 1);
 			bool x_in_range = (x > EDGE_JUDGE_BORDER && x < prob.cols - EDGE_JUDGE_BORDER - 1);
 			int wi_num, ed_num;
@@ -414,10 +476,9 @@ static void filter_prob(const Mat & prob, Mat & rst)
 					p_prob[x + 1][POINT_IS_WIRE] + p_prob_1[x][POINT_IS_WIRE] + p_prob_1[x + 1][POINT_IS_WIRE] :
 					p_prob[x - 1][POINT_IS_WIRE] + p_prob_1[x][POINT_IS_WIRE] + p_prob_1[x - 1][POINT_IS_WIRE]);
 				wi_num = 4;
-			}
+			}*/
 			if (y > EDGE_JUDGE_BORDER + 1 && y < prob.rows - EDGE_JUDGE_BORDER - 2 &&
 				x > EDGE_JUDGE_BORDER + 1 && x < prob.cols - EDGE_JUDGE_BORDER - 2) {
-				ed_num = 5;
 				ed += (p_prob[x + shift[dir][0]][POINT_DIR] == dir) ? p_prob[x + shift[dir][0]][POINT_IS_EDGE_WIRE_INSU] :
 					p_prob[x + shift[dir][0]][POINT_IS_EDGE_WIRE_INSU] / 2;
 				ed += (p_prob[x + shift[dir][1]][POINT_DIR] == dir) ? p_prob[x + shift[dir][1]][POINT_IS_EDGE_WIRE_INSU] :
@@ -426,36 +487,44 @@ static void filter_prob(const Mat & prob, Mat & rst)
 					p_prob[x + shift[dir][2]][POINT_IS_EDGE_WIRE_INSU] / 2;
 				ed += (p_prob[x + shift[dir][3]][POINT_DIR] == dir) ? p_prob[x + shift[dir][3]][POINT_IS_EDGE_WIRE_INSU] :
 					p_prob[x + shift[dir][3]][POINT_IS_EDGE_WIRE_INSU] / 2;
+				iu += p_prob[x + shift[dir][0]][POINT_IS_INSU] + p_prob[x + shift[dir][1]][POINT_IS_INSU] +
+					p_prob[x + shift[dir][2]][POINT_IS_INSU] + p_prob[x + shift[dir][3]][POINT_IS_INSU];
+				wi += p_prob[x + shift[dir][0]][POINT_IS_WIRE] + p_prob[x + shift[dir][1]][POINT_IS_WIRE] +
+					p_prob[x + shift[dir][2]][POINT_IS_WIRE] + p_prob[x + shift[dir][3]][POINT_IS_WIRE];
+
 			}
 			else {
 				int dir2 = dir_2[dir];
 				int dir3 = dir_1[dir_2[dir]];
-				ed_num = 1;
 #define IN_RANGE(x, y) (x >= EDGE_JUDGE_BORDER && x < prob.cols - EDGE_JUDGE_BORDER && y >=EDGE_JUDGE_BORDER && y < prob.rows - EDGE_JUDGE_BORDER)
 				if (IN_RANGE(x + dxy[dir2][1], y + dxy[dir2][0])) {
 					ed += (p_prob[x + shift[dir][0]][POINT_DIR] == dir) ? p_prob[x + shift[dir][0]][POINT_IS_EDGE_WIRE_INSU] :
 						p_prob[x + shift[dir][0]][POINT_IS_EDGE_WIRE_INSU] / 2;
-					ed_num++;
+					iu += p_prob[x + shift[dir][0]][POINT_IS_INSU];
+					wi += p_prob[x + shift[dir][0]][POINT_IS_WIRE];
 				}
 				if (IN_RANGE(x + dxy[dir2][1] * 2, y + dxy[dir2][0] * 2)) {
 					ed += (p_prob[x + shift[dir][1]][POINT_DIR] == dir) ? p_prob[x + shift[dir][1]][POINT_IS_EDGE_WIRE_INSU] :
 						p_prob[x + shift[dir][1]][POINT_IS_EDGE_WIRE_INSU] / 2;
-					ed_num++;
+					iu += p_prob[x + shift[dir][1]][POINT_IS_INSU];
+					wi += p_prob[x + shift[dir][1]][POINT_IS_WIRE];
 				}
 				if (IN_RANGE(x + dxy[dir3][1], y + dxy[dir3][0])) {
 					ed += (p_prob[x + shift[dir][2]][POINT_DIR] == dir) ? p_prob[x + shift[dir][2]][POINT_IS_EDGE_WIRE_INSU] :
 						p_prob[x + shift[dir][2]][POINT_IS_EDGE_WIRE_INSU] / 2;
-					ed_num++;
+					iu += p_prob[x + shift[dir][2]][POINT_IS_INSU];
+					wi += p_prob[x + shift[dir][2]][POINT_IS_WIRE];
 				}
 				if (IN_RANGE(x + dxy[dir3][1] * 2, y + dxy[dir3][0] * 2)) {
 					ed += (p_prob[x + shift[dir][3]][POINT_DIR] == dir) ? p_prob[x + shift[dir][3]][POINT_IS_EDGE_WIRE_INSU] :
 					p_prob[x + shift[dir][3]][POINT_IS_EDGE_WIRE_INSU] / 2;
-					ed_num++;
+					iu += p_prob[x + shift[dir][3]][POINT_IS_INSU];
+					wi += p_prob[x + shift[dir][3]][POINT_IS_WIRE];
 				}
 #undef IN_RANGE
 			}
-			p_rst[x][POINT_IS_INSU] = iu * ed_num * POINT_TOT_PROB / ((iu + wi) * ed_num + ed * wi_num);
-			p_rst[x][POINT_IS_WIRE] = wi * ed_num * POINT_TOT_PROB / ((iu + wi) * ed_num + ed * wi_num);
+			p_rst[x][POINT_IS_INSU] = iu * POINT_TOT_PROB / (iu + wi + ed);
+			p_rst[x][POINT_IS_WIRE] = wi * POINT_TOT_PROB / (iu + wi + ed);
 			p_rst[x][POINT_IS_EDGE_WIRE_INSU] = POINT_TOT_PROB - p_rst[x][POINT_IS_WIRE] - p_rst[x][POINT_IS_INSU];
 			p_rst[x][POINT_DIR] = dir;
 		}
@@ -464,12 +533,18 @@ static void filter_prob(const Mat & prob, Mat & rst)
 
 /*inout prob
 input sweet_len, sweet_len range
+input insu_min, min insu distance
 output edges, 
+output m, mark
+weak edge length must >=WEAK_EDGE_LEN
+strong edge length either >= STRONG_EDGE_WEIGHT or (length >= STRONG_EDGE_WEIGHT & it has opposite edge)
+if -+ +-edge distance < wire_sweet_len.end and > wire_swee_len.start, make wire band
+if +- -=edge distance < insu_min * 2 + wire_sweet_len.start, make insu band
 */
-static void mark_strong_edge(Mat & prob, Range wire_sweet_len, int insu_min, vector<EdgeLine> & edges)
+static void mark_strong_edge(Mat & prob, Range wire_sweet_len, int insu_min, vector<EdgeLine> & edges, Mat & m)
 {
 	CV_Assert(prob.type() == CV_8UC4);
-	int shift[8][5];
+	int shift[8][5];//shift[dir][0] shift[4] is edge dir, shift[1] is insu dir, shift[2] is wire dir, shift[3] is grad dir
 	for (int dir = 0; dir < 8; dir++) {
 		int dir2 = dir_2[dir];
 		int dir3 = dir_1[dir];
@@ -484,24 +559,25 @@ static void mark_strong_edge(Mat & prob, Range wire_sweet_len, int insu_min, vec
 		shift[dir][2] = (dxy[dir3][0] * (int)prob.step.p[0] + dxy[dir3][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
 		shift[dir][3] = (dxy[dir][0] * (int)prob.step.p[0] + dxy[dir][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
 	}
-	shift[DIR_UPRIGHT][1] = (dxy[DIR_LEFT][0] * (int)prob.step.p[0] + dxy[DIR_LEFT][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
-	shift[DIR_UPRIGHT][2] = (dxy[DIR_DOWN][0] * (int)prob.step.p[0] + dxy[DIR_DOWN][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
-	shift[DIR_DOWNRIGHT][1] = (dxy[DIR_LEFT][0] * (int)prob.step.p[0] + dxy[DIR_LEFT][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
+	shift[DIR_UPRIGHT][1] = (dxy[DIR_RIGHT][0] * (int)prob.step.p[0] + dxy[DIR_RIGHT][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
+	shift[DIR_UPRIGHT][2] = (dxy[DIR_DOWN][0] * (int)prob.step.p[0] + dxy[DIR_DOWN][1] * (int)prob.step.p[1]) / sizeof(Vec4b); 
+	shift[DIR_DOWNRIGHT][1] = (dxy[DIR_RIGHT][0] * (int)prob.step.p[0] + dxy[DIR_RIGHT][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
 	shift[DIR_DOWNRIGHT][2] = (dxy[DIR_UP][0] * (int)prob.step.p[0] + dxy[DIR_UP][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
-	shift[DIR_DOWNLEFT][1] = (dxy[DIR_RIGHT][0] * (int)prob.step.p[0] + dxy[DIR_RIGHT][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
+	shift[DIR_DOWNLEFT][1] = (dxy[DIR_LEFT][0] * (int)prob.step.p[0] + dxy[DIR_LEFT][1] * (int)prob.step.p[1]) / sizeof(Vec4b); 
 	shift[DIR_DOWNLEFT][2] = (dxy[DIR_UP][0] * (int)prob.step.p[0] + dxy[DIR_UP][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
-	shift[DIR_UPLEFT][1] = (dxy[DIR_RIGHT][0] * (int)prob.step.p[0] + dxy[DIR_RIGHT][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
+	shift[DIR_UPLEFT][1] = (dxy[DIR_LEFT][0] * (int)prob.step.p[0] + dxy[DIR_LEFT][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
 	shift[DIR_UPLEFT][2] = (dxy[DIR_DOWN][0] * (int)prob.step.p[0] + dxy[DIR_DOWN][1] * (int)prob.step.p[1]) / sizeof(Vec4b);
 
-	int th = POINT_TOT_PROB * 0.6;
-	Mat m(prob.rows, prob.cols, CV_8U);
+	int th1 = POINT_TOT_PROB * CANNY_EDGE_TH1 / 100;
+	int th2 = POINT_TOT_PROB * CANNY_EDGE_TH2 / 100;
+	m.create(prob.rows, prob.cols, CV_8U);
 	m = 0;
 	//1 find local maximum point 
 	for (int y = EDGE_JUDGE_BORDER; y < prob.rows - EDGE_JUDGE_BORDER; y++) {
 		const Vec4b * p_prob = prob.ptr<Vec4b>(y);
 		uchar * pm = m.ptr<uchar>(y);
 		for (int x = EDGE_JUDGE_BORDER; x < prob.cols - EDGE_JUDGE_BORDER; x++) {
-			if (p_prob[x][POINT_IS_EDGE_WIRE_INSU] < th || p_prob[x][POINT_DIR] & 8) //edge factor is low or via case
+			if (p_prob[x][POINT_IS_EDGE_WIRE_INSU] < th2 || p_prob[x][POINT_DIR] & 8) //edge factor is low or via case
 				continue;
 			else 
 			if (p_prob[x][POINT_IS_EDGE_WIRE_INSU] == POINT_TOT_PROB) //edge factor is max strong
@@ -516,23 +592,27 @@ static void mark_strong_edge(Mat & prob, Range wire_sweet_len, int insu_min, vec
 				p1 = p_prob + x - shift[dir][3];
 				if (p1[0][POINT_IS_EDGE_WIRE_INSU] <= edge_grad &&
 					p1[-shift[dir][3]][POINT_IS_EDGE_WIRE_INSU] <= edge_grad) //local compare cut
-					pm[x] = 16 | p_prob[x][POINT_DIR]; //edge factor is strong enough
+					pm[x] = (p_prob[x][POINT_IS_EDGE_WIRE_INSU] > th1) ? 
+					16 | p_prob[x][POINT_DIR] : 32 | p_prob[x][POINT_DIR]; //edge factor is strong enough
 			}
 		}
 	}
 
-	//local maximum point make up edge line
+	//2 local maximum point make up edge line
+	vector<EdgeLine> edges_dir[8];
 	for (int y = EDGE_JUDGE_BORDER; y < prob.rows - EDGE_JUDGE_BORDER; y++) {
 		const uchar * pm = m.ptr<uchar>(y);
 		for (int x = EDGE_JUDGE_BORDER; x < prob.cols - EDGE_JUDGE_BORDER; x++)
-		if (pm[x]) {
+		if (pm[x] & 16) {
 			int dir = pm[x] & 7;
-			if (pm[x + shift[dir][0]] == pm[x]) //edge line already found
-				continue;
 			int s = shift[dir][0];
+			if (pm[x + s] == pm[x]) //edge line already found
+				continue;			
 			int l = 0;
 			bool already_found = false;
-			while (pm[x + s + shift[dir][1]] == pm[x] || pm[x + s + shift[dir][2]] == pm[x]) {
+			while ((pm[x + s] & 7) == dir && pm[x + s] & 0x30 || 
+				(pm[x + s + shift[dir][1]] & 7) == dir && pm[x + s + shift[dir][1]] & 0x30 || 
+				(pm[x + s + shift[dir][2]] & 7) == dir && pm[x + s + shift[dir][2]] & 0x30) {
 				s += shift[dir][0];
 				l++;
 				if (pm[x + s] == pm[x]) {
@@ -544,25 +624,183 @@ static void mark_strong_edge(Mat & prob, Range wire_sweet_len, int insu_min, vec
 				continue;
 			s = -shift[dir][0];
 			int r = 0;
-			while (pm[x + s] == pm[x] || pm[x + s + shift[dir][1]] == pm[x] || pm[x + s + shift[dir][2]] == pm[x]) {
+			while ((pm[x + s] & 7) == dir && pm[x + s] & 0x30 ||
+				(pm[x + s + shift[dir][1]] & 7) == dir && pm[x + s + shift[dir][1]] & 0x30 ||
+				(pm[x + s + shift[dir][2]] & 7) == dir && pm[x + s + shift[dir][2]] & 0x30) {
 				s -= shift[dir][0];
 				r++;
 			}
 			if (l + r + 1 < WEAK_EDGE_LEN) //weak edge line, not added
 				continue;
-			int x0 = dxy[shift[dir][4]][0] * l + x;
-			int y0 = dxy[shift[dir][4]][1] * l + y;
-			int x1 = -dxy[shift[dir][4]][0] * r + x;
-			int y1 = -dxy[shift[dir][4]][1] * r + y;
-			edges.push_back(EdgeLine(x0, y0, x1, y1, dir, dir_1[shift[dir][4]]));
+			int x0 = dxy[shift[dir][4]][1] * l + x;
+			int y0 = dxy[shift[dir][4]][0] * l + y;
+			int x1 = -dxy[shift[dir][4]][1] * r + x;
+			int y1 = -dxy[shift[dir][4]][0] * r + y;
+			edges_dir[dir_1[shift[dir][4]]].push_back(EdgeLine(x0, y0, x1, y1, dir, dir_1[shift[dir][4]]));
 		}
 	}
 
-	for (int i = 0; i < edges.size(); i++)
-	for (int j = i + 1; j < edges.size(); j++)
-		edges[i].interact(edges[j], wire_sweet_len, insu_min);
-	sort(edges.begin(), edges.end(), greaterEdgeLine);
+	//3 sort
+	int total_len = 0;
+	for (int dir = 0; dir < 8; dir++) 
+	for (int i = 0; i < edges_dir[dir].size(); i++) {
+		for (int j = i + 1; j < edges_dir[dir].size(); j++)
+			edges_dir[dir][i].interact(edges_dir[dir][j], wire_sweet_len, insu_min);
+		if (edges_dir[dir][i].weight > 0) {
+			edges.push_back(edges_dir[dir][i]);
+			total_len += edges.back().id;
+		}
+	}
+	qInfo("Edge num =%d, len=%d", (int) edges.size(), total_len);
+	std::sort(edges.begin(), edges.end(), greaterEdgeLine);
 	
+	//4 draw strong edge, 128 is border, 1 is edge, 2 is strong wire, 4 is weak wire, 8 is strong insu, 16 is weak insu
+	m = 0;
+	cv::rectangle(m, Point(0, 0), Point(EDGE_JUDGE_BORDER - 1, m.rows - 1), Scalar::all(MARK_BORDER), CV_FILLED);
+	cv::rectangle(m, Point(0, 0), Point(m.cols - 1, EDGE_JUDGE_BORDER - 1), Scalar::all(MARK_BORDER), CV_FILLED);
+	cv::rectangle(m, Point(m.cols - EDGE_JUDGE_BORDER, 0), Point(m.cols - 1, m.rows - 1), Scalar::all(MARK_BORDER), CV_FILLED);
+	cv::rectangle(m, Point(0, m.rows - EDGE_JUDGE_BORDER), Point(m.cols - 1, m.rows - 1), Scalar::all(MARK_BORDER), CV_FILLED);
+	for (auto & e : edges) {
+		if (e.weight < STRONG_EDGE_WEIGHT)
+			break;
+		vector<Point> pts;
+		get_line_pts(e.p0, e.p1, pts);
+		pts.push_back(e.p1);
+		//following check every point in e
+		vector<int> check_pt; //if point ok, check_pt=1
+		int dir = e.d0;
+		for (auto & pt : pts) {
+			const uchar * pm = m.ptr<uchar>(pt.y, pt.x);
+			if (pm[0] != 0) {
+				check_pt.push_back(0);
+				continue;
+			}
+			bool check_pass = true; //default pass
+			for (int i = 1, j = shift[dir][1]; i < insu_min - 1; i++, j += shift[dir][1]) {
+				if (pm[j] & MARK_BORDER)
+					break;
+				if (pm[j] & (MARK_EDGE | MARK_STRONG_WIRE | MARK_WEAK_WIRE)) { //edge's insu meet wire
+					check_pass = false;
+					break;
+				}
+			}
+			if (!check_pass) {
+				check_pt.push_back(0);
+				continue;
+			}
+			for (int i = 1, j = shift[dir][2]; i < wire_sweet_len.start - 2; i++, j += shift[dir][2]) {
+				if (pm[j] & MARK_BORDER)
+					break;
+				if (pm[j] & (MARK_EDGE | MARK_STRONG_INSU | MARK_WEAK_INSU)) { //edge's wire meet insu
+					check_pass = false;
+					break;
+				}
+			}
+			if (!check_pass)
+				check_pt.push_back(0);
+			else
+				check_pt.push_back(1);
+		}
+		CV_Assert(check_pt.size() == pts.size());
+		//find max consistent 1 len
+		int max_len = 0, prev_i = -1, begin, end; //prev_i is previous 0
+		for (int i = 0; i <= check_pt.size(); i++) {
+			if (i == check_pt.size() || check_pt[i] == 0) {
+				if (i - prev_i - 1 > max_len) {
+					max_len = i - prev_i - 1;
+					begin = prev_i + 1; //begin is begin index for max consistent 1 len
+					end = i - 1;        //end is end index for max consistent 1 len
+				}
+				prev_i = i;
+			}
+		}
+		e.p1 = e.p0 + Point(end * dxy[e.d1][1], end * dxy[e.d1][0]); //modify edge
+		e.p0 += Point(begin * dxy[e.d1][1], begin * dxy[e.d1][0]);
+		if (max_len < STRONG_EDGE_WEIGHT / 2)
+			continue;
+		//now draw edge
+		get_line_pts(e.p0, e.p1, pts);
+		pts.push_back(e.p1);
+		for (auto & pt : pts) {
+			uchar * pm = m.ptr<uchar>(pt.y, pt.x);
+			pm[0] = MARK_EDGE; //mark edge
+			int insu_len = 0; //strong insu length
+			for (int i = 1, j = shift[dir][1]; i < insu_min * 2 + wire_sweet_len.start - 1; i++, j += shift[dir][1]) {
+				if (pm[j] & MARK_STRONG_INSU) //meet strong insu
+					insu_len = -i; //mark it negative
+				if (pm[j] & MARK_EDGE) { //meet edge
+					if (insu_len == 1 - i) //meet strong insu, then meet edge, perfect, find insu band
+						insu_len = i - 1;
+					break;
+				}
+				if (pm[j] & (MARK_BORDER | MARK_STRONG_WIRE | MARK_WEAK_WIRE)) { //meet wire or border
+					insu_len = 0;
+					break;
+				}					
+			}
+			pm[shift[dir][1]] = MARK_EDGE; //mark 1 strong insu
+			insu_len = max(3, insu_len);
+			for (int i = 2, j = shift[dir][1] * 2; i < insu_len; i++, j += shift[dir][1])
+				pm[j] |= MARK_STRONG_INSU; //mark strong insu with insu_len
+			for (int i = 1, j = shift[dir][1]; i < insu_min; i++, j += shift[dir][1]) {
+				if (pm[j] & MARK_BORDER)
+					break;
+				pm[j] |= MARK_WEAK_INSU; //weak insu
+			}
+			int wire_len = 0; //strong wire length
+			for (int i = 1, j = shift[dir][2]; i < wire_sweet_len.end; i++, j += shift[dir][2]) {
+				if (pm[j] & MARK_STRONG_WIRE) //meet strong wire
+					wire_len = -i; //mark it negative
+				if (pm[j] & MARK_EDGE) { //meet edge
+					if (wire_len == 1 - i) //meet strong wire, then meet edge, perfect, find wire band
+						wire_len = i - 1;
+					break;
+				}
+				if (pm[j] & (MARK_BORDER | MARK_WEAK_INSU | MARK_STRONG_INSU)) { //meet insu or border
+					wire_len = 0;
+					break;
+				}
+			}
+			pm[shift[dir][2]] = MARK_EDGE; //wire
+			wire_len = max(3, wire_len);
+			for (int i = 2, j = shift[dir][2] * 2; i < wire_len; i++, j += shift[dir][2])
+				pm[j] |= MARK_STRONG_WIRE; //mark strong wire with wire_len
+			for (int i = 1, j = shift[dir][2]; i < wire_sweet_len.start; i++, j += shift[dir][2]) {
+				if (pm[j] & MARK_BORDER)
+					break;
+				pm[j] |= MARK_WEAK_WIRE; //weak wire
+			}
+		}
+	}
+
+	//5 change prob
+	for (int y = EDGE_JUDGE_BORDER; y < prob.rows - EDGE_JUDGE_BORDER; y++) {
+		Vec4b * p_prob = prob.ptr<Vec4b>(y);
+		uchar * pm = m.ptr<uchar>(y);
+		for (int x = EDGE_JUDGE_BORDER; x < prob.cols - EDGE_JUDGE_BORDER; x++) {
+			if (p_prob[x][POINT_DIR] & 8)  {//via case
+				pm[x] |= MARK_VIA;
+				continue;
+			}
+			if (pm[x] & MARK_EDGE) {
+				p_prob[x][POINT_IS_EDGE_WIRE_INSU] = POINT_TOT_PROB;
+				p_prob[x][POINT_IS_INSU] = 0;
+				p_prob[x][POINT_IS_WIRE] = 0;
+			} 
+			else
+			if (pm[x] & MARK_STRONG_WIRE) {
+				p_prob[x][POINT_IS_EDGE_WIRE_INSU] = 0;
+				p_prob[x][POINT_IS_INSU] = 0;
+				p_prob[x][POINT_IS_WIRE] = POINT_TOT_PROB;
+			}
+			else
+			if (pm[x] & MARK_STRONG_INSU) {
+				p_prob[x][POINT_IS_EDGE_WIRE_INSU] = 0;
+				p_prob[x][POINT_IS_INSU] = POINT_TOT_PROB;
+				p_prob[x][POINT_IS_WIRE] = 0;
+			}
+		}
+	}
 }
 
 static int enhance_coef[5][5] = {
@@ -584,8 +822,8 @@ static void self_enhance(const Mat & prob, Mat & rst, int iter_num)
 	m[0].create(prob.rows, prob.cols, CV_8SC4);
 	m[1].create(prob.rows, prob.cols, CV_8SC4);
 	int half = POINT_TOT_PROB * 0.5;
-	int th = POINT_TOT_PROB * 0.95;
-	int th2 = POINT_TOT_PROB * 0.85;
+	int th = POINT_TOT_PROB * GOOD_WIRE_TH / 100;
+	int th2 = POINT_TOT_PROB * GOOD_EDGE_TH / 100;
 	for (int y = 0; y < prob.rows; y++) {
 		const Vec4b * p_prob = prob.ptr<Vec4b>(y);
 		Vec<char, 4> * pm = m[0].ptr<Vec<char, 4> >(y);
@@ -746,10 +984,15 @@ ProcessImageData process_img(const ProcessImageData & pi)
 		pi.vwf->via_search(pi.cpd->raw_img, via_mark, (pi.cpd->via_mark_debug == NULL ? empty : *(pi.cpd->via_mark_debug)), pi.cpd->eo, pi.multi_thread);
 		pi.vwf->edge_search(pi.cpd->raw_img, prob, via_mark, (pi.cpd->edge_mark_debug == NULL ? empty : pi.cpd->edge_mark_debug[0]), pi.multi_thread);
 		if (!prob.empty()) {
+			prob_color(prob, (pi.cpd->edge_mark_debug == NULL ? empty : pi.cpd->edge_mark_debug[0]), 0.55);
 			filter_prob(prob, prob1);
 			prob_color(prob1, (pi.cpd->edge_mark_debug1 == NULL ? empty : pi.cpd->edge_mark_debug1[0]));
-			self_enhance(prob1, prob, 3);
-			prob_color(prob, (pi.cpd->edge_mark_debug2 == NULL ? empty : pi.cpd->edge_mark_debug2[0]));
+			vector<EdgeLine> edges;
+			Mat mark;
+			mark_strong_edge(prob1, pi.wire_sweet_len, pi.insu_min, edges, mark);
+			//prob_color(prob1, (pi.cpd->edge_mark_debug2 == NULL ? empty : pi.cpd->edge_mark_debug2[0]), 0.98);
+			//self_enhance(prob1, prob, 3);	
+			mark_color(mark, (pi.cpd->edge_mark_debug2 == NULL ? empty : pi.cpd->edge_mark_debug2[0]));
 		}
 		QPoint tl(pi.cpd->img_pixel_x0, pi.cpd->img_pixel_y0);
 		for (auto & o : pi.cpd->eo) { //change local to global
@@ -845,8 +1088,13 @@ void process_imgs(vector<ProcessImageData> & pis, vector<ElementObj *> & obj_set
 
 VWExtractML::VWExtractML()
 {
-	layer_min = -1;
-	layer_max = -1;
+	layer_min = 0;
+	layer_max = 0;
+	via_diameter_min = 8;
+	via_diameter_max = 9;
+	insu_min = 3;
+	wire_min = 7;
+	train_cmd = 0;
 }
 
 /*    31..24 23..16 15..8 7..0
@@ -854,12 +1102,21 @@ type
 d            clear dmax  dmin
 clear
 */
-int VWExtractML::set_train_param(int type, int d, int, int, int, int, int, int, int, float)
+int VWExtractML::set_train_param(int layer, int type, int d, int, int, int, int, int, int, float)
 {
-	if ((type & 0xff) == OBJ_POINT) {
+	layer_min = layer & 0xff;
+	layer_max = layer >> 8 & 0xff;
+	train_cmd = layer >> 16 & 0xff;
+	if ((type & 0xff) == OBJ_POINT && ((type >> 8 & 0xff) == POINT_NORMAL_VIA0 || (type >> 8 & 0xff) == POINT_NO_VIA)) {
 		via_diameter_min = d & 0xff;
-		via_diameter_max = d >> 8 & 0xff;
-		del = d >> 16 & 0xff;
+		via_diameter_max = d >> 8 & 0xff;		
+		return 0;
+	}
+	if ((type & 0xff) == OBJ_POINT && ((type >> 8 & 0xff) == POINT_WIRE_INSU || (type >> 8 & 0xff) == POINT_WIRE 
+		|| (type >> 8 & 0xff) == POINT_INSU || (type >> 8 & 0xff) == POINT_WIRE_INSU_V)
+		|| (type >> 8 & 0xff) == POINT_WIRE_V || (type >> 8 & 0xff) == POINT_INSU_V) {
+		insu_min = d & 0xff;
+		wire_min = d >> 8 & 0xff;
 	}
 	return 0;
 }
@@ -875,51 +1132,57 @@ int VWExtractML::set_extract_param(int layer, int , int, int, int, int, int, int
 		edge_mark.resize(layer_max + 1);
 		edge_mark1.resize(layer_max + 1);
 		edge_mark2.resize(layer_max + 1);
+		edge_mark3.resize(layer_max + 1);
 	}
 	return 0;
 }
 
 Mat VWExtractML::get_mark(int layer)
 {
-	if (layer < via_mark.size())
-		return via_mark[layer];
-	return Mat();
-}
-
-Mat VWExtractML::get_mark1(int layer)
-{
 	if (layer < edge_mark.size())
 		return edge_mark[layer];
 	return Mat();
 }
 
-Mat VWExtractML::get_mark2(int layer)
+Mat VWExtractML::get_mark1(int layer)
 {
 	if (layer < edge_mark1.size())
 		return edge_mark1[layer];
 	return Mat();
 }
 
-Mat VWExtractML::get_mark3(int layer)
+Mat VWExtractML::get_mark2(int layer)
 {
 	if (layer < edge_mark2.size())
 		return edge_mark2[layer];
 	return Mat();
 }
 
+Mat VWExtractML::get_mark3(int layer)
+{
+	if (layer < edge_mark3.size())
+		return edge_mark3[layer];
+	return Mat();
+}
+
 int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 {
-	layer_min = 200, layer_max = 0;
-	for (auto & m : obj_sets) {
-		layer_min = (layer_min > m.type3) ? m.type3 : layer_min;
-		layer_max = (layer_max < m.type3) ? m.type3 : layer_max;
+	if (train_cmd != TRAIN_CMD_GET) {
+		layer_min = 200, layer_max = 0;
+		for (auto & m : obj_sets) {
+			layer_min = (layer_min > m.type3) ? m.type3 : layer_min;
+			layer_max = (layer_max < m.type3) ? m.type3 : layer_max;
+		}
 	}
+	else
+		layer_max = layer_min;
 	if (layer_max >= (int)vwf.size()) {
 		vwf.resize(layer_max + 1);
 		via_mark.resize(layer_max + 1);
 		edge_mark.resize(layer_max + 1);
 		edge_mark1.resize(layer_max + 1);
 		edge_mark2.resize(layer_max + 1);
+		edge_mark3.resize(layer_max + 1);
 	}
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		string file_name(img_name);
@@ -931,9 +1194,17 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 		}
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
-		vwf[current_layer].read_file(project_path, current_layer);
+		int temp1, temp2;
+		vwf[current_layer].read_file(project_path, current_layer, temp1, temp2);
+		if (train_cmd == TRAIN_CMD_GET) {
+			vwf[current_layer].get_features(obj_sets);
+			for (auto & o : obj_sets)
+				o.type3 = current_layer;
+			return 0;
+		}
+		else
 		for (auto & m : obj_sets) 
-		if (!del) {
+		if (train_cmd == TRAIN_CMD_INSERT) {
 			if (m.type == OBJ_POINT && m.type3 == current_layer) {
 				if (m.type2 == POINT_NO_VIA || m.type2 == POINT_NORMAL_VIA0) { // add via or no via
 					Point range;
@@ -952,12 +1223,18 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 					else
 						m.p1 = QPoint(0, 0); //add fail
 				}
-				if (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE || m.type2 == POINT_INSU) {
-					Point range = m.type2 == POINT_WIRE_INSU ? Point(2, 2) : Point(1, 1);
+				if (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE || m.type2 == POINT_INSU ||
+					m.type2 == POINT_WIRE_INSU_V || m.type2 == POINT_WIRE_V || m.type2 == POINT_INSU_V) {
+					Point range = (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE_INSU_V) ? 
+						Point(2, 2) : Point(1, 1);
 					Point loc = Point(m.p0.x(), m.p0.y());
 					int label = EDGE_FEATURE;
-					label |= (m.type2 == POINT_WIRE_INSU) ? EDGE_IS_WIRE_INSU :
+					label |= (m.type2 == POINT_WIRE_INSU_V) ? EDGE_IS_WIRE_INSU | EDGE_NEAR_VIA :
+						(m.type2 == POINT_WIRE_V) ? EDGE_IS_WIRE | EDGE_NEAR_VIA :
+						(m.type2 == POINT_INSU_V) ? EDGE_IS_INSU | EDGE_NEAR_VIA :
+						(m.type2 == POINT_WIRE_INSU) ? EDGE_IS_WIRE_INSU :
 						(m.type2 == POINT_WIRE) ? EDGE_IS_WIRE : EDGE_IS_INSU;
+							 
 					bool ret = vwf[current_layer].add_feature(img, loc, loc, range,
 						via_diameter_min, via_diameter_max, label, NULL);
 					if (ret) { //add success
@@ -970,14 +1247,17 @@ int VWExtractML::train(string img_name, vector<MarkObj> & obj_sets)
 			}
 		}		
 		else 
+		if (train_cmd == TRAIN_CMD_DELETE) {
 			if (m.type == OBJ_POINT && m.type3 == current_layer) { //delete via or no via
 				Point loc = Point(m.p0.x(), m.p0.y());
 				if (m.type2 == POINT_NO_VIA || m.type2 == POINT_NORMAL_VIA0) // del via or no via
 					vwf[current_layer].del_feature(loc, via_diameter_max);
-				if (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE || m.type2 == POINT_INSU)
+				if (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE || m.type2 == POINT_INSU ||
+					m.type2 == POINT_WIRE_INSU_V || m.type2 == POINT_WIRE_V || m.type2 == POINT_INSU_V)
 					vwf[current_layer].del_feature(loc, 2);
 			}
-		vwf[current_layer].write_file(project_path, current_layer);
+		}
+		vwf[current_layer].write_file(project_path, current_layer, insu_min, wire_min);
 	}
 	return 0;
 }
@@ -993,6 +1273,7 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		edge_mark.resize(layer_max + 1);
 		edge_mark1.resize(layer_max + 1);
 		edge_mark2.resize(layer_max + 1);
+		edge_mark3.resize(layer_max + 1);
 	}
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		string file_name(img_name);
@@ -1000,7 +1281,7 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		Mat img = imread(file_name, 0);
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
-		if (!vwf[current_layer].read_file(project_path, current_layer))
+		if (!vwf[current_layer].read_file(project_path, current_layer, insu_min, wire_min))
 			return -1;
 		ProcessImageData pi;
 		ed[current_layer].x0 = 0;
@@ -1014,15 +1295,19 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		cvtColor(img, edge_mark[current_layer], CV_GRAY2BGR);
 		edge_mark1[current_layer] = edge_mark[current_layer].clone();
 		edge_mark2[current_layer] = edge_mark[current_layer].clone();
+		edge_mark3[current_layer] = edge_mark[current_layer].clone();
 		ed[current_layer].via_mark_debug = &(via_mark[current_layer]);
 		ed[current_layer].edge_mark_debug = &(edge_mark[current_layer]);
 		ed[current_layer].edge_mark_debug1 = &(edge_mark1[current_layer]);
 		ed[current_layer].edge_mark_debug2 = &(edge_mark2[current_layer]);
+		ed[current_layer].edge_mark_debug3 = &(edge_mark3[current_layer]);
 		pi.vwf = &vwf[current_layer];
 		pi.lpd = NULL;
 		pi.upd = NULL;
 		pi.cpd = &ed[current_layer];
 		pi.multi_thread = false;
+		pi.insu_min = insu_min;
+		pi.wire_sweet_len = Range(wire_min, wire_min * 2 + insu_min - 1);
 		pis.push_back(pi);
 	}
 	vector<ElementObj *> es;
@@ -1037,11 +1322,15 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 
 int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj_sets)
 {
-	layer_min = 200, layer_max = 0;
-	for (auto & m : obj_sets) {
-		layer_min = (layer_min > m.type3) ? m.type3 : layer_min;
-		layer_max = (layer_max < m.type3) ? m.type3 : layer_max;
+	if (train_cmd != TRAIN_CMD_GET) {
+		layer_min = 200, layer_max = 0;
+		for (auto & m : obj_sets) {
+			layer_min = (layer_min > m.type3) ? m.type3 : layer_min;
+			layer_max = (layer_max < m.type3) ? m.type3 : layer_max;
+		}
 	}
+	else
+		layer_max = layer_min;
 	int block_width = ics[0]->getBlockWidth();
 	int scale = 32768 / block_width;
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
@@ -1050,10 +1339,16 @@ int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj
 		string img_name = ics[current_layer]->get_file_name();
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
-		
-		vwf[current_layer].read_file(project_path, current_layer);
+		int temp1, temp2;
+		vwf[current_layer].read_file(project_path, current_layer, temp1, temp2);
+		if (train_cmd == TRAIN_CMD_GET) {
+			vwf[current_layer].get_features(obj_sets);
+			for (auto & o : obj_sets)
+				o.type3 = current_layer;
+		}
+		else
 		for (auto & m : obj_sets) 
-		if (!del) {				
+		if (train_cmd == TRAIN_CMD_INSERT) {
 			if (m.type == OBJ_POINT && m.type3 == current_layer) {
 				Point range;
 				int label = (m.type2 == POINT_NO_VIA) ? 0 : VIA_IS_VIA;
@@ -1072,15 +1367,16 @@ int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj
 					m.p1 = QPoint(0, 0);
 			}
 		}
-		else {
+		else
+		if (train_cmd == TRAIN_CMD_DELETE) {			
 			if (m.type == OBJ_POINT && m.type3 == current_layer) {
 				Point c = Point(m.p0.x() / scale, m.p0.y() / scale);
 				vwf[current_layer].del_feature(c, via_diameter_max);
 			}
 		}
-		if (del)
+		if (train_cmd == TRAIN_CMD_DELETE)
 			obj_sets.clear();
-		vwf[current_layer].write_file(project_path, current_layer);			
+		vwf[current_layer].write_file(project_path, current_layer, insu_min, wire_min);			
 	}
 	return 0;
 }
@@ -1105,13 +1401,15 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 	}
 	delete qdir;
 	int BORDER_SIZE = 0;
+	int insu_mins[50] = { 0 };
+	int wire_mins[50] = { 0 };
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		if (current_layer >= (int)vwf.size())
 			vwf.resize(current_layer + 1);
 		string img_name = ics[current_layer]->get_file_name();
 		int loc = img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
-		vwf[current_layer].read_file(project_path, current_layer);
+		vwf[current_layer].read_file(project_path, current_layer, insu_mins[current_layer], wire_mins[current_layer]);
 		BORDER_SIZE = max(BORDER_SIZE, vwf[current_layer].get_max_d());
 	}
 	BORDER_SIZE += 8;

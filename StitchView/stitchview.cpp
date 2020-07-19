@@ -449,6 +449,8 @@ StitchView::StitchView(QWidget *parent) : QWidget(parent)
 	ba = BundleAdjustInf::create_instance(2);
 	license = "";
 	span_tree_dir = 2;
+	output_rect.setTopLeft(QPoint(0, 0));
+	output_rect.setBottomRight(QPoint(1000000000, 1000000000));
 }
 
 StitchView::~StitchView()
@@ -1889,6 +1891,8 @@ MapXY * StitchView::get_mapxy(int _layer)
 		_layer = layer;
     if (_layer == ABS_LAYER) {
         MapXY * ret = ri->get_mapxy(0);
+		if (!ret)
+			return NULL;
         ret->set_default_zoomx(1);
         ret->set_default_zoomy(1);
         ret->set_beta(0);
@@ -2170,11 +2174,15 @@ int StitchView::output_layer(int _layer, string pathname, int output_format, int
 		max_bd.x = max(bd.x, max_bd.x);
 		max_bd.y = max(bd.y, max_bd.y);
 	}
+	max_bd.x = min(max_bd.x, output_rect.right());
+	max_bd.y = min(max_bd.y, output_rect.bottom());
+	int start_x = output_rect.left() / dst_w;
+	int start_y = output_rect.top() / dst_w;
 	int end_x = max_bd.x / dst_w + 1;
 	int end_y = max_bd.y / dst_w + 1;
-	qInfo("output_layer l=%d, file=%s, x=%d, y=%d", _layer, filename.c_str(), end_x, end_y);
+	qInfo("output_layer l=%d, file=%s, sx=%d, sy=%d, ex=%d, ey=%d", _layer, filename.c_str(), start_x, start_y, end_x, end_y);
 	if (output_format == OUTPUT_DB)
-		icl->putBlockNumWidth(end_x, end_y, dst_w);
+		icl->putBlockNumWidth(end_x - start_x, end_y - start_y, dst_w);
 	vector<MapID> map_id;
 	vector<MapID> draw_order;
 	for (int i = 0; i < 3; i++)
@@ -2183,8 +2191,8 @@ int StitchView::output_layer(int _layer, string pathname, int output_format, int
     mxy->set_merge_method(0);
     ri->set_mapxy(_layer, mxy.data());
 	float cnt = 0;
-	for (int y = 0; y < end_y; y++)
-	for (int x = 0; x < end_x; x++) {
+	for (int y = start_y; y < end_y; y++)
+	for (int x = start_x; x < end_x; x++) {
 		map_id.push_back(MAPID(_layer, x, y));
 		if (map_id.size() == 16 || (x + 1==end_x && y + 1==end_y)) {
 			vector<QImage> imgs;
@@ -2199,18 +2207,18 @@ int StitchView::output_layer(int _layer, string pathname, int output_format, int
 					vector<uchar> buff;
 					buff.resize(ba.size());
 					memcpy(buff.data(), ba.data(), ba.size());
-					icl->addRawImg(buff, MAPID_X(map_id[i]), MAPID_Y(map_id[i]), 0);
+					icl->addRawImg(buff, MAPID_X(map_id[i]) - start_x, MAPID_Y(map_id[i]) - start_y, 0);
 				}
 				else {
 					char postfix[50];
-					sprintf(postfix, "_%d_%d.jpg", MAPID_Y(map_id[i]), MAPID_X(map_id[i]));
+					sprintf(postfix, "_%d_%d.jpg", MAPID_Y(map_id[i]) - start_y, MAPID_X(map_id[i]) - start_x);
 					filename = pathname + "/" + lf[_layer]->layer_name + postfix;
 					imgs[i].save(QString::fromStdString(filename));
 				}
 			}
 			map_id.clear();
 			cnt += 16;
-			emit notify_progress(cnt * 0.8 / (end_y * end_x));
+			emit notify_progress(cnt * 0.8 / ((end_y - start_y) * (end_x- start_x)));
 		}
 	}
 	CV_Assert(map_id.empty());
@@ -2228,11 +2236,11 @@ int StitchView::output_layer(int _layer, string pathname, int output_format, int
 		s = max(ic->getMaxScale() - s - 1, 1);
 		vector<uchar> buff;
 		QImage image0;
-		QImage image((end_x / (1 << s) + 1)* dst_w, (end_y / (1 << s) + 1) * dst_w, QImage::Format_RGB32);
+		QImage image(((end_x - start_x) / (1 << s) + 1) * dst_w, ((end_y-start_y) / (1 << s) + 1) * dst_w, QImage::Format_RGB32);
 		image.fill(QColor(0, 0, 0));
 		QPainter painter(&image);
-		for (int y = 0, yy = 0; y < end_y; y += 1 << s, yy++)
-		for (int x = 0, xx = 0; x < end_x; x += 1 << s, xx++) {
+		for (int y = 0, yy = 0; y < end_y - start_y; y += 1 << s, yy++)
+		for (int x = 0, xx = 0; x < end_x - start_x; x += 1 << s, xx++) {
 			if (ic->getRawImgByIdx(buff, x, y, s, 0, false) == 0) {
 				if (!image0.loadFromData((uchar *)&buff[0], (int)buff.size()))
 					qFatal("image format error, (x=%d,y=%d,s=%d)", x, y, s);

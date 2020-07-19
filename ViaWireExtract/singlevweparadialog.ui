@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>812</width>
-    <height>400</height>
+    <width>849</width>
+    <height>466</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -16,8 +16,8 @@
   <widget class="QDialogButtonBox" name="buttonBox">
    <property name="geometry">
     <rect>
-     <x>10</x>
-     <y>350</y>
+     <x>20</x>
+     <y>410</y>
      <width>201</width>
      <height>32</height>
     </rect>
@@ -524,8 +524,8 @@
   <widget class="QCheckBox" name="viacenter0">
    <property name="geometry">
     <rect>
-     <x>420</x>
-     <y>160</y>
+     <x>20</x>
+     <y>290</y>
      <width>131</width>
      <height>20</height>
     </rect>
@@ -537,8 +537,8 @@
   <widget class="QCheckBox" name="viacenter1">
    <property name="geometry">
     <rect>
-     <x>420</x>
-     <y>180</y>
+     <x>20</x>
+     <y>310</y>
      <width>111</width>
      <height>20</height>
     </rect>
@@ -550,8 +550,8 @@
   <widget class="QCheckBox" name="viacenter2">
    <property name="geometry">
     <rect>
-     <x>420</x>
-     <y>200</y>
+     <x>20</x>
+     <y>330</y>
      <width>111</width>
      <height>20</height>
     </rect>
@@ -563,8 +563,8 @@
   <widget class="QCheckBox" name="viacenter3">
    <property name="geometry">
     <rect>
-     <x>420</x>
-     <y>220</y>
+     <x>20</x>
+     <y>350</y>
      <width>111</width>
      <height>20</height>
     </rect>
@@ -576,8 +576,8 @@
   <widget class="QCheckBox" name="viacenter4">
    <property name="geometry">
     <rect>
-     <x>600</x>
-     <y>160</y>
+     <x>200</x>
+     <y>290</y>
      <width>111</width>
      <height>20</height>
     </rect>
@@ -589,8 +589,8 @@
   <widget class="QCheckBox" name="viacenter5">
    <property name="geometry">
     <rect>
-     <x>600</x>
-     <y>180</y>
+     <x>200</x>
+     <y>310</y>
      <width>111</width>
      <height>20</height>
     </rect>
@@ -602,8 +602,8 @@
   <widget class="QCheckBox" name="viacenter6">
    <property name="geometry">
     <rect>
-     <x>600</x>
-     <y>200</y>
+     <x>200</x>
+     <y>330</y>
      <width>111</width>
      <height>20</height>
     </rect>
@@ -615,8 +615,8 @@
   <widget class="QCheckBox" name="viacenter7">
    <property name="geometry">
     <rect>
-     <x>600</x>
-     <y>220</y>
+     <x>200</x>
+     <y>350</y>
      <width>111</width>
      <height>20</height>
     </rect>
@@ -624,6 +624,258 @@
    <property name="text">
     <string>Via at center 7</string>
    </property>
+  </widget>
+  <widget class="QWidget" name="gridLayoutWidget">
+   <property name="geometry">
+    <rect>
+     <x>420</x>
+     <y>170</y>
+     <width>334</width>
+     <height>231</height>
+    </rect>
+   </property>
+   <layout class="QGridLayout" name="gridLayout">
+    <item row="0" column="1">
+     <widget class="QLineEdit" name="insu0"/>
+    </item>
+    <item row="0" column="3">
+     <widget class="QLineEdit" name="wmin0"/>
+    </item>
+    <item row="0" column="5">
+     <widget class="QLineEdit" name="wmax0"/>
+    </item>
+    <item row="0" column="2">
+     <widget class="QLabel" name="label_23">
+      <property name="text">
+       <string>wmin0</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="0">
+     <widget class="QLabel" name="label_22">
+      <property name="text">
+       <string>insu0</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QLabel" name="label_25">
+      <property name="text">
+       <string>insu1</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="0">
+     <widget class="QLabel" name="label_28">
+      <property name="text">
+       <string>insu2</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="4">
+     <widget class="QLabel" name="label_27">
+      <property name="text">
+       <string>wMax1</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="2">
+     <widget class="QLabel" name="label_26">
+      <property name="text">
+       <string>wmin1</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="2">
+     <widget class="QLabel" name="label_29">
+      <property name="text">
+       <string>wmin2</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="4">
+     <widget class="QLabel" name="label_30">
+      <property name="text">
+       <string>wMax2</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="0">
+     <widget class="QLabel" name="label_31">
+      <property name="text">
+       <string>insu3</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="2">
+     <widget class="QLabel" name="label_32">
+      <property name="text">
+       <string>wmin3</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="4">
+     <widget class="QLabel" name="label_33">
+      <property name="text">
+       <string>wMax3</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="0">
+     <widget class="QLabel" name="label_34">
+      <property name="text">
+       <string>insu4</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="4">
+     <widget class="QLabel" name="label_24">
+      <property name="text">
+       <string>wMax0</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="4">
+     <widget class="QLabel" name="label_36">
+      <property name="text">
+       <string>wMax4</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="2">
+     <widget class="QLabel" name="label_35">
+      <property name="text">
+       <string>wmin4</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="0">
+     <widget class="QLabel" name="label_37">
+      <property name="text">
+       <string>insu5</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="2">
+     <widget class="QLabel" name="label_38">
+      <property name="text">
+       <string>wmin5</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="4">
+     <widget class="QLabel" name="label_39">
+      <property name="text">
+       <string>wMax5</string>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="0">
+     <widget class="QLabel" name="label_40">
+      <property name="text">
+       <string>insu6</string>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="4">
+     <widget class="QLabel" name="label_42">
+      <property name="text">
+       <string>wMax6</string>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="2">
+     <widget class="QLabel" name="label_41">
+      <property name="text">
+       <string>wmin6</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="2">
+     <widget class="QLabel" name="label_43">
+      <property name="text">
+       <string>wmin7</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="0">
+     <widget class="QLabel" name="label_44">
+      <property name="text">
+       <string>insu7</string>
+      </property>
+     </widget>
+    </item>
+    <item row="7" column="4">
+     <widget class="QLabel" name="label_45">
+      <property name="text">
+       <string>wMax7</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QLineEdit" name="insu1"/>
+    </item>
+    <item row="1" column="3">
+     <widget class="QLineEdit" name="wmin1"/>
+    </item>
+    <item row="1" column="5">
+     <widget class="QLineEdit" name="wmax1"/>
+    </item>
+    <item row="2" column="1">
+     <widget class="QLineEdit" name="insu2"/>
+    </item>
+    <item row="2" column="3">
+     <widget class="QLineEdit" name="wmin2"/>
+    </item>
+    <item row="2" column="5">
+     <widget class="QLineEdit" name="wmax2"/>
+    </item>
+    <item row="3" column="1">
+     <widget class="QLineEdit" name="insu3"/>
+    </item>
+    <item row="3" column="3">
+     <widget class="QLineEdit" name="wmin3"/>
+    </item>
+    <item row="3" column="5">
+     <widget class="QLineEdit" name="wmax3"/>
+    </item>
+    <item row="4" column="1">
+     <widget class="QLineEdit" name="insu4"/>
+    </item>
+    <item row="4" column="3">
+     <widget class="QLineEdit" name="wmin4"/>
+    </item>
+    <item row="4" column="5">
+     <widget class="QLineEdit" name="wmax4"/>
+    </item>
+    <item row="5" column="1">
+     <widget class="QLineEdit" name="insu5"/>
+    </item>
+    <item row="5" column="3">
+     <widget class="QLineEdit" name="wmin5"/>
+    </item>
+    <item row="5" column="5">
+     <widget class="QLineEdit" name="wmax5"/>
+    </item>
+    <item row="6" column="1">
+     <widget class="QLineEdit" name="insu6"/>
+    </item>
+    <item row="6" column="3">
+     <widget class="QLineEdit" name="wmin6"/>
+    </item>
+    <item row="6" column="5">
+     <widget class="QLineEdit" name="wmax6"/>
+    </item>
+    <item row="7" column="1">
+     <widget class="QLineEdit" name="insu7"/>
+    </item>
+    <item row="7" column="3">
+     <widget class="QLineEdit" name="wmin7"/>
+    </item>
+    <item row="7" column="5">
+     <widget class="QLineEdit" name="wmax7"/>
+    </item>
+   </layout>
   </widget>
  </widget>
  <resources/>

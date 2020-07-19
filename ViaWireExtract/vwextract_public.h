@@ -164,6 +164,9 @@ extern int dir_2[8];
 extern int dir_3[8];
 extern BrickConnect brick_conn;
 #endif
+void get_line_pts(Point pt1, Point pt2, vector <Point> & pts);
+void get_line_pts2(Point pt1, Point pt2, vector <Point> & pts);
+
 /*
 Compute integrate and line integral
 in img
@@ -210,16 +213,17 @@ int compute_circle_dx(int d, vector<Vec3i> & d0);
 #define EDGE_IS_WIRE_INSU	1
 #define EDGE_IS_WIRE		2
 #define EDGE_IS_INSU		4
+#define EDGE_NEAR_VIA		8
+#define TRAIN_CMD_INSERT	0
+#define TRAIN_CMD_DELETE	1
+#define TRAIN_CMD_GET		2
 
-#define MAX_DARK_LEVEL		150
-#define MAX_GRAD_LEVEL		196
+#define MAX_DARK_LEVEL		160
+#define MAX_GRAD_LEVEL		192
 class EdgeFeatureML {
 protected:
-	QSharedPointer<CvSVM> insu_svm[8];
-	QSharedPointer<CvSVM> wire_svm[8];
-	QSharedPointer<CvSVM> edge_svm[8];
 	uchar wi_prob[MAX_DARK_LEVEL][MAX_GRAD_LEVEL][2];
-	int grad_wire_th, dark_no_wire, dark_no_insu, dark_all_wire;
+	Range wi_dark0, wi_dark1, edge_g0, edge_g1;
 	/*
 	Input img: raw image
 	Input grad: image's grad
@@ -229,13 +233,6 @@ protected:
 	if dir>=0, it will search specified dir.
 	*/
 	void get_feature_vector(const Mat & img, const Mat &grad, Point o, int e[], int & dir);
-	/*
-	input e[], it is result of get_feature_vector [0..255]
-	output prob[],
-	Return edge's prob
-	Compute prob based on Edge Feature Vector, using SVM
-	*/
-	int compute_prob(const int e[], uchar prob[]);
 public:
 	EdgeFeatureML();
 	bool is_valid;
@@ -243,7 +240,7 @@ public:
 	input img, raw image
 	input grad, image grad
 	inout org, for intput it is edge nearby point, for output it is edge point
-	input range, search range
+	input range, search range, better within [2,2]
 	input label
 	output features
 	return true, if find feature, false, not find feature
@@ -418,10 +415,12 @@ public:
 	int get_via_label(Point & global, int d0);
 	//delete all feature
 	void clear_feature();
+	//get via and edge features
+	void get_features(vector<MarkObj> & obj_sets);
 	//return max diameter
 	int get_max_d();
-	void write_file(string project_path, int layer);
-	bool read_file(string project_path, int layer);
+	void write_file(string project_path, int layer, int insu_min, int wire_min);
+	bool read_file(string project_path, int layer, int & insu_min, int & wire_min);
 	//return if via is valid or not
 	bool via_valid(bool multi_thread);
 	/*

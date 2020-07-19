@@ -233,9 +233,12 @@ void MainWindow::on_actionOptimize_Offset_triggered()
 void MainWindow::on_actionTransForm_triggered()
 {
 	QScopedPointer<MapXY> mxy(stitch_view->get_mapxy(-1));
+	if (mxy.isNull())
+		return;
 	int dst_w = stitch_view->get_dst_wide();
+	QRect output_rect = stitch_view->get_output_rect();
 	MapxyDialog mxy_dlg(mxy->get_beta(), mxy->get_default_zoomx(), mxy->get_default_zoomy(), 
-		mxy->get_merge_method(), dst_w, mxy->get_max_pt_error(), mxy->get_merge_pt_distance(), this);
+		mxy->get_merge_method(), dst_w, mxy->get_max_pt_error(), mxy->get_merge_pt_distance(), output_rect, this);
 	if (mxy_dlg.exec() == QDialog::Accepted) {
 		qInfo("UI: deg=%f, zx=%f, zy=%f,dst_w=%d, pterr=%d, md=%d", mxy_dlg.beta, 
 			mxy_dlg.zx, mxy_dlg.zy, mxy_dlg.dst_w, mxy_dlg.max_pt_err, mxy_dlg.merge_distance);
@@ -247,6 +250,7 @@ void MainWindow::on_actionTransForm_triggered()
 		mxy->set_merge_pt_distance(mxy_dlg.merge_distance);
 		dst_w = mxy_dlg.dst_w;
 		stitch_view->set_mapxy_dstw(-1, mxy.data(), dst_w);
+		stitch_view->set_output_rect(mxy_dlg.output_rect);
 	}
 }
 

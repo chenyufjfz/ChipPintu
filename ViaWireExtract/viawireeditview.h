@@ -44,6 +44,7 @@ signals:
 
 public:
     void load_bk_image(QString file_path);
+	void load_train_objs();
     void set_grid_size(double high, double width);
     void set_offset(double oy, double ox);
     void set_mark(int ms, int type2);
@@ -60,6 +61,8 @@ public:
 	void set_brick_shape_ext_para(int ww, double iw, double ww1, int gi, int gw);
 	void get_via_diameter(int & _dia0, int & _dia1, int & _dia2, int & _dia3, int & _dia4, int & _dia5, int & _dia6, int & _dia7);
 	void set_via_diameter(int _dia0, int _dia1, int _dia2, int _dia3, int _dia4, int _dia5, int _dia6, int _dia7);
+	void get_wid(int & _wi0, int & _wi1, int & _wi2, int & _wi3, int & _wi4, int & _wi5, int & _wi6, int & _wi7);
+	void set_wid(int _wi0, int _wi1, int _wi2, int _wi3, int _wi4, int _wi5, int _wi6, int _wi7);
 	int get_via_center();
 	void set_via_center(int _via_at_center);
     void set_scale(int _scale);
@@ -68,6 +71,7 @@ public:
 protected:
     vector <MarkObj> obj_set;
 	int dia[8];
+	int wid[8];
 	int via_at_center;
 	string img_name;
 	vector<QImage> bk_img;

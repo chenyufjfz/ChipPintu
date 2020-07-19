@@ -9,14 +9,14 @@ class VWExtractML : public VWExtract
 {
 protected:
 	vector<VWfeature> vwf;
-	int layer_min, layer_max, del;
-	int via_diameter_min, via_diameter_max;
+	int layer_min, layer_max, train_cmd;
+	int via_diameter_min, via_diameter_max, insu_min, wire_min;
 	vector<Mat> via_mark;
-	vector<Mat> edge_mark, edge_mark1, edge_mark2;
+	vector<Mat> edge_mark, edge_mark1, edge_mark2, edge_mark3;
 public:
 	VWExtractML();
 	~VWExtractML() {}
-	int set_train_param(int type, int d, int, int, int, int, int, int, int, float);
+	int set_train_param(int , int , int, int, int, int, int, int, int, float);
 	int set_extract_param(int layer, int , int , int , int , int , int , int , int , float );
 	Mat get_mark(int layer);
 	Mat get_mark1(int layer);
