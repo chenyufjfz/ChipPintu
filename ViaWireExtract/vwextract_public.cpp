@@ -1336,8 +1336,32 @@ Output: pdf, probability distributed function
 Inout: tran_zone, tran_zone.start and .end is for transition zone
 Return best seperate point
 */
-int compute_pdf(const vector<int> & low, const vector<int> & high, vector<int> & pdf, Range &tran_zone)
+int compute_pdf(const vector<int> & low0, const vector<int> & high0, vector<int> & pdf, Range &tran_zone)
 {
+	vector<int> low(low0), high(high0);
+	bool change = true;
+	while (change && !high.empty() && !low.empty()) {
+		float avg = 0;
+		change = false;
+		for (auto a : high)
+			avg += a;
+		avg /= high.size();
+		if (low[0] > avg) {
+			low.erase(low.begin());
+			change = true;
+		}
+		avg = 0;
+		for (auto a : low)
+			avg += a;
+		avg /= low.size();
+		if (high[0] < avg) {
+			high.erase(high.begin());
+			change = true;
+		}
+	}
+	if (high.size() < 2 || low.size() < 2)
+		return -1;
+	
 	int min_s = 100000, best_start, best_end;
 	int margin = tran_zone.start;
 	tran_zone = Range(0, pdf.size() - 1);
@@ -1378,10 +1402,10 @@ int compute_pdf(const vector<int> & low, const vector<int> & high, vector<int> &
 		if (low[j] + margin >= i)
 			s++;
 		else
-			break; //above already extend margin, quit directly
+			break;
 		if (s == 0) {
 			tran_zone.end = i;
-			break;
+			break; //above already extend margin, quit directly
 		}
 		for (int j = 0; j < (int)high.size(); j++)
 		if (high[j] < i)
@@ -1389,6 +1413,10 @@ int compute_pdf(const vector<int> & low, const vector<int> & high, vector<int> &
 		else
 			break;
 		s1 = high.size() - s1; //s1 is high number which is higher than i
+		if (s1 == 0) {
+			tran_zone.end = i;
+			break; //above already extend margin, quit directly
+		}
 		int v = POINT_TOT_PROB - POINT_TOT_PROB * s * high.size() / (s1 * low.size()); //v is (low number > location) / (high number > location)
 		if (v < pdf[i - 1])
 			v = pdf[i - 1];
@@ -1417,6 +1445,10 @@ int compute_pdf(const vector<int> & low, const vector<int> & high, vector<int> &
 		else
 			break;
 		s1 = low.size() - s1; //s1 is low number which is lower than i
+		if (s1 == 0) {
+			tran_zone.start = i;
+			break;
+		}
 		int v = POINT_TOT_PROB * s * low.size() / (s1 * high.size());
 		if (v > pdf[i + 1])
 			v = pdf[i + 1];
@@ -1449,7 +1481,7 @@ bool EdgeFeatureML::train(const vector<vector<int> > & features)
 		}
 		else
 		if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE_INSU)
-			edge_point.push_back(Point(v[0], v[1]));
+			edge_point.push_back(Point(v[0], v[1])); //v[0] is dark, v[1] is grad
 	}
 	if (wire_dark.empty() || insu_dark.empty() || edge_point.empty()) {
 		is_valid = false;
@@ -1463,12 +1495,15 @@ bool EdgeFeatureML::train(const vector<vector<int> > & features)
 	Range wi_range(MIN_DARK_GAP, MIN_DARK_GAP);
 	int dark_sep = compute_pdf(insu_dark, wire_dark, wire_pdf, wi_range);
 	qInfo("train, dark_sep=%d, insu_high=%d, wire_low=%d", dark_sep, wi_range.start, wi_range.end);
+	if (dark_sep < 0){
+		is_valid = false;
+		return false;
+	}
 
 	//3 compute edge pdf for each dark level
 	vector<vector<int> > edge_pdf; //edge_pdf is pdf for different tp, edge_pdf[0] is for tp[0]
 	vector<int> tp; //tp is dark level
-	if (edge_point.size() <= TRAIN_NUM_TH) {
-		tp.push_back(0);
+	if (edge_point.size() <= TRAIN_NUM_TH) {		
 		vector<int> wi_grad;
 		vector<int> edge_grad;
 		for (auto & v : features) {
@@ -1481,11 +1516,20 @@ bool EdgeFeatureML::train(const vector<vector<int> > & features)
 			if (v[EdgeFeatureVecLen] & EDGE_IS_WIRE_INSU)
 				edge_grad.push_back(v[1]);
 		}
+		int x0 = 0;
+		for (auto & e : edge_point)
+			x0 += e.x;
+		x0 /= edge_point.size();
+		tp.push_back(x0);
 		sort(edge_grad.begin(), edge_grad.end());
 		sort(wi_grad.begin(), wi_grad.end(), greater<int>());
 		vector<int> temp_pdf(MAX_GRAD_LEVEL);
 		Range temp(EDGE_GRAD_GAP, EDGE_GRAD_GAP);
 		int edge_sep = compute_pdf(wi_grad, edge_grad, temp_pdf, temp);
+		if (edge_sep < 0){
+			is_valid = false;
+			return false;
+		}
 		edge_pdf.push_back(temp_pdf);
 		qInfo("train, edge_sep=%d, edge_high=%d, edge_low=%d", edge_sep, temp.start, temp.end);
 	}
@@ -1521,6 +1565,10 @@ bool EdgeFeatureML::train(const vector<vector<int> > & features)
 			vector<int> temp_pdf(MAX_GRAD_LEVEL);
 			Range temp(EDGE_GRAD_GAP, EDGE_GRAD_GAP);
 			int edge_sep = compute_pdf(wi_grad, edge_grad, temp_pdf, temp);
+			if (edge_sep < 0){
+				is_valid = false;
+				return false;
+			}
 			edge_pdf.push_back(temp_pdf);
 			tp.push_back(x0 / TRAIN_NUM_TH);
 			qInfo("train, tp=%d,edge_sep=%d, edge_high=%d, edge_low=%d", tp.back(), edge_sep, temp.start, temp.end);
@@ -1836,8 +1884,6 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 			const Vec2i *p_grad = grad.ptr<Vec2i>(org.y, org.x);
 			for (int d1 = d - 1; d1 <= d + 1; d1++)
 			for (int d2 = d - 1; d2 <= d + 1; d2++) { //search all shape, d1 for x, d2 for y
-				if (abs(d1 - d2) > 1)
-					continue;
 				float r1 = d1 * 0.5f;
 				float r2 = d2 * 0.5f;
 				auto circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
