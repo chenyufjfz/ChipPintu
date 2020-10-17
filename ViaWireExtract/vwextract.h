@@ -10,7 +10,8 @@ class VWExtractML : public VWExtract
 protected:
 	vector<VWfeature> vwf;
 	int layer_min, layer_max, train_cmd;
-	int via_diameter_min, via_diameter_max, insu_min, wire_min;
+	int via_diameter_min, via_diameter_max;
+	int insu_min[MAX_LAYER_NUM], wire_min_x[MAX_LAYER_NUM], wire_min_y[MAX_LAYER_NUM];
 	vector<Mat> via_mark;
 	vector<Mat> edge_mark, edge_mark1, edge_mark2, edge_mark3;
 public:

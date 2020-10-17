@@ -1423,10 +1423,13 @@ protected:
 		unsigned * p_mark2 = mark2.ptr<unsigned>(p0.y, p0.x);
 		if (p_mark2[0] != 0 && MARK2_LEN(p_mark2[0]) == 0) {
 			int ano_bch = MARK2_BRANCH(p_mark2[0]); //meet another branch
-			CV_Assert(branch != ano_bch);
-			sbs[branch].push_dc(ano_bch);
-			sbs[ano_bch].push_dc(branch);
-			add_joint_point(p0, p0, branch, p0, p0, ano_bch, GUARD_FOR_JOINT, 0, 20);
+			if (branch != ano_bch) {
+				sbs[branch].push_dc(ano_bch);
+				sbs[ano_bch].push_dc(branch);
+				add_joint_point(p0, p0, branch, p0, p0, ano_bch, GUARD_FOR_JOINT, 0, 20);
+			}
+			else
+				qCritical("branch %d meet at (x=%d,y=%d)", branch, p0.x, p0.y);
 		}
 		if (!MARK2_VIA(p_mark2[0]))
 			p_mark2[0] = MAKE_MARK2(branch, 0, 0, 1);
@@ -5324,7 +5327,7 @@ static void image_enhance2(PipeData & d, ProcessParameter & cpara)
 				&& shape != BRICK_II_180 && shape != BRICK_II_270)
 				continue;
 			int wide = d.l[layer].wts.get_wide(PROB_TYPE(p_prob[2 * x]));
-			int best_dx, best_dy, gray, best_gray;
+			int best_gray;
 			for (int k = -1; k <= 1; k += 2) { //k=-1 search up left, k=1 search down right
 				if (shape == BRICK_I_0 || shape == BRICK_II_0 || shape == BRICK_II_180) {
 					if (shape == BRICK_II_0 && k == -1 || shape == BRICK_II_180 && k == 1)

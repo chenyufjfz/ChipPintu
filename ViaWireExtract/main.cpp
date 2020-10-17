@@ -306,7 +306,6 @@ int cell_extract_test()
 	int scale = 32768 / ic->getBlockWidth();
 	FILE * fp = fopen("result.txt", "w");
 	for (int i = 0; i < objs.size(); i++) {
-		unsigned t = objs[i].type;
 		fprintf(fp, "cell, l=%d, (x=%d,y=%d)->(x=%d,y=%d)\n", 0, objs[i].p0.x() / scale, objs[i].p0.y() / scale,
 			objs[i].p1.x() / scale, objs[i].p1.y() / scale);
 	}
@@ -421,12 +420,12 @@ int test_extractparam2()
 		if (params[i].pi[0] >= 0)
 			layer_sets.insert(params[i].pi[0]);
 	for (set<int>::iterator it = layer_sets.begin(); it != layer_sets.end(); it++) {
-		anti_map_layer[*it] = map_layer.size();
+		anti_map_layer[*it] = (int) map_layer.size();
 		int l = -1;
 		for (int i = 0; i < bk_img->getLayerNum(); i++) {
 			string layer_name = bk_img->getLayerName(i);
-			int t = layer_name.find_last_of('.');
-			int h = layer_name.find_last_of('M', t);
+			int t = (int) layer_name.find_last_of('.');
+			int h = (int) layer_name.find_last_of('M', t);
 			string sub = layer_name.substr(h + 1, t - h - 1);
 			if (atoi(sub.c_str()) == *it) {
 				l = i;

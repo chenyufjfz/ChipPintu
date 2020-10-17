@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include<functional>
+#include <QMutexLocker>
 using namespace cv;
 
 #ifdef Q_OS_WIN
@@ -26,6 +27,11 @@ using namespace cv;
 #define TRAIN_NUM_TH				5
 #define MIN_DARK_GAP				5
 #define EDGE_GRAD_GAP				4
+#define VIA_REGION_RADIUS			4
+#define VIA_MARK_VIA_CENTER			8
+#define VIA_MARK_VIA_REGION			4
+#define VIA_MARK_NEAR_VIA			2
+#define VIA_MARK_NO_VIA				1
 
 int dxy[8][2] = {
 	//y , x
@@ -1346,7 +1352,7 @@ int compute_pdf(const vector<int> & low0, const vector<int> & high0, vector<int>
 		for (auto a : high)
 			avg += a;
 		avg /= high.size();
-		if (low[0] > avg) {
+		if (low[0] > avg) { //low[0] is too big, drop
 			low.erase(low.begin());
 			change = true;
 		}
@@ -1354,7 +1360,7 @@ int compute_pdf(const vector<int> & low0, const vector<int> & high0, vector<int>
 		for (auto a : low)
 			avg += a;
 		avg /= low.size();
-		if (high[0] < avg) {
+		if (high[0] < avg) { //high[0] is too small, drop
 			high.erase(high.begin());
 			change = true;
 		}
@@ -1437,17 +1443,17 @@ int compute_pdf(const vector<int> & low0, const vector<int> & high0, vector<int>
 			break;
 		if (s == 0) {
 			tran_zone.start = i;
-			break;
+			break;  //above already extend margin, quit directly
 		}
 		for (int j = 0; j < (int)low.size(); j++)
 		if (low[j] > i)
 			s1++;
 		else
-			break;
+			break; 
 		s1 = low.size() - s1; //s1 is low number which is lower than i
 		if (s1 == 0) {
 			tran_zone.start = i;
-			break;
+			break;  //above already extend margin, quit directly
 		}
 		int v = POINT_TOT_PROB * s * low.size() / (s1 * high.size());
 		if (v > pdf[i + 1])
@@ -1631,7 +1637,7 @@ void EdgeFeatureML::judge(const Mat & img, Mat & grad, Mat & prob, const Mat & v
 		Vec4b * p_prob = prob.ptr<Vec4b>(y);
 		const uchar * p_mask = via_mark.empty() ? NULL : via_mark.ptr<uchar>(y);
 		for (int x = EDGE_JUDGE_BORDER; x < img.cols - EDGE_JUDGE_BORDER; x++)
-		if (!p_mask || p_mask[x] == 1) {
+		if (!p_mask || p_mask[x] == VIA_MARK_NO_VIA) {
 			//following is same as get_feature_vector
 			int dir;
 			const Vec2i * p_gradx = p_grad + x;
@@ -1807,6 +1813,7 @@ public:
 		}
 	}
 };
+static QMutex circle_mutex;
 
 ViaML::ViaML()
 {
@@ -1829,11 +1836,14 @@ void ViaML::find_best_bright(const Mat & lg, int d, int sep0, vector<Point> & lo
 {
 	auto d0it = d0s.find(d);
 	if (d0it == d0s.end()) {
-		CV_Assert(!multi_thread);
+		QMutexLocker locker(&circle_mutex);
 		vector<Vec3i> dd;
 		compute_circle_dx1(d, dd);
-		d0s[d] = dd;
 		d0it = d0s.find(d);
+		if (d0it == d0s.end()) {
+			d0s[d] = dd;
+			d0it = d0s.find(d);
+		}
 	}
 	vector<Vec3i> & dd = d0it->second;
 	Mat sum(lg.rows, lg.cols, CV_32SC1, Scalar::all(0x20000000)); //circle gray sum
@@ -1889,7 +1899,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 				auto circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
 				Point2f tl;
 				if (circle_it == circles.end()) {
-					CV_Assert(!multi_thread);
+					QMutexLocker locker(&circle_mutex);
 					//following compute circle(d1, d2) and d0s(d1, d2)
 					vector<vector<Vec3i> > cir;
 					vector<Point2f> ef[8];
@@ -1927,9 +1937,12 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 						}
 						cir.push_back(edge);
 					}
-					circles[grad.step.p[0] * 10000 + d1 * 100 + d2] = cir;
-					d0s[d1 * 100 + d2] = xy;
 					circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
+					if (circle_it == circles.end()) {
+						circles[grad.step.p[0] * 10000 + d1 * 100 + d2] = cir;
+						d0s[d1 * 100 + d2] = xy;
+						circle_it = circles.find(grad.step.p[0] * 10000 + d1 * 100 + d2);
+					}
 				}
 				vector<vector<Vec3i> > & cir = circle_it->second; //cir[i] is one edge, cir[i][j] is one point
 				int dd = max(d1, d2);
@@ -2302,13 +2315,14 @@ float ViaML::judge(const Mat & img, Mat & via_mark, Point & org, Point & range, 
 		int d = max(range.x, range.y);
 		Mat via_mark_rect = via_mark(via_rect);
 		Point o = org - Point(x0, y0);
-		circle(via_mark_rect, o, d / 2, Scalar::all(4), CV_FILLED);
-		int r2 = (d / 2 + 3) * (d / 2 + 3);
+		circle(via_mark_rect, o, d / 2, Scalar::all(VIA_MARK_VIA_REGION), CV_FILLED);
+		circle(via_mark_rect, o, 2, Scalar::all(VIA_MARK_VIA_CENTER), CV_FILLED);
+		int r2 = (d / 2 + VIA_REGION_RADIUS) * (d / 2 + VIA_REGION_RADIUS);
 		for (int y = 0; y < via_mark_rect.rows; y++) {
 			uchar * p_mark = via_mark_rect.ptr<uchar>(y);
 			Vec2i * p_grad = grad.ptr<Vec2i>(y);
 			for (int x = 0; x < via_mark_rect.cols; x++) 
-			if (p_mark[x] != 4) {
+			if (p_mark[x] != VIA_MARK_VIA_REGION && p_mark[x] != VIA_MARK_VIA_CENTER) {
 				int r = (y - o.y) * (y - o.y) + (x - o.x) * (x - o.x);
 				if (r > r2)
 					continue;
@@ -2316,15 +2330,15 @@ float ViaML::judge(const Mat & img, Mat & via_mark, Point & org, Point & range, 
 				if (deg < 0) {
 					deg = -deg / sqrt(r * (p_grad[x][0] * p_grad[x][0] + p_grad[x][1] * p_grad[x][1]) + 0.01);
 					if (deg > 0.7)
-						p_mark[x] = 4;
+						p_mark[x] = VIA_MARK_VIA_REGION;
 				}
 			}
 		}
 		for (int y = max(org.y - 2 * d, 0); y <= min(org.y + 2 * d, via_mark.rows - 1); y++) {
 			uchar * p_mark = via_mark.ptr<uchar>(y);
 			for (int x = max(org.x - 2 * d, 0); x <= min(org.x + 2 * d, via_mark.cols - 1); x++)
-			if (p_mark[x] != 4)
-				p_mark[x] = 2;
+			if (p_mark[x] != VIA_MARK_VIA_REGION &&  p_mark[x] != VIA_MARK_VIA_CENTER)
+				p_mark[x] = VIA_MARK_NEAR_VIA;
 		}
 	}
 	return max_response;
@@ -2536,7 +2550,7 @@ void VWfeature::write_file(string project_path, int layer, int insu_min, int wir
 	fclose(fp);
 }
 
-bool VWfeature::read_file(string project_path, int layer, int & insu_min, int & wire_min)
+bool VWfeature::read_file(string project_path, int layer)
 {
 	string filename = project_path + "/WorkData/";
 	char sh[100];
@@ -2549,6 +2563,7 @@ bool VWfeature::read_file(string project_path, int layer, int & insu_min, int & 
 	if (fp == NULL)
 		return false;
 	int s, t;
+	int insu_min, wire_min;
 	if (fscanf(fp, "insu_min=%d, wire_min=%d\n", &insu_min, &wire_min) != 2) {
 		qCritical("%s corrupted, no insu or wire min", filename.c_str());
 		insu_min = 2;
@@ -2652,7 +2667,7 @@ void VWfeature::via_search(const Mat & img, Mat & via_mark, Mat & mark_dbg, vect
 		return;
 	
 	via_mark.create(img.rows, img.cols, CV_8U);
-	via_mark = 1;
+	via_mark = VIA_MARK_NO_VIA;
 	//1 find min diameter and min via gray
 	int min_d0 = 1000, max_d0 = 0;
 	int min_a1 = 1000, max_a0 = 0;
@@ -2741,7 +2756,7 @@ void VWfeature::via_search(const Mat & img, Mat & via_mark, Mat & mark_dbg, vect
 					m->prob = -ret * 2;
 					m->p0 = QPoint(org.x, org.y);
 					m->p1 = QPoint(range.x, range.y);
-					m->un.attach = 1;
+					m->un.attach = 1; //init as reference by current tile
 					vs.push_back(m);
 					if (!mark_dbg.empty())
 						rectangle(mark_dbg, Point(org.x - range.x / 2, org.y - range.y / 2),
@@ -2778,8 +2793,8 @@ void VWfeature::edge_search(const Mat & img, Mat & prob, const Mat & via_mark, M
 		const uchar * p_vm = via_mark.ptr<uchar>(y);
 		Vec3b * p_debugm = debug_mark.empty() ? NULL : debug_mark.ptr<Vec3b>(y);
 		for (int x = 0; x < via_mark.cols; x++)
-		if (p_vm[x] == 4) {
-			p_prob[x][POINT_DIR] |= 8;
+		if (p_vm[x] == VIA_MARK_VIA_REGION) {
+			p_prob[x][POINT_DIR] |= POINT_VIA_REGION;
 			p_prob[x][POINT_IS_INSU] = POINT_TOT_PROB / 2;
 			p_prob[x][POINT_IS_WIRE] = POINT_TOT_PROB / 2;
 			p_prob[x][POINT_IS_EDGE_WIRE_INSU] = 0;
@@ -2789,5 +2804,18 @@ void VWfeature::edge_search(const Mat & img, Mat & prob, const Mat & via_mark, M
 				p_debugm[x][2] = 255;
 			}
 		}
+		else
+			if (p_vm[x] == VIA_MARK_VIA_CENTER) {
+				p_prob[x][POINT_DIR] |= POINT_VIA_REGION | POINT_VIA_CENTER;
+				p_prob[x][POINT_IS_INSU] = POINT_TOT_PROB / 2;
+				p_prob[x][POINT_IS_WIRE] = POINT_TOT_PROB / 2;
+				p_prob[x][POINT_IS_EDGE_WIRE_INSU] = 0;
+				if (p_debugm) {
+					p_debugm[x][0] = 255;
+					p_debugm[x][1] = 255;
+					p_debugm[x][2] = 255;
+				}
+			}
+
 	}
 }

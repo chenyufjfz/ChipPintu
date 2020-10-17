@@ -93,6 +93,7 @@ void print_stack(void);
 #define DIR_DOWNLEFT_MASK	(1 << DIR_DOWNLEFT)
 #define DIR_DOWNRIGHT_MASK	(1 << DIR_DOWNRIGHT)
 
+#define MAX_LAYER_NUM		50
 //search opt
 #define OPT_PARALLEL_SEARCH		1
 #define OPT_POLYGON_SEARCH		2
@@ -107,6 +108,8 @@ void print_stack(void);
 #define POINT_IS_WIRE			1
 #define POINT_IS_EDGE_WIRE_INSU 2
 #define POINT_DIR				3
+#define POINT_VIA_CENTER		16
+#define POINT_VIA_REGION		8
 #define MINIMUM_EDGE_GRAD		5
 #define EDGE_JUDGE_BORDER		3
 struct Brick {
@@ -420,7 +423,7 @@ public:
 	//return max diameter
 	int get_max_d();
 	void write_file(string project_path, int layer, int insu_min, int wire_min);
-	bool read_file(string project_path, int layer, int & insu_min, int & wire_min);
+	bool read_file(string project_path, int layer);
 	//return if via is valid or not
 	bool via_valid(bool multi_thread);
 	/*

@@ -100,7 +100,7 @@ ViaWireEditView::ViaWireEditView(QWidget *parent) : QWidget(parent)
 	bse_param.w_wide1 = 0.3;
 	for (int i = 0; i < 8; i++) {
 		dia[i] = 15;
-		wid[i] = 0x503;
+		wid[i] = 0x60603;
 	}
 	via_at_center = 0;
 }
@@ -302,7 +302,7 @@ void ViaWireEditView::load_train_objs()
 		vwe_ml->train(img_name, ol);
 		obj_set.insert(obj_set.end(), ol.begin(), ol.end());
 	}
-	vwe_ml->set_extract_param(layer << 8 | layer, via_at_center, 0, 0, 0, 0, 0, 0, 0, 0);
+	vwe_ml->set_extract_param(layer << 8 | layer, POINT_WIRE_INSU << 8 | OBJ_POINT, wid[layer], 0, 0, 0, 0, 0, 0, 0);
 }
 
 void ViaWireEditView::set_grid_size(double high, double width)
@@ -808,7 +808,6 @@ void ViaWireEditView::mouseMoveEvent(QMouseEvent *event)
 	unsigned modify = QGuiApplication::queryKeyboardModifiers();
 	if (modify != Qt::NoModifier && bse_param.w_wide>0) {
 		QPoint point = move_pos / scale;
-		int dx[6], dy[6];
 		int w_wide;
 		switch (modify) {
 		case Qt::ControlModifier:
@@ -1002,7 +1001,7 @@ void ViaWireEditView::keyPressEvent(QKeyEvent *e)
 		bk_img_mask = bk_img[layer];
 		if (show_debug_en)
             show_debug(mark_mask, show_debug_en);
-		vwe_ml->set_extract_param(layer << 8 | layer, via_at_center, 0, 0, 0, 0, 0, 0, 0, 0);
+		vwe_ml->set_extract_param(layer << 8 | layer, POINT_WIRE_INSU << 8 | OBJ_POINT, wid[layer], 0, 0, 0, 0, 0, 0, 0);
 		update();
 		return;
 	}

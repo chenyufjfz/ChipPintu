@@ -124,4 +124,12 @@ void SingleVWEParaDialog::on_buttonBox_accepted()
 	wi5 |= ui->wmin5->text().toInt() << 8;
 	wi6 |= ui->wmin6->text().toInt() << 8;
 	wi7 |= ui->wmin7->text().toInt() << 8;
+	wi0 |= ui->wmax0->text().toInt() << 16;
+	wi1 |= ui->wmax1->text().toInt() << 16;
+	wi2 |= ui->wmax2->text().toInt() << 16;
+	wi3 |= ui->wmax3->text().toInt() << 16;
+	wi4 |= ui->wmax4->text().toInt() << 16;
+	wi5 |= ui->wmax5->text().toInt() << 16;
+	wi6 |= ui->wmax6->text().toInt() << 16;
+	wi7 |= ui->wmax7->text().toInt() << 16;
 }
