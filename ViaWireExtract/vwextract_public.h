@@ -167,6 +167,7 @@ extern int dir_2[8];
 extern int dir_3[8];
 extern BrickConnect brick_conn;
 #endif
+int get_pts_dir(Point pt1, Point pt2);
 void get_line_pts(Point pt1, Point pt2, vector <Point> & pts);
 void get_line_pts2(Point pt1, Point pt2, vector <Point> & pts);
 

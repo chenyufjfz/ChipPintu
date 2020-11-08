@@ -2003,7 +2003,20 @@ public:
 			diff_set(jps[i].bs, src, tgt);
 			int start_choose = 0;
 			while (1) {
-				CV_Assert(src.size() + tgt.size() == jps[i].bs.size());
+				if (src.size() + tgt.size() != jps[i].bs.size()) {
+					qCritical("diff_set fail");
+					char text[1000];
+					for (int j = 0, k = 0; j < (int)src.size(); j++)
+						k+=sprintf(text + k, "%d, ", src[j]);
+					qCritical("%s", text);
+					for (int j = 0, k = 0; j < (int)tgt.size(); j++)
+						k += sprintf(text + k, "%d, ", tgt[j]);
+					qCritical("%s", text);
+					for (int j = 0, k = 0; j < (int)jps[i].bs.size(); j++)
+						k += sprintf(text + k, "%d, ", jps[i].bs[j]);
+					qCritical("%s", text);
+					break;
+				}
 				int choose = -1;
 				for (int cho = start_choose; cho < (int)lps.size(); cho++) {
 					if (EXIST(src, lps[cho].branch) && (lps[cho].ano_bra == INVALID_BRANCH || EXIST(tgt, lps[cho].ano_bra))) {

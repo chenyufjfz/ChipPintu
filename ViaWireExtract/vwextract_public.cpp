@@ -441,6 +441,22 @@ void deldir(const string &path)
 	}
 }
 
+
+int get_pts_dir(Point pt1, Point pt2)
+{
+	if (pt1.x == pt2.x)
+		return (pt1.y < pt2.y) ? DIR_DOWN : DIR_UP;
+	
+	if (pt1.y == pt2.y)
+		return (pt1.x < pt2.x) ? DIR_RIGHT : DIR_LEFT;
+
+	if (pt1.x + pt1.y == pt2.x + pt2.y)
+		return (pt1.x < pt2.x) ? DIR_UPRIGHT : DIR_DOWNLEFT;
+
+	if (pt1.x - pt1.y == pt2.x - pt2.y)
+		return (pt1.x < pt2.x) ? DIR_DOWNRIGHT : DIR_UPLEFT;
+}
+
 /*
 input pt1, pt2
 output pts, line points include [pt1,pt2)
@@ -1951,7 +1967,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 
 				if (circle_edges_it == circle_edges.end()) {
 					//following compute circle_edges outside
-					CV_Assert(!multi_thread);
+					QMutexLocker locker(&circle_mutex);
 					vector<vector<Point3i> > vec(FEATURE_ROW - 2);
 					for (int y = -FEATURE_ROW - dd / 2 - 2; y <= FEATURE_ROW + dd / 2 + 2; y++) 
 					for (int x = -FEATURE_ROW - dd / 2 - 2; x <= FEATURE_ROW + dd / 2 + 2; x++) {
@@ -1976,8 +1992,11 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 							vec[i][j].y = vec[i][j].y - tl.y;
 						}
 					}
-					circle_edges[dd] = vec;
 					circle_edges_it = circle_edges.find(dd);
+					if (circle_edges_it == circle_edges.end()) {
+						circle_edges[dd] = vec;
+						circle_edges_it = circle_edges.find(dd);
+					}
 				}
 				
 				int min_es = 0x20000000, submin_es = 0x20000000, total_es = 0;

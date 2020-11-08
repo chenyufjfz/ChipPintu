@@ -54,10 +54,17 @@
 #define ADJ_CONNECT_SCORE	100
 #define CCL_BORDER_REGION	0xfffffffe
 #define CCL_INSU_REGION		0xffffffff
+#define CCL_EDGE_MASK0		0x00000000
 #define CCL_EDGE_MASK1		0x00004000
 #define CCL_EDGE_MASK2		0x40000000
 #define CCL_EDGE_MASK3		0x40004000
 #define CCL_REGION_MASK		0x3fff3fff
+#define SELF_CHECK_MASK		1
+
+#define CGRID_UD_WIRE			1
+#define CGRID_LR_WIRE			2
+#define CGRID_VIA_WIRE			4
+#define CGRID_VIA_CENTER		8
 
 typedef unsigned long long LINE_TYPE;
 class DxyDegree {
@@ -356,11 +363,87 @@ struct EdgeLine {
 	}
 };
 
-typedef unsigned long long EdgePolyID;
-class EdgePoly {
+typedef unsigned long long RegionID;
+#define REGION_EDGE_ATOM_GRID		1
+#define REGION_EDGE_TILE_GRID		2
+class RegionEdge;
+class Region {
 public:
-	vector<Point> p;
-	EdgePolyID ccl_id;
+	RegionID region_id;
+	set<RegionEdge *> edges;
+	void release() {
+		for (auto &e : edges)
+			delete e;
+		edges.clear();
+	}
+	Region(RegionID id) {
+		region_id = id;
+	}
+	Region() {
+		region_id = (RegionID) 0;
+	}
+};
+
+#define REGION_LINK_NO_DELETE	0
+#define REGION_LINK_DEL_ANOTHER	1
+#define REGION_LINK_DEL_THIS	2
+
+class RegionEdge {
+public:
+	Region * region;
+	RegionEdge * next;
+	RegionEdge * prev;
+	int type;
+	int link(RegionEdge * another) {
+		next = another;
+		another->prev = this;
+		if (another->region == NULL && this->region != NULL) {
+			another->region = region;
+			region->edges.insert(another);
+			return REGION_LINK_NO_DELETE;
+		}
+		else
+			if (another->region != NULL && this->region == NULL) {
+				region = another->region;
+				region->edges.insert(this);
+				return REGION_LINK_NO_DELETE;
+			}
+			else
+				if (another->region != NULL && this->region != NULL) {
+					if (another->region->region_id == this->region->region_id)
+						return REGION_LINK_NO_DELETE;
+					if (another->region->region_id < this->region->region_id) {
+						another->region->edges.insert(region->edges.begin(), region->edges.end()); //Warning: use merge can be faster
+						return REGION_LINK_DEL_THIS;
+					}
+					else {
+						region->edges.insert(another->region->edges.begin(), another->region->edges.end()); //use merge can be faster
+						return REGION_LINK_DEL_ANOTHER;
+					}
+				}
+	}
+};
+class RegionEdgeAtom : public RegionEdge { //right hand is region
+public:
+	vector<Point> pts;
+	RegionEdgeAtom() {
+		next = prev = NULL;
+		region = NULL;
+		type = REGION_EDGE_ATOM_GRID;
+	}
+};
+class RegionEdgeTile : public RegionEdge { //right hand is region
+public:
+	Point pt1, pt2;
+	RegionEdgeTile() {
+		next = prev = NULL;
+		region = NULL;
+		type = REGION_EDGE_TILE_GRID;
+	}
+};
+class RegionSet {
+public:
+	map<RegionID, Region *> regions;
 };
 bool greaterEdgeLine(const EdgeLine & a, const EdgeLine & b) { return a.weight > b.weight; }
 
@@ -416,6 +499,7 @@ struct ProcessData {
 	int img_pixel_x0, img_pixel_y0; //imgae left-top pixel
 	int layer;
 	Mat raw_img;
+	Mat adjscore, cgrid;
 	Mat * via_mark_debug; //only for debug
 	Mat * edge_mark_debug; //only for debug
 	Mat * edge_mark_debug1; //only for debug
@@ -439,23 +523,36 @@ struct ProcessData {
 	}
 };
 
-struct ProcessImageData {
+class ProcessImageData {
+public:
 	VWfeature * vwf;
 	ProcessData * lpd;
 	ProcessData * upd;
 	ProcessData * cpd;
 	Range wire_sweet_len_x, wire_sweet_len_y;
 	int insu_min;
+	int border_size;
 	bool multi_thread;
+	ProcessImageData() {
+		border_size = 0;
+		vwf = NULL;
+		lpd = upd = cpd = NULL;
+	}
 };
 
-static void prob_color(const Mat & prob, Mat & debug_mark, float th = 0.8)
+static void draw_prob(const Mat & prob, Mat & debug_mark, float th = 0.8)
 {
 	CV_Assert(prob.type() == CV_8UC4 && debug_mark.type() == CV_8UC3);
 	for (int y = EDGE_JUDGE_BORDER; y < prob.rows - EDGE_JUDGE_BORDER; y++) {
 		const Vec4b * p_prob = prob.ptr<Vec4b>(y);
 		Vec3b * p_debugm = debug_mark.ptr<Vec3b>(y);
 		for (int x = EDGE_JUDGE_BORDER; x < prob.cols - EDGE_JUDGE_BORDER; x++)
+			if (p_prob[x][POINT_DIR] & POINT_VIA_CENTER) {//Via center
+				p_debugm[x][0] = 0;
+				p_debugm[x][1] = 255;
+				p_debugm[x][2] = 255;
+			}
+			else
 			if (p_prob[x][POINT_DIR] & POINT_VIA_REGION) {//Via
 				p_debugm[x][0] = 255;
 				p_debugm[x][1] = 255;
@@ -475,7 +572,7 @@ static void prob_color(const Mat & prob, Mat & debug_mark, float th = 0.8)
 	}
 }
 
-static void mark_color(const Mat & mark, Mat & debug_mark)
+static void draw_mark(const Mat & mark, Mat & debug_mark)
 {
 	CV_Assert(mark.type() == CV_8UC1 && debug_mark.type() == CV_8UC3);
 	for (int y = EDGE_JUDGE_BORDER; y < mark.rows - EDGE_JUDGE_BORDER; y++) {
@@ -501,7 +598,7 @@ static void mark_color(const Mat & mark, Mat & debug_mark)
 	}
 }
 
-static void mark_210(const Mat & mark, Mat & debug_mark)
+static void draw_210(const Mat & mark, Mat & debug_mark)
 {
 	CV_Assert(mark.type() == CV_8UC1 && debug_mark.type() == CV_8UC3);
 	for (int y = 0; y < mark.rows; y++) {
@@ -543,7 +640,7 @@ static void mark_210(const Mat & mark, Mat & debug_mark)
 	}
 }
 
-static void mark_ccl(const Mat & ccl, Mat & debug_mark)
+static void draw_ccl(const Mat & ccl, Mat & debug_mark)
 {
 	CV_Assert(ccl.type() == CV_32SC1 && debug_mark.type() == CV_8UC3);
 	for (int y = 0; y < ccl.rows; y++) {
@@ -560,6 +657,67 @@ static void mark_ccl(const Mat & ccl, Mat & debug_mark)
 		}
 	}
 }
+
+static void draw_region_edge(RegionSet & rs, Mat & debug_mark, Point offset)
+{
+	static int m[][2] = { 
+		{ -1, 0 },
+		{ 0, 0 },
+		{ 0, -1 },
+		{ -1, -1 } };
+	for (auto &rs_iter : rs.regions) {
+		Region * r = rs_iter.second;
+		int c = r->region_id;
+		vector<Point> edge_pts;
+		for (auto & e : r->edges) {
+#if CCL_GRID_SIZE == 2			
+			switch (e->type) {
+			case REGION_EDGE_ATOM_GRID:
+			{
+				RegionEdgeAtom * ea = (RegionEdgeAtom *)e;
+				for (int i = 0; i < (int)ea->pts.size() - 1; i++) {
+					int dir = get_pts_dir(ea->pts[i], ea->pts[i + 1]);
+					CV_Assert(dir < 4);
+					Point pt1, pt2;
+					pt1 = ea->pts[i] * CCL_GRID_SIZE + Point(m[dir][1], m[dir][0]);;
+					pt2 = pt1 + Point(dxy[dir][1], dxy[dir][0]);
+					if (edge_pts.empty() || edge_pts.back() != pt1)
+						edge_pts.push_back(pt1);
+					edge_pts.push_back(pt2);
+				}
+				break;
+			}
+			case REGION_EDGE_TILE_GRID:
+			{
+				RegionEdgeTile * et = (RegionEdgeTile *)e;
+				int dir = get_pts_dir(et->pt1, et->pt2);
+				Point pt1, pt2;
+				pt1 = et->pt1 * CCL_GRID_SIZE + Point(m[dir][1], m[dir][0]);
+				pt2 = et->pt2 * CCL_GRID_SIZE + Point(m[dir][1], m[dir][0]);
+				vector<Point> pts;
+				get_line_pts(pt1, pt2, pts);
+				if (edge_pts.empty() || edge_pts.back() != pt1)
+					edge_pts.insert(edge_pts.end(), pts.begin(), pts.end());
+				edge_pts.insert(edge_pts.end(), pts.begin() + 1, pts.end());
+				break;
+			}
+			}
+#else
+#error unsupport CCL_GRID_SIZE
+#endif	
+		}
+		c = c ^ 0xffffffff;
+		for (auto & pt : edge_pts) {
+			pt += offset;
+			Vec3b * p_debugm = debug_mark.ptr<Vec3b>(pt.y, pt.x);
+			p_debugm[0][0] = (c & 0xf) << 4 | (c & 0xf0) >> 4;
+			p_debugm[0][1] = (c & 0xf0000) >> 12;
+			p_debugm[0][1] |= (c & 0xf00) >> 8;
+			p_debugm[0][2] = (c & 0xf000000) >> 24 | (c & 0xf00000) >> 16;
+		}
+	}
+}
+
 /*
 Input prob
 Output rst
@@ -1671,6 +1829,7 @@ static void mark_wvi210(const Mat & img, const Mat & mark, Mat & c210, int via_c
 
 /*
 Inout c210
+Check WIRE_UNSURE and INSU_UNSURE surround border
 */
 static void process_unsure(const Mat & prob, Mat & c210)
 {
@@ -1770,27 +1929,188 @@ static void integrate_line(const Mat & m, Mat & ud, Mat & lr, Mat & ul, Mat & ur
 }
 
 /*
-Input c210
-input prob, used to judge via center
+Input cgrid, adj, adjscore, this is result of compute_adj
 Output ccl, ccl region
 */
-static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_len_x, int min_wire_len_y, int merge_area_th, int cut_area_th)
+static void do_ccl(const Mat & cgrid, const Mat & adjscore, Mat & ccl, int merge_area_th, int cut_area_th)
 {
+	CV_Assert(cgrid.rows == adjscore.rows && cgrid.cols == adjscore.cols);
+	merge_area_th /= CCL_GRID_SIZE * CCL_GRID_SIZE;
+	cut_area_th /= CCL_GRID_SIZE * CCL_GRID_SIZE;
+	
+	//now do ccl 1st scan
+	ccl.create(cgrid.rows, cgrid.cols, CV_32SC1);
+	for (int y = 0; y < ccl.rows; y++) {
+		const Vec2b * padjs = adjscore.ptr<Vec2b>(y);
+		const uchar * pcg = cgrid.ptr<uchar>(y);
+		unsigned * p_ccl = ccl.ptr<unsigned>(y);
+		unsigned * p_ccl_1 = y > 0 ? ccl.ptr<unsigned>(y - 1) : NULL;
+		unsigned fa, fa0, fa1;
+		for (int x = 0; x < ccl.cols; x++) {
+			uchar adj = 0;
+			if (y!=0 && padjs[x][0] >= ADJ_CONNECT_SCORE)
+				adj |= 2;
+			if (x!=0 && padjs[x][1] >= ADJ_CONNECT_SCORE)
+				adj |= 1;
+			if (pcg[x] == 0)
+				p_ccl[x] = CCL_INSU_REGION;
+			else
+				switch (adj) {
+				case 0: //solo point
+					p_ccl[x] = y << 16 | x;
+					break;
+				case 1: //left adj
+					p_ccl[x] = p_ccl[x - 1];
+					break;
+				case 2: //up adj
+					p_ccl[x] = p_ccl_1[x];
+					break;
+				case 3: //both left and up adj
+					fa = p_ccl[x - 1]; //find left root
+					fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
+					while (fa0 != fa) {
+						fa = fa0;
+						fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
+					}
+					fa1 = p_ccl_1[x]; //find up root
+					fa0 = ccl.at<int>(fa1 >> 16, fa1 & 0xffff);
+					while (fa0 != fa1) {
+						fa1 = fa0;
+						fa0 = ccl.at<int>(fa1 >> 16, fa1 & 0xffff);
+					}
+					p_ccl[x] = min(fa, fa1);
+					if (fa < fa1) //left ccl < up ccl
+						ccl.at<int>(fa1 >> 16, fa1 & 0xffff) = fa;
+					if (fa1 < fa) {//up ccl < left ccl
+						fa = y << 16 | (x - 1);
+						fa0 = p_ccl[x - 1];
+						while (fa0 != fa) {
+							ccl.at<int>(fa >> 16, fa & 0xffff) = fa1;
+							fa = fa0;
+							fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
+						}
+						ccl.at<int>(fa >> 16, fa & 0xffff) = fa1;
+					}
+					break;
+			}
+		}
+	}
+	//ccl 2nd scan
+	Mat area(cgrid.rows, cgrid.cols, CV_32SC1); //region area
+	vector<unsigned> region;
+	for (int y = 0; y < ccl.rows; y++) {
+		int * p_area = area.ptr<int>(y);
+		unsigned * p_ccl = ccl.ptr<unsigned>(y);
+		for (int x = 0; x < ccl.cols; x++) {
+			unsigned fa = p_ccl[x];
+			if (fa == CCL_INSU_REGION) { //insu
+				p_area[x] = 1000000;
+				continue;
+			}
+			else
+				p_area[x] = 0;
+			fa = ccl.at<int>(fa >> 16, fa & 0xffff);
+			if ((fa >> 16) == y && (fa & 0xffff) == x)
+				region.push_back(fa);
+			p_ccl[x] = fa;
+			fa = ccl.at<int>(fa >> 16, fa & 0xffff);
+			CV_Assert(p_ccl[x] == fa);
+			area.at<int>(fa >> 16, fa & 0xffff)++;
+		}
+	}
+
+	if (merge_area_th > 0) {
+		for (auto r : region)
+			if (area.at<int>(r >> 16, r & 0xffff) < merge_area_th) {
+				vector<Point> region_queue; //broad first search
+				vector<pair<int, int> > adj_queue; //adj_queue.first is adj region, adj_queue.second is adjscore
+				int head = 0;
+				region_queue.push_back(Point(r & 0xffff, r >> 16));
+				ccl.at<int>(region_queue.back()) = CCL_INSU_REGION;
+				bool is_via_region = false;
+				while (head < (int)region_queue.size()) {
+					Point o = region_queue[head++];
+					if (cgrid.at<uchar>(o) & CGRID_VIA_CENTER) {
+						is_via_region = true;
+						break;
+					}
+					for (int dir = 0; dir <= 3; dir++) {
+						Point o1 = o + Point(dxy[dir][1], dxy[dir][0]);
+						if (o1.x < 0 || o1.y < 0 || o1.x >= ccl.cols || o1.y >= ccl.rows)
+							continue;
+						int * pc = ccl.ptr<int>(o1.y, o1.x);
+						if (pc[0] == CCL_INSU_REGION)
+							continue;
+						else
+							if (pc[0] == r) {
+								region_queue.push_back(o1);
+								pc[0] = CCL_INSU_REGION;
+							}
+							else {
+								switch (dir) {
+								case DIR_UP:
+									adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o)[0]));
+									break;
+								case DIR_LEFT:
+									adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o)[1]));
+									break;
+								case DIR_DOWN:
+									adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o1)[0]));
+									break;
+								case DIR_RIGHT:
+									adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o1)[1]));
+									break;
+								}
+							}
+					}
+				}
+				int max_adj = 0, belong = CCL_INSU_REGION;
+				for (auto & a : adj_queue)
+					if (max_adj < a.second) { //pick biggest score adj region
+						max_adj = a.second;
+						belong = a.first;
+					}
+				if (max_adj > 0 && !is_via_region) { //merge to belong
+					area.at<int>(belong >> 16, belong & 0xffff) += (int)region_queue.size();
+					for (auto & o : region_queue)
+						ccl.at<int>(o) = belong;
+				}
+				else {
+					if (region_queue.size() > cut_area_th)
+						for (auto & o : region_queue)
+							ccl.at<int>(o) = r; //recover it to r
+				}
+			}
+	}
+
+}
+
+/*
+Input c210
+input prob, used to judge via center
+output cgrid, c210 2*2 grid
+output adjscore, cgrid adj score, 0 for upscore, 1 for leftscore
+*/
+static void compute_adj(const Mat & c210, const Mat & prob, Mat & cgrid, Mat & adjscore, int min_wire_len_x, int min_wire_len_y)
+{
+	CV_Assert(c210.type() == CV_8UC1 && prob.type() == CV_8UC4);
+	CV_Assert(c210.rows == prob.rows && c210.cols == prob.cols);
+	CV_Assert(c210.rows % CCL_GRID_SIZE == 0 && c210.cols % CCL_GRID_SIZE == 0);
 	Mat ud, lr, ul, ur;
-	Mat cgrid((c210.rows + CCL_GRID_SIZE - 1) / CCL_GRID_SIZE, (c210.cols + CCL_GRID_SIZE - 1) / CCL_GRID_SIZE, CV_8UC1); //2*2 grid for wire and insu
+	cgrid.create(c210.rows / CCL_GRID_SIZE, c210.cols / CCL_GRID_SIZE, CV_8UC1); //2*2 grid for wire and insu
 	//cgrid[y,x]=0, means insu, =1 means up-down wire, =2 means left-right wire
 	Mat clr_sum(cgrid.rows + 1, cgrid.cols + 1, CV_32SC1);
 	Mat cud_sum(cgrid.rows + 1, cgrid.cols + 1, CV_32SC1);
 
-	merge_area_th /= CCL_GRID_SIZE * CCL_GRID_SIZE;
-	cut_area_th /= CCL_GRID_SIZE * CCL_GRID_SIZE;
 	integrate_line(c210, ud, lr, ul, ur);
 	for (int y = 0; y < cgrid.rows; y++) {
 		uchar * pcg = cgrid.ptr<uchar>(y);
 #if CCL_GRID_SIZE == 2
 		const uchar * pc0 = c210.ptr<uchar>(CCL_GRID_SIZE * y);
+		const Vec4b * pprob = prob.ptr<Vec4b>(CCL_GRID_SIZE * y);
 		int y0 = CCL_GRID_SIZE * y + 1;
-		const uchar * pc1 = (y0 < c210.rows) ? c210.ptr<uchar>(y0) : pc0;		
+		const uchar * pc1 = (y0 < c210.rows) ? c210.ptr<uchar>(y0) : pc0;
+		const Vec4b * pprob1 = (y0 < c210.rows) ? prob.ptr<Vec4b>(y0) : pprob;
 		const ushort * pud0 =(y0 > 100) ? ud.ptr<ushort>(y0 - 100) : ud.ptr<ushort>(0); //up 100 line
 		const ushort * pud1 =ud.ptr<ushort>(y0);
 		const ushort * pud2 = (y0+ 100 < ud.rows) ? ud.ptr<ushort>(y0 + 100) : ud.ptr<ushort>(ud.rows - 1); //down 100 line
@@ -1804,12 +2124,15 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 			ushort sum_ud = 0, sum_lr = 0; //judge grid dir is heng or shu
 #if CCL_GRID_SIZE == 2
 			int x0 = CCL_GRID_SIZE * x + 1;
+			int is_via_center = 0;
 			if (x0 < c210.cols) {
 				sum_grid = pc0[x0 - 1] + pc0[x0] + pc1[x0 - 1] + pc1[x0];
 				sum_ud = max(pud1[x0] - pud0[x0] + pud1[x0 - 1] - pud0[x0 - 1], pud2[x0] - pud1[x0] + pud2[x0 - 1] - pud1[x0 - 1]);//max(up, down)
+				is_via_center = (pprob[x0 - 1][POINT_DIR] | pprob[x0][POINT_DIR] | pprob1[x0 - 1][POINT_DIR] | pprob1[x0][POINT_DIR]) & POINT_VIA_CENTER;
 			}
 			else {
 				sum_grid = (pc0[x0 - 1] + pc1[x0 - 1]) *CCL_GRID_SIZE;
+				is_via_center = (pprob[x0 - 1][POINT_DIR] | pprob1[x0 - 1][POINT_DIR]) & POINT_VIA_CENTER;
 				sum_ud = max(pud1[x0 - 1] - pud0[x0 - 1], pud2[x0 - 1] - pud1[x0 - 1]);//max(up, down)
 				sum_ud *= CCL_GRID_SIZE;
 			}
@@ -1818,12 +2141,15 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 #else
 #error unsupport CCL_GRID_SIZE
 #endif
+			if (is_via_center)
+				pcg[x] = CGRID_VIA_CENTER | CGRID_VIA_WIRE;
+			else
 			if (sum_grid >= COLOR_VIA_WIRE * 2) { //bigger than wire threshold
 				if (pc0[x0 - 1] == COLOR_VIA_WIRE || pc1[x0 - 1] == COLOR_VIA_WIRE ||
 					x0 < c210.cols && (pc0[x0] == COLOR_VIA_WIRE || pc1[x0] == COLOR_VIA_WIRE))
-					pcg[x] = 4;
+					pcg[x] = CGRID_VIA_WIRE; //via
 				else
-					pcg[x] = (sum_lr > sum_ud) ? 2 : 1; //2 means left-right wire, 1 means up-down wire
+					pcg[x] = (sum_lr > sum_ud) ? CGRID_LR_WIRE : CGRID_UD_WIRE; //2 means left-right wire, 1 means up-down wire
 			}
 			else
 				pcg[x] = 0; //0 means grid is insu
@@ -1858,12 +2184,10 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 		}
 	}
 
-	Mat adj(cgrid.rows, cgrid.cols, CV_8UC1);
-	Mat adjscore(cgrid.rows, cgrid.cols, CV_8UC2);
-	for (int y = 0; y < adj.rows; y++) {
+	adjscore.create(cgrid.rows, cgrid.cols, CV_8UC2);
+	for (int y = 0; y < adjscore.rows; y++) {
 		int y0 = CCL_GRID_SIZE * y + 1;
 		Vec2b * padjs = adjscore.ptr<Vec2b>(y);
-		uchar * padj = adj.ptr<uchar>(y);
 		uchar * pcg = cgrid.ptr<uchar>(y);
 		uchar * pcg_1 = y > 0 ? cgrid.ptr<uchar>(y - 1) : NULL;
 #if CCL_GRID_SIZE == 2
@@ -1872,18 +2196,18 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 #else
 #error unsupport CCL_GRID_SIZE
 #endif
-		for (int x = 0; x < adj.cols; x++) {
+		for (int x = 0; x < adjscore.cols; x++) {
 			int up_adj, left_adj;
 			int x0 = CCL_GRID_SIZE * x + 1;
 			if (y == 0)
 				up_adj = 0;
 			else
-				if (pcg[x] == 0 && pcg_1[x] == 0)
+				if (pcg[x] == 0 && pcg_1[x] == 0) //both are insu
 					up_adj = ADJ_CONNECT_SCORE;
 				else
 					if (pcg[x] == 0 && pcg_1[x] != 0 || pcg[x] != 0 && pcg_1[x] == 0)
 						up_adj = 0;
-					else {
+					else { //both are wire
 #if CCL_GRID_SIZE == 2
 						int slr0 = 0, slr1 = 0, sul0 = 0, sul1 = 0, sur0 = 0, sur1 = 0, s0, s1;
 						if (x0 >= min_wire_len_x) {
@@ -1950,13 +2274,13 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 						int s = min(min(slr0, slr1), min(sul0, sul1));
 						s = min(s, min(sur0, sur1));
 						float factor = 1;
-						if (pcg[x] == 4 || pcg_1[x] == 4) //via case
+						if ((pcg[x] & CGRID_VIA_WIRE) == CGRID_VIA_WIRE || (pcg_1[x] & CGRID_VIA_WIRE) == CGRID_VIA_WIRE) //via case
 							factor = CCL_VIA_FACTOR;
 						else
-						if (pcg[x] == 2 && pcg_1[x] == 2) //both are left-right wire
+						if (pcg[x] == CGRID_LR_WIRE && pcg_1[x] == CGRID_LR_WIRE) //both are left-right wire
 							factor = 0.5; //weak connection is ok
 						else
-							if (pcg[x] == 1 && pcg_1[x] == 1) { //both are up-down wire
+							if (pcg[x] == CGRID_UD_WIRE && pcg_1[x] == CGRID_UD_WIRE) { //both are up-down wire
 								int y1 = y - min_wire_len_x * 3; // 6 * 1, updown rect
 								int y2 = y1 + min_wire_len_x * 6;
 								int x1 = x - min_wire_len_x / 2;
@@ -1969,13 +2293,13 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 									x2 -= x1;
 									x1 = 0;
 								}
-								if (y2 > adj.rows) {
-									y1 -= y2 - adj.rows;
-									y2 = adj.rows;
+								if (y2 > adjscore.rows) {
+									y1 -= y2 - adjscore.rows;
+									y2 = adjscore.rows;
 								}
-								if (x2 > adj.cols) {
-									x1 -= x2 - adj.cols;
-									x2 = adj.cols;
+								if (x2 > adjscore.cols) {
+									x1 -= x2 - adjscore.cols;
+									x2 = adjscore.cols;
 								}
 								factor = cud_sum.at<int>(y2, x2) - cud_sum.at<int>(y2, x1) - cud_sum.at<int>(y1, x2) + cud_sum.at<int>(y1, x1);
 								factor /= min_wire_len_x * 4 * min_wire_len_x; //factor is updown wire is long enough, longer is 1, shorter is 0
@@ -1983,7 +2307,7 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 								factor = 1 - factor * 0.5; //0 -> 1, 1 -> 0.5, longer wire means lower threshold
 							}
 							else
-								if (pcg[x] == 2 && pcg_1[x] == 1 || pcg[x] == 1 && pcg_1[x] == 2) //left-right wire meet updown wire
+								if (pcg[x] == CGRID_LR_WIRE && pcg_1[x] == CGRID_UD_WIRE || pcg[x] == CGRID_UD_WIRE && pcg_1[x] == CGRID_LR_WIRE) //left-right wire meet updown wire
 									factor = CCL_CORNER_FACTOR; //need strong connection
 								else
 									CV_Assert(0);
@@ -2069,13 +2393,13 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 						int s = min(min(sud0, sud1), min(sul0, sul1));
 						s = min(s, min(sur0, sur1));
 						float factor = 1;
-						if (pcg[x] == 4 || pcg[x - 1] == 4) //via case
+						if ((pcg[x] & CGRID_VIA_WIRE) == CGRID_VIA_WIRE || (pcg[x - 1] & CGRID_VIA_WIRE) == CGRID_VIA_WIRE) //via case
 							factor = CCL_VIA_FACTOR;
 						else
-						if (pcg[x] == 1 && pcg[x - 1] == 1) //both are up-down wire
+						if (pcg[x] == CGRID_UD_WIRE && pcg[x - 1] == CGRID_UD_WIRE) //both are up-down wire
 							factor = 0.5;
 						else
-							if (pcg[x] == 2 && pcg[x - 1] == 2) { //both are left-right wire
+							if (pcg[x] == CGRID_LR_WIRE && pcg[x - 1] == CGRID_LR_WIRE) { //both are left-right wire
 								int y1 = y - min_wire_len_y / 2; // 1 * 6, left-right rect
 								int y2 = y1 + min_wire_len_y;
 								int x1 = x - min_wire_len_y * 3;
@@ -2088,13 +2412,13 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 									x2 -= x1;
 									x1 = 0;
 								}
-								if (y2 > adj.rows) {
-									y1 -= y2 - adj.rows;
-									y2 = adj.rows;
+								if (y2 > adjscore.rows) {
+									y1 -= y2 - adjscore.rows;
+									y2 = adjscore.rows;
 								}
-								if (x2 > adj.cols) {
-									x1 -= x2 - adj.cols;
-									x2 = adj.cols;
+								if (x2 > adjscore.cols) {
+									x1 -= x2 - adjscore.cols;
+									x2 = adjscore.cols;
 								}
 								factor = clr_sum.at<int>(y2, x2) - clr_sum.at<int>(y2, x1) - clr_sum.at<int>(y1, x2) + clr_sum.at<int>(y1, x1);
 								factor /= min_wire_len_y * 4 * min_wire_len_y;
@@ -2102,7 +2426,7 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 								factor = 1 - factor * 0.5; //0 -> 1, 1 -> 0.5
 							}
 							else 
-								if (pcg[x] == 2 && pcg[x - 1] == 1 || pcg[x] == 1 && pcg[x - 1] == 2)
+								if (pcg[x] == CGRID_LR_WIRE && pcg[x - 1] == CGRID_UD_WIRE || pcg[x] == CGRID_UD_WIRE && pcg[x - 1] == CGRID_LR_WIRE)
 									factor = CCL_CORNER_FACTOR; //need strong connection
 								else
 									CV_Assert(0);
@@ -2112,162 +2436,20 @@ static void do_ccl(const Mat & c210, const Mat & prob, Mat & ccl, int min_wire_l
 #error unsupport CCL_GRID_SIZE
 #endif
 					}
-			padj[x] = (up_adj >= ADJ_CONNECT_SCORE) ? 2 : 0;
-			padj[x] += (left_adj >= ADJ_CONNECT_SCORE) ? 1 : 0;
 			padjs[x][0] = up_adj;
 			padjs[x][1] = left_adj;
 		}
 	}
-
-	//now do ccl 1st scan
-	ccl.create(cgrid.rows, cgrid.cols, CV_32SC1);
-	for (int y = 0; y < ccl.rows; y++) {
-		uchar * p_adj = adj.ptr<uchar>(y);
-		uchar * pcg = cgrid.ptr<uchar>(y);
-		unsigned * p_ccl = ccl.ptr<unsigned>(y);
-		unsigned * p_ccl_1 = y > 0 ? ccl.ptr<unsigned>(y - 1) : NULL;
-		unsigned fa, fa0, fa1;
-		for (int x = 0; x < ccl.cols; x++) {
-			if (pcg[x] == 0)
-				p_ccl[x] = CCL_INSU_REGION;
-			else
-			switch (p_adj[x]) {
-			case 0: //solo point
-				p_ccl[x] = y << 16 | x;
-				break;
-			case 1: //left adj
-				p_ccl[x] = p_ccl[x - 1];
-				break;
-			case 2: //up adj
-				p_ccl[x] = p_ccl_1[x];
-				break;
-			case 3: //both left and up adj
-				fa = p_ccl[x - 1]; //find left root
-				fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
-				while (fa0 != fa) {
-					fa = fa0;
-					fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
-				}
-				fa1 = p_ccl_1[x]; //find up root
-				fa0 = ccl.at<int>(fa1 >> 16, fa1 & 0xffff);
-				while (fa0 != fa1) {
-					fa1 = fa0;
-					fa0 = ccl.at<int>(fa1 >> 16, fa1 & 0xffff);
-				}
-				p_ccl[x] = min(fa, fa1);
-				if (fa < fa1) //left ccl < up ccl
-					ccl.at<int>(fa1 >> 16, fa1 & 0xffff) = fa;
-				if (fa1 < fa) {//up ccl < left ccl
-					fa = y << 16 | (x - 1);
-					fa0 = p_ccl[x - 1];
-					while (fa0 != fa) {
-						ccl.at<int>(fa >> 16, fa & 0xffff) = fa1;
-						fa = fa0;
-						fa0 = ccl.at<int>(fa >> 16, fa & 0xffff);
-					}
-					ccl.at<int>(fa >> 16, fa & 0xffff) = fa1;
-				}
-				break;
-			}
-		}
-	}
-	//ccl 2nd scan
-	Mat area(cgrid.rows, cgrid.cols, CV_32SC1); //region area
-	vector<unsigned> region;
-	for (int y = 0; y < ccl.rows; y++) {
-		int * p_area = area.ptr<int>(y);
-		unsigned * p_ccl = ccl.ptr<unsigned>(y);
-		for (int x = 0; x < ccl.cols; x++) {
-			unsigned fa = p_ccl[x];
-			if (fa == CCL_INSU_REGION) { //insu
-				p_area[x] = 1000000;
-				continue;				
-			} else
-				p_area[x] = 0;
-			fa = ccl.at<int>(fa >> 16, fa & 0xffff);
-			if ((fa >> 16) == y && (fa & 0xffff) == x)
-				region.push_back(fa);
-			p_ccl[x] = fa;
-			fa = ccl.at<int>(fa >> 16, fa & 0xffff);
-			CV_Assert(p_ccl[x] == fa);
-			area.at<int>(fa >> 16, fa & 0xffff)++;
-		}
-	}
-
-	if (merge_area_th > 0) {
-		for (auto r : region)			
-		if (area.at<int>(r >> 16, r & 0xffff) < merge_area_th) {
-			vector<Point> region_queue; //broad first search
-			vector<pair<int, int> > adj_queue; //adj_queue.first is adj region, adj_queue.second is adjscore
-			int head = 0;
-			region_queue.push_back(Point(r & 0xffff, r >> 16));
-			ccl.at<int>(region_queue.back()) = CCL_INSU_REGION;
-			bool is_via_region = false;
-			while (head < (int)region_queue.size()) {
-				Point o = region_queue[head++];
-				if (prob.at<Vec4b>(o)[POINT_DIR] & POINT_VIA_CENTER) {
-					is_via_region = true;
-					break;
-				}					
-				for (int dir = 0; dir <= 3; dir++) {
-					Point o1 = o + Point(dxy[dir][1], dxy[dir][0]);
-					if (o1.x < 0 || o1.y < 0 || o1.x >= ccl.cols || o1.y >= ccl.rows)
-						continue;
-					int * pc = ccl.ptr<int>(o1.y, o1.x);
-					if (pc[0] == CCL_INSU_REGION)
-						continue;
-					else
-						if (pc[0] == r) {
-							region_queue.push_back(o1);
-							pc[0] = CCL_INSU_REGION;
-						}
-						else {
-							switch (dir) {
-							case DIR_UP:
-								adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o)[0]));
-								break;
-							case DIR_LEFT:
-								adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o)[1]));
-								break;
-							case DIR_DOWN:
-								adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o1)[0]));
-								break;
-							case DIR_RIGHT:
-								adj_queue.push_back(make_pair(pc[0], adjscore.at<Vec2b>(o1)[1]));
-								break;
-							}
-						}
-				}
-			}
-			int max_adj = 0, belong = CCL_INSU_REGION;
-			for (auto & a : adj_queue)
-				if (max_adj < a.second) { //pick biggest score adj region
-					max_adj = a.second;
-					belong = a.first;
-				}
-			if (max_adj > 0 && !is_via_region) { //merge to belong
-				area.at<int>(belong >> 16, belong & 0xffff) += (int) region_queue.size();
-				for (auto & o : region_queue)
-					ccl.at<int>(o) = belong;
-			}
-			else {
-				if (region_queue.size() > cut_area_th)
-				for (auto & o : region_queue)
-					ccl.at<int>(o) = r; //recover it to r
-			}
-		}
-		
-	}
-
 }
 
 /*
-Input ccl
-Output ccl_out, expand ccl to 2*2
+Input ccl_in
+Output ccl_out
 */
-void expand_ccl(const Mat & ccl_in, const Mat & c210, Mat & ccl_out)
+void expand_ccl(const Mat & ccl_in, Mat & ccl_out)
 {
 	Mat ccl = ccl_in.clone();
+	vector<Point> queue; //queue for Mask2 Point
 	for (int y = 0; y < ccl.rows; y++) {
 		const unsigned * p_cclin = ccl_in.ptr<unsigned>(y);
 		const unsigned * p_cclin_1 = y > 0 ? ccl_in.ptr<unsigned>(y - 1) : p_cclin;
@@ -2275,58 +2457,263 @@ void expand_ccl(const Mat & ccl_in, const Mat & c210, Mat & ccl_out)
 		unsigned * p_ccl = ccl.ptr<unsigned>(y);
 		unsigned * p_ccl_1 = (y > 0) ? ccl.ptr<unsigned>(y - 1) : NULL;
 		unsigned * p_ccl1 = (y + 1 < ccl.rows) ? ccl.ptr<unsigned>(y + 1) : NULL;
-		for (int x = 0; x < ccl.cols; x++) 
-		if (p_cclin[x] != CCL_INSU_REGION) {			
-			if (p_cclin1[x] == p_cclin[x] && p_cclin_1[x] == p_cclin[x] && (x == 0 || p_cclin[x - 1] == p_cclin[x]) 
-				&& (x + 1 == ccl.cols || p_cclin[x + 1] == p_cclin[x]))
+		for (int x = 0; x < ccl.cols; x++)
+			if (p_cclin[x] != CCL_INSU_REGION) {
+				bool change_to_mask2 = false;
+				if (p_cclin1[x] == CCL_INSU_REGION) {
+					p_ccl1[x] = p_cclin[x] | CCL_EDGE_MASK2;
+					queue.push_back(Point(x, y + 1));
+				}
+				else
+					if (p_cclin1[x] != p_cclin[x]) {
+						p_ccl[x] |= CCL_EDGE_MASK2;
+						change_to_mask2 = true;
+					}
+				if (p_cclin_1[x] == CCL_INSU_REGION) {
+					p_ccl_1[x] = p_cclin[x] | CCL_EDGE_MASK2;
+					queue.push_back(Point(x, y - 1));
+				}
+				else
+					if (p_cclin_1[x] != p_cclin[x]) {
+						p_ccl[x] |= CCL_EDGE_MASK2;
+						change_to_mask2 = true;
+					}
+				if (x > 0 && p_cclin[x - 1] == CCL_INSU_REGION) {
+					p_ccl[x - 1] = p_cclin[x] | CCL_EDGE_MASK2;
+					queue.push_back(Point(x - 1, y));
+				}
+				else
+					if (x > 0 && p_cclin[x - 1] != p_cclin[x]) {
+						p_ccl[x] |= CCL_EDGE_MASK2;
+						change_to_mask2 = true;
+					}
+				if (x + 1 < ccl.cols && p_cclin[x + 1] == CCL_INSU_REGION) {
+					p_ccl[x + 1] = p_cclin[x] | CCL_EDGE_MASK2;
+					queue.push_back(Point(x + 1, y));
+				}
+				else
+					if (x + 1 < ccl.cols && p_cclin[x + 1] != p_cclin[x]) {
+						p_ccl[x] |= CCL_EDGE_MASK2;
+						change_to_mask2 = true;
+					}
+				if (change_to_mask2)
+					queue.push_back(Point(x, y));
+			}
+	}
+
+	for (int i = 0; i < (int)queue.size(); i++) {
+		unsigned r = ccl.at<int>(queue[i]) & CCL_REGION_MASK;
+		for (int dir = 0; dir <= 3; dir++) {
+			int x1 = queue[i].x + dxy[dir][1];
+			int y1 = queue[i].y + dxy[dir][0];
+			if (x1 < 0 || y1 < 0 || x1 >= ccl.cols || y1 >= ccl.rows)
 				continue;
-			p_ccl[x] |= CCL_EDGE_MASK1;
-			if (p_cclin1[x] == CCL_INSU_REGION)
-				p_ccl1[x] = p_cclin[x] | CCL_EDGE_MASK3;
-			if (p_cclin_1[x] == CCL_INSU_REGION)
-				p_ccl_1[x] = p_cclin[x] | CCL_EDGE_MASK3;
-			if (x > 0 && p_cclin[x - 1] == CCL_INSU_REGION)
-				p_ccl[x - 1] = p_cclin[x] | CCL_EDGE_MASK3;
-			if (x + 1 < ccl.cols && p_cclin[x + 1] == CCL_INSU_REGION)
-				p_ccl[x + 1] = p_cclin[x] | CCL_EDGE_MASK3;
+			unsigned r1 = (unsigned) ccl.at<int>(y1, x1);
+			if (r1 == CCL_INSU_REGION)
+				ccl.at<int>(y1, x1) = r | CCL_EDGE_MASK3; //1 not possible near 3
+			else
+				if ((r1 & CCL_REGION_MASK) == r) { //0 not possible near 2
+					if ((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK0)
+					ccl.at<int>(y1, x1) |= CCL_EDGE_MASK1;
+				}
+				else
+					if ((r1 & CCL_EDGE_MASK3) < CCL_EDGE_MASK2) {
+						ccl.at<int>(y1, x1) = (r1 & CCL_REGION_MASK) | CCL_EDGE_MASK2;
+						queue.push_back(Point(x1, y1));
+					}
 		}
 	}
-	ccl_out.create(c210.rows, c210.cols, CV_32SC1);
+
+#if SELF_CHECK_MASK
 	for (int y = 0; y < ccl.rows; y++) {
 		unsigned * p_ccl = ccl.ptr<unsigned>(y);
-		unsigned * p_ccl_1 = (y > 0) ? ccl.ptr<unsigned>(y - 1) : NULL;
-		unsigned * p_ccl1 = (y + 1 < ccl.rows) ? ccl.ptr<unsigned>(y + 1) : NULL;
-		unsigned * p_cclout = ccl_out.ptr<unsigned>(y * 2);
-		unsigned * p_cclout1 = (y * 2 + 1 < c210.rows) ? ccl_out.ptr<unsigned>(y * 2 + 1) : p_cclout;
 		for (int x = 0; x < ccl.cols; x++) 
-		{
-			p_cclout[2 * x] = p_ccl[x];
-			p_cclout1[2 * x] = p_ccl[x];
-			if (2 * x + 1 < c210.cols) {
-				p_cclout[2 * x + 1] = p_ccl[x];
-				p_cclout1[2 * x + 1] = p_ccl[x];
-			}
-			if (p_ccl[x] & CCL_EDGE_MASK1) {
-				unsigned ccl_region = p_ccl[x] & CCL_REGION_MASK;
-				if (x > 0 && (p_ccl[x - 1] & CCL_EDGE_MASK3 || (p_ccl[x - 1] & CCL_REGION_MASK) != ccl_region)) {
-					p_cclout[2 * x] = ccl_region | CCL_EDGE_MASK2;
-					p_cclout1[2 * x] = ccl_region | CCL_EDGE_MASK2;
-				}
-				if (x + 1 < ccl.cols && (p_ccl[x + 1] & CCL_EDGE_MASK3 || (p_ccl[x + 1] & CCL_REGION_MASK) != ccl_region)) {
-					p_cclout[2 * x + 1] = ccl_region | CCL_EDGE_MASK2;
-					p_cclout1[2 * x + 1] = ccl_region | CCL_EDGE_MASK2;
-				}
-				if (y > 0 && (p_ccl_1[x] & CCL_EDGE_MASK3 || (p_ccl_1[x] & CCL_REGION_MASK) != ccl_region)) {
-					p_cclout[2 * x] = ccl_region | CCL_EDGE_MASK2;
-					if (2 * x + 1 < c210.cols)
-						p_cclout[2 * x + 1] = ccl_region | CCL_EDGE_MASK2;
-				}
-				if (y + 1 < ccl.rows && (p_ccl1[x] & CCL_EDGE_MASK3 || (p_ccl1[x] & CCL_REGION_MASK) != ccl_region)) {
-					p_cclout1[2 * x] = ccl_region | CCL_EDGE_MASK2;
-					if (2 * x + 1 < c210.cols)
-						p_cclout1[2 * x + 1] = ccl_region | CCL_EDGE_MASK2;
+		if ((p_ccl[x] & CCL_EDGE_MASK3) < CCL_EDGE_MASK3) {
+			bool check = true;
+			int r = p_ccl[x] & CCL_REGION_MASK;
+			for (int dir = 0; dir <= 3; dir++) {
+				int x1 = x + dxy[dir][1];
+				int y1 = y + dxy[dir][0];
+				if (x1 < 0 || y1 < 0 || x1 >= ccl.cols || y1 >= ccl.rows)
+					continue;
+				int r1 = ccl.at<int>(y1, x1);
+				switch (p_ccl[x] & CCL_EDGE_MASK3) {
+				case CCL_EDGE_MASK0:
+					if (r1 != (r | CCL_EDGE_MASK1) && r1 != (r | CCL_EDGE_MASK0)) //0 can only near 0, 1
+						check = false;
+					break;
+				case CCL_EDGE_MASK1:
+					if (r1 != (r | CCL_EDGE_MASK1) && r1 != (r | CCL_EDGE_MASK0) && r1 != (r | CCL_EDGE_MASK2)) //1 can only near 0,1,2
+						check = false;
+					break;
+				case CCL_EDGE_MASK2:
+					if ((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK0) //2 can only near 1,3
+						check = false;
 				}
 			}
+			if (!check) {
+				for (int y1 = max(y - 2, 0); y1 <= min(y + 2, ccl.rows - 1); y1++) {
+					char s[200];
+					int j = 0;
+					for (int x1 = max(x - 2, 0); x1 <= min(x + 2, ccl.cols - 1); x1++)
+						j += sprintf(s + j, "%8x ", ccl_in.at<int>(y1, x1));
+					j += sprintf(s + j, "        ");
+					for (int x1 = max(x - 2, 0); x1 <= min(x + 2, ccl.cols - 1); x1++)
+						j += sprintf(s + j, "%8x ", ccl.at<int>(y1, x1));
+					qWarning(s);
+				}
+				CV_Assert(0);
+			}
+		}
+	}
+#endif
+
+	ccl_out = ccl;
+}
+
+static const int move_decision[4][3] = {
+	//1st choice, 2nd choice
+	{ DIR_UP, DIR_UPLEFT, 8 },
+	{ 8, DIR_UP, DIR_LEFT },
+	{ DIR_LEFT, 8, DIR_UPLEFT },
+	{ DIR_UPLEFT, DIR_LEFT, DIR_UP }
+};
+void mark_atom_edge2(Mat & ccl, RegionSet & rs, int border)
+{
+	CV_Assert(border >= 1);
+	expand_ccl(ccl, ccl);
+	Mat visit(ccl.rows, ccl.cols, CV_8UC1);
+	visit = 0;
+	
+	for (int y = border; y < ccl.rows - border; y++) {
+		const unsigned * p_ccl = ccl.ptr<unsigned>(y);
+		uchar * pv = visit.ptr<uchar>(y);
+		for (int x = border; x < ccl.cols - border; x++)
+		if ((p_ccl[x] & CCL_EDGE_MASK3) == CCL_EDGE_MASK1 && pv[x] == 0) { //border may be 0,1,2,3; 0,1,2; 1,2,3; 1,2; 
+			unsigned r = p_ccl[x] & CCL_REGION_MASK;
+			Point org(-1, -1), cur(-1, -1);
+			int m_dir = -1;
+			for (int dir = 0; dir <= 3; dir++) {
+				int x1 = x + dxy[dir][1];
+				int y1 = y + dxy[dir][0];
+				unsigned r1 = (unsigned)ccl.at<int>(y1, x1);
+				if (r1 == (r | CCL_EDGE_MASK2)) {
+					switch (dir) {
+					case DIR_UP:
+						org = Point(x, y);
+						m_dir = DIR_RIGHT;
+						break;
+					case DIR_RIGHT:
+						org = Point(x + 1, y);
+						m_dir = DIR_DOWN;
+						break;
+					case DIR_DOWN:
+						org = Point(x + 1, y + 1);
+						m_dir = DIR_LEFT;
+						break;
+					case DIR_LEFT:
+						org = Point(x, y + 1);
+						m_dir = DIR_UP;
+						break;
+					}
+					break;
+				}
+			}
+			CV_Assert(m_dir >= 0); //1 must have 2 nearby
+			pv[x] = 1;
+			cur = org;
+			RegionEdgeAtom * cur_atom_edge = new RegionEdgeAtom(); //create new atom edge
+			auto it = rs.regions.find(r);
+			if (it == rs.regions.end()) {
+				Region * new_region = new Region(r);
+				rs.regions[r] = new_region;
+				it = rs.regions.find(r);
+			}
+			cur_atom_edge->region = it->second;
+			it->second->edges.insert(cur_atom_edge);
+			do {
+				cur_atom_edge->pts.push_back(cur);
+				cur += Point(dxy[m_dir][1], dxy[m_dir][0]);
+				if (cur.x < border || cur.y < border || cur.x > ccl.cols - border || cur.y > ccl.rows - border) { //out of Tile
+					Point l3 = cur;
+					if (move_decision[m_dir][2] < 8)
+						l3 += Point(dxy[move_decision[m_dir][2]][1], dxy[move_decision[m_dir][2]][0]);
+					unsigned r3 = (unsigned)ccl.at<int>(l3);
+					CV_Assert(r3 == (r | CCL_EDGE_MASK1));
+					RegionEdge * prev_edge = cur_atom_edge;
+					cur -= Point(dxy[m_dir][1], dxy[m_dir][0]); //back to border
+					CV_Assert(cur.x == border || cur.y == border || cur.x == ccl.cols - border || cur.y == ccl.rows - border);
+					for (int tile_border = 0; tile_border <= 3; tile_border++) {
+						RegionEdgeTile * cur_tile_edge = new RegionEdgeTile();						
+						cur_tile_edge->pt1 = cur;
+						prev_edge->link(cur_tile_edge);
+						m_dir = dir_2[m_dir];
+						do {
+							cur += Point(dxy[m_dir][1], dxy[m_dir][0]);							
+							l3 += Point(dxy[m_dir][1], dxy[m_dir][0]);
+							r3 = (unsigned)ccl.at<int>(l3);
+							CV_Assert((r3 & CCL_REGION_MASK) == r && (r3 & CCL_EDGE_MASK3) != CCL_EDGE_MASK3);
+							if (cur.x < border || cur.y < border || cur.x > ccl.cols - border || cur.y > ccl.rows - border)
+								break;
+						} while (r3 != (r | CCL_EDGE_MASK2));
+						if (cur.x < border || cur.y < border || cur.x > ccl.cols - border || cur.y > ccl.rows - border) { //out of Tile
+							l3 = cur;
+							if (move_decision[m_dir][2] < 8)
+								l3 += Point(dxy[move_decision[m_dir][2]][1], dxy[move_decision[m_dir][2]][0]);
+							r3 = (unsigned)ccl.at<int>(l3);
+							cur -= Point(dxy[m_dir][1], dxy[m_dir][0]); //back to corner
+							CV_Assert(cur.x == border && cur.y == border ||
+								cur.x == border && cur.y == ccl.rows - border || 
+								cur.x == ccl.cols - border && cur.y == border || 
+								cur.x == ccl.cols - border && cur.y == ccl.rows - border);
+							if (r3 != (r | CCL_EDGE_MASK2)) {
+								if (cur_tile_edge->pt1 == cur) {
+									cur_tile_edge->region->edges.erase(cur_tile_edge);
+									delete cur_tile_edge;
+								}
+								else {
+									cur_tile_edge->pt2 = cur;
+									prev_edge = cur_tile_edge;
+								}
+								continue; //need to check next border 
+							}
+							else
+								m_dir = dir_1[m_dir];							
+						}
+						else
+							m_dir = dir_2[m_dir];
+						cur_atom_edge = new RegionEdgeAtom();
+						cur_tile_edge->link(cur_atom_edge);
+						cur_tile_edge->pt2 = cur;
+						break;
+					}
+				}
+				Point l1 = cur;
+				if (move_decision[m_dir][0] < 8)
+					l1 += Point(dxy[move_decision[m_dir][0]][1], dxy[move_decision[m_dir][0]][0]);
+				unsigned r1 = (unsigned) ccl.at<int>(l1);
+				if (r1 == (r | CCL_EDGE_MASK2))		// 2 x
+					m_dir = dir_2[m_dir];			// 1 2
+				else {
+					CV_Assert((r1 & CCL_EDGE_MASK3) < CCL_EDGE_MASK2 && (r1 & CCL_REGION_MASK) == r);
+					Point l2 = cur;
+					if (move_decision[m_dir][1] < 8)
+						l2 += Point(dxy[move_decision[m_dir][1]][1], dxy[move_decision[m_dir][1]][0]);
+					unsigned r2 = (unsigned)ccl.at<int>(l2);
+					if (r2 == (r | CCL_EDGE_MASK2)) {
+						CV_Assert((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK1); // 2 2
+						visit.at<uchar>(l1) = 1;							// 1 1
+						m_dir = m_dir; //not change
+					}
+					else {
+						CV_Assert(r2 == (r | CCL_EDGE_MASK1));	// 2 1
+						visit.at<uchar>(l1) = 1;				// 1 1
+						visit.at<uchar>(l2) = 1;
+						m_dir = dir_1[dir_2[m_dir]];
+					}
+				}
+			}while (cur != org);
+			cur_atom_edge->pts.push_back(cur);
 		}
 	}
 }
@@ -2424,7 +2811,7 @@ Input insu_min, insu min width
 Input wire_min, wire min width
 output eps, atom edge
 output mark_e, 
-*/
+
 void mark_atom_edge(Mat & ccl, const vector<EdgeLine> & el, vector<EdgePoly> & eps, Mat & rout)
 {
 	int shift[8];//shift[dir][0] shift[4] is edge dir, shift[1] is insu dir, shift[2] is wire dir, shift[3] is grad dir
@@ -2440,8 +2827,8 @@ void mark_atom_edge(Mat & ccl, const vector<EdgeLine> & el, vector<EdgePoly> & e
 		vector<Point> pts;
 		vector<int> check_pts; //if point is good, it is ccl, else CCL_INSU_REGION. atom_edge contain at least 3 good point
 		get_line_pts(e.p0, e.p1, pts);
-		CV_Assert(e.p0.x > 0 && e.p0.y > 0 && e.p0.x + 1 < ccl.cols && e.p0.y + 1 < ccl.rows);
-		CV_Assert(e.p1.x > 0 && e.p1.y > 0 && e.p1.x + 1 < ccl.cols && e.p1.y + 1 < ccl.rows);
+		CV_Assert(e.p0.x >= EDGE_JUDGE_BORDER && e.p0.y >= EDGE_JUDGE_BORDER && e.p0.x + 1 + EDGE_JUDGE_BORDER < ccl.cols && e.p0.y + 1 + EDGE_JUDGE_BORDER < ccl.rows);
+		CV_Assert(e.p1.x >= EDGE_JUDGE_BORDER && e.p1.y >= EDGE_JUDGE_BORDER && e.p1.x + 1 + EDGE_JUDGE_BORDER < ccl.cols && e.p1.y + 1 + EDGE_JUDGE_BORDER < ccl.rows);
 		pts.push_back(e.p1);
 		int dir = e.d0;
 		for (auto & pt : pts) {
@@ -2455,9 +2842,25 @@ void mark_atom_edge(Mat & ccl, const vector<EdgeLine> & el, vector<EdgePoly> & e
 					}
 				}
 				else
-				if (pc[0] & CCL_EDGE_MASK3 && (pc[0] & CCL_REGION_MASK) == (pc[-shift[dir]] & CCL_REGION_MASK) || //x11, x12
+				if (pc[0] & CCL_EDGE_MASK3 && (pc[0] & CCL_REGION_MASK) == (pc[-shift[dir]] & CCL_REGION_MASK) || //x1x
 					pc[shift[dir]] & CCL_EDGE_MASK3 && (pc[0] & CCL_REGION_MASK) == (pc[shift[dir]] & CCL_REGION_MASK)) //122
-					cr = pc[0] & CCL_REGION_MASK;					
+					cr = pc[0] & CCL_REGION_MASK;
+				if (cr != CCL_INSU_REGION) {//recheck CCL_EDGE_MASK2 exist
+					bool recheck = false;
+					if (pc[0] == CCL_INSU_REGION || (pc[0] & CCL_EDGE_MASK3) == CCL_EDGE_MASK3) {
+						if ((pc[-shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[-shift[dir]] & CCL_REGION_MASK) == cr ||
+							(pc[-shift[dir] * 2] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[-shift[dir] * 2] & CCL_REGION_MASK) == cr ||
+							(pc[-shift[dir] * 3] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[-shift[dir] * 3] & CCL_REGION_MASK) == cr)
+							recheck = true;
+					}
+					else {
+						if ((pc[shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[shift[dir]] & CCL_REGION_MASK) == cr ||
+							(pc[shift[dir] * 2] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[shift[dir] * 2] & CCL_REGION_MASK) == cr)
+							recheck = true;
+					}
+					if (!recheck)
+						cr = CCL_INSU_REGION;
+				}
 			}
 			check_pts.push_back(cr);			
 		}
@@ -2470,6 +2873,20 @@ void mark_atom_edge(Mat & ccl, const vector<EdgeLine> & el, vector<EdgePoly> & e
 				if (n1 >= ATOM_EDGE_LEN) {
 					int end = i - 1;
 					CV_Assert(end - start == n1 - 1);
+					//Check if need to adjust pts to internal or external
+					int s1 = 0, s2 = 0, s3 = 0; //s1 is CCL_EDGE_MASK2 num from pts[start] to pts[end], s2 is CCL_EDGE_MASK2 num in internal side, s3 is CCL_EDGE_MASK2 num in external side
+					for (int j = start; j <= end; j++) {
+						const int * pc = ccl.ptr<int>(pts[j].y, pts[j].x);
+						if ((pc[0] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2)
+							s1++;
+						if ((pc[-shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2)
+							s2++;
+						if ((pc[shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2)
+							s3++;
+					}
+					if (s2 > s1 + s3) //move pts to internal wire
+						for (int j = start; j <= end; j++)
+							pts[j] -= Point(dxy[dir][1], dxy[dir][0]);
 					EdgePoly ep;
 					if (dir == DIR_UP || dir == DIR_UPRIGHT || dir == DIR_RIGHT || dir == DIR_DOWNRIGHT) {
 						ep.p.push_back(pts[start]);
@@ -2482,45 +2899,48 @@ void mark_atom_edge(Mat & ccl, const vector<EdgeLine> & el, vector<EdgePoly> & e
 					ep.ccl_id = cr;
 					eps.push_back(ep);
 					int flag = (int)eps.size();
-					for (int j = start; j <= end; j++) {
-						if (ccl.at<int>(pts[j]) == CCL_INSU_REGION)
-							ccl.at<int>(pts[j]) = cr | CCL_EDGE_MASK3;
-						CV_Assert(rout.at<int>(pts[j]) == 0);
-						rout.at<int>(pts[j]) = -flag;
-					}
-					for (int j = 0; j < 2; j++) {
-						Point pt = (j == 0) ? pts[start] : pts[end];
-						const int * pc = ccl.ptr<int>(pt.y, pt.x);
-						int *prout = rout.ptr<int>(pt.y, pt.x);
+					for (int j = start; j <= end; j++) { //make flag in CCL_EDGE_MASK2
+						int * pc = ccl.ptr<int>(pts[j].y, pts[j].x);
+						int *prout = rout.ptr<int>(pts[j].y, pts[j].x);
+						if (pc[0] == CCL_INSU_REGION)
+							pc[0] = cr | CCL_EDGE_MASK3;
+						
 						if ((pc[0] & CCL_EDGE_MASK3) != CCL_EDGE_MASK2) {
 							if ((pc[0] & CCL_EDGE_MASK3) == CCL_EDGE_MASK3) {
-								if ((pc[-shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2)
+								if ((pc[-shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[-shift[dir]] & CCL_REGION_MASK)==cr) {
+									CV_Assert(prout[-shift[dir]] == 0);
 									prout[-shift[dir]] = -flag;
+								}									
 								else
-									if ((pc[-shift[dir] * 2] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2) {
-										prout[-shift[dir]] = -flag;
+									if ((pc[-shift[dir] * 2] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[-shift[dir] * 2] & CCL_REGION_MASK) == cr) {
+										CV_Assert(prout[-shift[dir] * 2] == 0);
 										prout[-shift[dir] * 2] = -flag;
-									}									
+									}
 									else
-										if ((pc[-shift[dir] * 3] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2) {
-											prout[-shift[dir]] = -flag;
-											prout[-shift[dir] * 2] = -flag;
+										if ((pc[-shift[dir] * 3] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[-shift[dir] * 3] & CCL_REGION_MASK) == cr) {
+											CV_Assert(prout[-shift[dir] * 3] == 0);
 											prout[-shift[dir] * 3] = -flag;
-										}																				
+										}
 										else
 											CV_Assert(0);
 							}
 							else {
-								if ((pc[shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2)
+								if ((pc[shift[dir]] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[shift[dir]] & CCL_REGION_MASK)==cr) {
+									CV_Assert(prout[shift[dir]] == 0);
 									prout[shift[dir]] = -flag;
+								}
 								else
-									if ((pc[shift[dir] * 2] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2) {
-										prout[shift[dir]] = -flag;
+									if ((pc[shift[dir] * 2] & CCL_EDGE_MASK3) == CCL_EDGE_MASK2 && (pc[shift[dir] * 2] & CCL_REGION_MASK) == cr) {
+										CV_Assert(prout[shift[dir] * 2] == 0);
 										prout[shift[dir] * 2] = -flag;
 									}
 									else
 										CV_Assert(0);
-							}								
+							}
+						}
+						else {
+							CV_Assert(prout[0] == 0);
+							prout[0] = -flag;
 						}
 					}
 				}
@@ -2543,7 +2963,7 @@ void mark_atom_edge(Mat & ccl, const vector<EdgeLine> & el, vector<EdgePoly> & e
 		pts.push_back(ep.p[1]);
 	}
 }
-
+*/
 ProcessImageData process_img(const ProcessImageData & pi)
 {
 	qInfo("process_img (%d,%d,%d)", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer);
@@ -2555,27 +2975,59 @@ ProcessImageData process_img(const ProcessImageData & pi)
 		pi.vwf->edge_search(pi.cpd->raw_img, prob, via_mark, (pi.cpd->edge_mark_debug == NULL ? empty : pi.cpd->edge_mark_debug[0]), pi.multi_thread);
 		if (!prob.empty()) {
 			if (pi.cpd->edge_mark_debug)
-				prob_color(prob,pi.cpd->edge_mark_debug[0], 0.55);
+				draw_prob(prob, pi.cpd->edge_mark_debug[0], 0.55);
 			filter_prob(prob, prob1);
 			//prob_color(prob1, (pi.cpd->edge_mark_debug1 == NULL ? empty : pi.cpd->edge_mark_debug1[0]));
 			vector<EdgeLine> edges;
-			Mat mark, mark2, c210, ccl, eccl;
+			Mat mark, mark2, c210, ccl;
 			Range min_sweet_len = pi.wire_sweet_len_x.start < pi.wire_sweet_len_y.start ? pi.wire_sweet_len_x : pi.wire_sweet_len_y;
 			mark_strong_edge(prob1, min_sweet_len, pi.insu_min, edges, mark, mark2);
 			//prob_color(prob1, (pi.cpd->edge_mark_debug2 == NULL ? empty : pi.cpd->edge_mark_debug2[0]), 0.98);
 			//self_enhance(prob1, prob, 3);	
 			if (pi.cpd->edge_mark_debug1)
-				mark_color(mark, pi.cpd->edge_mark_debug1[0]);
+				draw_mark(mark, pi.cpd->edge_mark_debug1[0]);
 			mark_wvi210(pi.cpd->raw_img, mark, c210, (pi.wire_sweet_len_x.start + pi.wire_sweet_len_y.start) / 2 - 1, pi);
 			process_unsure(prob1, c210);
 			if (pi.cpd->edge_mark_debug2)
-				mark_210(c210, pi.cpd->edge_mark_debug2[0]);
+				draw_210(c210, pi.cpd->edge_mark_debug2[0]);
 			//post_process(c210, pi.wire_sweet_len.start);
 			//mark_210(c210, (pi.cpd->edge_mark_debug3 == NULL ? empty : pi.cpd->edge_mark_debug3[0]));
-			do_ccl(c210, prob1, ccl, pi.wire_sweet_len_x.start, pi.wire_sweet_len_y.start, pi.wire_sweet_len_x.start * pi.wire_sweet_len_y.start * 4, 20);
-			expand_ccl(ccl, c210, eccl);
+			Mat cgrid, adjscore;
+			compute_adj(c210, prob1, cgrid, adjscore, pi.wire_sweet_len_x.start, pi.wire_sweet_len_y.start);
+			int B = pi.border_size / CCL_GRID_SIZE;
+			int copy_cols = cgrid.cols - B * 2;
+			int copy_rows = cgrid.rows - B * 2;
+			int cgrid_cols = pi.lpd ? cgrid.cols : copy_cols;
+			int cgrid_rows = pi.upd ? cgrid.rows : copy_rows;
+			int cgrid_x0 = pi.lpd ? B * 2 : 0;
+			int cgrid_y0 = pi.upd ? B * 2: 0;
+			pi.cpd->cgrid.create(cgrid_rows, cgrid_cols, CV_8UC1);
+			pi.cpd->adjscore.create(cgrid_rows, cgrid_cols, CV_8UC2);
+			cgrid(Rect(B, B, copy_cols, copy_rows)).copyTo(pi.cpd->cgrid(Rect(cgrid_x0, cgrid_y0, copy_cols, copy_rows)));
+			adjscore(Rect(B, B, copy_cols, copy_rows)).copyTo(pi.cpd->adjscore(Rect(cgrid_x0, cgrid_y0, copy_cols, copy_rows)));
+			if (pi.lpd) {
+				CV_Assert(pi.lpd->cgrid.rows == pi.cpd->cgrid.rows);
+				pi.lpd->cgrid(Rect(pi.lpd->cgrid.cols - B * 2, 0, B * 2, pi.lpd->cgrid.rows)).copyTo(pi.cpd->cgrid(Rect(0, 0, B * 2, pi.lpd->cgrid.rows)));
+				pi.lpd->adjscore(Rect(pi.lpd->cgrid.cols - B * 2, 0, B * 2, pi.lpd->cgrid.rows)).copyTo(pi.cpd->adjscore(Rect(0, 0, B * 2, pi.lpd->cgrid.rows)));
+			}
+			if (pi.upd) {
+				CV_Assert(pi.upd->cgrid.cols == pi.cpd->cgrid.cols);
+				pi.upd->cgrid(Rect(0, pi.upd->cgrid.rows - B * 2, pi.upd->cgrid.cols, B * 2)).copyTo(pi.cpd->cgrid(Rect(0, 0, pi.upd->cgrid.cols, B * 2)));
+				pi.upd->adjscore(Rect(0, pi.upd->cgrid.rows - B * 2, pi.upd->cgrid.cols, B * 2)).copyTo(pi.cpd->adjscore(Rect(0, 0, pi.upd->cgrid.cols, B * 2)));
+			}
+			do_ccl(pi.cpd->cgrid, pi.cpd->adjscore, ccl, pi.wire_sweet_len_x.start * pi.wire_sweet_len_y.start * 4, 20);
+			/*expand_ccl(ccl, c210, eccl);			
 			if (pi.cpd->edge_mark_debug3)
-				mark_ccl(eccl, pi.cpd->edge_mark_debug3[0]);
+				draw_ccl(eccl, pi.cpd->edge_mark_debug3[0]);*/
+			RegionSet rs;
+			mark_atom_edge2(ccl, rs, B);
+			if (pi.cpd->edge_mark_debug3)
+				draw_region_edge(rs, pi.cpd->edge_mark_debug3[0], Point(pi.border_size, pi.border_size));
+			for (auto &r : rs.regions) {
+				r.second->release();
+				delete r.second;
+			}
+			rs.regions.clear();
 		}
 		QPoint tl(pi.cpd->img_pixel_x0, pi.cpd->img_pixel_y0);
 		for (auto & o : pi.cpd->eo) { //change local to global
@@ -2875,6 +3327,9 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		string file_name(img_name);
 		file_name[file_name.length() - 5] = current_layer + '0';
 		Mat img = imread(file_name, 0);
+		int img_cols = img.cols / CCL_GRID_SIZE  * CCL_GRID_SIZE;
+		int img_rows = img.rows / CCL_GRID_SIZE  * CCL_GRID_SIZE;
+		Mat raw_img = img(Rect(0, 0, img_cols, img_rows));
 		int loc = (int) img_name.find_last_of("\\/");
 		string project_path = img_name.substr(0, loc);
 		if (!vwf[current_layer].read_file(project_path, current_layer))
@@ -2885,9 +3340,9 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		ed[current_layer].img_pixel_x0 = 0;
 		ed[current_layer].img_pixel_y0 = 0;
 		ed[current_layer].layer = current_layer;
-		ed[current_layer].raw_img = img;
+		ed[current_layer].raw_img = raw_img;
 		ed[current_layer].poly = NULL;
-		via_mark[current_layer] = img.clone();
+		via_mark[current_layer] = raw_img.clone();
 		cvtColor(img, edge_mark[current_layer], CV_GRAY2BGR);
 		edge_mark1[current_layer] = edge_mark[current_layer].clone();
 		edge_mark2[current_layer] = edge_mark[current_layer].clone();
@@ -2902,6 +3357,7 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 		pi.upd = NULL;
 		pi.cpd = &ed[current_layer];
 		pi.multi_thread = false;
+		pi.border_size = 12;
 		pi.insu_min = insu_min[current_layer];
 		pi.wire_sweet_len_x = Range(wire_min_x[current_layer], wire_min_x[current_layer] * 2 + insu_min[current_layer]);
 		pi.wire_sweet_len_y = Range(wire_min_y[current_layer], wire_min_y[current_layer] * 2 + insu_min[current_layer]);
@@ -3069,6 +3525,7 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 				pi.lpd = NULL;
 				pi.upd = NULL;
 				pi.cpd = &ed[l];
+				pi.border_size = BORDER_SIZE;
 				pi.multi_thread = false;
 				pis.push_back(pi);
 			}
@@ -3164,6 +3621,10 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 						}
 						if (y0 != sb.top() && y0 != sb.bottom())
 							height[1] = block_width;
+						for (int i = 0; i < 3; i++) {
+							wide[i] = wide[i] / CCL_GRID_SIZE * CCL_GRID_SIZE;
+							height[i] = height[i] / CCL_GRID_SIZE * CCL_GRID_SIZE;
+						}
 						int ewide = (x0 == sb.left()) ? 0 : BORDER_SIZE * 2;
 						int ehight = (y0 == sb.top()) ? 0 : BORDER_SIZE * 2;
 						for (int l = layer_min; l <= layer_max; l++) {
@@ -3299,6 +3760,7 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 						pi.cpd = &diag_line[cl][l][i];
 						pi.lpd = &diag_line[1 - cl][l][i];
 						pi.upd = &diag_line[1 - cl][l][i];
+						pi.border_size = BORDER_SIZE;
 						pi.multi_thread = (pi.cpd->x0 == sb.left() && pi.cpd->y0 == sb.top()) ? false : parallel_search;
 						if (pi.cpd->y0 > sb.top() && pi.cpd->x0 != pi.upd->x0)
 							pi.upd = &diag_line[1 - cl][l][i + 1];
