@@ -409,109 +409,6 @@ public:
 	}
 };
 
-/*Input, p0, dir0, line 1
-Input, p1, dir1, line2
-output: pis, return point in intersection of line(p0, dir0) and line(p1, dir1)
-Return true if pis is valid else two line parallel
-*/
-static bool intersect_line(Point p0, int dir0, Point p1, int dir1, Point & pis)
-{
-	if (dir0 == DIR_UP || dir0 == DIR_DOWN) {
-		if (dir1 == DIR_LEFT || dir1 == DIR_RIGHT) {
-			pis = Point(p0.x, p1.y);
-			return true;
-		}
-		if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
-			pis = Point(p0.x, p1.y - p1.x + p0.x);
-			return true;
-		}
-		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
-			pis = Point(p0.x, p1.y + p1.x - p0.x);
-			return true;
-		}
-		CV_Assert(dir1 == DIR_UP || dir1 == DIR_DOWN);
-		if (p0.x == p1.x) {
-			pis = p0;
-			return true;
-		}
-		return false;
-	}
-
-	if (dir1 == DIR_UP || dir1 == DIR_DOWN) {
-		if (dir0 == DIR_LEFT || dir0 == DIR_RIGHT) {
-			pis = Point(p1.x, p0.y);
-			return true;
-		}
-		if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
-			pis = Point(p1.x, p0.y - p0.x + p1.x);
-			return true;
-		}
-		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
-			pis = Point(p1.x, p0.y + p0.x - p1.x);
-			return true;
-		}
-		return false;
-	}
-
-	if (dir0 == DIR_LEFT || dir0 == DIR_RIGHT) {
-		if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
-			pis = Point(p1.x - p1.y + p0.y, p0.y);
-			return true;
-		}
-		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
-			pis = Point(p1.y + p1.x - p0.y, p0.y);
-			return true;
-		}
-		CV_Assert(dir1 == DIR_LEFT || dir1 == DIR_RIGHT);
-		if (p0.y == p1.y) {
-			pis = p0;
-			return true;
-		}
-		return false;
-	}
-
-	if (dir1 == DIR_LEFT || dir1 == DIR_RIGHT) {
-		if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
-			pis = Point(p0.x - p0.y + p1.y, p1.y);
-			return true;
-		}
-		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
-			pis = Point(p0.y + p0.x - p1.y, p1.y);
-			return true;
-		}
-		return false;
-	}
-
-	if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
-		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
-			pis = Point(p0.x - p0.y + (p1.x + p1.y + p0.y - p0.x) / 2, (p1.x + p1.y + p0.y - p0.x) / 2);
-			return true;
-		}
-		CV_Assert(dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT);
-		if (p0.x - p0.y == p1.x - p1.y) {
-			pis = p0;
-			return true;
-		}
-		return false;
-	}
-
-	if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
-		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
-			pis = Point(p1.x - p1.y + (p0.x + p0.y + p1.y - p1.x) / 2, (p0.x + p0.y + p1.y - p1.x) / 2);
-			return true;
-		}
-		return false;
-	}
-
-	CV_Assert(dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT);
-	CV_Assert(dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT);
-	if (p0.x + p0.y == p1.x + p1.y) {
-		pis = p0;
-		return true;
-	}
-	return false;
-}
-
 /*
 Return dir for vector (dx,dy)
 */
@@ -5424,7 +5321,7 @@ static void image_enhance2(PipeData & d, ProcessParameter & cpara)
 		}
 	}
 	qInfo("ImageEnhance2 brick count=%d", count_brick);
-	if (count_brick == 0)
+	if (count_brick <= 30)
 		return;
 	if (cpara.method & OPT_DEBUG_EN) {
 		Mat debug_draw = img.clone();

@@ -170,6 +170,8 @@ extern BrickConnect brick_conn;
 int get_pts_dir(Point pt1, Point pt2);
 void get_line_pts(Point pt1, Point pt2, vector <Point> & pts);
 void get_line_pts2(Point pt1, Point pt2, vector <Point> & pts);
+bool intersect_line(Point p0, int dir0, Point p1, int dir1, Point & pis);
+float pt2line_distance(Point p1, Point p0, int dir);
 
 /*
 Compute integrate and line integral

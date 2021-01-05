@@ -455,6 +455,7 @@ int get_pts_dir(Point pt1, Point pt2)
 
 	if (pt1.x - pt1.y == pt2.x - pt2.y)
 		return (pt1.x < pt2.x) ? DIR_DOWNRIGHT : DIR_UPLEFT;
+	return -1;
 }
 
 /*
@@ -553,6 +554,119 @@ void get_line_pts2(Point pt1, Point pt2, vector <Point> & pts)
 		pts.push_back(Point(x, y));
 		CV_Assert(x == pt2.x);
 	}
+}
+
+/*Input, p0, dir0, line 1
+Input, p1, dir1, line2
+output: pis, return point in intersection of line(p0, dir0) and line(p1, dir1)
+Return true if pis is valid else two line parallel
+*/
+bool intersect_line(Point p0, int dir0, Point p1, int dir1, Point & pis)
+{
+	if (dir0 == DIR_UP || dir0 == DIR_DOWN) {
+		if (dir1 == DIR_LEFT || dir1 == DIR_RIGHT) {
+			pis = Point(p0.x, p1.y);
+			return true;
+		}
+		if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
+			pis = Point(p0.x, p1.y - p1.x + p0.x);
+			return true;
+		}
+		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
+			pis = Point(p0.x, p1.y + p1.x - p0.x);
+			return true;
+		}
+		CV_Assert(dir1 == DIR_UP || dir1 == DIR_DOWN);
+		if (p0.x == p1.x) {
+			pis = p0;
+			return true;
+		}
+		return false;
+	}
+
+	if (dir1 == DIR_UP || dir1 == DIR_DOWN) {
+		if (dir0 == DIR_LEFT || dir0 == DIR_RIGHT) {
+			pis = Point(p1.x, p0.y);
+			return true;
+		}
+		if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
+			pis = Point(p1.x, p0.y - p0.x + p1.x);
+			return true;
+		}
+		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
+			pis = Point(p1.x, p0.y + p0.x - p1.x);
+			return true;
+		}
+		return false;
+	}
+
+	if (dir0 == DIR_LEFT || dir0 == DIR_RIGHT) {
+		if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
+			pis = Point(p1.x - p1.y + p0.y, p0.y);
+			return true;
+		}
+		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
+			pis = Point(p1.y + p1.x - p0.y, p0.y);
+			return true;
+		}
+		CV_Assert(dir1 == DIR_LEFT || dir1 == DIR_RIGHT);
+		if (p0.y == p1.y) {
+			pis = p0;
+			return true;
+		}
+		return false;
+	}
+
+	if (dir1 == DIR_LEFT || dir1 == DIR_RIGHT) {
+		if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
+			pis = Point(p0.x - p0.y + p1.y, p1.y);
+			return true;
+		}
+		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
+			pis = Point(p0.y + p0.x - p1.y, p1.y);
+			return true;
+		}
+		return false;
+	}
+
+	if (dir0 == DIR_UPLEFT || dir0 == DIR_DOWNRIGHT) {
+		if (dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT) {
+			pis = Point(p0.x - p0.y + (p1.x + p1.y + p0.y - p0.x) / 2, (p1.x + p1.y + p0.y - p0.x) / 2);
+			return true;
+		}
+		CV_Assert(dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT);
+		if (p0.x - p0.y == p1.x - p1.y) {
+			pis = p0;
+			return true;
+		}
+		return false;
+	}
+
+	if (dir1 == DIR_UPLEFT || dir1 == DIR_DOWNRIGHT) {
+		if (dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT) {
+			pis = Point(p1.x - p1.y + (p0.x + p0.y + p1.y - p1.x) / 2, (p0.x + p0.y + p1.y - p1.x) / 2);
+			return true;
+		}
+		return false;
+	}
+
+	CV_Assert(dir0 == DIR_UPRIGHT || dir0 == DIR_DOWNLEFT);
+	CV_Assert(dir1 == DIR_UPRIGHT || dir1 == DIR_DOWNLEFT);
+	if (p0.x + p0.y == p1.x + p1.y) {
+		pis = p0;
+		return true;
+	}
+	return false;
+}
+
+//return distance from p1 to line (p0, dir)
+float pt2line_distance(Point p1, Point p0, int dir)
+{
+	Point d(dxy[dir_2[dir]][1], dxy[dir_2[dir]][0]);
+	if (dir <= 3)
+		return d.dot(p1 - p0);
+	else
+		return d.dot(p1 - p0) / 1.4;
 }
 
 void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale)
@@ -1591,11 +1705,15 @@ bool EdgeFeatureML::train(const vector<vector<int> > & features)
 				is_valid = false;
 				return false;
 			}
-			edge_pdf.push_back(temp_pdf);
-			tp.push_back(x0 / TRAIN_NUM_TH);
+			if (tp.empty() || x0 / TRAIN_NUM_TH != tp.back()) {
+				edge_pdf.push_back(temp_pdf);
+				tp.push_back(x0 / TRAIN_NUM_TH);
+			}
 			qInfo("train, tp=%d,edge_sep=%d, edge_high=%d, edge_low=%d", tp.back(), edge_sep, temp.start, temp.end);
 		}
 	}
+
+	CV_Assert(edge_pdf.size() == tp.size());
 
 	//4 combine wire_pdf and edge_pdf with linear interpolate
 	memset(wi_prob, 0, sizeof(wi_prob)); 

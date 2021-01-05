@@ -567,8 +567,8 @@ MatchResult try_match_node(const TryMatchNode & tm)
 			for (int j = 0; j < cm0.dm[i].get_port_net_num(); j++)				
 				Q_ASSERT(cm0.dm[i].get_port_net(j) == cm1.dm[i].get_port_net(j));
 			for (int j = 0; j < cm0.dm[i].get_port_net_num() - 1; j++) {
-				Q_ASSERT(cm0.cir->get_dev_cn(cm0.dm[i].dev_idx(), j) == cm0.nm[cm0.dm[i].get_port_net(j + 1)]);
-				Q_ASSERT(cm1.cir->get_dev_cn(cm1.dm[i].dev_idx(), j) == cm1.nm[cm1.dm[i].get_port_net(j + 1)]);
+				Q_ASSERT(cm0.dm[i].get_port_net(j + 1) < 0 || cm0.cir->get_dev_cn(cm0.dm[i].dev_idx(), j) == cm0.nm[cm0.dm[i].get_port_net(j + 1)]);
+				Q_ASSERT(cm1.dm[i].get_port_net(j + 1) < 0 || cm1.cir->get_dev_cn(cm1.dm[i].dev_idx(), j) == cm1.nm[cm1.dm[i].get_port_net(j + 1)]);
 			}			
 		}
 	}

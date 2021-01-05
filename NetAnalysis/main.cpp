@@ -182,8 +182,10 @@ int main(int argc, char *argv[])
 	qInstallMessageHandler(myMessageOutput);
 
 	CircuitMatch c0, c1;
-	c0.read_circuit("top.cdl");
-	c1.read_circuit("osc.cdl");
+	//c0.read_circuit("top1.cdl");
+	//c1.read_circuit("osc.cdl");	
+	c1.read_circuit("HO_NOR2_1.cdl");
+	c0.read_circuit("ANA10.cdl");
 	vector<string> nodes, subckt;
 	/*nodes.push_back("GND");
 	c0.predef_match_nodes(nodes);
@@ -195,7 +197,7 @@ int main(int argc, char *argv[])
 	c0.predef_match_subckt(subckt);
 	c1.predef_match_subckt(subckt);	*/
 	vector<MatchResult> result;
-	match(c0, c1, "TOP", "OSC", MATCH_PART | SUBCKT_SAME_NAME, result);
+	match(c0, c1, "digital_1", "digital_1_1", MATCH_PART | SUBCKT_SAME_NAME, result);
 
 	FILE * fp = fopen("result.txt", "w");
 	for (int i = 0; i < (int)result.size(); i++) {
