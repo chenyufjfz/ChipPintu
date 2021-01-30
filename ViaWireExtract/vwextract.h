@@ -13,7 +13,7 @@ protected:
 	int via_diameter_min, via_diameter_max;
 	int insu_min[MAX_LAYER_NUM], wire_min_x[MAX_LAYER_NUM], wire_min_y[MAX_LAYER_NUM];
 	vector<Mat> via_mark;
-	vector<Mat> edge_mark, edge_mark1, edge_mark2, edge_mark3;
+	vector<Mat> edge_mark, edge_mark1, edge_mark2, edge_mark3, edge_mark4, edge_mark5, edge_mark6, edge_mark7;
 public:
 	VWExtractML();
 	~VWExtractML() {}
@@ -23,6 +23,10 @@ public:
 	Mat get_mark1(int layer);
 	Mat get_mark2(int layer);
 	Mat get_mark3(int layer);
+	Mat get_mark4(int layer);
+	Mat get_mark5(int layer);
+	Mat get_mark6(int layer);
+	Mat get_mark7(int layer);
 	int train(string img_name, vector<MarkObj> & obj_sets);
 	int extract(string file_name, QRect rect, vector<MarkObj> & obj_sets);
 	int train(vector<ICLayerWrInterface *> &, vector<MarkObj> &);

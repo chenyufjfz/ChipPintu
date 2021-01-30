@@ -32,6 +32,10 @@ public:
 	virtual cv::Mat get_mark1(int) = 0;
 	virtual cv::Mat get_mark2(int) = 0;
 	virtual cv::Mat get_mark3(int) = 0;
+	virtual cv::Mat get_mark4(int) = 0;
+	virtual cv::Mat get_mark5(int) = 0;
+	virtual cv::Mat get_mark6(int) = 0;
+	virtual cv::Mat get_mark7(int) = 0;
     virtual ~ObjExtract() {
 
     }

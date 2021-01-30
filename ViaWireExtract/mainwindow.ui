@@ -20,7 +20,7 @@
      <x>0</x>
      <y>0</y>
      <width>800</width>
-     <height>26</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -66,6 +66,9 @@
     <addaction name="actionShow_Via"/>
     <addaction name="actionShow_Wire_Edge"/>
     <addaction name="actionShow_Via_Edge"/>
+    <addaction name="actionShow_mark4"/>
+    <addaction name="actionShow_mark5"/>
+    <addaction name="actionShow_mark6"/>
     <addaction name="actionShow_Via_Wire_Edge"/>
     <addaction name="actionShow_Select"/>
     <addaction name="separator"/>
@@ -186,7 +189,7 @@
     <string>Show Original img</string>
    </property>
    <property name="shortcut">
-    <string>F5</string>
+    <string>F9</string>
    </property>
   </action>
   <action name="actionStart_Train">
@@ -219,16 +222,13 @@
    <property name="text">
     <string>Set Param</string>
    </property>
-   <property name="shortcut">
-    <string>F7</string>
-   </property>
   </action>
   <action name="actionExtract">
    <property name="text">
     <string>Extract</string>
    </property>
    <property name="shortcut">
-    <string>F8</string>
+    <string>F10</string>
    </property>
   </action>
   <action name="actionMark_Cell">
@@ -275,6 +275,30 @@
   <action name="actionMark_Via_Wire_Insu">
    <property name="text">
     <string>Mark Via Wire Insu</string>
+   </property>
+  </action>
+  <action name="actionShow_mark4">
+   <property name="text">
+    <string>Show mark4</string>
+   </property>
+   <property name="shortcut">
+    <string>F5</string>
+   </property>
+  </action>
+  <action name="actionShow_mark5">
+   <property name="text">
+    <string>Show mark5</string>
+   </property>
+   <property name="shortcut">
+    <string>F6</string>
+   </property>
+  </action>
+  <action name="actionShow_mark6">
+   <property name="text">
+    <string>Show mark6</string>
+   </property>
+   <property name="shortcut">
+    <string>F7</string>
    </property>
   </action>
  </widget>

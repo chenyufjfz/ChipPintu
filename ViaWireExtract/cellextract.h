@@ -72,6 +72,18 @@ public:
 	Mat get_mark3(int) {
 		return mark3;
 	}
+	Mat get_mark4(int) {
+		return Mat();
+	}
+	Mat get_mark5(int) {
+		return Mat();
+	}
+	Mat get_mark6(int) {
+		return Mat();
+	}
+	Mat get_mark7(int) {
+		return Mat();
+	}
 };
 
 #endif // CELLEXTRACT_H

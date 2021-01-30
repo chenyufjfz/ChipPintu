@@ -556,7 +556,7 @@ void ViaWireEditView::show_debug(unsigned _mark_mask, bool _show_debug_en)
 	mark_mask = _mark_mask;	
 	show_debug_en = _show_debug_en;
 	
-	if (!_show_debug_en || _mark_mask > 3) {
+	if (!_show_debug_en || _mark_mask > 7) {
 		bk_img_mask = bk_img[layer];		
 	}
 	else {
@@ -573,6 +573,18 @@ void ViaWireEditView::show_debug(unsigned _mark_mask, bool _show_debug_en)
 			break;
 		case 3:
 			mark = current_train->get_mark3(layer);
+			break;
+		case 4:
+			mark = current_train->get_mark4(layer);
+			break;
+		case 5:
+			mark = current_train->get_mark5(layer);
+			break;
+		case 6:
+			mark = current_train->get_mark6(layer);
+			break;
+		case 7:
+			mark = current_train->get_mark7(layer);
 			break;
 		} 
 		if (bk_img[layer].width() != mark.cols || bk_img[layer].height() != mark.rows) {

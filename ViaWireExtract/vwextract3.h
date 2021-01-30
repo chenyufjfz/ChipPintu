@@ -52,6 +52,10 @@ public:
 	Mat get_mark1(int ) { return Mat(); }
 	Mat get_mark2(int ) { return Mat(); }
 	Mat get_mark3(int ) { return Mat(); }
+	Mat get_mark4(int) { return Mat(); }
+	Mat get_mark5(int) { return Mat(); }
+	Mat get_mark6(int) { return Mat(); }
+	Mat get_mark7(int) { return Mat(); }
 	int train(string, std::vector<MarkObj> &) { return 0; }
 	int extract(string file_name, QRect rect, std::vector<MarkObj> & obj_sets);
 	int train(vector<ICLayerWrInterface *> &, std::vector<MarkObj> &) { return 0; }

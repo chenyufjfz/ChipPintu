@@ -178,7 +178,7 @@ void MainWindow::on_actionShow_Via_Edge_triggered()
 
 void MainWindow::on_actionShow_Via_Wire_Edge_triggered()
 {
-	vw_view->show_debug(3, false);
+	vw_view->show_debug(0, false);
 }
 
 
@@ -285,4 +285,19 @@ void MainWindow::on_actionMark_Wire_Insu_triggered()
 void MainWindow::on_actionMark_Via_Wire_Insu_triggered()
 {
     vw_view->set_mark(OBJ_POINT, POINT_WIRE_INSU_V);
+}
+
+void MainWindow::on_actionShow_mark4_triggered()
+{
+	vw_view->show_debug(4, true);
+}
+
+void MainWindow::on_actionShow_mark5_triggered()
+{
+	vw_view->show_debug(5, true);
+}
+
+void MainWindow::on_actionShow_mark6_triggered()
+{
+	vw_view->show_debug(6, true);
 }

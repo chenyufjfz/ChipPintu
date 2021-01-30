@@ -86,6 +86,12 @@ private slots:
 
     void on_actionMark_Via_Wire_Insu_triggered();
 
+    void on_actionShow_mark4_triggered();
+
+    void on_actionShow_mark5_triggered();
+
+    void on_actionShow_mark6_triggered();
+
 private:
     QLabel *status_label;
     ViaWireEditView * vw_view;

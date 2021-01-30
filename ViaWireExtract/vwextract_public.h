@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <opencv2/contrib/contrib.hpp>
+#include <QMutexLocker>
 #include "qsharedpointer.h"
 
 using namespace std;
@@ -186,7 +187,7 @@ void integral_square(const Mat & img, Mat & ig, Mat & iig, Mat & lg, Mat & llg, 
 void clip_img(Mat & img, int gray_low, int gray_high, Mat & new_img);
 bool contain_dir(int d1, int d2);
 void deldir(const string &path);
-void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale);
+void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale, FILE * fp);
 
 //CircleCheck use octagon to approximate circle, use grad accumulation to judge every edge
 class CircleCheck {
@@ -293,7 +294,7 @@ protected:
 	output loc, top left location for brightest circle
 	find local brightest location in loc, it is a pre-filter for compute_feature
 	*/
-	void find_best_bright(const Mat & lg, int d, int sep0, vector<Point> & loc, bool multi_thread);
+	void find_best_bright(const Mat & lg, int d, int sep0, vector<Point> & loc);
 	/*
 	input ig, raw image
 	input grad, raw image grad
@@ -306,7 +307,7 @@ protected:
 	feature[3][0..7] is middle filter for outside octagon edge (2 point away)
 	Return feature likelihood, bigger is better
 	*/
-	int compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d0, const vector<Point> & loc, Mat features[], bool multi_thread, int score_min);
+	int compute_feature(const Mat & img, const Mat & lg, const Mat & grad, int d0, const vector<Point> & loc, Mat features[], int score_min);
 	/*
 	input img,
 	inout org, for input, it is a point inside via, for output it is via's center
@@ -314,10 +315,9 @@ protected:
 	input d, via diameter
 	output feature, feature[0][0] is label which is filled by caller, feature[0][2], feature[0][3] is diameter-x, diameter-y
 	output vs, via circle xy
-	input multi_thread, run in multi_thread or not
 	return feature score
 	*/
-	int feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs, bool multi_thread, int score_min);
+	int feature_extract(const Mat & img, Point & org, Point & range, const vector<int> & d0, Mat & feature, vector<Point> * vs, int score_min);
 public:
 	ViaML();
 	~ViaML();
@@ -335,7 +335,7 @@ public:
 	Single sample feature extract, after collect several samples, call train
 	*/
 	bool feature_extract(const Mat & img, Point & org, Point & range, int min_d0, int max_d0, int label, vector<Mat> & features, 
-		vector<Point> * vs, bool multi_thread);
+		vector<Point> * vs);
 	/*
 	input feature, it is output from feature_extract
 	input weight, weight for miss via vs false via
@@ -358,7 +358,7 @@ public:
 	train
 	judge
 	*/
-	float judge(const Mat & img, Mat & via_mark, Point & org, Point & range, int &label, bool multi_thread);
+	float judge(const Mat & img, Mat & via_mark, Point & org, Point & range, int &label);
 };
 
 /*
@@ -392,7 +392,7 @@ protected:
 	input multi_thread, if call with multi_thread, true
 	Return probability, bigger is via, smaller is no via, it call vml judge
 	*/
-	float via_judge(const Mat & img, Mat & via_mark, Point & org, Point & range, int & label, bool multi_thread);
+	float via_judge(const Mat & img, Mat & via_mark, Point & org, Point & range, int & label);
 public:
 	VWfeature();
 	void set_via_para(float via_weight_ = 0.5f);
@@ -428,7 +428,7 @@ public:
 	void write_file(string project_path, int layer, int insu_min, int wire_min);
 	bool read_file(string project_path, int layer);
 	//return if via is valid or not
-	bool via_valid(bool multi_thread);
+	bool via_valid();
 	/*
 	input img
 	output via_mark, via mark to be used by edge_search
@@ -436,7 +436,7 @@ public:
 	input multi_thread, true means multithread search
 	It calls via_judge to check every via
 	*/
-	void via_search(const Mat & img, Mat & via_mark, Mat & mark_dbg, vector<ElementObj *> & vs, bool multi_thread);
+	void via_search(const Mat & img, Mat & via_mark, Mat & mark_dbg, vector<ElementObj *> & vs);
 	/*
 	input img
 	output prob
@@ -444,7 +444,7 @@ public:
 	output debug_mark
 	call EdgeFeatureML::judge
 	*/
-	void edge_search(const Mat & img, Mat & prob, const Mat & via_mark, Mat & debug_mark, bool multi_thread);
+	void edge_search(const Mat & img, Mat & prob, const Mat & via_mark, Mat & debug_mark);
 };
 
 

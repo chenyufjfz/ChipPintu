@@ -515,7 +515,7 @@ void test_ml_extract()
 {
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A22190918/chip.prj", "", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/B3020/chip.prj", "", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
 #endif
@@ -526,17 +526,18 @@ void test_ml_extract()
 	}
 	QScopedPointer<VWExtract> vwe(VWExtract::create_extract(2));
 	vector<MarkObj> objs;
-	vwe->set_extract_param(0x0101, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	vwe->set_extract_param(0, POINT_WIRE_INSU << 8 | OBJ_POINT, 0x050503, 0, 0, 0, 0, 0, 0, 0);
 	vector<SearchArea> areas;
+	areas.push_back(SearchArea(QRect(294464, 222496, 150000, 120000), 0));
 	//QPoint tl(135680, 19968), rb(597505, 517121);
 	//QPoint tl(135680, 369968), rb(397505, 517121);
-	areas.push_back(SearchArea(QRect(128000, 128000, 256000, 128000), OPT_POLYGON_SEARCH));
+	/*areas.push_back(SearchArea(QRect(128000, 128000, 256000, 128000), OPT_POLYGON_SEARCH));
 	areas.push_back(SearchArea(QRect(256000, 128000, 256000, 32000), OPT_POLYGON_SEARCH));
 	areas.push_back(SearchArea(QRect(256000, 32000, 384000, 32000), OPT_POLYGON_SEARCH));
 	areas.push_back(SearchArea(QRect(384000, 32000, 384000, 128000), OPT_POLYGON_SEARCH));
 	areas.push_back(SearchArea(QRect(384000, 128000, 512000, 128000), OPT_POLYGON_SEARCH));
 	areas.push_back(SearchArea(QRect(512000, 128000, 512000, 256000), OPT_POLYGON_SEARCH));
-	areas.push_back(SearchArea(QRect(512000, 256000, 128000, 256000), OPT_POLYGON_SEARCH | 1));
+	areas.push_back(SearchArea(QRect(512000, 256000, 128000, 256000), OPT_POLYGON_SEARCH | 1));*/
 	vwe->extract(pic, areas, objs);
 }
 
@@ -635,13 +636,13 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 0
+#if 1
 	
 	//wire_extract_test_pipeprocess();
-	cell_extract_test();
+	//cell_extract_test();
 	//test_extractparam2();
 	//test_single_wire_extract();
-	//test_ml_extract();
+	test_ml_extract();
 	return 0;
 #endif
     w.show();
