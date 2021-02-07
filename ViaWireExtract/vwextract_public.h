@@ -188,6 +188,7 @@ void clip_img(Mat & img, int gray_low, int gray_high, Mat & new_img);
 bool contain_dir(int d1, int d2);
 void deldir(const string &path);
 void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale, FILE * fp);
+void save_obj_to_file(const vector<ElementObj *> obj_sets, FILE * fp);
 
 //CircleCheck use octagon to approximate circle, use grad accumulation to judge every edge
 class CircleCheck {

@@ -69,27 +69,27 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 		unsigned thread_id = quintptr(QThread::currentThreadId());
 		switch (type) {
 		case QtDebugMsg:
-			fprintf(fp, "<D>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
+			fprintf(fp, "<D> %s D %d %s %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, "NA", qPrintable(msg));
 #if QMSG_FLUSH
 			fflush(fp);
 #endif
 			break;
 		case QtInfoMsg:
-			fprintf(fp, "<I>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
+			fprintf(fp, "<I> %s I %d %s %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, "NA", qPrintable(msg));
 #if QMSG_FLUSH
 			fflush(fp);
 #endif
 			break;
 		case QtWarningMsg:
-			fprintf(fp, "<W>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
+			fprintf(fp, "<W> %s W %d %s %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, "NA", qPrintable(msg));
 			fflush(fp);
 			break;
 		case QtCriticalMsg:
-			fprintf(fp, "<E>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
+			fprintf(fp, "<E> %s E %d %s %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, "NA", qPrintable(msg));
 			fflush(fp);
 			break;
 		case QtFatalMsg:
-			fprintf(fp, "<F>[%s] [%d] %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, qPrintable(msg));
+			fprintf(fp, "<F> %s F %d %s %s\n", qPrintable(str_dt), thread_id & 0x7ffffff, "NA", qPrintable(msg));
 			fclose(fp);
 			exit(-1);
 		}
@@ -115,33 +115,34 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
     for (pmid = pend; pmid!=context.function && *pmid!=':'; pmid--);
     if (*pmid==':')
         pmid++;
+	for (const char * pi = pmid; pi != pend; pi++)
+		if (*pi == ' ')
+			pmid = pi + 1;
     size= pend- pmid;
     memcpy(func, pmid, size);
     func[size]=0;
-    while (*(pmid-1)==':' && pmid!=context.function)
+ /*   while (*(pmid-1)==':' && pmid!=context.function)
         pmid--;
     for (pbegin=pmid; *pbegin!=' ' && pbegin !=context.function; pbegin--);
-    size = pmid -pbegin;
-    memcpy(file, pbegin, size);
-    file[size]=0;
+    size = pmid -pbegin;*/
 
     switch (type) {
     case QtDebugMsg:
-        fprintf(fp, "<D>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<D> %s D %d %s %s\n", qPrintable(str_dt), context.line, context.file, qPrintable(msg));
         break;
     case QtInfoMsg:
-        fprintf(fp, "<I>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<I> %s I %d %s %s\n", qPrintable(str_dt), context.line, context.file, qPrintable(msg));
         break;
     case QtWarningMsg:
-        fprintf(fp, "<W>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<W> %s W %d %s %s\n", qPrintable(str_dt), context.line, context.file, qPrintable(msg));
 		fflush(fp);
         break;
     case QtCriticalMsg:
-        fprintf(fp, "<E>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<E> %s E %d %s %s\n", qPrintable(str_dt), context.line, context.file, qPrintable(msg));
         fflush(fp);
         break;
     case QtFatalMsg:
-        fprintf(fp, "<F>[%d,%s] [%s] [%s] %s\n", context.line, file, qPrintable(str_dt), func, qPrintable(msg));
+		fprintf(fp, "<F> %s F %d %s %s\n", qPrintable(str_dt), context.line, context.file, qPrintable(msg));
         fclose(fp);
         exit(-1);
     }
@@ -515,7 +516,7 @@ void test_ml_extract()
 {
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/B3020/chip.prj", "", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/B06210101/chip.prj", "", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
 #endif
@@ -528,7 +529,10 @@ void test_ml_extract()
 	vector<MarkObj> objs;
 	vwe->set_extract_param(0, POINT_WIRE_INSU << 8 | OBJ_POINT, 0x050503, 0, 0, 0, 0, 0, 0, 0);
 	vector<SearchArea> areas;
-	areas.push_back(SearchArea(QRect(294464, 222496, 150000, 120000), 0));
+	//areas.push_back(SearchArea(QRect(294464, 222496, 90000, 90000), 0));
+	//areas.push_back(SearchArea(QRect(982368, 547648, 300000, 300000), 1));
+	areas.push_back(SearchArea(QRect(982368, 547648, 500000, 300000), 1));
+	//areas.push_back(SearchArea(QRect(1015805, 720896, 90000, 90000), 0));
 	//QPoint tl(135680, 19968), rb(597505, 517121);
 	//QPoint tl(135680, 369968), rb(397505, 517121);
 	/*areas.push_back(SearchArea(QRect(128000, 128000, 256000, 128000), OPT_POLYGON_SEARCH));

@@ -708,7 +708,51 @@ void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale, FILE * fp)
 						obj_sets[i].p0.y() / scale, obj_sets[i].p1.x() / scale, obj_sets[i].p1.y() / scale, obj_sets[i].prob);
 				}
 			}
-			continue;
+		}
+	}
+}
+
+void save_obj_to_file(const vector<ElementObj *> obj_sets, FILE * fp)
+{
+	if (fp) {
+		char poly_str[300];
+		int poly_str_idx = 0;
+		for (int i = 0; i < obj_sets.size(); i++) {
+			unsigned t = obj_sets[i]->type;
+			if (t == OBJ_POINT) {
+				if (obj_sets[i]->type2 == POINT_NO_VIA)
+					fprintf(fp, "novia, l=%d, x=%d, y=%d, prob=%f\n", obj_sets[i]->type3, obj_sets[i]->p0.x(),  obj_sets[i]->p0.y(), obj_sets[i]->prob);
+				else
+					fprintf(fp, "via, l=%d, x=%d, y=%d, prob=%f\n", obj_sets[i]->type3, obj_sets[i]->p0.x(), obj_sets[i]->p0.y(), obj_sets[i]->prob);
+			}
+			else
+				if (t == OBJ_LINE) {
+					unsigned t2 = obj_sets[i]->type2;
+					if (t2 == LINE_POLYGON || t2 == LINE_POLYGON_END || t2 == LINE_POLYGON_START) {
+						switch (t2) {
+						case LINE_POLYGON_START:
+							poly_str_idx = sprintf_s(poly_str, 100, "polygon,id=%lld s=%d l=%d,%d %d,", obj_sets[i]->un.attach, obj_sets[i]->state, obj_sets[i]->type3, obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
+							break;
+						case LINE_POLYGON:
+							if (poly_str_idx > 200) {
+								fprintf(fp, "%s\\\n", poly_str);
+								poly_str_idx = 0;
+							}
+							poly_str_idx += sprintf_s(poly_str + poly_str_idx, 100, "%d %d,", obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
+							break;
+						case LINE_POLYGON_END:
+							fprintf(fp, "%s%d %d,end\n", poly_str, obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
+							poly_str_idx = 0;
+							break;
+						}
+					}
+					else {
+						CV_Assert(poly_str_idx == 0);
+						fprintf(fp, "wire, l=%d, (x=%d,y=%d)->(x=%d,y=%d), prob=%f\n", obj_sets[i]->type3, obj_sets[i]->p0.x(),
+							obj_sets[i]->p0.y(), obj_sets[i]->p1.x(), obj_sets[i]->p1.y(), obj_sets[i]->prob);
+					}
+				}
+			delete obj_sets[i];
 		}
 	}
 }
