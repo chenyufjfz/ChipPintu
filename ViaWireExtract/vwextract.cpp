@@ -4,6 +4,7 @@
 #include <QDir>
 #include <complex>
 #include <memory>
+#include <algorithm>
 #ifdef Q_OS_WIN
 #ifdef QT_DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -11,6 +12,12 @@
 #define DEBUG_NEW new(_NORMAL_BLOCK, __FILE__, __LINE__)
 #define new DEBUG_NEW
 #endif
+#endif
+
+#ifdef QT_DEBUG
+#define DUMP_DBG_IMG		1
+#else
+#define DUMP_DBG_IMG		0
 #endif
 
 #define WEAK_EDGE_LEN		6
@@ -407,7 +414,7 @@ public:
 	~Region() {
 		global_region_cnt--;
 	}
-	bool has_tile();
+	bool only_has_tp();
 };
 QAtomicInt Region::global_region_cnt = 0;
 
@@ -477,13 +484,16 @@ public:
 		another->prev = shared_from_this();
 		return ret;
 	}
+	/*
 	void unlink() {
 		prev.lock()->next = next;
 		next.lock()->prev = prev;
 		next = shared_from_this();
 		prev = shared_from_this();
+		if (region.expired())
+			return;
 		region.lock()->edges.erase(shared_from_this());
-	}
+	}*/
 	/*unlink [this, et] from original region, this can be same as et*/
 	void unlink(shared_ptr<RegionEdge> et) {
 		prev.lock()->next = et->next;
@@ -540,12 +550,12 @@ public:
 //endtile is to end tile
 shared_ptr<RegionEdgeTile> endtile(new RegionEdgeTile);
 
-bool Region::has_tile()
+bool Region::only_has_tp()
 {
 	for (auto & e : edges)
-		if (e->type == REGION_EDGE_TILE_GRID)
-			return true;
-	return false;
+		if (e->type != REGION_EDGE_TURN_POINT)
+			return false;
+	return true;
 }
 
 class RegionEdgeTurnPoint : public RegionEdge {
@@ -646,6 +656,8 @@ struct ProcessData {
 	QPolygon * poly;
 	int end_tile_mask;
 	int ref_cnt;
+	int total_w, total_i;
+	float wire_th, insu_th; //for mark_wvi210
 	RegionSet rs;
 	vector<shared_ptr<RegionEdgeTile> >ets;
 	ProcessData() {
@@ -653,6 +665,10 @@ struct ProcessData {
 		end_tile_mask = 0;
 		x0 = -10000;
 		y0 = -10000;
+		total_w = 0;
+		total_i = 0;
+		insu_th = 20;
+		wire_th = 60;
 		img_pixel_x0 = -10000;
 		img_pixel_y0 = -10000;
 		layer = -1;
@@ -1490,7 +1506,8 @@ static void self_enhance(const Mat & prob, Mat & rst, int iter_num)
 /*
 input img
 input mark
-output m01
+output c210
+inout pi, input insu & wire th, output insu & wire th
 mark wire as 10, insu as 0
 */
 static void mark_wvi210(const Mat & img, const Mat & mark, Mat & c210, int via_cut_len, const ProcessImageData & pi)
@@ -1523,7 +1540,8 @@ static void mark_wvi210(const Mat & img, const Mat & mark, Mat & c210, int via_c
 	}
 
 	//2 compute global th
-	int total_w = 0, total_i = 0, wire_th = 0, insu_th = 0;
+	int total_w = 0, total_i = 0;
+	float wire_th = 0, insu_th = 0;
 	float th;
 	for (int i = 0; i < 256; i++) {
 		total_w += wire_stat[i];
@@ -1543,7 +1561,29 @@ static void mark_wvi210(const Mat & img, const Mat & mark, Mat & c210, int via_c
 			break;
 		}
 	}
+	pi.cpd->wire_th = wire_th;
+	pi.cpd->insu_th = insu_th;
+	pi.cpd->total_w = total_w;
+	pi.cpd->total_i = total_i;
+
+	float sum_wire_th = wire_th * total_w, sum_insu_th = insu_th * total_i;
+	float sum_total_w = total_w, sum_total_i = total_i;
+	if (pi.lpd) {
+		sum_wire_th += pi.lpd->wire_th * pi.lpd->total_w / 2;
+		sum_total_w += pi.lpd->total_w * 0.5f;
+		sum_insu_th += pi.lpd->insu_th * pi.lpd->total_i / 2;
+		sum_total_i += pi.lpd->total_i * 0.5f;
+	}
+	if (pi.upd) {
+		sum_wire_th += pi.upd->wire_th * pi.upd->total_w / 2;
+		sum_total_w += pi.upd->total_w * 0.5f;
+		sum_insu_th += pi.upd->insu_th * pi.upd->total_i / 2;
+		sum_total_i += pi.upd->total_i * 0.5f;
+	}
+	wire_th = (sum_wire_th + 25) / (sum_total_w + 0.1f); //avoid sum_total_w=0
+	insu_th = sum_insu_th / (sum_total_i + 0.1f); //avoid sum_total_i=0
 	th = (wire_th + insu_th) * 0.5;
+
 	float gray_unit, gray_unit_1;
 	if (insu_th - wire_th >= 15 || wire_th - insu_th > 82) {
 		gray_unit = 5;
@@ -1578,422 +1618,421 @@ static void mark_wvi210(const Mat & img, const Mat & mark, Mat & c210, int via_c
 							gray_unit = 2;
 							gray_unit_1 = 0.5;
 						}
+						
+	qInfo("mark_wvi strongwire num=%d, stronginsu num=%d, local_wire_th=%3f, local_insu_th=%3f, wire_th=%5f, insu_th=%5f, th=%5f", 
+		total_w, total_i, pi.cpd->wire_th, pi.cpd->insu_th, wire_th, insu_th, th);
+						
+	//3 compute grid gray stat for wire and insu
+	int sizes[] = { (img.rows + MARK_210_GRID - 1) / MARK_210_GRID, (img.cols + MARK_210_GRID - 1) / MARK_210_GRID, 16 }; //15 level
+	Mat statw_g(3, sizes, CV_8U), stati_g(3, sizes, CV_8U); //0..14 for gray level, 15 for total
+	sizes[0]++;
+	sizes[1]++;
+	Mat statw_integrate(3, sizes, CV_16U), stati_integrate(3, sizes, CV_16U); //integrate of statw_g
+	statw_g = Scalar::all(0);
+	stati_g = Scalar::all(0);
 
+	for (int y = EDGE_JUDGE_BORDER; y < img.rows - EDGE_JUDGE_BORDER; y++) {
+		const uchar * pm = mark.ptr<uchar>(y);
+		const uchar * pimg = img.ptr<uchar>(y);
+		for (int x = EDGE_JUDGE_BORDER; x < img.cols - EDGE_JUDGE_BORDER; x++)
+			if (pm[x] & MARK_STRONG_WIRE || pm[x] & MARK_STRONG_INSU) {
+				int z = pimg[x];
+				z = (z - th) * gray_unit_1 + 7;
+				if (z < 0)
+					z = 0;
+				else
+					if (z > 14)
+						z = 14;
+				if (pm[x] & MARK_STRONG_WIRE) {
+					statw_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, z)++;
+					statw_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, 15)++;
+				}
+				else {
+					stati_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, z)++;
+					stati_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, 15)++;
+				}
+			}
+	}
+	//3.1 compute integrate
+	for (int y = 0; y < sizes[0]; y++) {
+		ushort isum[16] = { 0 };
+		ushort wsum[16] = { 0 };
+		ushort * pstatw_ig = statw_integrate.ptr<ushort>(y, 0);
+		ushort * pstati_ig = stati_integrate.ptr<ushort>(y, 0);
+		if (y == 0) { //ig[0][...] = 0
+			for (int x = 0; x < sizes[1]; x++) {
+				pstatw_ig = statw_integrate.ptr<ushort>(y, x);
+				pstati_ig = stati_integrate.ptr<ushort>(y, x);
+				for (int z = 0; z < 16; z++) {
+					pstatw_ig[z] = 0;
+					pstati_ig[z] = 0;
+				}
+			}
+			continue;
+		}
+		for (int z = 0; z < 16; z++) { //ig[y][0] = 0;
+			pstatw_ig[z] = 0;
+			pstati_ig[z] = 0;
+		}
+		for (int x = 0; x < sizes[1] - 1; x++) {
+			pstatw_ig = statw_integrate.ptr<ushort>(y, x + 1);
+			ushort * pstatw_ig_1 = statw_integrate.ptr<ushort>(y - 1, x + 1);
+			pstati_ig = stati_integrate.ptr<ushort>(y, x + 1);
+			ushort * pstati_ig_1 = stati_integrate.ptr<ushort>(y - 1, x + 1);
+			uchar * pstatw = statw_g.ptr<uchar>(y - 1, x);
+			uchar * pstati = stati_g.ptr<uchar>(y - 1, x);
+			for (int z = 0; z < 16; z++) { //wsum+=stat[y-1][x], ig[y][x+1] = ig[y-1][x+1] + wsum
+				wsum[z] += pstatw[z];
+				isum[z] += pstati[z];
+				pstatw_ig[z] = pstatw_ig_1[z] + wsum[z];
+				pstati_ig[z] = pstati_ig_1[z] + isum[z];
+			}
+		}
+	}
+	CV_Assert(statw_integrate.at<ushort>(sizes[0] - 1, sizes[1] - 1, 15) == (total_w & 0xffff) &&
+		stati_integrate.at<ushort>(sizes[0] - 1, sizes[1] - 1, 15) == (total_i & 0xffff));
 
-						qInfo("mark_wvi strongwire num=%d, stronginsu num=%d, wire_th=%d, insu_th=%d, th=%f", total_w, total_i, wire_th, insu_th, th);
+	//4 compute grid th
+	Mat insu_grid(sizes[0] - 1, sizes[1] - 1, CV_8U);
+	Mat wire_grid(sizes[0] - 1, sizes[1] - 1, CV_8U);
+	for (int y = 0; y < sizes[0] - 1; y++) {
+		int prevw_size = 3, previ_size = 3;
+		ushort statw[16], stati[16];
+		for (int x = 0; x < sizes[1] - 1; x++) {
+			int s;
+			float wire_gray = 0, insu_gray = 0;
+			for (s = max(prevw_size - 1, 2); s < 20; s++) {
+				int y0 = max(y - s, 0);
+				int x0 = max(x - s, 0);
+				int y1 = min(y + s + 1, sizes[0] - 1);
+				int x1 = min(x + s + 1, sizes[1] - 1);
+				ushort numw = statw_integrate.at<ushort>(y1, x1, 15) + statw_integrate.at<ushort>(y0, x0, 15) -
+					statw_integrate.at<ushort>(y1, x0, 15) - statw_integrate.at<ushort>(y0, x1, 15);
+				if (numw > EDGE_WIRE_TH) { //enough wire
+					ushort remain = numw / 4; //compute low 25% avg gray
+					for (int z = 0; z < 15; z++) {
+						statw[z] = statw_integrate.at<ushort>(y1, x1, z) + statw_integrate.at<ushort>(y0, x0, z) -
+							statw_integrate.at<ushort>(y1, x0, z) - statw_integrate.at<ushort>(y0, x1, z);
+						wire_gray += z * min(remain, statw[z]);
+						if (remain <= statw[z])
+							break;
+						remain -= statw[z];
+					}
+					statw[15] = numw;
+					remain = numw / 4;
+					wire_gray = wire_gray / remain; //compute avg
+					wire_gray = (wire_gray - 7) * gray_unit + th;
+					prevw_size = s;
+					break;
+				}
+			}
+			for (s = max(previ_size - 1, 2); s < 20; s++) {
+				int y0 = max(y - s, 0);
+				int x0 = max(x - s, 0);
+				int y1 = min(y + s + 1, sizes[0] - 1);
+				int x1 = min(x + s + 1, sizes[1] - 1);
+				ushort numi = stati_integrate.at<ushort>(y1, x1, 15) + stati_integrate.at<ushort>(y0, x0, 15) -
+					stati_integrate.at<ushort>(y1, x0, 15) - stati_integrate.at<ushort>(y0, x1, 15);
+				if (numi > EDGE_INSU_TH) { //enough insu
+					ushort remain = numi / 4; //compute high 25% avg gray
+					for (int z = 14; z >= 0; z--) {
+						stati[z] = stati_integrate.at<ushort>(y1, x1, z) + stati_integrate.at<ushort>(y0, x0, z) -
+							stati_integrate.at<ushort>(y1, x0, z) - stati_integrate.at<ushort>(y0, x1, z);
+						insu_gray += z * min(remain, stati[z]);
+						if (remain <= stati[z])
+							break;
+						remain -= stati[z];
+					}
+					stati[15] = numi;
+					remain = numi / 4;
+					insu_gray = insu_gray / remain; //compute avg
+					insu_gray = (insu_gray - 7) * gray_unit + th;
+					previ_size = s;
+					break;
+				}
+			}
+			if (insu_gray > 0)
+				insu_grid.at<uchar>(y, x) = insu_gray;
+			else
+				insu_grid.at<uchar>(y, x) = th;
+			if (wire_gray > 0)
+				wire_grid.at<uchar>(y, x) = wire_gray;
+			else
+				wire_grid.at<uchar>(y, x) = th;
+		}
+	}
 
+	//5 judge 0,1
+	Mat insu_grid_th, wire_grid_th;
+	//expand to same size as image
+	resize(insu_grid, insu_grid_th, Size(insu_grid.cols * MARK_210_GRID, insu_grid.rows * MARK_210_GRID));
+	resize(wire_grid, wire_grid_th, Size(wire_grid.cols * MARK_210_GRID, wire_grid.rows * MARK_210_GRID));
+	for (int y = 0; y < img.rows; y++) {
+		const uchar * p_insu_th = insu_grid_th.ptr<uchar>(y);
+		const uchar * p_wire_th = wire_grid_th.ptr<uchar>(y);
+		const uchar * pimg = img.ptr<uchar>(y);
+		uchar * pc = c210.ptr<uchar>(y);
+		for (int x = 0; x < img.cols; x++) {
+			unsigned char th = (p_insu_th[x] + p_wire_th[x]) / 2;
+			if (p_insu_th[x] + 1 >= p_wire_th[x]) { //unsure region
+				short a = p_insu_th[x] + 1 - p_wire_th[x];
+				CV_Assert(a < sizeof(not_sure_th0) / sizeof(not_sure_th0[0]));
+				if (pimg[x] >= p_insu_th[x] + not_sure_th0[a])
+					pc[x] = COLOR_WIRE; //Wire
+				else
+					if (pimg[x] + not_sure_th0[a] <= p_wire_th[x])
+						pc[x] = COLOR_INSU; //insu
+					else
+						pc[x] = (pimg[x] > th) ? COLOR_WIRE_UNSURE : COLOR_INSU_UNSURE;
 
-						//3 compute grid gray stat for wire and insu
-						int sizes[] = { (img.rows + MARK_210_GRID - 1) / MARK_210_GRID, (img.cols + MARK_210_GRID - 1) / MARK_210_GRID, 16 }; //15 level
-						Mat statw_g(3, sizes, CV_8U), stati_g(3, sizes, CV_8U); //0..14 for gray level, 15 for total
-						sizes[0]++;
-						sizes[1]++;
-						Mat statw_integrate(3, sizes, CV_16U), stati_integrate(3, sizes, CV_16U); //integrate of statw_g
-						statw_g = Scalar::all(0);
-						stati_g = Scalar::all(0);
+			}
+			else {
+				short a = p_wire_th[x] - p_insu_th[x] - 1;
+				CV_Assert(a < sizeof(not_sure_th1) / sizeof(not_sure_th1[0]));
+				if (pimg[x] >= p_wire_th[x] + not_sure_th1[a])
+					pc[x] = COLOR_WIRE; //Wire
+				else
+					if (pimg[x] + not_sure_th1[a] <= p_insu_th[x])
+						pc[x] = COLOR_INSU; //insu
+					else
+						pc[x] = (pimg[x] > th ? COLOR_WIRE_UNSURE : COLOR_INSU_UNSURE);
+			}
+		}
+	}
 
-						for (int y = EDGE_JUDGE_BORDER; y < img.rows - EDGE_JUDGE_BORDER; y++) {
-							const uchar * pm = mark.ptr<uchar>(y);
-							const uchar * pimg = img.ptr<uchar>(y);
-							for (int x = EDGE_JUDGE_BORDER; x < img.cols - EDGE_JUDGE_BORDER; x++)
-								if (pm[x] & MARK_STRONG_WIRE || pm[x] & MARK_STRONG_INSU) {
-									int z = pimg[x];
-									z = (z - th) * gray_unit_1 + 7;
-									if (z < 0)
-										z = 0;
-									else
-										if (z > 14)
-											z = 14;
-									if (pm[x] & MARK_STRONG_WIRE) {
-										statw_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, z)++;
-										statw_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, 15)++;
-									}
-									else {
-										stati_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, z)++;
-										stati_g.at<uchar>(y / MARK_210_GRID, x / MARK_210_GRID, 15)++;
-									}
-								}
-						}
-						//3.1 compute integrate
-						for (int y = 0; y < sizes[0]; y++) {
-							ushort isum[16] = { 0 };
-							ushort wsum[16] = { 0 };
-							ushort * pstatw_ig = statw_integrate.ptr<ushort>(y, 0);
-							ushort * pstati_ig = stati_integrate.ptr<ushort>(y, 0);
-							if (y == 0) { //ig[0][...] = 0
-								for (int x = 0; x < sizes[1]; x++) {
-									pstatw_ig = statw_integrate.ptr<ushort>(y, x);
-									pstati_ig = stati_integrate.ptr<ushort>(y, x);
-									for (int z = 0; z < 16; z++) {
-										pstatw_ig[z] = 0;
-										pstati_ig[z] = 0;
-									}
-								}
-								continue;
-							}
-							for (int z = 0; z < 16; z++) { //ig[y][0] = 0;
-								pstatw_ig[z] = 0;
-								pstati_ig[z] = 0;
-							}
-							for (int x = 0; x < sizes[1] - 1; x++) {
-								pstatw_ig = statw_integrate.ptr<ushort>(y, x + 1);
-								ushort * pstatw_ig_1 = statw_integrate.ptr<ushort>(y - 1, x + 1);
-								pstati_ig = stati_integrate.ptr<ushort>(y, x + 1);
-								ushort * pstati_ig_1 = stati_integrate.ptr<ushort>(y - 1, x + 1);
-								uchar * pstatw = statw_g.ptr<uchar>(y - 1, x);
-								uchar * pstati = stati_g.ptr<uchar>(y - 1, x);
-								for (int z = 0; z < 16; z++) { //wsum+=stat[y-1][x], ig[y][x+1] = ig[y-1][x+1] + wsum
-									wsum[z] += pstatw[z];
-									isum[z] += pstati[z];
-									pstatw_ig[z] = pstatw_ig_1[z] + wsum[z];
-									pstati_ig[z] = pstati_ig_1[z] + isum[z];
-								}
-							}
-						}
-						CV_Assert(statw_integrate.at<ushort>(sizes[0] - 1, sizes[1] - 1, 15) == (total_w & 0xffff) &&
-							stati_integrate.at<ushort>(sizes[0] - 1, sizes[1] - 1, 15) == (total_i & 0xffff));
+	//6 judge via
+	//init circles
+	int d = pi.vwf->get_max_d();
+	int via_extend_len = via_cut_len + 2;
+	vector<vector<Point> > circles;
+	for (int i = 0; i <= VIA_REGION_RADIUS * 2; i += 2) {
+		float r = (d + i) * 0.5;
+		vector<Point> c;
+		for (float sita = 0; sita < M_PI * 2; sita += 0.05) {
+			Point p0(r * cos(sita), r * sin(sita));
+			if (c.empty() || p0 != c.back())
+				c.push_back(p0);
+		}
+		for (int j = 0; j < via_extend_len; j++)
+			c.push_back(c[j]);
+		circles.push_back(c); //now push nearby circle
+		for (int j = 0; j < c.size(); j++)
+			c[j] += Point(-1, 0);
+		circles.push_back(c);
+		for (int j = 0; j < c.size(); j++)
+			c[j] += Point(2, 0);
+		circles.push_back(c);
+		for (int j = 0; j < c.size(); j++)
+			c[j] += Point(-1, -1);
+		circles.push_back(c);
+		for (int j = 0; j < c.size(); j++)
+			c[j] += Point(0, 2);
+		circles.push_back(c);
+	}
+	//init via_locs
+	vector<Point> via_locs;
+	for (int i = 0; i < 3; i++) {
+		ProcessData * ppd = (i == 0) ? pi.lpd : (i == 1) ? pi.upd : pi.cpd;
+		QPoint tl = QPoint(pi.cpd->img_pixel_x0, pi.cpd->img_pixel_y0);
+		if (ppd) {
+			for (auto & o : ppd->eo) {
+				if (o->type == OBJ_POINT && o->type2 == POINT_VIA_AUTO_EXTRACT){
+					QPoint oo = (i == 2) ? o->p0 : o->p0 - tl;
+					if (oo.x() >= 0 && oo.y() >= 0)
+						via_locs.push_back(Point(oo.x(), oo.y()));
+				}
+			}
+		}
+	}
 
-						//4 compute grid th
-						Mat insu_grid(sizes[0] - 1, sizes[1] - 1, CV_8U);
-						Mat wire_grid(sizes[0] - 1, sizes[1] - 1, CV_8U);
-						for (int y = 0; y < sizes[0] - 1; y++) {
-							int prevw_size = 3, previ_size = 3;
-							ushort statw[16], stati[16];
-							for (int x = 0; x < sizes[1] - 1; x++) {
-								int s;
-								float wire_gray = 0, insu_gray = 0;
-								for (s = max(prevw_size - 1, 2); s < 20; s++) {
-									int y0 = max(y - s, 0);
-									int x0 = max(x - s, 0);
-									int y1 = min(y + s + 1, sizes[0] - 1);
-									int x1 = min(x + s + 1, sizes[1] - 1);
-									ushort numw = statw_integrate.at<ushort>(y1, x1, 15) + statw_integrate.at<ushort>(y0, x0, 15) -
-										statw_integrate.at<ushort>(y1, x0, 15) - statw_integrate.at<ushort>(y0, x1, 15);
-									if (numw > EDGE_WIRE_TH) { //enough wire
-										ushort remain = numw / 4; //compute low 25% avg gray
-										for (int z = 0; z < 15; z++) {
-											statw[z] = statw_integrate.at<ushort>(y1, x1, z) + statw_integrate.at<ushort>(y0, x0, z) -
-												statw_integrate.at<ushort>(y1, x0, z) - statw_integrate.at<ushort>(y0, x1, z);
-											wire_gray += z * min(remain, statw[z]);
-											if (remain <= statw[z])
-												break;
-											remain -= statw[z];
-										}
-										statw[15] = numw;
-										remain = numw / 4;
-										wire_gray = wire_gray / remain; //compute avg
-										wire_gray = (wire_gray - 7) * gray_unit + th;
-										prevw_size = s;
-										break;
-									}
-								}
-								for (s = max(previ_size - 1, 2); s < 20; s++) {
-									int y0 = max(y - s, 0);
-									int x0 = max(x - s, 0);
-									int y1 = min(y + s + 1, sizes[0] - 1);
-									int x1 = min(x + s + 1, sizes[1] - 1);
-									ushort numi = stati_integrate.at<ushort>(y1, x1, 15) + stati_integrate.at<ushort>(y0, x0, 15) -
-										stati_integrate.at<ushort>(y1, x0, 15) - stati_integrate.at<ushort>(y0, x1, 15);
-									if (numi > EDGE_INSU_TH) { //enough insu
-										ushort remain = numi / 4; //compute high 25% avg gray
-										for (int z = 14; z >= 0; z--) {
-											stati[z] = stati_integrate.at<ushort>(y1, x1, z) + stati_integrate.at<ushort>(y0, x0, z) -
-												stati_integrate.at<ushort>(y1, x0, z) - stati_integrate.at<ushort>(y0, x1, z);
-											insu_gray += z * min(remain, stati[z]);
-											if (remain <= stati[z])
-												break;
-											remain -= stati[z];
-										}
-										stati[15] = numi;
-										remain = numi / 4;
-										insu_gray = insu_gray / remain; //compute avg
-										insu_gray = (insu_gray - 7) * gray_unit + th;
-										previ_size = s;
-										break;
-									}
-								}
-								if (insu_gray > 0)
-									insu_grid.at<uchar>(y, x) = insu_gray;
-								else
-									insu_grid.at<uchar>(y, x) = th;
-								if (wire_gray > 0)
-									wire_grid.at<uchar>(y, x) = wire_gray;
-								else
-									wire_grid.at<uchar>(y, x) = th;
-							}
-						}
+	//7cut via
+	for (auto & v : via_locs) {
+		int th = 255; //th is via region threshold
+		vector<vector<int> > cgs;
+		//first compute th
+		for (auto & circle : circles) {
+			int th_high = 0, th_low = 0, num = 0;
+			//1 compute avg wire th_high and avg insu th_low
+			for (int i = 0; i < (int)circle.size() - via_cut_len * 2 - 1; i++) {
+				Point ci = v + circle[i];
+				if (ci.y < 0 || ci.x < 0 || ci.y >= img.rows || ci.x >= img.cols)
+					continue;
 
-						//5 judge 0,1
-						Mat insu_grid_th, wire_grid_th;
-						//expand to same size as image
-						resize(insu_grid, insu_grid_th, Size(insu_grid.cols * MARK_210_GRID, insu_grid.rows * MARK_210_GRID));
-						resize(wire_grid, wire_grid_th, Size(wire_grid.cols * MARK_210_GRID, wire_grid.rows * MARK_210_GRID));
-						for (int y = 0; y < img.rows; y++) {
-							const uchar * p_insu_th = insu_grid_th.ptr<uchar>(y);
-							const uchar * p_wire_th = wire_grid_th.ptr<uchar>(y);
-							const uchar * pimg = img.ptr<uchar>(y);
-							uchar * pc = c210.ptr<uchar>(y);
-							for (int x = 0; x < img.cols; x++) {
-								unsigned char th = (p_insu_th[x] + p_wire_th[x]) / 2;
-								if (p_insu_th[x] + 1 >= p_wire_th[x]) { //unsure region
-									short a = p_insu_th[x] + 1 - p_wire_th[x];
-									CV_Assert(a < sizeof(not_sure_th0) / sizeof(not_sure_th0[0]));
-									if (pimg[x] >= p_insu_th[x] + not_sure_th0[a])
-										pc[x] = COLOR_WIRE; //Wire
-									else
-										if (pimg[x] + not_sure_th0[a] <= p_wire_th[x])
-											pc[x] = COLOR_INSU; //insu
-										else
-											pc[x] = (pimg[x] > th) ? COLOR_WIRE_UNSURE : COLOR_INSU_UNSURE;
-
-								}
-								else {
-									short a = p_wire_th[x] - p_insu_th[x] - 1;
-									CV_Assert(a < sizeof(not_sure_th1) / sizeof(not_sure_th1[0]));
-									if (pimg[x] >= p_wire_th[x] + not_sure_th1[a])
-										pc[x] = COLOR_WIRE; //Wire
-									else
-										if (pimg[x] + not_sure_th1[a] <= p_insu_th[x])
-											pc[x] = COLOR_INSU; //insu
-										else
-											pc[x] = (pimg[x] > th ? COLOR_WIRE_UNSURE : COLOR_INSU_UNSURE);
-								}
-							}
-						}
-
-						//6 judge via
-						//init circles
-						int d = pi.vwf->get_max_d();
-						int via_extend_len = via_cut_len + 2;
-						vector<vector<Point> > circles;
-						for (int i = 0; i <= VIA_REGION_RADIUS * 2; i += 2) {
-							float r = (d + i) * 0.5;
-							vector<Point> c;
-							for (float sita = 0; sita < M_PI * 2; sita += 0.05) {
-								Point p0(r * cos(sita), r * sin(sita));
-								if (c.empty() || p0 != c.back())
-									c.push_back(p0);
-							}
-							for (int j = 0; j < via_extend_len; j++)
-								c.push_back(c[j]);
-							circles.push_back(c); //now push nearby circle
-							for (int j = 0; j < c.size(); j++)
-								c[j] += Point(-1, 0);
-							circles.push_back(c);
-							for (int j = 0; j < c.size(); j++)
-								c[j] += Point(2, 0);
-							circles.push_back(c);
-							for (int j = 0; j < c.size(); j++)
-								c[j] += Point(-1, -1);
-							circles.push_back(c);
-							for (int j = 0; j < c.size(); j++)
-								c[j] += Point(0, 2);
-							circles.push_back(c);
-						}
-						//init via_locs
-						vector<Point> via_locs;
-						for (int i = 0; i < 3; i++) {
-							ProcessData * ppd = (i == 0) ? pi.lpd : (i == 1) ? pi.upd : pi.cpd;
-							QPoint tl = QPoint(pi.cpd->img_pixel_x0, pi.cpd->img_pixel_y0);
-							if (ppd) {
-								for (auto & o : ppd->eo) {
-									if (o->type == OBJ_POINT && o->type2 == POINT_VIA_AUTO_EXTRACT){
-										QPoint oo = (i == 2) ? o->p0 : o->p0 - tl;
-										if (oo.x() >= 0 && oo.y() >= 0)
-											via_locs.push_back(Point(oo.x(), oo.y()));
-									}
-								}
-							}
-						}
-
-						//7cut via
-						for (auto & v : via_locs) {
-							int th = 255; //th is via region threshold
-							vector<vector<int> > cgs;
-							//first compute th
-							for (auto & circle : circles) {
-								int th_high = 0, th_low = 0, num = 0;
-								//1 compute avg wire th_high and avg insu th_low
-								for (int i = 0; i < (int)circle.size() - via_cut_len * 2 - 1; i++) {
-									Point ci = v + circle[i];
-									if (ci.y < 0 || ci.x < 0 || ci.y >= img.rows || ci.x >= img.cols)
-										continue;
-
-									th_high += wire_grid_th.at<uchar>(ci);
-									th_low += insu_grid_th.at<uchar>(ci);
-									num++;
-								}
-								CV_Assert(num != 0);
-								th_high /= num;
-								th_low /= num;
-								//2 get circle gray
-								vector<int> cg; //cg is circle gray
-								for (int i = 0; i < (int)circle.size(); i++) {
-									Point ci = v + circle[i];
-									if (ci.y < 0 || ci.x < 0 || ci.y >= img.rows || ci.x >= img.cols)
-										cg.push_back(-1); //out of bound
-									else
-										cg.push_back(img.at<uchar>(ci));
-								}
-								CV_Assert(circle.size() == cg.size());
-								cgs.push_back(cg);
-								//3 find th_high, satisfy consistent Point(> th_high) len >= via_cut_len
-								Range c0(-1000, -1000); //c0 is longest consistent Point qujian (>th_high)
-								th = min(th, th_high + 10); //init water mark, now th_high is watermark
-								for (th_high = th; th_high > th_low; th_high--) { //watermark drop down to satisfy Point(> th_high) len >= via_cut_len
-									Range c1(-1000, -1000); //c1.start and c1.end point > th_high, point in [start, end] may have (VIA_BROKE_INSU_LEN -1) < th_high
-									int n1 = 0; //n1 is consistent wire num
-									for (int i = 0; i < (int)cg.size(); i++) { //search c0 clockwise
-										if (cg[i] >= th_high) {
-											if (c1.start < 0)
-												c1.start = i;
-											c1.end = i;
-											if (n1 < VIA_BROKE_INSU_LEN)
-												n1++;
-										}
-										else {
-											if (n1 > 0) {
-												n1--;
-												if (n1 == 0) { //wire broken
-													if (c1.size() > c0.size())
-														c0 = c1;
-													c1 = Range(-1000, -1000);
-												}
-											}
-										}
-									}
-									if (c1.size() > c0.size())
-										c0 = c1;
-									c1 = Range(-1000, -1000);
-									n1 = 0;
-									for (int i = (int)cg.size() - 1; i >= 0; i--) { //search c0 anticlockwise
-										if (cg[i] >= th_high) {
-											if (c1.end < 0)
-												c1.end = i;
-											c1.start = i;
-											if (n1 < VIA_BROKE_INSU_LEN)
-												n1++;
-										}
-										else {
-											if (n1 > 0) {
-												n1--;
-												if (n1 == 0) {
-													if (c1.size() > c0.size())
-														c0 = c1;
-													c1 = Range(-1000, -1000);
-												}
-											}
-										}
-									}
-									if (c1.size() > c0.size())
-										c0 = c1;
-									if (c0.size() >= via_cut_len - 1)
-										break;
-								}
-								if (c0.size() >= via_cut_len - 1) { //consistent Point(> th_high) len >=via_cut_len
-									int th0 = 0, th1 = 0, n0 = 0; //th1 is c0 avg gray, th0 is point (<th_high) avg gray
-									for (int i = c0.start; i <= c0.end; i++)
-										if (cg[i] >= 0) {
-											th1 += cg[i];
-											n0++;
-										}
-									th1 /= n0;
-									n0 = 0;
-									for (int i = 0; i < (int)cg.size(); i++)
-										if (cg[i] >= 0 && cg[i] < th_high) {
-											th0 += cg[i];
-											n0++;
-										}
-									if (n0 >= via_cut_len) {
-										th0 /= n0;
-										th = min(th, th_high);
-										th = min(th, (th0 + th1) / 2);
-									}
-								}
-							}
-							//now th is decided, cut via
-#if VIA_CONNECT_METHOD == 1
-							CV_Assert(cgs.size() == circles.size());
-							for (int c = 0; c < (int)cgs.size(); c++) {
-								vector<int> & cg = cgs[c];
-								vector<Point> & circle = circles[c];
-								CV_Assert(cg.size() == circle.size());
-								//same as above
-								Range c1(-1000, -1000); //c1.start and c1.end point > th_high, point in [start, end] may have (VIA_BROKE_INSU_LEN -1) < th_high
-								int n1 = 0;
-								vector<int> check(cg.size(), 0);
-								for (int i = 0; i < (int)cg.size(); i++) {
-									if (cg[i] >= th) {
-										if (c1.start < 0)
-											c1.start = i;
-										c1.end = i;
-										if (n1 < VIA_BROKE_INSU_LEN)
-											n1++;
-									}
-									else {
-										if (n1 > 0) {
-											n1--;
-											if (n1 == 0) {
-												if (c1.size() >= via_cut_len - 1)
-													for (int j = c1.start; j <= c1.end; j++)
-														if (cg[j] >= 0) //cg[j]<0 out of boundary
-															check[j] = 1;
-												c1 = Range(-1000, -1000);
-											}
-										}
-									}
-								}
-								if (c1.size() >= via_cut_len - 1)
-									for (int j = c1.start; j <= c1.end; j++)
-										if (cg[j] >= 0)
-											check[j] = 1;
+				th_high += wire_grid_th.at<uchar>(ci);
+				th_low += insu_grid_th.at<uchar>(ci);
+				num++;
+			}
+			CV_Assert(num != 0);
+			th_high /= num;
+			th_low /= num;
+			//2 get circle gray
+			vector<int> cg; //cg is circle gray
+			for (int i = 0; i < (int)circle.size(); i++) {
+				Point ci = v + circle[i];
+				if (ci.y < 0 || ci.x < 0 || ci.y >= img.rows || ci.x >= img.cols)
+					cg.push_back(-1); //out of bound
+				else
+					cg.push_back(img.at<uchar>(ci));
+			}
+			CV_Assert(circle.size() == cg.size());
+			cgs.push_back(cg);
+			//3 find th_high, satisfy consistent Point(> th_high) len >= via_cut_len
+			Range c0(-1000, -1000); //c0 is longest consistent Point qujian (>th_high)
+			th = min(th, th_high + 10); //init water mark, now th_high is watermark
+			for (th_high = th; th_high > th_low; th_high--) { //watermark drop down to satisfy Point(> th_high) len >= via_cut_len
+				Range c1(-1000, -1000); //c1.start and c1.end point > th_high, point in [start, end] may have (VIA_BROKE_INSU_LEN -1) < th_high
+				int n1 = 0; //n1 is consistent wire num
+				for (int i = 0; i < (int)cg.size(); i++) { //search c0 clockwise
+					if (cg[i] >= th_high) {
+						if (c1.start < 0)
+							c1.start = i;
+						c1.end = i;
+						if (n1 < VIA_BROKE_INSU_LEN)
+							n1++;
+					}
+					else {
+						if (n1 > 0) {
+							n1--;
+							if (n1 == 0) { //wire broken
+								if (c1.size() > c0.size())
+									c0 = c1;
 								c1 = Range(-1000, -1000);
-								n1 = 0;
-								for (int i = (int)cg.size() - 1; i >= 0; i--) {
-									if (cg[i] >= th) {
-										if (c1.end < 0)
-											c1.end = i;
-										c1.start = i;
-										if (n1 < VIA_BROKE_INSU_LEN)
-											n1++;
-									}
-									else {
-										if (n1 > 0) {
-											n1--;
-											if (n1 == 0) {
-												if (c1.size() > via_cut_len - 1)
-													for (int j = c1.start; j <= c1.end; j++)
-														if (cg[j] >= 0)
-															check[j] = 1;
-												c1 = Range(-1000, -1000);
-											}
-										}
-									}
-								}
-								if (c1.size() >= via_cut_len - 1)
-									for (int j = c1.start; j <= c1.end; j++)
-										if (cg[j] >= 0)
-											check[j] = 1;
-								for (int j = 0; j < via_extend_len; j++)
-									check[j] |= check[j + check.size() - via_extend_len]; //via_extend_len is duplicated check, roll it to front
-								for (int i = 0; i < (int)check.size() - via_extend_len; i++)
-									if (cg[i] >= 0 && c210.at<uchar>(v + circle[i]) != COLOR_VIA_INSU) //in bound
-										c210.at<uchar>(v + circle[i]) = check[i] ? COLOR_VIA_WIRE : COLOR_VIA_INSU;
 							}
-#else
-							for (int y = -d / 2 - VIA_REGION_RADIUS; y <= d / 2 + VIA_REGION_RADIUS; y++) {
-								if (v.y + y < 0 || v.y + y >= img.rows)
-									continue;
-								const uchar * pimg = img.ptr<uchar>(v.y + y);
-								for (int x = -d / 2 - VIA_REGION_RADIUS; x <= d / 2 + VIA_REGION_RADIUS; x++) {
-									int distance = y*y + x*x;
-									if (distance >(d / 2 + VIA_REGION_RADIUS) * (d / 2 + VIA_REGION_RADIUS) || distance <= d * d / 4 || v.x + x < 0 || v.x + x >= img.cols)
-										continue;
-									c210.at<uchar>(v.y + y, v.x + x) = (pimg[v.x + x] >= th) ? COLOR_VIA_WIRE : COLOR_VIA_INSU;
-								}
-							}
-#endif
 						}
+					}
+				}
+				if (c1.size() > c0.size())
+					c0 = c1;
+				c1 = Range(-1000, -1000);
+				n1 = 0;
+				for (int i = (int)cg.size() - 1; i >= 0; i--) { //search c0 anticlockwise
+					if (cg[i] >= th_high) {
+						if (c1.end < 0)
+							c1.end = i;
+						c1.start = i;
+						if (n1 < VIA_BROKE_INSU_LEN)
+							n1++;
+					}
+					else {
+						if (n1 > 0) {
+							n1--;
+							if (n1 == 0) {
+								if (c1.size() > c0.size())
+									c0 = c1;
+								c1 = Range(-1000, -1000);
+							}
+						}
+					}
+				}
+				if (c1.size() > c0.size())
+					c0 = c1;
+				if (c0.size() >= via_cut_len - 1)
+					break;
+			}
+			if (c0.size() >= via_cut_len - 1) { //consistent Point(> th_high) len >=via_cut_len
+				int th0 = 0, th1 = 0, n0 = 0; //th1 is c0 avg gray, th0 is point (<th_high) avg gray
+				for (int i = c0.start; i <= c0.end; i++)
+					if (cg[i] >= 0) {
+						th1 += cg[i];
+						n0++;
+					}
+				th1 /= n0;
+				n0 = 0;
+				for (int i = 0; i < (int)cg.size(); i++)
+					if (cg[i] >= 0 && cg[i] < th_high) {
+						th0 += cg[i];
+						n0++;
+					}
+				if (n0 >= via_cut_len) {
+					th0 /= n0;
+					th = min(th, th_high);
+					th = min(th, (th0 + th1) / 2);
+				}
+			}
+		}
+		//now th is decided, cut via
+#if VIA_CONNECT_METHOD == 1
+		CV_Assert(cgs.size() == circles.size());
+		for (int c = 0; c < (int)cgs.size(); c++) {
+			vector<int> & cg = cgs[c];
+			vector<Point> & circle = circles[c];
+			CV_Assert(cg.size() == circle.size());
+			//same as above
+			Range c1(-1000, -1000); //c1.start and c1.end point > th_high, point in [start, end] may have (VIA_BROKE_INSU_LEN -1) < th_high
+			int n1 = 0;
+			vector<int> check(cg.size(), 0);
+			for (int i = 0; i < (int)cg.size(); i++) {
+				if (cg[i] >= th) {
+					if (c1.start < 0)
+						c1.start = i;
+					c1.end = i;
+					if (n1 < VIA_BROKE_INSU_LEN)
+						n1++;
+				}
+				else {
+					if (n1 > 0) {
+						n1--;
+						if (n1 == 0) {
+							if (c1.size() >= via_cut_len - 1)
+								for (int j = c1.start; j <= c1.end; j++)
+									if (cg[j] >= 0) //cg[j]<0 out of boundary
+										check[j] = 1;
+							c1 = Range(-1000, -1000);
+						}
+					}
+				}
+			}
+			if (c1.size() >= via_cut_len - 1)
+				for (int j = c1.start; j <= c1.end; j++)
+					if (cg[j] >= 0)
+						check[j] = 1;
+			c1 = Range(-1000, -1000);
+			n1 = 0;
+			for (int i = (int)cg.size() - 1; i >= 0; i--) {
+				if (cg[i] >= th) {
+					if (c1.end < 0)
+						c1.end = i;
+					c1.start = i;
+					if (n1 < VIA_BROKE_INSU_LEN)
+						n1++;
+				}
+				else {
+					if (n1 > 0) {
+						n1--;
+						if (n1 == 0) {
+							if (c1.size() > via_cut_len - 1)
+								for (int j = c1.start; j <= c1.end; j++)
+									if (cg[j] >= 0)
+										check[j] = 1;
+							c1 = Range(-1000, -1000);
+						}
+					}
+				}
+			}
+			if (c1.size() >= via_cut_len - 1)
+				for (int j = c1.start; j <= c1.end; j++)
+					if (cg[j] >= 0)
+						check[j] = 1;
+			for (int j = 0; j < via_extend_len; j++)
+				check[j] |= check[j + check.size() - via_extend_len]; //via_extend_len is duplicated check, roll it to front
+			for (int i = 0; i < (int)check.size() - via_extend_len; i++)
+				if (cg[i] >= 0 && c210.at<uchar>(v + circle[i]) != COLOR_VIA_INSU) //in bound
+					c210.at<uchar>(v + circle[i]) = check[i] ? COLOR_VIA_WIRE : COLOR_VIA_INSU;
+		}
+#else
+		for (int y = -d / 2 - VIA_REGION_RADIUS; y <= d / 2 + VIA_REGION_RADIUS; y++) {
+			if (v.y + y < 0 || v.y + y >= img.rows)
+				continue;
+			const uchar * pimg = img.ptr<uchar>(v.y + y);
+			for (int x = -d / 2 - VIA_REGION_RADIUS; x <= d / 2 + VIA_REGION_RADIUS; x++) {
+				int distance = y*y + x*x;
+				if (distance >(d / 2 + VIA_REGION_RADIUS) * (d / 2 + VIA_REGION_RADIUS) || distance <= d * d / 4 || v.x + x < 0 || v.x + x >= img.cols)
+					continue;
+				c210.at<uchar>(v.y + y, v.x + x) = (pimg[v.x + x] >= th) ? COLOR_VIA_WIRE : COLOR_VIA_INSU;
+			}
+		}
+#endif
+	}
 }
 
 /*
@@ -2693,12 +2732,47 @@ Add mask 1,2,3
 */
 void expand_ccl(const Mat & ccl_in, Mat & ccl_out)
 {
-	Mat ccl = ccl_in.clone();
+	Mat ccl_expand = ccl_in.clone();
+	for (int y = 0; y < ccl_in.rows; y++) {
+		const unsigned * p_cclin = ccl_in.ptr<unsigned>(y);
+		const unsigned * p_cclin_1 = y > 0 ? ccl_in.ptr<unsigned>(y - 1) : NULL;
+		const unsigned * p_cclin1 = y + 1 < ccl_in.rows ? ccl_in.ptr<unsigned>(y + 1) : NULL;
+		unsigned * p_ccl = ccl_expand.ptr<unsigned>(y);
+		for (int x = 0; x < ccl_in.cols; x++) 
+		if (p_cclin[x] == CCL_INSU_REGION) {
+			int count = 0; //nearby non INSU_REGION count
+			unsigned r0 = CCL_INSU_REGION, r1 = CCL_INSU_REGION, r2 = CCL_INSU_REGION, r3 = CCL_INSU_REGION;
+			if (p_cclin_1 && p_cclin_1[x] != CCL_INSU_REGION) {
+				count++;
+				r0 = p_cclin_1[x];
+			}
+			if (p_cclin1 && p_cclin1[x] != CCL_INSU_REGION) {
+				count++;
+				r1 = p_cclin1[x];
+			}
+			if (x > 0 && p_cclin[x - 1] != CCL_INSU_REGION) {
+				count++;
+				r2 = p_cclin[x - 1];
+			}
+			if (x + 1 < ccl_in.cols && p_cclin[x + 1] != CCL_INSU_REGION) {
+				count++;
+				r3 = p_cclin[x + 1];
+			}
+			if (count >= 2) {
+				unsigned r = min(min(r0, r1), r2);
+				if (r0 != CCL_INSU_REGION && r0 != r || r1 != CCL_INSU_REGION && r1 != r ||
+					r2 != CCL_INSU_REGION && r2 != r || r3 != CCL_INSU_REGION && r3 != r)
+					continue;
+				p_ccl[x] = r;
+			}
+		}
+	}
+	Mat ccl = ccl_expand.clone();
 	vector<Point> queue; //queue for Mask2 Point
 	for (int y = 0; y < ccl.rows; y++) {
-		const unsigned * p_cclin = ccl_in.ptr<unsigned>(y);
-		const unsigned * p_cclin_1 = y > 0 ? ccl_in.ptr<unsigned>(y - 1) : p_cclin;
-		const unsigned * p_cclin1 = y + 1 < ccl.rows ? ccl_in.ptr<unsigned>(y + 1) : p_cclin;
+		const unsigned * p_cclin = ccl_expand.ptr<unsigned>(y);
+		const unsigned * p_cclin_1 = y > 0 ? ccl_expand.ptr<unsigned>(y - 1) : p_cclin;
+		const unsigned * p_cclin1 = y + 1 < ccl.rows ? ccl_expand.ptr<unsigned>(y + 1) : p_cclin;
 		unsigned * p_ccl = ccl.ptr<unsigned>(y);
 		unsigned * p_ccl_1 = (y > 0) ? ccl.ptr<unsigned>(y - 1) : NULL;
 		unsigned * p_ccl1 = (y + 1 < ccl.rows) ? ccl.ptr<unsigned>(y + 1) : NULL;
@@ -2921,7 +2995,7 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 									cur.x == right_border && cur.y == down_border);
 								if (r3 != (r | CCL_EDGE_MASK2)) {
 									if (cur_tile_edge->pt1 == cur) {
-										cur_tile_edge->unlink();
+										cur_tile_edge->unlink(cur_tile_edge);
 									}
 									else {
 										cur_tile_edge->pt2 = cur;
@@ -2995,7 +3069,7 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 
 				if (start_atom_edge != cur_atom_edge) {
 					start_atom_edge->pts.insert(start_atom_edge->pts.begin(), cur_atom_edge->pts.begin(), cur_atom_edge->pts.end());
-					cur_atom_edge->unlink();
+					cur_atom_edge->unlink(cur_atom_edge);
 				}
 				else {
 					CV_Assert(cur_atom_edge->next.lock() == cur_atom_edge && cur_atom_edge->prev.lock() == cur_atom_edge);
@@ -3022,9 +3096,9 @@ inout rs
 */
 struct PointEdgeLen {
 	uchar dir0, dir1, cover, in_via;
-	float len0;
-	float len1;
-	float score;
+	float len0, cover_len0;
+	float len1, cover_len1;
+	float score; //computed by cover_len0 and cover_len1
 	pair<Point, Point> p0; //it is | - [start, end] point
 	pair<Point, Point> p1; //it is / \ [start, end] point
 	PointEdgeLen() {
@@ -3094,49 +3168,190 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 	local_ets.clear();
 	for (auto &rs_iter : local_rs.regions) { //loop every region
 		shared_ptr<Region> r = rs_iter.second;
-		for (auto & el : r->edges)
-			if (el->type == REGION_EDGE_TILE_GRID) {
-				shared_ptr<RegionEdgeTile> e_tile = dynamic_pointer_cast<RegionEdgeTile>(el);
-				if (!e_tile->is_global) {
-					e_tile->pt1 = e_tile->pt1 * CCL_GRID_SIZE + org;
-					e_tile->pt2 = e_tile->pt2 * CCL_GRID_SIZE + org;
-					e_tile->is_global = true;
-				}
-				if (e_tile->dir == DIR_LEFT && left_ets) {
-					CV_Assert(e_tile->pt1.y > e_tile->pt2.y);
-					Range range(e_tile->pt2.y, e_tile->pt1.y);
-					for (auto e : *left_ets)
-						if (e->dir == DIR_RIGHT && e_tile->dir == DIR_LEFT && !(range & Range(e->pt1.y, e->pt2.y)).empty()) {
-							CV_Assert(e_tile->other.expired() && e->other.expired() && e_tile->pt1.x == e->pt1.x + CCL_GRID_SIZE); //1 - 1 map tile
-							e->other = e_tile;
-							e_tile->other = e;
-						}
-				}
-				else
-					if (e_tile->dir == DIR_UP && up_ets) {
-						CV_Assert(e_tile->pt1.x < e_tile->pt2.x);
-						Range range(e_tile->pt1.x, e_tile->pt2.x);
-						for (auto e : *up_ets)
-							if (e->dir == DIR_DOWN && e_tile->dir == DIR_UP && !(range & Range(e->pt2.x, e->pt1.x)).empty()) {
-								CV_Assert(e_tile->other.expired() && e->other.expired() && e_tile->pt1.y == e->pt1.y + CCL_GRID_SIZE); //1 - 1 map tile
-								e->other = e_tile;
-								e_tile->other = e;
-							}
+		bool has_split;
+		do {
+			has_split = false;
+			for (auto & el : r->edges)
+				if (el->type == REGION_EDGE_TILE_GRID) {
+					shared_ptr<RegionEdgeTile> e_tile = dynamic_pointer_cast<RegionEdgeTile>(el);
+					
+					if (!e_tile->is_global) {
+						e_tile->pt1 = e_tile->pt1 * CCL_GRID_SIZE + org;
+						e_tile->pt2 = e_tile->pt2 * CCL_GRID_SIZE + org;
+						e_tile->is_global = true;
 					}
-				if (e_tile->dir == DIR_RIGHT)
-					e_tile->connect_range = Rect(e_tile->pt1.x - BORDER_KEEP_ATOM * CCL_GRID_SIZE, org.y, (BORDER_KEEP_ATOM + 2) * CCL_GRID_SIZE, rows + 1);
-				if (e_tile->dir == DIR_DOWN)
-					e_tile->connect_range = Rect(org.x, e_tile->pt1.y - BORDER_KEEP_ATOM * CCL_GRID_SIZE, cols + 1, (BORDER_KEEP_ATOM + 2) * CCL_GRID_SIZE);
-				if ((e_tile->dir == DIR_LEFT || e_tile->dir == DIR_UP) && e_tile->other.expired()) {
-					qDebug("terminate local tile (%d,%d)", e_tile->pt1.x, e_tile->pt1.y);
-					e_tile->other = endtile;
+					if (e_tile->dir == DIR_RIGHT)
+						e_tile->connect_range = Rect(e_tile->pt1.x - BORDER_KEEP_ATOM * CCL_GRID_SIZE, org.y, (BORDER_KEEP_ATOM + 2) * CCL_GRID_SIZE, rows + 1);
+					if (e_tile->dir == DIR_DOWN)
+						e_tile->connect_range = Rect(org.x, e_tile->pt1.y - BORDER_KEEP_ATOM * CCL_GRID_SIZE, cols + 1, (BORDER_KEEP_ATOM + 2) * CCL_GRID_SIZE);
+
+#if 0
+					if (e_tile->pt1.x >= 51166 && e_tile->pt1.x <= 51170)
+						e_tile->pt1.y = e_tile->pt1.y * 2 - e_tile->pt1.y;
+#endif
+					if (e_tile->dir == DIR_LEFT && left_ets) {
+						CV_Assert(e_tile->pt1.y > e_tile->pt2.y);
+						Range range(e_tile->pt2.y, e_tile->pt1.y);
+						for (int ei = 0; ei < left_ets->size(); ei++) {
+							shared_ptr<RegionEdgeTile> e = left_ets->at(ei);
+							if (e->dir == DIR_RIGHT && e_tile->dir == DIR_LEFT && !(range & Range(e->pt1.y, e->pt2.y)).empty()) { 	
+								CV_Assert(e_tile->pt1.x == e->pt1.x + CCL_GRID_SIZE);
+								if (!e_tile->other.expired() || !e->other.expired()) { //mostly, it won't be run
+									shared_ptr<RegionEdgeTile> split_tile, pair_tile0, pair_tile1;
+									if (e_tile->other.lock() == e)
+										continue;
+									if (!e_tile->other.expired() && e->other.expired()) {//e_tile is not empty, split e_tile
+										split_tile = e_tile;
+										if (e_tile->other.lock()->pt1.y > e->pt1.y) {
+											pair_tile0 = e_tile->other.lock();
+											pair_tile1 = e;
+										}
+										else {
+											pair_tile0 = e;
+											pair_tile1 = e_tile->other.lock();
+										}
+									}
+									else { //split e
+										split_tile = e;
+										if (e->other.lock()->pt1.y < e_tile->pt1.y) {
+											pair_tile0 = e->other.lock();
+											pair_tile1 = e_tile;
+										}
+										else {
+											pair_tile0 = e_tile;
+											pair_tile1 = e->other.lock();
+										}
+									}
+
+									qInfo("splity tile x=%d,y=(%d,%d) to %d, %d", split_tile->pt1.x, split_tile->pt1.y, split_tile->pt2.y, pair_tile0->pt1.y, pair_tile1->pt2.y);
+									shared_ptr<RegionEdgeTile> replace_tile[3]; //use replace_tile to replace split_tile
+									for (int i = 0; i < 3; i++) {
+										replace_tile[i].reset(new RegionEdgeTile);
+										replace_tile[i]->init();
+										replace_tile[i]->connect_range = split_tile->connect_range;
+										replace_tile[i]->dir = split_tile->dir;
+										replace_tile[i]->is_global = true;
+										replace_tile[i]->pt1 = split_tile->pt1;
+										replace_tile[i]->pt2 = split_tile->pt2;
+									}
+									replace_tile[0]->link(replace_tile[1]);
+									replace_tile[1]->link(replace_tile[2]);
+									replace_tile[0]->pt2.y = pair_tile0->pt1.y;
+									replace_tile[1]->pt1.y = pair_tile0->pt1.y;
+									replace_tile[1]->pt2.y = pair_tile1->pt2.y;
+									replace_tile[2]->pt1.y = pair_tile1->pt2.y;
+									replace_tile[0]->other = pair_tile0;
+									replace_tile[1]->other = endtile;
+									replace_tile[2]->other = pair_tile1;
+									pair_tile0->other = replace_tile[0];
+									pair_tile1->other = replace_tile[2];
+									shared_ptr<RegionEdge> temp = split_tile->prev.lock();
+									split_tile->unlink(split_tile); //delete split_tile
+									temp->link(replace_tile[0]); //replace with replace_tile 
+									has_split = true;
+									if (split_tile == e) {
+										left_ets->erase(left_ets->begin() + ei);
+										for (int i = 0; i < 3; i++)
+											left_ets->push_back(replace_tile[i]);
+									}
+									break;
+								}
+								else {
+									e->other = e_tile;
+									e_tile->other = e;
+								}
+							}
+						}
+					}
+					else
+						if (e_tile->dir == DIR_UP && up_ets) {
+							CV_Assert(e_tile->pt1.x < e_tile->pt2.x);
+							Range range(e_tile->pt1.x, e_tile->pt2.x);
+							for (int ei = 0; ei < up_ets->size(); ei++) {
+								shared_ptr<RegionEdgeTile> e = up_ets->at(ei);
+								if (e->dir == DIR_DOWN && e_tile->dir == DIR_UP && !(range & Range(e->pt2.x, e->pt1.x)).empty()) {
+									CV_Assert(e_tile->pt1.y == e->pt1.y + CCL_GRID_SIZE);
+									if (!e_tile->other.expired() || !e->other.expired()) { //mostly, it won't be run
+										shared_ptr<RegionEdgeTile> split_tile, pair_tile0, pair_tile1;
+										if (e_tile->other.lock() == e)
+											continue;
+										if (!e_tile->other.expired() && e->other.expired()) {//e_tile is not empty, split e_tile
+											split_tile = e_tile;
+											if (e_tile->other.lock()->pt1.x < e->pt1.x) {
+												pair_tile0 = e_tile->other.lock();
+												pair_tile1 = e;
+											}
+											else {
+												pair_tile0 = e;
+												pair_tile1 = e_tile->other.lock();
+											}
+										}
+										else { //split e
+											split_tile = e;
+											if (e->other.lock()->pt1.x > e_tile->pt1.x) {
+												pair_tile0 = e->other.lock();
+												pair_tile1 = e_tile;
+											}
+											else {
+												pair_tile0 = e_tile;
+												pair_tile1 = e->other.lock();
+											}
+										}
+
+										qInfo("splitx tile y=%d,x=(%d,%d) to %d, %d", split_tile->pt1.y, split_tile->pt1.x, split_tile->pt2.x, pair_tile0->pt1.x, pair_tile1->pt2.x);
+										shared_ptr<RegionEdgeTile> replace_tile[3]; //use replace_tile to replace split_tile
+										for (int i = 0; i < 3; i++) {
+											replace_tile[i].reset(new RegionEdgeTile);
+											replace_tile[i]->init();
+											replace_tile[i]->connect_range = split_tile->connect_range;
+											replace_tile[i]->dir = split_tile->dir;
+											replace_tile[i]->is_global = true;
+											replace_tile[i]->pt1 = split_tile->pt1;
+											replace_tile[i]->pt2 = split_tile->pt2;
+										}
+										replace_tile[0]->link(replace_tile[1]);
+										replace_tile[1]->link(replace_tile[2]);
+										replace_tile[0]->pt2.x = pair_tile0->pt1.x;
+										replace_tile[1]->pt1.x = pair_tile0->pt1.x;
+										replace_tile[1]->pt2.x = pair_tile1->pt2.x;
+										replace_tile[2]->pt1.x = pair_tile1->pt2.x;
+										replace_tile[0]->other = pair_tile0;
+										replace_tile[1]->other = endtile;
+										replace_tile[2]->other = pair_tile1;
+										pair_tile0->other = replace_tile[0];
+										pair_tile1->other = replace_tile[2];
+										shared_ptr<RegionEdge> temp = split_tile->prev.lock();
+										split_tile->unlink(split_tile); //delete split_tile
+										temp->link(replace_tile[0]); //replace with replace_tile 
+										has_split = true;
+										if (split_tile == e) {
+											up_ets->erase(up_ets->begin() + ei);
+											for (int i = 0; i < 3; i++)
+												up_ets->push_back(replace_tile[i]);
+										}
+										break;
+									}
+									else {
+										e->other = e_tile;
+										e_tile->other = e;
+									}
+								}
+							}
+						}
+
+					if (has_split)
+						break;
+					if ((e_tile->dir == DIR_LEFT || e_tile->dir == DIR_UP) && e_tile->other.expired()) {
+						qDebug("terminate local tile (%d,%d)", e_tile->pt1.x, e_tile->pt1.y);
+						e_tile->other = endtile;
+					}					
 				}
-			}
+		} while (has_split);
 	}
 	if (left_ets) {
 		for (int i = 0; i < (int)left_ets->size(); i++)
 			if (left_ets->at(i)->dir == DIR_RIGHT) {
-				if (left_ets->at(i)->other.expired()) {
+				if (left_ets->at(i)->other.expired() || left_ets->at(i)->other.lock() == endtile) {
 					qDebug("terminate left tile (%d,%d)", left_ets->at(i)->pt1.x, left_ets->at(i)->pt1.y);
 					left_ets->at(i)->other = endtile;
 					local_ets.push_back(left_ets->at(i)); //terminate left_ets right tile
@@ -3148,7 +3363,7 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 	if (up_ets) {
 		for (int i = 0; i < (int)up_ets->size(); i++)
 			if (up_ets->at(i)->dir == DIR_DOWN) {
-				if (up_ets->at(i)->other.expired()) {
+				if (up_ets->at(i)->other.expired() || up_ets->at(i)->other.lock() == endtile) {
 					qDebug("terminate up tile (%d,%d)", up_ets->at(i)->pt1.x, up_ets->at(i)->pt1.y);
 					up_ets->at(i)->other = endtile;
 					local_ets.push_back(up_ets->at(i)); //terminate up_ets down tile
@@ -3176,7 +3391,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 {
 #define HAVE_CONNECT  1
 #define NEED_CONNECT  2
-	region_map.create(cgrid.rows + 1, cgrid.cols + 1, CV_32SC1);
+	region_map.create(cgrid.rows + 2, cgrid.cols + 2, CV_32SC1);
 	qInfo("process_atom_edge org=(%d,%d), pre_region=%x, gen_border=%x", org.x, org.y, (int)pre_region, gen_border);
 	region_map = 0;
 	set<shared_ptr<RegionEdge> > local_atom_edges; //contain atom edge in local_rs and nearby end tile
@@ -3283,7 +3498,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				continue;
 			}
 			if (eh_prev->type == REGION_EDGE_TILE_GRID) {
-				shared_ptr<RegionEdgeTile> tt = dynamic_pointer_cast<RegionEdgeTile> (eh_prev);				
+				shared_ptr<RegionEdgeTile> tt = dynamic_pointer_cast<RegionEdgeTile> (eh_prev);	
 				if (tt->other.expired()) { //right or bottom tile, need connect
 					head_type = NEED_CONNECT;
 					head_connect_rect = tt->connect_range;
@@ -3292,7 +3507,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				}
 				shared_ptr<RegionEdgeTile> tt_other = tt->other.lock();
 				CV_Assert(tt_other != endtile);
-				shared_ptr<Region> ret = tt_other->prev.lock()->link(eh); //link to neighbour tile's region
+				shared_ptr<Region> ret = tt_other->prev.lock()->link(eh); //link to neighbour tile's region, eh->prev will be tt_other->prev
 				if (ret) { //need to delete merged region
 					global_rs->regions.erase(ret->region_id);
 					local_rs.regions.erase(ret->region_id);
@@ -3402,26 +3617,67 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 			else
 				if (min_d == 1) {
 					pts.erase(pts.begin() + min_j + 1, pts.end());
-					pts.insert(pts.begin() + min_j + 1, ppts->begin() + min_i, ppts->end());
+					pts.insert(pts.end(), ppts->begin() + min_i, ppts->end());
 				}
 				else { //no direct connect, need to add path
-					qWarning("Broken, force connect (%x,%x) (%x,%x)", pts[min_j].x, pts[min_j].y, ppts->at(min_i).x, ppts->at(min_i).y);
+					qWarning("Broken, force connect (%d,%d) (%d,%d)", pts[min_j].x, pts[min_j].y, ppts->at(min_i).x, ppts->at(min_i).y);
 					vector<Point> temp1;
 					get_line_pts2(pts[min_j], ppts->at(min_i), temp1);
 					temp1.pop_back();
-					pts.insert(pts.begin() + min_j + 1, temp1.begin() + 1, temp1.end()); // + min_j avoid same point
+					pts.erase(pts.begin() + min_j + 1, pts.end());
+					pts.insert(pts.end(), temp1.begin() + 1, temp1.end()); // + min_j avoid same point
 					pts.insert(pts.end(), ppts->begin() + min_i, ppts->end());
 				}
 		}
-		if (head_type == 0 && pts.size() > 1 && pts.back() == pts[0])
-			pts.pop_back(); //remove loop circle same point
+		vector<TurnPoint> tp;
+		shared_ptr<RegionEdge> nh, nt; //nh and nt is new turnpoint's head and tail
+		shared_ptr<RegionEdgeTurnPoint> ntp; //ntp is new turnpoint's body
 
+		if (head_type == 0) {
+			if (pts.size() > 1 && pts.back() == pts[0])
+				pts.pop_back(); //remove loop circle same point
+			if (abs(pts[0].x - pts.back().x) + abs(pts[0].y - pts.back().y) > 1) {
+				if (pts.size() <= 10) {
+					eh->unlink(et);
+					goto erase_eh_et;
+				}
+				int min_d = 1000, min_i = 0, min_j = pts.size() - 1;
+				for (int i = 0; i < min((int)pts.size(), 5); i++) // 5 is search end
+					for (int j = 0; j < min((int)pts.size(), 5); j++) {
+						Point d = pts[pts.size() - j - 1] - pts[i];
+						if (abs(d.x) + abs(d.y) < min_d) {
+							min_d = abs(d.x) + abs(d.y);
+							min_i = i;
+							min_j = pts.size() - j - 1;
+						}
+					}
+				qWarning("Broken, force connect loop (%d,%d) (%d,%d)", pts[min_j].x, pts[min_j].y, pts[min_i].x, pts[min_i].y);
+				if (min_d == 0) {					
+					pts.erase(pts.begin() + min_j, pts.end());
+					pts.erase(pts.begin(), pts.begin() + min_i);
+				}
+				else
+					if (min_d == 1) {
+						pts.erase(pts.begin() + min_j + 1, pts.end());
+						pts.erase(pts.begin(), pts.begin() + min_i);
+					}
+					else {
+						vector<Point> temp1;
+						get_line_pts2(pts[min_j], pts[min_i], temp1);
+						temp1.pop_back();
+						pts.erase(pts.begin() + min_j + 1, pts.end());
+						pts.erase(pts.begin(), pts.begin() + min_i);
+						pts.insert(pts.end(), temp1.begin() + 1, temp1.end());
+					}
+			}
+			CV_Assert(abs(pts[0].x - pts.back().x) + abs(pts[0].y - pts.back().y) == 1);
+		}
 		//now pts is made completely
 		for (int i = 0; i < pts.size(); i++) { //debug check
 			if (i > 0 && abs(pts[i].x - pts[i - 1].x) + abs(pts[i].y - pts[i - 1].y) != 1)
 				qFatal("pts not consistent, p[i]=(%d,%d), p[i-1]=(%d,%d)", pts[i].x * CCL_GRID_SIZE + org.x, pts[i].y * CCL_GRID_SIZE + org.y,
 				pts[i - 1].x * CCL_GRID_SIZE + org.x, pts[i - 1].y * CCL_GRID_SIZE + org.y);
-			if (pts[i].x < 0 || pts[i].y < 0 || pts[i].x >= region_map.cols || pts[i].y >= region_map.rows)
+			if (pts[i].x < 0 || pts[i].y < 0 || pts[i].x >= cgrid.cols + 1 || pts[i].y >= cgrid.rows + 1)
 				qFatal("pts outside, (%d,%d),org=(%d,%d)", pts[i].x * CCL_GRID_SIZE + org.x, pts[i].y * CCL_GRID_SIZE + org.y, org.x, org.y);
 		}
 #if 0
@@ -3429,7 +3685,11 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 			if (abs(pts[i].x * CCL_GRID_SIZE + org.x - 34784) + abs(pts[i].y * CCL_GRID_SIZE + org.y - 24538) < 6)
 				pts[i] = pts[i] * 2 - pts[i];
 #endif
-		vector<TurnPoint> tp;
+#if 0
+		if (pts[0] == Point(10, 497))
+			pts[0].x = 10;
+#endif
+
 		if (head_type == HAVE_CONNECT) { //mark head connect region_map
 			TurnPoint s;
 			shared_ptr<RegionEdgeConnect> ec = dynamic_pointer_cast<RegionEdgeConnect>(eh);
@@ -3456,8 +3716,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 					region_map.at<int>(p) = region_id; //mark region map with region_id
 			tp.push_back(s);
 		}
-		shared_ptr<RegionEdge> nh, nt; //nh and nt is new turnpoint's head and tail
-		shared_ptr<RegionEdgeTurnPoint> ntp; //ntp is new turnpoint's body
+
 		//now compute head_ban_idx and tail_ban_idx
 		int head_ban_idx = -1, tail_ban_idx = pts.size();
 		if (tail_type == NEED_CONNECT) {
@@ -3593,19 +3852,27 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 					CV_Assert(el[i].len0 < 0 || el[i].dir0 == get_pts_dir(el[i].p0.first, el[i].p0.second));
 					for (int j = 1; j < el[i].len0; j++) { //fast other el len0 computing
 						int idx = (i + j < el.size()) ? i + j : i + j - el.size();
-						if (el[idx].dir0 == el[i].dir0) {
+						if (el[idx].dir0 == el[i].dir0 && el[idx].len0 <= 0) {
 							int h_distance = dh.dot(pts[i + j] - p0);//pt2line_distance(pts[i + j], pts[i], dir);	
 							int v_distance = dv.dot(pts[i + j] - p0);
-							el[idx].p0 = make_pair(el[i].p0.first + dv*v_distance, el[i].p0.second);
-							if (h_distance == 0 && v_distance > 0 && el[idx].dir0 == get_pts_dir(el[idx].p0.first, el[idx].p0.second)) {
-								el[idx].len0 = el[i].len0 - j;								
+							Point ppp = el[i].p0.first + dv*v_distance;
+							if (h_distance == 0 && v_distance > 0 && el[idx].dir0 == get_pts_dir(ppp, el[i].p0.second)) {
+								el[idx].len0 = el[i].len0 - j;
+								el[idx].p0 = make_pair(ppp, el[i].p0.second);
 								Point delta = el[idx].p0.first - pts[i + j];
 								CV_Assert(abs(delta.x) + abs(delta.y) <= 1);
 							}
 						}
 					}					
 				}
-
+#if SELF_EDGE_CHECK
+			for (int i = 0; i < (int)el.size(); i++) 
+			if (el[i].len0 > 0) {
+				Point d1 = el[i].p0.first - pts[i];
+				Point d2 = el[i].p0.second - pts[i + el[i].len0 + 0.5];
+				CV_Assert(abs(d1.x) + abs(d1.y) <= 1 && abs(d2.x) + abs(d2.y) <= 1);
+			}
+#endif
 			for (int i = 0; i < (int)el.size(); i++) {	//compute max extend / \ line for every point
 				int k = 0;
 				while (i + k < (int)el.size() - 1) {
@@ -3631,8 +3898,10 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				}
 				CV_Assert(k % 2 == 0);
 				el[i].len1 = k;
+				el[i].cover_len0 = el[i].len0;
+				el[i].cover_len1 = el[i].len1;
 				el[i].dir1 = get_pts_dir(pts[i], pts[i + k]);
-				el[i].score = max(el[i].len0, el[i].len1 * XIE_RATIO);
+				el[i].score = max(el[i].cover_len0, el[i].cover_len1 * XIE_RATIO);
 				el[i].p1 = make_pair(pts[i], pts[i + k]);
 				el[i].cover = 0;
 				Point cgrid_pts = pts[i];
@@ -3643,15 +3912,14 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				CV_Assert(el[i].dir1 >= 0);
 			}
 			sort(pel.begin(), pel.end(), great_edgelen);
-
 			for (int edge_len = 9; edge_len >= 3; edge_len -= 3) { //gap_len < 3 is too short line
 				bool no_new_tp = true;
 				//3 find new tp longer than edge_len				
 				for (int i = 0; i < pel.size(); i++) {
 					if (pel[i]->cover) //already cover
 						continue;
-					if (abs(pel[i]->score - max(pel[i]->len0, pel[i]->len1 * XIE_RATIO)) > 0.01f) { //len0 or len1 updated
-						pel[i]->score = max(pel[i]->len0, pel[i]->len1 * XIE_RATIO);
+					if (abs(pel[i]->score - max(pel[i]->cover_len0, pel[i]->cover_len1 * XIE_RATIO)) > 0.01f) { //len0 or len1 updated
+						pel[i]->score = max(pel[i]->cover_len0, pel[i]->cover_len1 * XIE_RATIO);
 						no_new_tp = false;
 						if (pel[i]->score < edge_len)
 							continue;
@@ -3697,11 +3965,11 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 							else
 								break;
 						}
-						el[k].len0 = min(el[k].len0, j + 1 - NEAR1_COVER);
-						el[k].len1 = min(el[k].len1, j + 1 - NEAR1_COVER);
+						el[k].cover_len0 = min(el[k].cover_len0, j + 1 - NEAR1_COVER);
+						el[k].cover_len1 = min(el[k].cover_len1, j + 1 - NEAR1_COVER);
 					}
-					pel[i]->len0 = 0;
-					pel[i]->len1 = 0;
+					pel[i]->cover_len0 = 0;
+					pel[i]->cover_len1 = 0;
 					pel[i]->score = 0;
 					no_new_tp = false;
 					if (idx_end < pts_len) {
@@ -3810,8 +4078,8 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 								Point pis;
 								bool intersected = intersect_line(tp[i].p2, tp[i].dir, tpi1.p1, tpi1.dir, pis);
 								vector<Point> pts1, pts2;
-								bool exceed = (di1.dot(pis) > di1.dot(tpi1.p2));
-								if ( !exceed &&
+								if (i1cover <  tp[i].cover.end || //already cross, not need to check_region
+									di1.dot(pis) <= di1.dot(tpi1.p2) && di.dot(pis) >= di.dot(tp[i].p1) &&
 									check_region(region_map, tp[i].p2, pis, pts1, region_id) &&
 									check_region(region_map, tpi1.p1, pis, pts2, region_id)) { //region ok, can connect with intersect point
 									CV_Assert(pis.inside(border_rect));
@@ -3897,10 +4165,10 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 										p1.x = p1.x * 2 - p1.x;
 									}
 #endif
-									if (check_region(region_map, tp[i].p2, p1, pts1, region_id) &&
+									if (i1cover <  tp[i].cover.end || check_region(region_map, tp[i].p2, p1, pts1, region_id) &&
 										check_region(region_map, tpi1.p1, p2, pts3, region_id) &&
 										check_region(region_map, p1, p2, pts2, region_id)) { //region ok, can connect
-										CV_Assert(get_pts_dir(p1, p2) >= 0 && p1.inside(border_rect) && p2.inside(border_rect));
+										CV_Assert((p1 == p2 || get_pts_dir(p1, p2) >= 0) && p1.inside(border_rect) && p2.inside(border_rect));
 										pts0.swap(pts1);								//connect   _____
 										pts0.insert(pts0.end(), pts2.begin(), pts2.end()); //______|
 										pts0.insert(pts0.end(), pts3.begin(), pts3.end());
@@ -3939,7 +4207,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 										if (check_region(region_map, tp[i].p2, p1, pts1, region_id) &&
 											check_region(region_map, tpi1.p1, p2, pts3, region_id) &&
 											check_region(region_map, p1, p2, pts2, region_id) && p1.inside(border_rect) && p2.inside(border_rect)) { //region ok, can connect)
-											CV_Assert(get_pts_dir(p1, p2) >= 0);
+											CV_Assert(p1 == p2 || get_pts_dir(p1, p2) >= 0);
 											pts0.swap(pts1);							//connect  ______        ____
 											pts0.insert(pts0.end(), pts2.begin(), pts2.end());	// ______|          /
 											pts0.insert(pts0.end(), pts3.begin(), pts3.end());
@@ -3956,7 +4224,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 											el[j].cover = 1;
 										else
 											el[j - el.size()].cover = 1;
-									if (i1cover < pts_len) {
+									if (i1cover < pts_len) { //make tp[i].cover.end = tpi1.cover.start
 										tp[i].cover.end = (int)(tpi1.cover.start + tp[i].cover.end) / 2 + 0.5f;
 										tpi1.cover.start = tp[i].cover.end;
 									}
@@ -3992,7 +4260,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 					goto erase_eh_et;
 				}
 				else {
-					qWarning("copy all pts to tp");
+					qWarning("tp empty, copy all pts to tp");
 					CV_Assert(pts.size() < 30);
 					for (int i = 0; i < pts.size() - 1; i++) {
 						TurnPoint tp1;
@@ -4004,12 +4272,68 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 					}
 				}
 			}
-			
+
 			//now tp is ready change tp to RegionEdgeTurnPoint
 			ntp.reset(new RegionEdgeTurnPoint());
 			ntp->init();
+			if (tp.size() == 1) {
+				if (head_type == 0) { //not insert new tp, too short, directly erase
+					eh->unlink(et);
+					goto erase_eh_et;
+				}
+				else {
+					if (head_type == NEED_CONNECT) {
+						//same as following head_type == NEED_CONNECT (tp.size() > 1)						
+						int k = 0; //pts[k] is the nearest point to pts[head_ban_idx]
+						for (int j = head_ban_idx + 1; j < tp[0].cover.start; j++) {
+							Point end_pts = pts[j] * CCL_GRID_SIZE;
+							int distance = abs(end_pts.x - tp[0].p1.x) + abs(end_pts.y - tp[0].p1.y);
+							if (distance == CCL_GRID_SIZE) {
+								k = j;
+								break;
+							}
+							else
+								if (distance == 0) {
+									k = 0;
+									break;
+								}
+						}
+						CV_Assert(k >= 0);
+						if (k > 0) {
+							qInfo("tp.size=1, extend ntp from head_ban_idx %d to %d", head_ban_idx + 1, k);
+							for (int j = head_ban_idx + 1; j <= k; j++)
+								ntp->pts.push_back(pts[j] * CCL_GRID_SIZE);
+						}
+						tp[0].cover.start = head_ban_idx + NEAR1_COVER;
+						CV_Assert(tp[0].p1.inside(border_rect));
+						ntp->pts.push_back(tp[0].p1);						
+					}
+
+					if (tail_type == NEED_CONNECT) {
+						CV_Assert(tp[0].p2.inside(border_rect));
+						ntp->pts.push_back(tp[0].p2); //same as following tail_type == NEED_CONNECT (tp.size() > 1)
+						int k = 0; //find biggest k near ntp->back()
+						for (int j = tp.back().cover.end; j < tail_ban_idx; j++) { //add path from ntp->pts.back() to pts[tail_ban_idx]
+							Point end_pts = pts[j] * CCL_GRID_SIZE;
+							int distance = abs(end_pts.x - ntp->pts.back().x) + abs(end_pts.y - ntp->pts.back().y);
+							if (distance == CCL_GRID_SIZE)
+								k = j;
+							else
+								if (distance == 0)
+									k = 0;
+						}
+						if (k > 0) {
+							qInfo("tp.size=1, extend ntp from %d to tail_ban_idx %d", k, tail_ban_idx - 1);
+							for (int j = k; j < tail_ban_idx; j++) //conntect pts[k] to pts[tail_ban_idx]
+								ntp->pts.push_back(pts[j] * CCL_GRID_SIZE);
+						}
+						tp.back().cover.end = tail_ban_idx - NEAR1_COVER;
+					}	
+				}
+			}
+			else // tp.size() > 1 
 			for (int i = 0; i < tp.size(); i++) {
-				CV_Assert(get_pts_dir(tp[i].p2, tp[i].p1) >= 0);
+				CV_Assert(tp[i].p2== tp[i].p1 || get_pts_dir(tp[i].p2, tp[i].p1) >= 0);
 				if (i == 0) {
 					if (head_type == HAVE_CONNECT) { //tp[i].p1 already pushed
 						CV_Assert(tp[i].p2.inside(border_rect));
@@ -4033,8 +4357,11 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 										}
 								}
 								CV_Assert(k >= 0);
-								for (int j = head_ban_idx + 1; j <= k; j++)
-									ntp->pts.push_back(pts[j] * CCL_GRID_SIZE);
+								if (k > 0) {
+									qInfo("extend ntp from head_ban_idx %d to %d", head_ban_idx + 1, k);
+									for (int j = head_ban_idx + 1; j <= k; j++)
+										ntp->pts.push_back(pts[j] * CCL_GRID_SIZE);
+								}
 								tp[0].cover.start = head_ban_idx + NEAR1_COVER;
 							}
 							ntp->pts.push_back(tp[0].p1);
@@ -4082,9 +4409,11 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 												k = 0;
 									}
 									CV_Assert(k >= 0);
-									if (k > 0)
+									if (k > 0) {
+										qInfo("extend ntp from %d to tail_ban_idx %d", k, tail_ban_idx - 1);
 										for (int j = k; j < tail_ban_idx; j++) //conntect pts[k] to pts[tail_ban_idx]
 											ntp->pts.push_back(pts[j] * CCL_GRID_SIZE);
+									}
 									tp.back().cover.end = tail_ban_idx - NEAR1_COVER;
 								}
 							}
@@ -4140,7 +4469,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 			//Replace [eh,et] with ntp
 			nh = ntp;
 			if (head_type == NEED_CONNECT) { //connect ntp to head
-				CV_Assert(tp[0].cover.start < head_ban_idx);
+				CV_Assert(tp[0].cover.start -0.5f < head_ban_idx);
 				shared_ptr<RegionEdgeConnect> nc(new RegionEdgeConnect());
 				nc->init();
 				for (int j = 0; j <= tp[0].cover.start; j++) {
@@ -4172,7 +4501,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				CV_Assert(ret == nullptr);
 			}
 			if (tail_type == NEED_CONNECT) { //connect ntp to tail
-				CV_Assert(tp.back().cover.end > tail_ban_idx);
+				CV_Assert(tp.back().cover.end +0.5f > tail_ban_idx);
 				shared_ptr<RegionEdgeConnect> nc(new RegionEdgeConnect());
 				nc->init();
 				for (int j = tp.back().cover.end + 0.5f; j < pts_len; j++) {
@@ -4246,14 +4575,19 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 		local_tile_edges.erase(e_tile);
 		if (!e_tile->other.expired()) {
 			shared_ptr<RegionEdgeTile> e_tile_other = e_tile->other.lock();
-			CV_Assert(e_tile->region.lock() == e_tile_other->region.lock());
-			if (e_tile->next.lock() != e_tile_other) {
+			if (e_tile->region.lock() != e_tile_other->region.lock()) {
+				shared_ptr<Region> ret = e_tile_other->prev.lock()->link(e_tile->next.lock());
+				global_rs->regions.erase(ret->region_id);
+				local_rs.regions.erase(ret->region_id);
+				local_rs.regions[e_tile->region.lock()->region_id] = e_tile->region.lock();
+			}
+			if (e_tile->next.lock() != e_tile_other) { //link e_tile_other->prev and e_tile->next
 				CV_Assert(e_tile_other->prev.lock() != e_tile);
 				e_tile_other->prev.lock()->next = e_tile->next;
 				e_tile->next.lock()->prev = e_tile_other->prev;
 			}
 				
-			if (e_tile->prev.lock() != e_tile_other) {
+			if (e_tile->prev.lock() != e_tile_other) { //link e_tile->prev and e_tile_other->next
 				CV_Assert(e_tile_other->next.lock() != e_tile);
 				e_tile->prev.lock()->next = e_tile_other->next;
 				e_tile_other->next.lock()->prev = e_tile->prev;
@@ -4291,7 +4625,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				e->next.lock()->region.lock() == r && e->prev.lock()->next.lock() == e && e->next.lock()->prev.lock() == e);
 		}
 #endif
-		if (!r->has_tile()) { //output
+		if (r->only_has_tp()) { //output
 			global_out->regions[r->region_id] = r;
 			global_rs->regions.erase(r->region_id); //erase it from global_rs
 		}
@@ -4387,7 +4721,7 @@ static void post_process(Mat & c210, int wire_cut_len)
 
 ProcessImageData process_img(const ProcessImageData & pi)
 {
-	qInfo("process_img (%d,%d,%d, w=%d, h=%d)", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer, pi.cpd->raw_img.cols, pi.cpd->raw_img.rows);
+	qInfo("process_img (x0=%d,y0=%d,%d, w=%d, h=%d)", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer, pi.cpd->raw_img.cols, pi.cpd->raw_img.rows);
 
 	if (!pi.cpd->raw_img.empty()) {
 		Mat via_mark, empty;
@@ -4461,9 +4795,16 @@ ProcessImageData process_img(const ProcessImageData & pi)
 			}
 			int via_area = pi.via_diameter * pi.via_diameter;
 			do_ccl(pi.cpd->cgrid, pi.cpd->adjscore, ccl, max(CCL_MERGE_AREA, via_area), max(CCL_CUT_AREA, via_area));//ccl 512 +B
-			/*expand_ccl(ccl, c210, eccl);
+			/*expand_ccl(ccl, c210, eccl);*/
 			if (pi.cpd->edge_mark_debug3)
-			draw_ccl(eccl, pi.cpd->edge_mark_debug3[0]);*/
+				draw_ccl(ccl, pi.cpd->edge_mark_debug3[0], Point(pi.border_size, pi.border_size));
+			if (pi.dbg_file_name.size() > 3) {
+				Mat dbg_img;
+				cvtColor(pi.cpd->raw_img, dbg_img, CV_GRAY2BGR);
+				draw_ccl(ccl, dbg_img, Point(pi.border_size, pi.border_size));
+				if (pi.dbg_file_name.size() > 3)
+					imwrite(pi.dbg_file_name + "_3.jpg", dbg_img);
+			}
 			mark_atom_edge(ccl, pi.cpd->rs, B_2, max(CCL_CUT_LEN, pi.via_diameter * 6));
 			if (pi.cpd->edge_mark_debug4)
 				draw_region_edge(pi.cpd->rs, pi.cpd->edge_mark_debug4[0], Point(pi.border_size, pi.border_size));
@@ -4552,16 +4893,16 @@ void get_region_result(vector<ElementObj *> & objs, RegionSet & global_out, int 
 	for (auto & rs_iter : global_out.regions) { //change global output to objs
 		shared_ptr<Region> r = rs_iter.second;
 		int out_border_num = 0;
-#if 0
-		if (r->region_id == 5348196366680116ULL) {
-			r->region_id = 5348196366680116ULL;
-		}
-#endif
-		while (!r->edges.empty()) {
-			vector<Point> poly;
+		while (!r->edges.empty()) {			
 			shared_ptr<RegionEdge> eh = *(r->edges.begin());
 			shared_ptr<RegionEdgeTurnPoint> et = dynamic_pointer_cast<RegionEdgeTurnPoint>(eh);
-			do { //connect all turn point edge
+			if (et == nullptr) {
+				qWarning("get_region_result RegionEdge id=%lld, type=%d", eh->region.lock()->region_id, eh->type);
+				r->edges.erase(eh);
+				continue;
+			}			
+			vector<Point> poly;
+			do { //connect all turn point edge	
 				CV_Assert(et->type == REGION_EDGE_TURN_POINT);
 				if (poly.empty())
 					poly = et->pts;
@@ -4571,10 +4912,18 @@ void get_region_result(vector<ElementObj *> & objs, RegionSet & global_out, int 
 					else
 						poly.insert(poly.end(), et->pts.begin(), et->pts.end());
 				shared_ptr<RegionEdgeTurnPoint> del_et = et;
-				et = dynamic_pointer_cast<RegionEdgeTurnPoint>(et->next.lock());
+				et = dynamic_pointer_cast<RegionEdgeTurnPoint>(et->next.lock());				
 				r->edges.erase(del_et);
+				if (et == nullptr) {
+					qCritical("get_region_result wrong edge");
+					break;
+				}
 			} while (et != eh);
-			int deg = 0; //> 0, clockwise, < 0 anti-clock
+			if (poly.size() <= 2) {
+				if (r->edges.empty() && out_border_num == 0)
+					out_border_num = 1;
+				continue;
+			}
 			for (int i = 1; i + 1 < (int)poly.size(); i++) { //check if it is inner border or outter border
 				int d0 = get_pts_dir(poly[i - 1], poly[i]);
 				int d1 = get_pts_dir(poly[i], poly[i + 1]);
@@ -4583,13 +4932,19 @@ void get_region_result(vector<ElementObj *> & objs, RegionSet & global_out, int 
 					poly.erase(poly.begin() + i);
 					i--;
 					continue;
-				}
+				}				
+			}
+			if (poly[0] == poly.back())
+				poly.pop_back();
+			int deg = 0; //> 0, clockwise, < 0 anti-clock
+			for (int i = 0; i < (int)poly.size(); i++) {
+				int d0 = (i != 0) ? get_pts_dir(poly[i - 1], poly[i]) : get_pts_dir(poly.back(), poly[0]);
+				int d1 = (i + 1 < (int)poly.size()) ? get_pts_dir(poly[i], poly[i + 1]) : get_pts_dir(poly.back(), poly[0]);
+				CV_Assert(d0 >= 0 && d1 >= 0);
 				deg += dir_deg[d0][d1];
 			}
 			if (deg > 0) //deg > 0, it is outter border
-				out_border_num++;
-			if (poly[0] == poly.back())
-				poly.pop_back();
+				out_border_num++;			
 			for (int i = 0; i < (int)poly.size(); i++) {
 				ElementObj * o = new ElementObj();
 				o->type = OBJ_LINE;
@@ -4621,6 +4976,7 @@ void merge_img_result(vector<ElementObj *> & objs, const ProcessImageData & t)
 	Mat region_map;
 	RegionSet global_out;
 	Point org(t.cpd->ccl_pixel_x0, t.cpd->ccl_pixel_y0);
+	qInfo("merge_img_result x=%d, y=%d, org=(%d,%d)", t.cpd->x0, t.cpd->y0, org.x, org.y);
 	link_tile(t.cpd->rs, (t.lpd ? &t.lpd->ets : NULL), (t.upd ? &t.upd->ets : NULL), t.cpd->ets, org, t.cpd->cgrid.rows * CCL_GRID_SIZE, t.cpd->cgrid.cols * CCL_GRID_SIZE);
 	process_atom_edge(t.cpd->cgrid, t.cpd->rs, t.cpd->ets, t.global_rs, &global_out, region_map,
 		org, (t.cpd->y0 << 16) + t.cpd->x0 + 0x10001, t.border_size / CCL_GRID_SIZE, DIR_UP1_MASK | DIR_LEFT1_MASK | t.cpd->end_tile_mask);
@@ -5428,11 +5784,11 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 						pi.border_size = BORDER_SIZE;
 						pi.block_width = block_width;
 						pi.dbg_file_name = "";
-						if (pi.cpd->x0 < 0) {
-							char filename[30];
-							sprintf_s(filename, 30, "./DImg/%d_%d", pi.cpd->x0, pi.cpd->y0);
-							pi.dbg_file_name = filename;
-						}
+#if DUMP_DBG_IMG
+						char filename[30];
+						sprintf_s(filename, 30, "./DImg/%d_%d", pi.cpd->x0, pi.cpd->y0);
+						pi.dbg_file_name = filename;
+#endif						
 
 						if (pi.cpd->y0 > sb.top() && pi.cpd->x0 != pi.upd->x0)
 							pi.upd = &diag_line[1 - cl][l][i + 1];

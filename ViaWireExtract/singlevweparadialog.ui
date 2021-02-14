@@ -647,7 +647,7 @@
     <item row="0" column="2">
      <widget class="QLabel" name="label_23">
       <property name="text">
-       <string>wmin0</string>
+       <string>wy0</string>
       </property>
      </widget>
     </item>
@@ -675,28 +675,28 @@
     <item row="1" column="4">
      <widget class="QLabel" name="label_27">
       <property name="text">
-       <string>wMax1</string>
+       <string>wx1</string>
       </property>
      </widget>
     </item>
     <item row="1" column="2">
      <widget class="QLabel" name="label_26">
       <property name="text">
-       <string>wmin1</string>
+       <string>wy1</string>
       </property>
      </widget>
     </item>
     <item row="2" column="2">
      <widget class="QLabel" name="label_29">
       <property name="text">
-       <string>wmin2</string>
+       <string>wy2</string>
       </property>
      </widget>
     </item>
     <item row="2" column="4">
      <widget class="QLabel" name="label_30">
       <property name="text">
-       <string>wMax2</string>
+       <string>wx2</string>
       </property>
      </widget>
     </item>
@@ -710,14 +710,14 @@
     <item row="3" column="2">
      <widget class="QLabel" name="label_32">
       <property name="text">
-       <string>wmin3</string>
+       <string>wy3</string>
       </property>
      </widget>
     </item>
     <item row="3" column="4">
      <widget class="QLabel" name="label_33">
       <property name="text">
-       <string>wMax3</string>
+       <string>wx3</string>
       </property>
      </widget>
     </item>
@@ -731,21 +731,21 @@
     <item row="0" column="4">
      <widget class="QLabel" name="label_24">
       <property name="text">
-       <string>wMax0</string>
+       <string>wx0</string>
       </property>
      </widget>
     </item>
     <item row="4" column="4">
      <widget class="QLabel" name="label_36">
       <property name="text">
-       <string>wMax4</string>
+       <string>wx4</string>
       </property>
      </widget>
     </item>
     <item row="4" column="2">
      <widget class="QLabel" name="label_35">
       <property name="text">
-       <string>wmin4</string>
+       <string>wy4</string>
       </property>
      </widget>
     </item>
@@ -759,14 +759,14 @@
     <item row="5" column="2">
      <widget class="QLabel" name="label_38">
       <property name="text">
-       <string>wmin5</string>
+       <string>wy5</string>
       </property>
      </widget>
     </item>
     <item row="5" column="4">
      <widget class="QLabel" name="label_39">
       <property name="text">
-       <string>wMax5</string>
+       <string>wx5</string>
       </property>
      </widget>
     </item>
@@ -780,21 +780,21 @@
     <item row="6" column="4">
      <widget class="QLabel" name="label_42">
       <property name="text">
-       <string>wMax6</string>
+       <string>wx6</string>
       </property>
      </widget>
     </item>
     <item row="6" column="2">
      <widget class="QLabel" name="label_41">
       <property name="text">
-       <string>wmin6</string>
+       <string>wy6</string>
       </property>
      </widget>
     </item>
     <item row="7" column="2">
      <widget class="QLabel" name="label_43">
       <property name="text">
-       <string>wmin7</string>
+       <string>wy7</string>
       </property>
      </widget>
     </item>
@@ -808,7 +808,7 @@
     <item row="7" column="4">
      <widget class="QLabel" name="label_45">
       <property name="text">
-       <string>wMax7</string>
+       <string>wx7</string>
       </property>
      </widget>
     </item>

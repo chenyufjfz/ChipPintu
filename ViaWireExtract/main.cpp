@@ -529,10 +529,10 @@ void test_ml_extract()
 	vector<MarkObj> objs;
 	vwe->set_extract_param(0, POINT_WIRE_INSU << 8 | OBJ_POINT, 0x050503, 0, 0, 0, 0, 0, 0, 0);
 	vector<SearchArea> areas;
-	//areas.push_back(SearchArea(QRect(294464, 222496, 90000, 90000), 0));
-	//areas.push_back(SearchArea(QRect(982368, 547648, 300000, 300000), 1));
-	areas.push_back(SearchArea(QRect(982368, 547648, 500000, 300000), 1));
-	//areas.push_back(SearchArea(QRect(1015805, 720896, 90000, 90000), 0));
+	//areas.push_back(SearchArea(QRect(100000, 100000, 2500000, 1800000), 1));	
+	//areas.push_back(SearchArea(QRect(1500000, 1800000, 160000, 130000), 1));
+	//areas.push_back(SearchArea(QRect(1560000, 1830000, 100000, 100000), 1));
+	areas.push_back(SearchArea(QRect(1570000, 1850000, 90000, 90000), 0));
 	//QPoint tl(135680, 19968), rb(597505, 517121);
 	//QPoint tl(135680, 369968), rb(397505, 517121);
 	/*areas.push_back(SearchArea(QRect(128000, 128000, 256000, 128000), OPT_POLYGON_SEARCH));

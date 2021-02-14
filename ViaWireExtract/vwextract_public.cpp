@@ -444,7 +444,7 @@ void deldir(const string &path)
 int get_pts_dir(Point pt1, Point pt2)
 {
 	if (pt1.x == pt2.x)
-		return (pt1.y < pt2.y) ? DIR_DOWN : DIR_UP;
+		return (pt1.y < pt2.y) ? DIR_DOWN : ((pt1.y == pt2.y) ? -2 : DIR_UP);
 	
 	if (pt1.y == pt2.y)
 		return (pt1.x < pt2.x) ? DIR_RIGHT : DIR_LEFT;
