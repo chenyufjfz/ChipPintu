@@ -94,6 +94,8 @@
 #define BORDER_KEEP_ATOM		6
 #define SELF_EDGE_CHECK			1
 typedef unsigned long long LINE_TYPE;
+
+#define inside_range(x, r) ((x) >= r.start && (x) <=r.end)
 class DxyDegree {
 public:
 	int deg[8][8];
@@ -2884,8 +2886,8 @@ void expand_ccl(const Mat & ccl_in, Mat & ccl_out)
 	ccl_out = ccl;
 }
 
-static const int move_decision[4][3] = { //it is offset between line crosspoint location and ccl grid location 
-	//1st choice, 2nd choice
+static const int move_decision[4][3] = { // offset between line crosspoint location and ccl grid location
+	//1st beacon, 2nd beacon, tile beacon
 	{ DIR_UP, DIR_UPLEFT, 8 }, //8 means offset is 0
 	{ 8, DIR_UP, DIR_LEFT },
 	{ DIR_LEFT, 8, DIR_UPLEFT },
@@ -2895,6 +2897,7 @@ static const int move_decision[4][3] = { //it is offset between line crosspoint 
 inout ccl
 output rs, contain atom edge and tile edge
 input border size
+search atom_edge between EDGE_MASK1 and EDGE_MASK2
 */
 void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 {
@@ -2912,7 +2915,7 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 		const unsigned * p_ccl = ccl.ptr<unsigned>(y);
 		uchar * pv = visit.ptr<uchar>(y);
 		for (int x = left_border; x < right_border; x++)
-			if ((p_ccl[x] & CCL_EDGE_MASK3) == CCL_EDGE_MASK1 && pv[x] == 0) { //border may be 0,1,2,3; 0,1,2; 1,2,3; 1,2; 
+			if ((p_ccl[x] & CCL_EDGE_MASK3) == CCL_EDGE_MASK1 && pv[x] == 0) { //border may be 0,1,2,3; 0,1,2; 1,2,3; 1,2, search 1,2 
 				unsigned r = p_ccl[x] & CCL_REGION_MASK;
 				Point org(-1, -1), cur(-1, -1);
 				int m_dir = -1;
@@ -2944,7 +2947,7 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 				}
 				CV_Assert(m_dir >= 0); //1 must have 2 nearby
 				pv[x] = 1;
-				cur = org;
+				cur = org; //now (org, m_dir) is first atom edge between MASK1 and MASK2
 				shared_ptr<RegionEdgeAtom> cur_atom_edge(new RegionEdgeAtom()); //create new atom edge
 				cur_atom_edge->init();
 				shared_ptr<RegionEdgeAtom> start_atom_edge = cur_atom_edge;
@@ -2958,16 +2961,30 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 				it->second->edges.insert(cur_atom_edge);
 				do {
 					cur_atom_edge->pts.push_back(cur);
-					cur += Point(dxy[m_dir][1], dxy[m_dir][0]);
+					cur += Point(dxy[m_dir][1], dxy[m_dir][0]); //move to next crosspoint location
 					if (cur.x < left_border || cur.y < up_border || cur.x > right_border || cur.y > down_border) { //out of Tile
 						Point l3 = cur;
 						if (move_decision[m_dir][2] < 8)
 							l3 += Point(dxy[move_decision[m_dir][2]][1], dxy[move_decision[m_dir][2]][0]);
 						unsigned r3 = (unsigned)ccl.at<int>(l3);
-						CV_Assert(r3 == (r | CCL_EDGE_MASK1));
+						CV_Assert(r3 == (r | CCL_EDGE_MASK1)); 
 						shared_ptr<RegionEdge> prev_edge = cur_atom_edge;
 						cur -= Point(dxy[m_dir][1], dxy[m_dir][0]); //back to border
 						CV_Assert(cur.x == left_border || cur.y == up_border || cur.x == right_border || cur.y == down_border);
+						if (cur.x == left_border && cur.y == up_border && m_dir == DIR_LEFT ||
+							cur.x == left_border && cur.y == down_border && m_dir == DIR_DOWN ||
+							cur.x == right_border && cur.y == up_border && m_dir == DIR_UP ||
+							cur.x == right_border && cur.y == down_border && m_dir == DIR_RIGHT) { //if it is corner, mostly it won't happen
+							qInfo("mark_atom_edge atom hit corner region=%d, x=%d,y=%d, dir=%d", r, cur.x, cur.y, m_dir);
+							shared_ptr<RegionEdgeTile> cur_tile_edge(new RegionEdgeTile()); //add dumy EdgeTile for corner
+							cur_tile_edge->init();
+							cur_tile_edge->pt1 = cur; //tile edge's pt1 overlap with prev atomedge's back
+							cur_tile_edge->pt2 = cur; //for tile corner, pt1 = pt2
+							cur_tile_edge->dir = m_dir;			// ->  2.2
+							prev_edge->link(cur_tile_edge);		//     1 1(r3)
+							prev_edge = cur_tile_edge;
+						}
+						
 						for (int tile_border = 0; tile_border <= 30; tile_border++) {
 							CV_Assert(tile_border != 30);
 							shared_ptr<RegionEdgeTile> cur_tile_edge(new RegionEdgeTile());
@@ -2983,6 +3000,8 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 								if (cur.x < left_border || cur.y < up_border || cur.x > right_border || cur.y > down_border)
 									break;
 							} while (r3 != (r | CCL_EDGE_MASK2));
+							bool continue_search_tile = false;
+							bool need_dummy_corner_tile = false;
 							if (cur.x < left_border || cur.y < up_border || cur.x > right_border || cur.y > down_border) { //out of Tile
 								l3 = cur;
 								if (move_decision[m_dir][2] < 8)
@@ -2993,38 +3012,47 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 									cur.x == left_border && cur.y == down_border ||
 									cur.x == right_border && cur.y == up_border ||
 									cur.x == right_border && cur.y == down_border);
-								if (r3 != (r | CCL_EDGE_MASK2)) {
+								if (r3 != (r | CCL_EDGE_MASK2)) {									
 									if (cur_tile_edge->pt1 == cur) {
 										cur_tile_edge->unlink(cur_tile_edge);
+										continue; //need to check next border 
 									}
-									else {
-										cur_tile_edge->pt2 = cur;
-										if (cur.x == left_border && cur_tile_edge->pt1.x == left_border)
-											cur_tile_edge->dir = DIR_LEFT;
-										else
-											if (cur.x == right_border && cur_tile_edge->pt1.x == right_border)
-												cur_tile_edge->dir = DIR_RIGHT;
-											else
-												if (cur.y == up_border && cur_tile_edge->pt1.y == up_border)
-													cur_tile_edge->dir = DIR_UP;
-												else
-													if (cur.y == down_border && cur_tile_edge->pt1.y == down_border)
-														cur_tile_edge->dir = DIR_DOWN;
-													else
-														CV_Assert(0);
-										prev_edge = cur_tile_edge;
-									}
-									continue; //need to check next border 
+									CV_Assert(r3 == (r | CCL_EDGE_MASK1) || r3 == (r | CCL_EDGE_MASK0));
+									continue_search_tile = true;	// ->1 1.1   -> is old m_dir   . is corner
+									need_dummy_corner_tile = false;	//     x 1(r3)    no need add dummy corner EdgeTile									
 								}
-								else
-									m_dir = dir_1[m_dir];
+								else {						
+									m_dir = dir_1[m_dir];			
+									continue_search_tile = false;	//-> 1.1     -> is old m_dir    . is corner
+									need_dummy_corner_tile = true; 	//   x 2(r3) need add dummy corner EdgeTile
+								}
 							}
-							else
-								m_dir = dir_2[m_dir];
-							cur_atom_edge.reset(new RegionEdgeAtom());
-							cur_atom_edge->init();
-							cur_tile_edge->link(cur_atom_edge);
-							cur_tile_edge->pt2 = cur;
+							else {
+								if (cur.x == left_border && cur.y == up_border ||
+									cur.x == left_border && cur.y == down_border ||
+									cur.x == right_border && cur.y == up_border ||
+									cur.x == right_border && cur.y == down_border) {
+									l3 = cur + Point(dxy[m_dir][1], dxy[m_dir][0]);
+									if (move_decision[m_dir][2] < 8)
+										l3 += Point(dxy[move_decision[m_dir][2]][1], dxy[move_decision[m_dir][2]][0]);
+									r3 = (unsigned)ccl.at<int>(l3);
+									if (r3 == (r | CCL_EDGE_MASK1)) {
+										continue_search_tile = true;		//->  1 1.2
+										need_dummy_corner_tile = false; 	//      x 1(r3)
+									}
+									else {									
+										continue_search_tile = false;	//->  1 1.2	
+										need_dummy_corner_tile = false;	//      x 2(r3)
+										m_dir = dir_2[m_dir];
+									}													
+								}
+								else {						
+									m_dir = dir_2[m_dir];			
+									continue_search_tile = false;	//->  1 1|2(r3)   -> is old m_dir,  | is new m_dir
+									need_dummy_corner_tile = false; //		x x		
+								}
+							}
+							cur_tile_edge->pt2 = cur;							
 							if (cur.x == left_border && cur_tile_edge->pt1.x == left_border)
 								cur_tile_edge->dir = DIR_LEFT;
 							else
@@ -3038,6 +3066,27 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 											cur_tile_edge->dir = DIR_DOWN;
 										else
 											CV_Assert(0);
+							if (continue_search_tile) {
+								prev_edge = cur_tile_edge;
+								continue;
+							}
+							if (need_dummy_corner_tile &&
+								(cur.x == left_border && cur.y == up_border ||
+								cur.x == left_border && cur.y == down_border ||
+								cur.x == right_border && cur.y == up_border ||
+								cur.x == right_border && cur.y == down_border)) { //if it is corner, mostly it won't happen
+								shared_ptr<RegionEdgeTile> cur_tile_edge2(new RegionEdgeTile()); //add dumy EdgeTile for corner
+								cur_tile_edge2->init();
+								cur_tile_edge2->pt1 = cur;
+								cur_tile_edge2->pt2 = cur;
+								cur_tile_edge2->dir = dir_2[cur_tile_edge->dir];
+								qInfo("mark_atom_edge tile hit corner region=%d, x=%d,y=%d, dir=%d", r, cur.x, cur.y, cur_tile_edge2->dir);
+								cur_tile_edge->link(cur_tile_edge2);
+								cur_tile_edge = cur_tile_edge2;
+							}
+							cur_atom_edge.reset(new RegionEdgeAtom());
+							cur_atom_edge->init();
+							cur_tile_edge->link(cur_atom_edge);
 							break;
 						}
 					}
@@ -3045,14 +3094,20 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 					if (move_decision[m_dir][0] < 8)
 						l1 += Point(dxy[move_decision[m_dir][0]][1], dxy[move_decision[m_dir][0]][0]);
 					unsigned r1 = (unsigned)ccl.at<int>(l1);
-					if (r1 == (r | CCL_EDGE_MASK2))		//_ 2 x
-						m_dir = dir_2[m_dir];			//  1 2(r1)
+					Point l2 = cur;
+					if (move_decision[m_dir][1] < 8)
+						l2 += Point(dxy[move_decision[m_dir][1]][1], dxy[move_decision[m_dir][1]][0]);
+					unsigned r2 = (unsigned)ccl.at<int>(l2);
+					if (r1 == (r | CCL_EDGE_MASK2))	{	
+						if (r2 == (r | CCL_EDGE_MASK1))	{	//_ 2 1(r2)
+							m_dir = dir_1[dir_2[m_dir]];	//  1 2(r1)							
+							visit.at<uchar>(l2) = 1;
+						}
+						else						//_ 2 x(r2)
+							m_dir = dir_2[m_dir];	//  1 2(r1)
+					}
 					else {
-						CV_Assert((r1 & CCL_EDGE_MASK3) < CCL_EDGE_MASK2 && (r1 & CCL_REGION_MASK) == r);
-						Point l2 = cur;
-						if (move_decision[m_dir][1] < 8)
-							l2 += Point(dxy[move_decision[m_dir][1]][1], dxy[move_decision[m_dir][1]][0]);
-						unsigned r2 = (unsigned)ccl.at<int>(l2);
+						CV_Assert((r1 & CCL_EDGE_MASK3) < CCL_EDGE_MASK2 && (r1 & CCL_REGION_MASK) == r);						
 						if (r2 == (r | CCL_EDGE_MASK2)) {
 							CV_Assert((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK1); //_ 2 2(r2)
 							visit.at<uchar>(l1) = 1;							//  1 1(r1)
@@ -3160,16 +3215,18 @@ static bool check_region(const Mat & region_map, Point p0, Point p1, vector <Poi
 Inout local_rs
 Input left_ets, left tile edge set
 Input up_ets, up tile edge set
-link tile to left and upper, terminate left and up tile
+link tile to left and upper, terminate local left and up EdgeTile, terminate left tile's right EdgeTile and up tile's down EdgeTile
 */
 void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_ets, vector<shared_ptr<RegionEdgeTile> > * up_ets, vector<shared_ptr<RegionEdgeTile> > & local_ets,
 	Point org, int rows, int cols)
 {
+	int loop_num = 0;
 	local_ets.clear();
 	for (auto &rs_iter : local_rs.regions) { //loop every region
 		shared_ptr<Region> r = rs_iter.second;
 		bool has_split;
 		do {
+			CV_Assert(loop_num < 100);
 			has_split = false;
 			for (auto & el : r->edges)
 				if (el->type == REGION_EDGE_TILE_GRID) {
@@ -3184,21 +3241,28 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 						e_tile->connect_range = Rect(e_tile->pt1.x - BORDER_KEEP_ATOM * CCL_GRID_SIZE, org.y, (BORDER_KEEP_ATOM + 2) * CCL_GRID_SIZE, rows + 1);
 					if (e_tile->dir == DIR_DOWN)
 						e_tile->connect_range = Rect(org.x, e_tile->pt1.y - BORDER_KEEP_ATOM * CCL_GRID_SIZE, cols + 1, (BORDER_KEEP_ATOM + 2) * CCL_GRID_SIZE);
+					if (e_tile->pt1 == e_tile->pt2 && (e_tile->dir == DIR_RIGHT || e_tile->dir == DIR_DOWN))
+						if (e_tile->pt1.x > org.x + cols / 2 && e_tile->pt1.y > org.y + rows / 2)  { //right-down corner case, mostly it won't happen
+							qInfo("link tile meet right-down corner, x=%d, y=%d", e_tile->pt1.x, e_tile->pt1.y);
+							e_tile->connect_range = Rect(e_tile->pt1.x - BORDER_KEEP_ATOM * CCL_GRID_SIZE, e_tile->pt1.y - BORDER_KEEP_ATOM * CCL_GRID_SIZE,
+							BORDER_KEEP_ATOM * CCL_GRID_SIZE * 2, BORDER_KEEP_ATOM * CCL_GRID_SIZE * 2);
+						}
 
 #if 0
-					if (e_tile->pt1.x >= 51166 && e_tile->pt1.x <= 51170)
+					if (e_tile->pt1.y >= 11228 && e_tile->pt1.y <= 11234 && e_tile->pt1.x >= 65390 && e_tile->pt1.x <= 65536)
 						e_tile->pt1.y = e_tile->pt1.y * 2 - e_tile->pt1.y;
 #endif
-					if (e_tile->dir == DIR_LEFT && left_ets) {
-						CV_Assert(e_tile->pt1.y > e_tile->pt2.y);
+					if (e_tile->dir == DIR_LEFT && left_ets && e_tile->other.lock()!=endtile) {
+						CV_Assert(e_tile->pt1.y >= e_tile->pt2.y);
 						Range range(e_tile->pt2.y, e_tile->pt1.y);
+						
 						for (int ei = 0; ei < left_ets->size(); ei++) {
 							shared_ptr<RegionEdgeTile> e = left_ets->at(ei);
-							if (e->dir == DIR_RIGHT && e_tile->dir == DIR_LEFT && !(range & Range(e->pt1.y, e->pt2.y)).empty()) { 	
+							if (e->dir == DIR_RIGHT && (inside_range(e->pt1.y, range) || inside_range(e->pt2.y, range))) {
 								CV_Assert(e_tile->pt1.x == e->pt1.x + CCL_GRID_SIZE);
 								if (!e_tile->other.expired() || !e->other.expired()) { //mostly, it won't be run
 									shared_ptr<RegionEdgeTile> split_tile, pair_tile0, pair_tile1;
-									if (e_tile->other.lock() == e)
+									if (e_tile->other.lock() == e || e->other.lock() == endtile)
 										continue;
 									if (!e_tile->other.expired() && e->other.expired()) {//e_tile is not empty, split e_tile
 										split_tile = e_tile;
@@ -3223,7 +3287,8 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 										}
 									}
 
-									qInfo("splity tile x=%d,y=(%d,%d) to %d, %d", split_tile->pt1.x, split_tile->pt1.y, split_tile->pt2.y, pair_tile0->pt1.y, pair_tile1->pt2.y);
+									qInfo("splity tile rx=%d,x=%d,ry=(%d,%d),sy=(%d,%d) to p0=(%d,%d), p1=(%d,%d)", e_tile->pt1.x, split_tile->pt1.x, range.start, range.end,
+										split_tile->pt1.y, split_tile->pt2.y, pair_tile0->pt2.y, pair_tile0->pt1.y, pair_tile1->pt2.y, pair_tile1->pt1.y);
 									shared_ptr<RegionEdgeTile> replace_tile[3]; //use replace_tile to replace split_tile
 									for (int i = 0; i < 3; i++) {
 										replace_tile[i].reset(new RegionEdgeTile);
@@ -3249,6 +3314,7 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 									split_tile->unlink(split_tile); //delete split_tile
 									temp->link(replace_tile[0]); //replace with replace_tile 
 									has_split = true;
+									loop_num++;
 									if (split_tile == e) {
 										left_ets->erase(left_ets->begin() + ei);
 										for (int i = 0; i < 3; i++)
@@ -3264,16 +3330,16 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 						}
 					}
 					else
-						if (e_tile->dir == DIR_UP && up_ets) {
-							CV_Assert(e_tile->pt1.x < e_tile->pt2.x);
+						if (e_tile->dir == DIR_UP && up_ets && e_tile->other.lock() != endtile) {
+							CV_Assert(e_tile->pt1.x <= e_tile->pt2.x);
 							Range range(e_tile->pt1.x, e_tile->pt2.x);
 							for (int ei = 0; ei < up_ets->size(); ei++) {
 								shared_ptr<RegionEdgeTile> e = up_ets->at(ei);
-								if (e->dir == DIR_DOWN && e_tile->dir == DIR_UP && !(range & Range(e->pt2.x, e->pt1.x)).empty()) {
+								if (e->dir == DIR_DOWN && (inside_range(e->pt1.x, range) || inside_range(e->pt2.x, range))) {
 									CV_Assert(e_tile->pt1.y == e->pt1.y + CCL_GRID_SIZE);
 									if (!e_tile->other.expired() || !e->other.expired()) { //mostly, it won't be run
 										shared_ptr<RegionEdgeTile> split_tile, pair_tile0, pair_tile1;
-										if (e_tile->other.lock() == e)
+										if (e_tile->other.lock() == e || e->other.lock() == endtile)
 											continue;
 										if (!e_tile->other.expired() && e->other.expired()) {//e_tile is not empty, split e_tile
 											split_tile = e_tile;
@@ -3298,7 +3364,8 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 											}
 										}
 
-										qInfo("splitx tile y=%d,x=(%d,%d) to %d, %d", split_tile->pt1.y, split_tile->pt1.x, split_tile->pt2.x, pair_tile0->pt1.x, pair_tile1->pt2.x);
+										qInfo("splitx tile ry=%d,y=%d,rx=(%d,%d),sx=(%d,%d) to p0=(%d,%d), p1=(%d,%d)", e_tile->pt1.y, split_tile->pt1.y, range.start, range.end,
+											split_tile->pt1.x, split_tile->pt2.x, pair_tile0->pt1.x, pair_tile0->pt2.x, pair_tile1->pt1.x, pair_tile1->pt2.x);
 										shared_ptr<RegionEdgeTile> replace_tile[3]; //use replace_tile to replace split_tile
 										for (int i = 0; i < 3; i++) {
 											replace_tile[i].reset(new RegionEdgeTile);
@@ -3324,6 +3391,7 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 										split_tile->unlink(split_tile); //delete split_tile
 										temp->link(replace_tile[0]); //replace with replace_tile 
 										has_split = true;
+										loop_num++;
 										if (split_tile == e) {
 											up_ets->erase(up_ets->begin() + ei);
 											for (int i = 0; i < 3; i++)
@@ -3352,7 +3420,10 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 		for (int i = 0; i < (int)left_ets->size(); i++)
 			if (left_ets->at(i)->dir == DIR_RIGHT) {
 				if (left_ets->at(i)->other.expired() || left_ets->at(i)->other.lock() == endtile) {
-					qDebug("terminate left tile (%d,%d)", left_ets->at(i)->pt1.x, left_ets->at(i)->pt1.y);
+					if (left_ets->at(i)->pt1 == left_ets->at(i)->pt2)
+						qInfo("terminate corner tile (x=%d,y=%d)", left_ets->at(i)->pt1.x, left_ets->at(i)->pt1.y);
+					else
+						qDebug("terminate left tile (x=%d,y=%d) (%d,%d)", left_ets->at(i)->pt1.x, left_ets->at(i)->pt1.y, left_ets->at(i)->pt2.x, left_ets->at(i)->pt2.y);
 					left_ets->at(i)->other = endtile;
 					local_ets.push_back(left_ets->at(i)); //terminate left_ets right tile
 				}
@@ -3364,7 +3435,10 @@ void link_tile(RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > * left_
 		for (int i = 0; i < (int)up_ets->size(); i++)
 			if (up_ets->at(i)->dir == DIR_DOWN) {
 				if (up_ets->at(i)->other.expired() || up_ets->at(i)->other.lock() == endtile) {
-					qDebug("terminate up tile (%d,%d)", up_ets->at(i)->pt1.x, up_ets->at(i)->pt1.y);
+					if (up_ets->at(i)->pt1 == up_ets->at(i)->pt2)
+						qInfo("terminate corner tile (x=%d,y=%d)", up_ets->at(i)->pt1.x, up_ets->at(i)->pt1.y);
+					else
+						qDebug("terminate up tile (x=%d,y=%d) (%d,%d)", up_ets->at(i)->pt1.x, up_ets->at(i)->pt1.y, up_ets->at(i)->pt2.x, up_ets->at(i)->pt2.y);
 					up_ets->at(i)->other = endtile;
 					local_ets.push_back(up_ets->at(i)); //terminate up_ets down tile
 				}
@@ -3383,11 +3457,10 @@ Out global_out, global output edge set
 Out region_map, region occupy map
 Input org, left-up gloabl pixel location
 Input pre_region
-Input border
 Input gen_border, terminate right or bottom tile
 change atom edge to turn point edge
 */
-static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > & local_ets, RegionSet * global_rs, RegionSet * global_out, Mat & region_map, Point org, RegionID pre_region, int border, int gen_border)
+static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<shared_ptr<RegionEdgeTile> > & local_ets, RegionSet * global_rs, RegionSet * global_out, Mat & region_map, Point org, RegionID pre_region, int gen_border)
 {
 #define HAVE_CONNECT  1
 #define NEED_CONNECT  2
@@ -3424,10 +3497,18 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 					shared_ptr<RegionEdgeTile> e_tile = dynamic_pointer_cast<RegionEdgeTile>(e);
 					if (e_tile->other.expired() && (gen_border & 1 << e_tile->dir))
 						e_tile->other = endtile; //terminate local left, up, right, bottom tile
-					if (e_tile->other.lock() != endtile)
+					if (e_tile->other.lock() != endtile) {
 						local_tile_edges.insert(e); //maybe null or connected tile
-					else
-						local_atom_edges.insert(e); //add terminate tile to atom
+						if (!e_tile->other.expired()) { //if it is connected tile
+							shared_ptr<RegionEdge> ec = e_tile->other.lock()->prev.lock();
+							CV_Assert(ec != nullptr);
+							if (ec->type == REGION_EDGE_CONNECT)
+								local_atom_edges.insert(ec);
+						}
+					}
+					else 
+						local_atom_edges.insert(e); //add terminate tile to atom						
+					
 				}
 				else
 					CV_Assert(0);
@@ -3440,7 +3521,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 			finish = true;
 			for (auto & e1 : local_atom_edges) {
 				if (e1->type == REGION_EDGE_TILE_GRID) {
-					shared_ptr<RegionEdgeTile> e_tile = dynamic_pointer_cast<RegionEdgeTile>(e1);
+					shared_ptr<RegionEdgeTile> e_tile = dynamic_pointer_cast<RegionEdgeTile>(e1);					
 					shared_ptr<RegionEdge> pe = e_tile->prev.lock();
 					CV_Assert(pe != e_tile && e_tile->other.lock() == endtile);
 					Point pt1 = e_tile->pt1, pt2 = e_tile->pt2;
@@ -3449,15 +3530,18 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 						pt1.y = (pt1.y - org.y) / CCL_GRID_SIZE;
 						pt2.x = (pt2.x - org.x) / CCL_GRID_SIZE;
 						pt2.y = (pt2.y - org.y) / CCL_GRID_SIZE;
-					}
+					}					
 					shared_ptr<RegionEdgeAtom> e_atom(new RegionEdgeAtom());
 					e_atom->init();
-					get_line_pts(pt1, pt2, e_atom->pts);
+					if (e_tile->pt1 == e_tile->pt2) //mostly it won't happen
+						qInfo("Delete corner tile x=%d, y=%d", e_tile->pt1.x, e_tile->pt1.y);
+					else
+						get_line_pts(pt1, pt2, e_atom->pts);
 					e_atom->pts.push_back(pt2);
 					e_tile->unlink(e_tile);
 					local_atom_edges.erase(e_tile);
 					local_atom_edges.insert(e_atom); //replace e_tile with e_atom
-					pe->link(e_atom);
+					pe->link(e_atom);					
 					finish = false;
 					break;
 				}
@@ -3486,6 +3570,11 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 		int head_type = 0, tail_type = 0;
 		Rect head_connect_rect, tail_connect_rect;
 		edge_queue.push_back(eh);
+		if (eh->type == REGION_EDGE_CONNECT) { // it is up or left EdgeConnect
+			edge_queue.insert(edge_queue.begin(), eh);
+			head_type = HAVE_CONNECT;
+		}		
+		else
 		while (1) { //search tile
 			shared_ptr<RegionEdge> eh_prev = eh->prev.lock();
 			if (eh_prev == e_atom) {//circle back
@@ -3499,6 +3588,10 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 			}
 			if (eh_prev->type == REGION_EDGE_TILE_GRID) {
 				shared_ptr<RegionEdgeTile> tt = dynamic_pointer_cast<RegionEdgeTile> (eh_prev);	
+#if 0
+				if (tt->pt1.y >= 11228 && tt->pt1.y <= 11234 && tt->pt1.x >= 65390 && tt->pt1.x <= 65536)
+					tt->pt1.y = tt->pt1.y * 2 - tt->pt1.y;
+#endif
 				if (tt->other.expired()) { //right or bottom tile, need connect
 					head_type = NEED_CONNECT;
 					head_connect_rect = tt->connect_range;
@@ -3535,6 +3628,10 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				}
 				if (et_next->type == REGION_EDGE_TILE_GRID) {
 					shared_ptr<RegionEdgeTile> tt = dynamic_pointer_cast<RegionEdgeTile>(et_next);
+#if 0
+					if (tt->pt1.y >= 11228 && tt->pt1.y <= 11234 && tt->pt1.x >= 65390 && tt->pt1.x <= 65536)
+						tt->pt1.y = tt->pt1.y * 2 - tt->pt1.y;
+#endif
 					if (tt->other.expired()) { //right or bottom tile, need connect
 						tail_type = NEED_CONNECT;
 						tail_connect_rect = tt->connect_range;
@@ -3686,8 +3783,8 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				pts[i] = pts[i] * 2 - pts[i];
 #endif
 #if 0
-		if (pts[0] == Point(10, 497))
-			pts[0].x = 10;
+		if (pts[0] == Point(41, 95)  && pts.size() == 44)
+			pts[0].x = 41;
 #endif
 
 		if (head_type == HAVE_CONNECT) { //mark head connect region_map
@@ -4076,7 +4173,7 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 							vector<Point> pts0;
 							if (di.dot(di1) >= 0 && tp[i].dir != tpi1.dir) {
 								Point pis;
-								bool intersected = intersect_line(tp[i].p2, tp[i].dir, tpi1.p1, tpi1.dir, pis);
+								intersect_line(tp[i].p2, tp[i].dir, tpi1.p1, tpi1.dir, pis);
 								vector<Point> pts1, pts2;
 								if (i1cover <  tp[i].cover.end || //already cross, not need to check_region
 									di1.dot(pis) <= di1.dot(tpi1.p2) && di.dot(pis) >= di.dot(tp[i].p1) &&
@@ -4199,6 +4296,8 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 									}
 									for (int j = 3; j >= 0; j--) { //reduce distance and try
 										Point pp0 = Point((p0.x * j + tp[i].p2.x * (3 - j)) / 3, (p0.y * j + tp[i].p2.y * (3 - j)) / 3);
+										pp0.x = pp0.x / CCL_GRID_SIZE * CCL_GRID_SIZE;
+										pp0.y = pp0.y / CCL_GRID_SIZE * CCL_GRID_SIZE;
 										Point p1, p2;
 										vector<Point> pts1, pts2, pts3;
 										int d2 = (tpi1.dir <= 3) ? dir_2[tpi1.dir] : dir_2[tp[i].dir];
@@ -4494,6 +4593,10 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				head_connect_rect.y -= CCL_GRID_SIZE;
 				head_connect_rect.width += CCL_GRID_SIZE * 2;
 				head_connect_rect.height += CCL_GRID_SIZE * 2;
+#if 0
+				if (nc->pts[0].x >= 65504 && nc->pts[0].x <= 65520 && nc->pts[0].y >= 11230 && nc->pts[0].y <= 11234)
+					nc->pts[0].x = nc->pts[0].x * 2 - nc->pts[0].x;
+#endif
 				for (auto & pt : nc->pts) {
 					CV_Assert(head_connect_rect.contains(pt));
 				}
@@ -4528,6 +4631,10 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 				tail_connect_rect.y -= CCL_GRID_SIZE;
 				tail_connect_rect.width += CCL_GRID_SIZE * 2;
 				tail_connect_rect.height += CCL_GRID_SIZE * 2;
+#if 0
+				if (nc->pts[0].x >= 65504 && nc->pts[0].x <= 65520 && nc->pts[0].y >= 11230 && nc->pts[0].y <= 11234)
+					nc->pts[0].x = nc->pts[0].x * 2 - nc->pts[0].x;
+#endif
 				for (auto & pt : nc->pts) {
 					CV_Assert(tail_connect_rect.contains(pt));
 				}
@@ -4721,7 +4828,7 @@ static void post_process(Mat & c210, int wire_cut_len)
 
 ProcessImageData process_img(const ProcessImageData & pi)
 {
-	qInfo("process_img (x0=%d,y0=%d,%d, w=%d, h=%d)", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer, pi.cpd->raw_img.cols, pi.cpd->raw_img.rows);
+	qInfo("process_img x0=%d,y0=%d,l=%d, w=%d, h=%d", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer, pi.cpd->raw_img.cols, pi.cpd->raw_img.rows);
 
 	if (!pi.cpd->raw_img.empty()) {
 		Mat via_mark, empty;
@@ -4822,7 +4929,7 @@ ProcessImageData process_img(const ProcessImageData & pi)
 			o->p0 = o->p0 + tl;
 		}
 	}
-	qInfo("process_img (%d,%d,%d) finish, o=%d, r=%d", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer, pi.cpd->eo.size(), pi.cpd->rs.regions.size());
+	qInfo("process_img x0=%d,y0=%d,l=%d finish, o=%d, r=%d", pi.cpd->x0, pi.cpd->y0, pi.cpd->layer, pi.cpd->eo.size(), pi.cpd->rs.regions.size());
 	return pi;
 }
 
@@ -4893,14 +5000,14 @@ void get_region_result(vector<ElementObj *> & objs, RegionSet & global_out, int 
 	for (auto & rs_iter : global_out.regions) { //change global output to objs
 		shared_ptr<Region> r = rs_iter.second;
 		int out_border_num = 0;
-		while (!r->edges.empty()) {			
+		while (!r->edges.empty()) {
 			shared_ptr<RegionEdge> eh = *(r->edges.begin());
 			shared_ptr<RegionEdgeTurnPoint> et = dynamic_pointer_cast<RegionEdgeTurnPoint>(eh);
 			if (et == nullptr) {
 				qWarning("get_region_result RegionEdge id=%lld, type=%d", eh->region.lock()->region_id, eh->type);
 				r->edges.erase(eh);
 				continue;
-			}			
+			}
 			vector<Point> poly;
 			do { //connect all turn point edge	
 				CV_Assert(et->type == REGION_EDGE_TURN_POINT);
@@ -4912,35 +5019,69 @@ void get_region_result(vector<ElementObj *> & objs, RegionSet & global_out, int 
 					else
 						poly.insert(poly.end(), et->pts.begin(), et->pts.end());
 				shared_ptr<RegionEdgeTurnPoint> del_et = et;
-				et = dynamic_pointer_cast<RegionEdgeTurnPoint>(et->next.lock());				
+				et = dynamic_pointer_cast<RegionEdgeTurnPoint>(et->next.lock());
 				r->edges.erase(del_et);
 				if (et == nullptr) {
 					qCritical("get_region_result wrong edge");
 					break;
 				}
 			} while (et != eh);
+			for (int i = 1; i + 1 < (int)poly.size(); i++) { //check if it is inner border or outter border
+				int d0 = get_pts_dir(poly[i - 1], poly[i]);
+				int d1 = get_pts_dir(poly[i], poly[i + 1]);
+				if (d0 == -2 || d1 == -2) { //erase same
+					poly.erase(poly.begin() + i);
+					i--;
+					continue;
+				}
+				if (d0 < 0)
+					qCritical("Wrong Poly %d x0=%d,y0=%d, x1=%d,y1=%d", i - 1, poly[i - 1].x, poly[i - 1].y, poly[i].x, poly[i].y);
+				if (d1 < 0)
+					qCritical("Wrong Poly %d x0=%d,y0=%d, x1=%d,y1=%d", i, poly[i].x, poly[i].y, poly[i + 1].x, poly[i + 1].y);
+				if (d0 < 0 || d1 < 0) {
+					char * msg = (char*) malloc(100000);
+					int idx = 0;
+					for (int j = 0; j < (int)poly.size(); j++)
+						idx += sprintf_s(msg + idx, 20, "%d,%d ", poly[j].x, poly[j].y);
+					qCritical(msg);
+					free(msg);
+					CV_Assert(0);
+				}
+				
+				if (d0 == d1 || d0 == dir_1[d1]) { //erase point in same line
+					poly.erase(poly.begin() + i);
+					i--;
+					continue;
+				}
+			}
 			if (poly.size() <= 2) {
 				if (r->edges.empty() && out_border_num == 0)
 					out_border_num = 1;
 				continue;
 			}
-			for (int i = 1; i + 1 < (int)poly.size(); i++) { //check if it is inner border or outter border
-				int d0 = get_pts_dir(poly[i - 1], poly[i]);
-				int d1 = get_pts_dir(poly[i], poly[i + 1]);
-				CV_Assert(d0 >= 0 && d1 >= 0);
-				if (d0 == d1 || d0 == dir_1[d1]) { //erase point in same line
-					poly.erase(poly.begin() + i);
-					i--;
-					continue;
-				}				
-			}
+			if (poly[poly.size() - 2] == poly.back())
+				poly.pop_back();
 			if (poly[0] == poly.back())
 				poly.pop_back();
 			int deg = 0; //> 0, clockwise, < 0 anti-clock
-			for (int i = 0; i < (int)poly.size(); i++) {
-				int d0 = (i != 0) ? get_pts_dir(poly[i - 1], poly[i]) : get_pts_dir(poly.back(), poly[0]);
-				int d1 = (i + 1 < (int)poly.size()) ? get_pts_dir(poly[i], poly[i + 1]) : get_pts_dir(poly.back(), poly[0]);
-				CV_Assert(d0 >= 0 && d1 >= 0);
+			for (int i = 0; i < (int)poly.size(); i++) {		
+				Point p_1 = (i != 0) ? poly[i - 1] : poly.back();
+				Point p1 = (i + 1 < (int)poly.size()) ? poly[i + 1] : poly[0];
+				int d0 = get_pts_dir(p_1, poly[i]);
+				int d1 = get_pts_dir(poly[i], p1);
+				if (d0 < 0)
+					qCritical("Wrong Poly0 %d, x0=%d,y0=%d, x1=%d,y1=%d", i, p_1.x, p_1.y, poly[i].x, poly[i].y);
+				if (d1 < 0)
+					qCritical("Wrong Poly1 %d, x0=%d,y0=%d, x1=%d,y1=%d", i, poly[i].x, poly[i].y, p1.x, p1.y);
+				if (d0 < 0 || d1 < 0) {
+					char * msg = (char*)malloc(100000);
+					int idx = 0;
+					for (int j = 0; j < (int)poly.size(); j++)
+						idx += sprintf_s(msg + idx, 20, "%d,%d ", poly[j].x, poly[j].y);
+					qCritical(msg);
+					free(msg);
+					CV_Assert(0);
+				}
 				deg += dir_deg[d0][d1];
 			}
 			if (deg > 0) //deg > 0, it is outter border
@@ -4971,6 +5112,57 @@ void get_region_result(vector<ElementObj *> & objs, RegionSet & global_out, int 
 	}
 }
 
+void dump_release_rs(RegionSet & rs)
+{
+	for (auto & rs_iter : rs.regions) {
+		char text[300];
+		shared_ptr<Region> r = rs_iter.second;
+		qInfo("dump Region id=%lld, %lld", rs_iter.first, r->region_id);
+		int edge_loop = 0;
+		while (!r->edges.empty()) {
+			qInfo("Edge loop %d", edge_loop++);
+			shared_ptr<RegionEdge> eh = * (r->edges.begin());
+			shared_ptr<RegionEdge> e = eh;
+			do {
+				switch (e->type) {
+				case REGION_EDGE_ATOM_GRID:
+				{
+					shared_ptr<RegionEdgeAtom> ea = dynamic_pointer_cast<RegionEdgeAtom>(e);
+					sprintf(text, "AtomEdge, g=%d len=%d, xb=%d yb=%d,  xm=%d ym=%d,  xe=%d ye=%d", (int)ea->is_global, (int)ea->pts.size(), ea->pts[0].x, ea->pts[0].y,
+						ea->pts[ea->pts.size() / 2].x, ea->pts[ea->pts.size() / 2].y, ea->pts.back().x, ea->pts.back().y);
+					break;
+				}
+				case REGION_EDGE_TILE_GRID:
+				{
+					shared_ptr<RegionEdgeTile> et = dynamic_pointer_cast<RegionEdgeTile>(e);
+					int o = et->other.expired() ? 0 : (et->other.lock() == endtile) ? 0xe : 1;
+					sprintf(text, "TileEdge, g=%d o=%x dir=%d, x1=%d y1=%d,  x2=%d y2=%d", (int)et->is_global, o, et->dir, et->pt1.x, et->pt1.y, et->pt2.x, et->pt2.y);
+					break;
+				}
+				case REGION_EDGE_TURN_POINT:
+				{
+					shared_ptr<RegionEdgeTurnPoint> etp = dynamic_pointer_cast<RegionEdgeTurnPoint>(e);
+					sprintf(text, "TPEdge, len=%d, xb=%d yb=%d,  xm=%d ym=%d,  xe=%d ye=%d", (int)etp->pts.size(), etp->pts[0].x, etp->pts[0].y,
+						etp->pts[etp->pts.size() / 2].x, etp->pts[etp->pts.size() / 2].y, etp->pts.back().x, etp->pts.back().y);
+					break;
+				}
+				case REGION_EDGE_CONNECT:
+				{
+					shared_ptr<RegionEdgeConnect> ec = dynamic_pointer_cast<RegionEdgeConnect>(e);
+					sprintf(text, "ConnectEdge, len=%d sdir=%d, xb=%d yb=%d, xe=%d ye=%d", (int)ec->pts.size(), ec->start_dir, 
+						ec->pts[0].x, ec->pts[0].y, ec->pts.back().x, ec->pts.back().y);
+					break;
+				}
+				}
+				qInfo(text);
+				shared_ptr<RegionEdge> del_edge = e;
+				e = e->next.lock();
+				r->edges.erase(del_edge);
+			} while (e != eh);			
+		}
+	}
+}
+
 void merge_img_result(vector<ElementObj *> & objs, const ProcessImageData & t)
 {
 	Mat region_map;
@@ -4979,7 +5171,7 @@ void merge_img_result(vector<ElementObj *> & objs, const ProcessImageData & t)
 	qInfo("merge_img_result x=%d, y=%d, org=(%d,%d)", t.cpd->x0, t.cpd->y0, org.x, org.y);
 	link_tile(t.cpd->rs, (t.lpd ? &t.lpd->ets : NULL), (t.upd ? &t.upd->ets : NULL), t.cpd->ets, org, t.cpd->cgrid.rows * CCL_GRID_SIZE, t.cpd->cgrid.cols * CCL_GRID_SIZE);
 	process_atom_edge(t.cpd->cgrid, t.cpd->rs, t.cpd->ets, t.global_rs, &global_out, region_map,
-		org, (t.cpd->y0 << 16) + t.cpd->x0 + 0x10001, t.border_size / CCL_GRID_SIZE, DIR_UP1_MASK | DIR_LEFT1_MASK | t.cpd->end_tile_mask);
+		org, (t.cpd->y0 << 16) + t.cpd->x0 + 0x10001, DIR_UP1_MASK | DIR_LEFT1_MASK | t.cpd->end_tile_mask);
 	if (t.cpd->edge_mark_debug5)
 		draw_ccl(region_map, t.cpd->edge_mark_debug5[0], Point(t.border_size, t.border_size));
 	if (t.cpd->edge_mark_debug6) {
@@ -5376,7 +5568,7 @@ int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj
 								via_diameter_min, via_diameter_max, label, NULL);
 							if (ret) {
 								m.p0 = QPoint(c.x * scale, c.y * scale);
-								m.p1 = QPoint(range.x, range.y);
+								m.p1 = QPoint(range.x * scale, range.y * scale);
 							}
 							else
 								m.p1 = QPoint(0, 0);
@@ -5384,7 +5576,7 @@ int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj
 					}
 					if (m.type2 == POINT_WIRE_INSU || m.type2 == POINT_WIRE || m.type2 == POINT_INSU ||
 						m.type2 == POINT_WIRE_INSU_V || m.type2 == POINT_WIRE_V || m.type2 == POINT_INSU_V) {
-						Point range = Point(2, 2);
+						Point range = Point(3, 3);
 						int label = EDGE_FEATURE;
 						label |= (m.type2 == POINT_WIRE_INSU_V) ? EDGE_IS_WIRE_INSU | EDGE_NEAR_VIA :
 							(m.type2 == POINT_WIRE_V) ? EDGE_IS_WIRE | EDGE_NEAR_VIA :
@@ -5395,13 +5587,13 @@ int VWExtractML::train(vector<ICLayerWrInterface *> & ics, vector<MarkObj> & obj
 						Point loc(PREPARE_IMG_RADIUS, PREPARE_IMG_RADIUS);
 						Mat img = prepare_raw_img(ics[current_layer], 0,
 							QRect((c - loc).x, (c - loc).y, PREPARE_IMG_RADIUS * 2 + 1, PREPARE_IMG_RADIUS * 2 + 1));
-						qInfo("Add wire feature (%d,%d)", c.x, c.y);
+						qInfo("Add wire feature (%d,%d) type=%d", c.x, c.y, m.type2);
 
 						bool ret = vwf[current_layer].add_feature(img, loc, c, range,
 							via_diameter_min, via_diameter_max, label, NULL);
 						if (ret) { //add success
-							m.p0 = QPoint(loc.x, loc.y); //return location
-							m.p1 = QPoint(range.x, range.y); //return diameter
+							m.p0 = QPoint(c.x * scale, c.y * scale); //return location
+							m.p1 = QPoint(range.x * scale, range.y * scale); //return diameter
 						}
 						else
 							m.p1 = QPoint(0, 0); //add fail
@@ -5434,7 +5626,6 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 {
 	QDir *qdir = new QDir;
 	FILE * fresult;
-	fresult = fopen("result.txt", "w");
 	deldir("./DImg");
 	bool exist = qdir->exists("./DImg");
 	if (!exist) {
@@ -5444,18 +5635,26 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 	}
 	delete qdir;
 	int BORDER_SIZE = 6;
+	string project_path;
 	for (int current_layer = layer_min; current_layer <= layer_max; current_layer++) {
 		if (current_layer >= (int)vwf.size())
 			vwf.resize(current_layer + 1);
 		string img_name = ics[current_layer]->get_file_name();
 		int loc = (int)img_name.find_last_of("\\/");
-		string project_path = img_name.substr(0, loc);
+		project_path = img_name.substr(0, loc);
 		vwf[current_layer].read_file(project_path, current_layer);
 		BORDER_SIZE = max(BORDER_SIZE, vwf[current_layer].get_max_d());
 	}
 	BORDER_SIZE += 8;
 	BORDER_SIZE = max(BORDER_SIZE, BORDER_KEEP_ATOM * CCL_GRID_SIZE + CCL_GRID_SIZE);
 	BORDER_SIZE = (BORDER_SIZE + 2) / 4 * 4;
+
+	string result_filename = project_path + "/WorkData/result.txt";
+	fresult = fopen(result_filename.c_str(), "w");
+	if (fresult == NULL) {
+		qCritical("failed to open result file %s", result_filename.c_str());
+		return -1;
+	}
 
 	vector<SearchAreaPoly> area_;
 	QPolygon area_poly;
@@ -5565,6 +5764,7 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 			int by = sr.bottom() - ((sb.bottom() + 1) << 15);
 			int cl = 1;
 			int cl_num;
+			int process_num = 0;
 			QPoint sr_tl_pixel = sr.topLeft() / scale;
 			qInfo("extract Rect, lt=(%d,%d), rb=(%d,%d), multithread=%d", sr_tl_pixel.x(), sr_tl_pixel.y(), sr.right() / scale, sr.bottom() / scale, parallel_search);
 			for (int xay = sb.left() + sb.top(); xay <= sb.right() + sb.bottom(); xay++) {
@@ -5815,20 +6015,53 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 				vector<ElementObj *> es;
 				process_imgs(pis, es, parallel_search);
 				save_obj_to_file(es, fresult);
+				if (notify) {
+					process_num += pis.size();
+					MarkObj o;
+					o.type = OBJ_PARA;
+					o.type2 = PARA_PROGRESS;
+					o.prob = (float)process_num / (sb.width() * sb.height());
+					o.prob = min(o.prob, 0.99f);
+					notify(notify_para0, &o);
+				}
 			} //end for( xay = sb.left() + sb.top()
 			vector<ElementObj *> es;
 			for (int l = layer_min; l <= layer_max; l++) {
+				RegionSet global_out;
+				vector<shared_ptr<Region> > vec_rs;
+				for (auto rs_iter : global_rs[l].regions)
+					vec_rs.push_back(rs_iter.second);
+				for (auto r : vec_rs) {
+					if (r == nullptr)
+						continue;
+					if (r->edges.empty()) {
+						global_rs[l].regions.erase(r->region_id);
+						continue;
+					}
+					if (r->only_has_tp()) { //output
+						global_out.regions[r->region_id] = r;
+						global_rs[l].regions.erase(r->region_id); //erase it from global_rs
+					}
+				}
+				qInfo("get final result, l=%d, left region=%d", l, global_rs[l].regions.size());
 				get_result(&diag_line[cl][l][0], es);
-				get_region_result(es, global_rs[l], l);
+				get_region_result(es, global_out, l);
+				dump_release_rs(global_rs[l]);
 				global_rs[l].regions.clear();
 			}
 			save_obj_to_file(es, fresult);
 		}
 	}
-	
 	qInfo("VWExtractML Extract finished, left ga=%d, gt=%d, gc=%d, gp=%d, gr=%d", RegionEdge::global_atoms,
 		RegionEdge::global_tiles, RegionEdge::global_connects, RegionEdge::global_tps, Region::global_region_cnt);
 	fclose(fresult);
+	if (notify) {
+		MarkObj o;
+		o.type = OBJ_PARA;
+		o.type2 = PARA_PROGRESS;
+		o.prob = 1;
+		notify(notify_para0, &o);
+	}
 	qDebug("*#*#DumpMessage#*#*");
 	return 0;
 }

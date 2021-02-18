@@ -527,12 +527,12 @@ void test_ml_extract()
 	}
 	QScopedPointer<VWExtract> vwe(VWExtract::create_extract(2));
 	vector<MarkObj> objs;
-	vwe->set_extract_param(0, POINT_WIRE_INSU << 8 | OBJ_POINT, 0x050503, 0, 0, 0, 0, 0, 0, 0);
+	vwe->set_extract_param(1, POINT_WIRE_INSU << 8 | OBJ_POINT, 0x050503, 0, 0, 0, 0, 0, 0, 0);
 	vector<SearchArea> areas;
-	//areas.push_back(SearchArea(QRect(100000, 100000, 2500000, 1800000), 1));	
-	//areas.push_back(SearchArea(QRect(1500000, 1800000, 160000, 130000), 1));
-	//areas.push_back(SearchArea(QRect(1560000, 1830000, 100000, 100000), 1));
-	areas.push_back(SearchArea(QRect(1570000, 1850000, 90000, 90000), 0));
+	areas.push_back(SearchArea(QRect(90000, 100000, 2700000, 2000000), 1));	
+	//areas.push_back(SearchArea(QRect(100000, 100000, 900000, 900000), 1));
+	//areas.push_back(SearchArea(QRect(2070000, 320000, 60000, 60000), 0));
+	//areas.push_back(SearchArea(QRect(1568000, 1850000, 150000, 120000), 0));
 	//QPoint tl(135680, 19968), rb(597505, 517121);
 	//QPoint tl(135680, 369968), rb(397505, 517121);
 	/*areas.push_back(SearchArea(QRect(128000, 128000, 256000, 128000), OPT_POLYGON_SEARCH));

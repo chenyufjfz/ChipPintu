@@ -2600,6 +2600,7 @@ bool VWfeature::add_feature(const Mat & img, Point local, Point & global, Point 
 		if (!ret)
 			return false;
 		global1 = global + local1 - local;
+		range = global + range - local;
 		del_feature(global1, 2);
 		for (int i = 0; i < features.size(); i++) {
 			edge_locs.push_back(global1);

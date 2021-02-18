@@ -70,7 +70,8 @@ enum {
 enum {
     PARA_LINE_WIDTH,
     PARA_VIA_RADIUS,
-	PARA_EXTRACT_RULE
+	PARA_EXTRACT_RULE,
+	PARA_PROGRESS
 };
 
 #define POWER_UP_L      1

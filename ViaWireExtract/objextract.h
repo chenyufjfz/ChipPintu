@@ -20,7 +20,14 @@ struct SearchArea {
 };
 
 class ObjExtract {
+protected:
+	void * notify_para0;
+	void(*notify)(void *, MarkObj * o);
 public:
+	void register_callback(void * p0, void(*_notify)(void *, MarkObj * o)) {
+		notify_para0 = p0;
+		notify = _notify;
+	}
 	virtual int set_train_param(int, int, int, int, int, int, int, int, int, float) = 0;
     virtual int set_extract_param(int, int, int, int, int, int, int, int, int, float) = 0;
     virtual int train(std::string file_name, std::vector<MarkObj> & obj_sets) = 0;
@@ -36,6 +43,9 @@ public:
 	virtual cv::Mat get_mark5(int) = 0;
 	virtual cv::Mat get_mark6(int) = 0;
 	virtual cv::Mat get_mark7(int) = 0;
+	ObjExtract() {
+		notify = NULL;
+	}
     virtual ~ObjExtract() {
 
     }
