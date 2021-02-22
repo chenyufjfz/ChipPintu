@@ -687,14 +687,14 @@ void save_rst_to_file(const vector<MarkObj> & obj_sets, int scale, FILE * fp)
 				if (t2 == LINE_POLYGON || t2 == LINE_POLYGON_END || t2 == LINE_POLYGON_START) {
 					switch (t2) {
 					case LINE_POLYGON_START:
-						poly_str_idx = sprintf_s(poly_str, 100, "polygon,l=%d,%d %d,", obj_sets[i].type3, obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale);
+                        poly_str_idx = qsnprintf(poly_str, 100, "polygon,l=%d,%d %d,", obj_sets[i].type3, obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale);
 						break;
 					case LINE_POLYGON:
 						if (poly_str_idx > 200) {
 							fprintf(fp, "%s\\\n", poly_str);
 							poly_str_idx = 0;
 						}
-						poly_str_idx += sprintf_s(poly_str + poly_str_idx, 100, "%d %d,", obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale);
+                        poly_str_idx += qsnprintf(poly_str + poly_str_idx, 100, "%d %d,", obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale);
 						break;
 					case LINE_POLYGON_END:
 						fprintf(fp, "%s%d %d,end\n", poly_str, obj_sets[i].p0.x() / scale, obj_sets[i].p0.y() / scale);
@@ -731,14 +731,14 @@ void save_obj_to_file(const vector<ElementObj *> obj_sets, FILE * fp)
 					if (t2 == LINE_POLYGON || t2 == LINE_POLYGON_END || t2 == LINE_POLYGON_START) {
 						switch (t2) {
 						case LINE_POLYGON_START:
-							poly_str_idx = sprintf_s(poly_str, 100, "polygon,id=%lld s=%d l=%d,%d %d,", obj_sets[i]->un.attach, obj_sets[i]->state, obj_sets[i]->type3, obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
+                            poly_str_idx = qsnprintf(poly_str, 100, "polygon,id=%lld s=%d l=%d,%d %d,", obj_sets[i]->un.attach, obj_sets[i]->state, obj_sets[i]->type3, obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
 							break;
 						case LINE_POLYGON:
 							if (poly_str_idx > 200) {
 								fprintf(fp, "%s\\\n", poly_str);
 								poly_str_idx = 0;
 							}
-							poly_str_idx += sprintf_s(poly_str + poly_str_idx, 100, "%d %d,", obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
+                            poly_str_idx += qsnprintf(poly_str + poly_str_idx, 100, "%d %d,", obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
 							break;
 						case LINE_POLYGON_END:
 							fprintf(fp, "%s%d %d,end\n", poly_str, obj_sets[i]->p0.x(), obj_sets[i]->p0.y());
