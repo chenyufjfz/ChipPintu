@@ -1425,7 +1425,7 @@ void EdgeFeatureML::get_feature_vector(const Mat & img, const Mat &grad, Point o
 			dir = (g2 > 0) ? DIR_UPRIGHT : DIR_DOWNLEFT;
 	}
 	//compute insu gray
-	uchar dark[4]; //all 4 is insu, 
+	uchar dark[DARK_NUM]; //all 4 is insu, 
 	e[0] = 0; //e[0] is sum of 3 low dark
 	uchar max_dark = 0; //most bright insu,
 	uchar min_dark = 255; //most dark insu
@@ -2085,6 +2085,7 @@ int ViaML::compute_feature(const Mat & img, const Mat & lg, const Mat & grad, in
 	for (auto o : loc) {
 		int best_score = score_min;
 		Mat feature(FEATURE_ROW, 8, CV_32S);
+		feature = Scalar::all(0);
 		for (int dir = 0; dir < 5; dir++) {
 			Point org = o;
 			if (dir < 4) {

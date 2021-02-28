@@ -2738,6 +2738,11 @@ Add mask 1,2,3
 void expand_ccl(const Mat & ccl_in, Mat & ccl_out)
 {
 	Mat ccl_expand = ccl_in.clone();
+	/* change 
+	    1			1
+	  1 0 x  to	  1 1 x
+		x			x
+	*/
 	for (int y = 0; y < ccl_in.rows; y++) {
 		const unsigned * p_cclin = ccl_in.ptr<unsigned>(y);
 		const unsigned * p_cclin_1 = y > 0 ? ccl_in.ptr<unsigned>(y - 1) : NULL;
@@ -2842,6 +2847,168 @@ void expand_ccl(const Mat & ccl_in, Mat & ccl_out)
 		}
 	}
 
+	/* Remove
+	1 2   and	2 1    c1 c3
+	2 1			1 2    c4 c2
+	*/
+	bool need_erode = false;
+	for (int y = 1; y < ccl.rows - 2; y++) {
+		unsigned * p_ccl_1 = ccl.ptr<unsigned>(y - 1);
+		unsigned * p_ccl = ccl.ptr<unsigned>(y);
+		unsigned * p_ccl1 = ccl.ptr<unsigned>(y + 1);
+		unsigned * p_ccl2 = ccl.ptr<unsigned>(y + 2);
+		for (int x = 1; x < ccl.cols - 1; x++)
+		if (p_ccl[x] != CCL_INSU_REGION) {
+			unsigned r = p_ccl[x] & CCL_REGION_MASK;
+			if (p_ccl[x] == (r | CCL_EDGE_MASK1) && p_ccl[x + 1] == (r | CCL_EDGE_MASK2) && p_ccl1[x] == (r | CCL_EDGE_MASK2) && p_ccl1[x + 1] == (r | CCL_EDGE_MASK1)) {
+				int c3 = 0, c4 = 0, min_c;	// 1 2  c1 c3
+											// 2 1  c4 c2
+				if ((p_ccl_1[x + 1] & CCL_REGION_MASK) != r || (p_ccl[x + 2] & CCL_REGION_MASK) != r)
+					c3 += 10000;
+				if (p_ccl_1[x + 1] == (r | CCL_EDGE_MASK3))
+					c3++;
+				if (p_ccl[x + 2] == (r | CCL_EDGE_MASK3))
+					c3++;
+				if ((p_ccl1[x - 1] & CCL_REGION_MASK) != r || (p_ccl2[x] & CCL_REGION_MASK) != r)
+					c4 += 10000;
+				if (p_ccl1[x - 1] == (r | CCL_EDGE_MASK3))
+					c4++;
+				if (p_ccl2[x] == (r | CCL_EDGE_MASK3))
+					c4++;
+				min_c = min(c3, c4);
+				if (min_c > 100) {
+					need_erode = true;
+					continue;
+				}
+				if (c3 == min_c) {
+					p_ccl[x + 1] = (r | CCL_EDGE_MASK1); // 2 -> 1
+					if (p_ccl_1[x + 1] == (r | CCL_EDGE_MASK3))
+						p_ccl_1[x + 1] = (r | CCL_EDGE_MASK2); //3 -> 2
+					if (p_ccl[x + 2] == (r | CCL_EDGE_MASK3))
+						p_ccl[x + 2] = (r | CCL_EDGE_MASK2); //3 -> 2
+				}
+				else
+					if (c4 == min_c) {
+						p_ccl1[x] = (r | CCL_EDGE_MASK1); // 2 -> 1
+						if (p_ccl1[x - 1] == (r | CCL_EDGE_MASK3))
+							p_ccl1[x - 1] = (r | CCL_EDGE_MASK2); // 3 -> 2
+						if (p_ccl2[x] == (r | CCL_EDGE_MASK3))
+							p_ccl2[x] = (r | CCL_EDGE_MASK2); // 3 -> 2
+					}
+				y = max(0, y - 2);
+				break;
+			}
+			if (p_ccl[x] == (r | CCL_EDGE_MASK2) && p_ccl[x + 1] == (r | CCL_EDGE_MASK1) && p_ccl1[x] == (r | CCL_EDGE_MASK1) && p_ccl1[x + 1] == (r | CCL_EDGE_MASK2)) {
+				int c1 = 0, c2 = 0, min_c;	//2 1 c1 c3
+											//1 2 c4 c2
+				if ((p_ccl_1[x] & CCL_REGION_MASK) != r || (p_ccl[x - 1] & CCL_REGION_MASK) != r)
+					c1 += 10000;
+				if (p_ccl_1[x] == (r | CCL_EDGE_MASK3))
+					c1++;
+				if (p_ccl[x - 1] == (r | CCL_EDGE_MASK3))
+					c1++;
+				if ((p_ccl1[x + 2] & CCL_REGION_MASK) != r || (p_ccl2[x + 1] & CCL_REGION_MASK) != r)
+					c2 += 10000;
+				if (p_ccl1[x + 2] == (r | CCL_EDGE_MASK3))
+					c2++;
+				if (p_ccl2[x + 1] == (r | CCL_EDGE_MASK3))
+					c2++;
+				min_c = min(c1, c2);
+				if (min_c > 100) {
+					need_erode = true;
+					continue;
+				}
+				if (c1 == min_c) {
+					p_ccl[x] = r | CCL_EDGE_MASK1;  //2 -> 1
+					if (p_ccl_1[x] == (r | CCL_EDGE_MASK3))
+						p_ccl_1[x] = r | CCL_EDGE_MASK2;  //3 -> 2
+					if (p_ccl[x - 1] == (r | CCL_EDGE_MASK3))
+						p_ccl[x - 1] = r | CCL_EDGE_MASK2; // 3-> 2
+				}
+				else
+					if (c2 == min_c) {
+						p_ccl1[x + 1] = r | CCL_EDGE_MASK1;  //2 -> 1
+						if (p_ccl1[x + 2] == (r | CCL_EDGE_MASK3))
+							p_ccl1[x + 2] = r | CCL_EDGE_MASK2; // 3-> 2
+						if (p_ccl2[x + 1] == (r | CCL_EDGE_MASK3))
+							p_ccl2[x + 1] = r | CCL_EDGE_MASK2; // 3-> 2
+					}	
+				y = max(0, y - 2);
+				break;
+			}
+		}
+	}
+
+	if (need_erode)
+	for (int y = 1; y < ccl.rows - 2; y++) {
+		unsigned * p_ccl_1 = ccl.ptr<unsigned>(y - 1);
+		unsigned * p_ccl = ccl.ptr<unsigned>(y);
+		unsigned * p_ccl1 = ccl.ptr<unsigned>(y + 1);
+		unsigned * p_ccl2 = ccl.ptr<unsigned>(y + 2);
+		for (int x = 1; x < ccl.cols - 1; x++)
+			if (p_ccl[x] != CCL_INSU_REGION) {
+				unsigned r = p_ccl[x] & CCL_REGION_MASK;
+				if (p_ccl[x] == (r | CCL_EDGE_MASK1) && p_ccl[x + 1] == (r | CCL_EDGE_MASK2) && p_ccl1[x] == (r | CCL_EDGE_MASK2) && p_ccl1[x + 1] == (r | CCL_EDGE_MASK1)) {
+					int c1 = 0, c2 = 0, min_c;	// 1 2  c1 c3
+					// 2 1  c4 c2
+					if (p_ccl_1[x] == (r | CCL_EDGE_MASK0))
+						c1++;
+					if (p_ccl[x - 1] == (r | CCL_EDGE_MASK0))
+						c1++;
+					if (p_ccl1[x + 2] == (r | CCL_EDGE_MASK0))
+						c2++;
+					if (p_ccl2[x + 1] == (r | CCL_EDGE_MASK0))
+						c2++;
+					min_c = min(c1, c2);
+					if (c1 == min_c) {
+						p_ccl[x] = (r | CCL_EDGE_MASK2); // 1 -> 2
+						if (p_ccl_1[x] == (r | CCL_EDGE_MASK0))
+							p_ccl_1[x] = (r | CCL_EDGE_MASK1); // 0 -> 1
+						if (p_ccl[x - 1] == (r | CCL_EDGE_MASK0))
+							p_ccl[x - 1] = (r | CCL_EDGE_MASK1); // 0 -> 1
+					}
+					else {
+						p_ccl1[x + 1] = (r | CCL_EDGE_MASK2); //1 -> 2
+						if (p_ccl1[x + 2] == (r | CCL_EDGE_MASK0))
+							p_ccl1[x + 2] = (r | CCL_EDGE_MASK1); // 0 -> 1
+						if (p_ccl2[x + 1] == (r | CCL_EDGE_MASK0))
+							p_ccl2[x + 1] = (r | CCL_EDGE_MASK1); // 0 -> 1
+					}
+					y = max(0, y - 2);
+					break;
+				}
+				if (p_ccl[x] == (r | CCL_EDGE_MASK2) && p_ccl[x + 1] == (r | CCL_EDGE_MASK1) && p_ccl1[x] == (r | CCL_EDGE_MASK1) && p_ccl1[x + 1] == (r | CCL_EDGE_MASK2)) {
+					int c3 = 0, c4 = 0, min_c;	//2 1 c1 c3
+					//1 2 c4 c2
+					if (p_ccl_1[x + 1] == (r | CCL_EDGE_MASK0))
+						c3++;
+					if (p_ccl[x + 2] == (r | CCL_EDGE_MASK0))
+						c3++;
+					if (p_ccl1[x - 1] == (r | CCL_EDGE_MASK0))
+						c4++;
+					if (p_ccl2[x] == (r | CCL_EDGE_MASK0))
+						c4++;
+					min_c = min(c3, c4);
+					if (c3 == min_c) {
+						p_ccl[x + 1] = r | CCL_EDGE_MASK2;  //1 -> 2
+						if (p_ccl_1[x + 1] == (r | CCL_EDGE_MASK0))
+							p_ccl_1[x + 1] = r | CCL_EDGE_MASK1; //0 -> 1
+						if (p_ccl[x + 2] == (r | CCL_EDGE_MASK0))
+							p_ccl[x + 2] = r | CCL_EDGE_MASK1; //0 -> 1
+					}
+					else {
+						p_ccl1[x] = r | CCL_EDGE_MASK2;  //1 -> 2
+						if (p_ccl1[x - 1] == (r | CCL_EDGE_MASK0))
+							p_ccl1[x - 1] = r | CCL_EDGE_MASK1; //0 -> 1
+						if (p_ccl2[x] == (r | CCL_EDGE_MASK0))
+							p_ccl2[x] = r | CCL_EDGE_MASK1; //0 -> 1
+					}
+					y = max(0, y - 2);
+					break;
+				}
+			}
+	}
+
 #if SELF_CHECK_MASK & 1
 	for (int y = 0; y < ccl.rows; y++) {
 		unsigned * p_ccl = ccl.ptr<unsigned>(y);
@@ -2865,7 +3032,7 @@ void expand_ccl(const Mat & ccl_in, Mat & ccl_out)
 							check = false;
 						break;
 					case CCL_EDGE_MASK2:
-						if ((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK0) //2 can only near 1,3
+						if ((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK0) //2 can only near 1,2,3
 							check = false;
 					}
 				}
@@ -2887,6 +3054,58 @@ void expand_ccl(const Mat & ccl_in, Mat & ccl_out)
 #endif
 
 	ccl_out = ccl;
+}
+
+void dump_visit(const Mat & ccl, const Mat & visit, Point cur, Point org, unsigned region_id)
+{	
+	qInfo("cur=%d %d, org=%d %d, r=%d", cur.x, cur.y, org.x, org.y, region_id);
+	vector<Point> wrong_pos;
+	for (int y = 1; y < visit.rows - 1; y++) {
+		const uchar * pv = visit.ptr<uchar>(y);
+		const uchar * pv1 = visit.ptr<uchar>(y + 1);
+		const uchar * pv_1 = visit.ptr<uchar>(y - 1);		
+		for (int x = 1; x < visit.cols - 1; x++) 
+		if (pv[x] >= 5) {
+			if (pv[x - 1] >0 && pv[x - 1] <= 3 || pv[x + 1] > 0 && pv[x + 1] <= 3 ||
+				pv1[x - 1] > 0 && pv1[x - 1] <= 3 || pv1[x] > 0 && pv1[x] <= 3 || pv1[x + 1] > 0 && pv1[x + 1] <= 3 ||
+				pv_1[x - 1] > 0 && pv_1[x - 1] <= 3 || pv_1[x] > 0 && pv_1[x] <= 3 || pv_1[x + 1] > 0 && pv_1[x + 1] <= 3) {
+				wrong_pos.push_back(Point(x, y));
+			}
+		}		
+	}
+	
+	for (int i = 1; i < (int)wrong_pos.size(); i++) {
+		bool check = false;
+		for (int j = 0; j < i; j++) {
+			Point dd = wrong_pos[i] - wrong_pos[j];
+			if (abs(dd.x) + abs(dd.y) <= 3)
+				check = true;
+		}
+		if (check)
+			wrong_pos.erase(wrong_pos.begin() + i);
+	}
+
+	for (auto & cur: wrong_pos) {
+		char sh[100];
+		int idx = qsnprintf(sh, 10, "ccl:");
+		for (int x = cur.x - 5; x < cur.x + 5; x++)
+			idx += qsnprintf(sh + idx, 10, "%4d", x);
+		qInfo(sh);
+		
+		for (int y = cur.y - 5; y < cur.y + 5; y++) {
+			const unsigned * p_ccl = ccl.ptr<unsigned>(y);
+			const uchar * pv = visit.ptr<uchar>(y);			
+			idx = qsnprintf(sh, 10, "%3d:", y);
+			for (int x = cur.x - 5; x < cur.x + 5; x++) {
+				int d = (p_ccl[x] == (region_id | CCL_EDGE_MASK0)) ? 0 :
+					(p_ccl[x] == (region_id | CCL_EDGE_MASK1)) ? 1 :
+					(p_ccl[x] == (region_id | CCL_EDGE_MASK2)) ? 2 :
+					(p_ccl[x] == (region_id | CCL_EDGE_MASK3)) ? 3 : 4;
+				idx += qsnprintf(sh + idx, 10, " %d.%d", d, pv[x]);
+			}
+			qInfo(sh);
+		}
+	}
 }
 
 static const int move_decision[4][3] = { // offset between line crosspoint location and ccl grid location
@@ -2948,7 +3167,8 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 						break;
 					}
 				}
-				CV_Assert(m_dir >= 0); //1 must have 2 nearby
+				if (m_dir < 0)
+					continue;
 				pv[x] = 1;
 				cur = org; //now (org, m_dir) is first atom edge between MASK1 and MASK2
 				shared_ptr<RegionEdgeAtom> cur_atom_edge(new RegionEdgeAtom()); //create new atom edge
@@ -3000,6 +3220,11 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 								l3 += Point(dxy[m_dir][1], dxy[m_dir][0]);
 								r3 = (unsigned)ccl.at<int>(l3);
 								CV_Assert((r3 & CCL_REGION_MASK) == r && (r3 & CCL_EDGE_MASK3) != CCL_EDGE_MASK3);
+								if (r3 != (r | CCL_EDGE_MASK2))
+									if (visit.at<uchar>(l3)++ >= 8) {
+										dump_visit(ccl, visit, cur, org, r);
+										CV_Assert(0);
+									}										
 								if (cur.x < left_border || cur.y < up_border || cur.x > right_border || cur.y > down_border)
 									break;
 							} while (r3 != (r | CCL_EDGE_MASK2));
@@ -3073,11 +3298,7 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 								prev_edge = cur_tile_edge;
 								continue;
 							}
-							if (need_dummy_corner_tile &&
-								(cur.x == left_border && cur.y == up_border ||
-								cur.x == left_border && cur.y == down_border ||
-								cur.x == right_border && cur.y == up_border ||
-								cur.x == right_border && cur.y == down_border)) { //if it is corner, mostly it won't happen
+							if (need_dummy_corner_tile) { //if it is corner, mostly it won't happen
 								shared_ptr<RegionEdgeTile> cur_tile_edge2(new RegionEdgeTile()); //add dumy EdgeTile for corner
 								cur_tile_edge2->init();
 								cur_tile_edge2->pt1 = cur;
@@ -3102,24 +3323,31 @@ void mark_atom_edge(Mat & ccl, RegionSet & rs, int border, int cut_len)
 						l2 += Point(dxy[move_decision[m_dir][1]][1], dxy[move_decision[m_dir][1]][0]);
 					unsigned r2 = (unsigned)ccl.at<int>(l2);
 					if (r1 == (r | CCL_EDGE_MASK2))	{	
-						if (r2 == (r | CCL_EDGE_MASK1))	{	//_ 2 1(r2)
-							m_dir = dir_1[dir_2[m_dir]];	//  1 2(r1)							
-							visit.at<uchar>(l2) = 1;
+						if (r2 == (r | CCL_EDGE_MASK1))	{					//_ 2.1(r2)  . is cur, removed in expand_ccl, not possible happened
+							qInfo("wrong at %d %d, r=%d", cur.x, cur.y, r);	//  1 2(r1)
+							CV_Assert(0);
 						}
-						else						//_ 2 x(r2)
+						else						//_ 2.x(r2) . is cur
 							m_dir = dir_2[m_dir];	//  1 2(r1)
 					}
 					else {
 						CV_Assert((r1 & CCL_EDGE_MASK3) < CCL_EDGE_MASK2 && (r1 & CCL_REGION_MASK) == r);						
 						if (r2 == (r | CCL_EDGE_MASK2)) {
-							CV_Assert((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK1); //_ 2 2(r2)
-							visit.at<uchar>(l1) = 1;							//  1 1(r1)
+							CV_Assert((r1 & CCL_EDGE_MASK3) == CCL_EDGE_MASK1); //_ 2.2(r2) . is cur
+							if (visit.at<uchar>(l1)++ >= 8) {					//  1 1(r1)
+								dump_visit(ccl, visit, cur, org, r);
+								CV_Assert(0);
+							}
 							m_dir = m_dir; //not change
 						}
 						else {
 							CV_Assert(r2 == (r | CCL_EDGE_MASK1));	//_ 2 1(r2)
-							visit.at<uchar>(l1) = 1;				//  1 1(r1)
-							visit.at<uchar>(l2) = 1;
+							int v1 = visit.at<uchar>(l1)++;			//  1 1(r1)
+							int v2 = visit.at<uchar>(l2)++;
+							if (v1 >= 8 || v2 >= 8) {
+								dump_visit(ccl, visit, cur, org, r);
+								CV_Assert(0);
+							}
 							m_dir = dir_1[dir_2[m_dir]];
 						}
 					}
@@ -3512,7 +3740,11 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 						if (!e_tile->other.expired()) { //if it is connected tile
 							shared_ptr<RegionEdge> ec = e_tile->other.lock()->prev.lock();
 							CV_Assert(ec != nullptr);
-							if (ec->type == REGION_EDGE_CONNECT)
+							if (ec->type == REGION_EDGE_CONNECT || ec->type == REGION_EDGE_ATOM_GRID)
+								local_atom_edges.insert(ec);
+							ec = e_tile->other.lock()->next.lock();
+							CV_Assert(ec != nullptr);
+							if (ec->type == REGION_EDGE_CONNECT || ec->type == REGION_EDGE_ATOM_GRID)
 								local_atom_edges.insert(ec);
 						}
 					}
@@ -3580,7 +3812,9 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 		int head_type = 0, tail_type = 0;
 		Rect head_connect_rect, tail_connect_rect;
 		edge_queue.push_back(eh);
-		if (eh->type == REGION_EDGE_CONNECT) { // it is up or left EdgeConnect
+		bool head_bypass = (eh->type == REGION_EDGE_CONNECT && eh->next.lock()->type == REGION_EDGE_TILE_GRID);
+		bool tail_bypass = (et->type == REGION_EDGE_CONNECT && et->prev.lock()->type == REGION_EDGE_TILE_GRID);
+		if (head_bypass) { // it is up or left EdgeConnect
 			edge_queue.insert(edge_queue.begin(), eh);
 			head_type = HAVE_CONNECT;
 		}		
@@ -3625,6 +3859,11 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 			CV_Assert(0);
 		}
 		if (head_type) {
+			if (tail_bypass) {
+				edge_queue.push_back(et);
+				tail_type = HAVE_CONNECT;
+			}
+			else
 			while (1) { //search tile
 				shared_ptr<RegionEdge> et_next = et->next.lock();
 				CV_Assert(et_next != e_atom);
@@ -4218,8 +4457,8 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 										break;
 									case DIR_UPRIGHT:
 										if (p1.y + p1.x > p2.y + p2.x) {
-											p1.x = p1.y + p1.x - p2.y;
-											p1.y = p2.y;
+											p1.y = p1.y + p1.x - p2.x;
+											p1.x = p2.x;
 										}
 										else {
 											p2.x = p2.y + p2.x - p1.y;
@@ -4232,8 +4471,8 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 											p2.y = p1.y;
 										}
 										else {
-											p1.x = p1.y + p1.x - p2.y;
-											p1.y = p2.y;
+											p1.y = p1.y + p1.x - p2.x;
+											p1.x = p2.x;
 										}
 										break;
 									case DIR_UPLEFT:
@@ -4242,14 +4481,14 @@ static void process_atom_edge(const Mat & cgrid, RegionSet & local_rs, vector<sh
 											p2.x = p1.x;
 										}
 										else {
-											p1.y = p1.y - p1.x + p2.x;
-											p1.x = p2.x;
+											p1.x = p1.x - p1.y + p2.y;
+											p1.y = p2.y;
 										}
 										break;
 									case DIR_DOWNRIGHT:
 										if (p1.y - p1.x > p2.y - p2.x) {
-											p1.y = p1.y - p1.x + p2.x;
-											p1.x = p2.x;
+											p1.x = p1.x - p1.y + p2.y;
+											p1.y = p2.y;
 										}
 										else {
 											p2.y = p2.y - p2.x + p1.x;
@@ -5514,8 +5753,8 @@ int VWExtractML::extract(string img_name, QRect rect, vector<MarkObj> & obj_sets
 	//for (int current_layer = layer_min; current_layer <= layer_max; current_layer++)
 	//	ed[current_layer].ets.clear();
 	
-	qInfo("VWExtractML Extract finished, left rs=%d, ga=%d, gt=%d, gc=%d, gp=%d, gr=%d", global_rs.regions.size(), RegionEdge::global_atoms,
-		RegionEdge::global_tiles, RegionEdge::global_connects, RegionEdge::global_tps, Region::global_region_cnt);
+    qInfo("VWExtractML Extract finished, left rs=%d, ga=%d, gt=%d, gc=%d, gp=%d, gr=%d", global_rs.regions.size(), RegionEdge::global_atoms,
+    	RegionEdge::global_tiles, RegionEdge::global_connects, RegionEdge::global_tps, Region::global_region_cnt);
 	return 0;
 }
 
@@ -5784,13 +6023,15 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 						QPoint p0(x0 << 15, y0 << 15);
 						QPoint p1((x0 << 15) + 0x4000, (y0 << 15) + 0x4000);
 						QPoint p2((x0 << 15) + 0x8000 + BORDER_SIZE * scale, (y0 << 15) + 0x8000 + BORDER_SIZE * scale);
-						QPoint p3((x0 << 15) + 0x8020, (y0 << 15) + 0x4000);
-						QPoint p4((x0 << 15) + 0x4000, (y0 << 15) + 0x8020);
+						QPoint p3((x0 << 15) + 0x8020, (y0 << 15) + 0x0020);						
+						QPoint p4((x0 << 15) + 0x0020, (y0 << 15) + 0x8020);
+						QPoint p5((x0 << 15) + 0x8020, (y0 << 15) + 0x7FC0);
+						QPoint p6((x0 << 15) + 0x7FC0, (y0 << 15) + 0x8020);
 						bool in0 = area_[area_idx].poly.containsPoint(p0, Qt::OddEvenFill);
 						bool in1 = area_[area_idx].poly.containsPoint(p1, Qt::OddEvenFill);
 						bool in2 = area_[area_idx].poly.containsPoint(p2, Qt::OddEvenFill);
-						bool in3 = area_[area_idx].poly.containsPoint(p3, Qt::OddEvenFill);
-						bool in4 = area_[area_idx].poly.containsPoint(p4, Qt::OddEvenFill);
+						bool in3 = area_[area_idx].poly.containsPoint(p3, Qt::OddEvenFill) || area_[area_idx].poly.containsPoint(p5, Qt::OddEvenFill);
+						bool in4 = area_[area_idx].poly.containsPoint(p4, Qt::OddEvenFill) || area_[area_idx].poly.containsPoint(p6, Qt::OddEvenFill);
 						if (!in0 && !in1 &&	!in2 && !(x0 == sb.left() && y0 == sb.top()))
 							in_area = false;
 						if (!in0 || !in1 || !in2)
@@ -5848,7 +6089,7 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 							d->x0 = x0;
 							d->y0 = y0;
 							d->poly = need_check_inpoly ? &cur_poly : NULL;
-							d->end_tile_mask |= (!in3 || x0 == sb.right()) ? DIR_RIGHT1_MASK : 0;
+							d->end_tile_mask = (!in3 || x0 == sb.right()) ? DIR_RIGHT1_MASK : 0;
 							d->end_tile_mask |= (!in4 || y0 == sb.bottom()) ? DIR_DOWN1_MASK : 0;
 							if (ewide == 0 && ehight == 0) {
 								d->img_pixel_x0 = sr_tl_pixel.x();
@@ -5982,7 +6223,7 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 						pi.dbg_file_name = "";
 #if DUMP_DBG_IMG
 						char filename[30];
-						sprintf_s(filename, 30, "./DImg/%d_%d", pi.cpd->x0, pi.cpd->y0);
+                        qsnprintf(filename, 30, "./DImg/%d_%d", pi.cpd->x0, pi.cpd->y0);
 						pi.dbg_file_name = filename;
 #endif						
 
@@ -6048,8 +6289,8 @@ int VWExtractML::extract(vector<ICLayerWrInterface *> & ics, const vector<Search
 			save_obj_to_file(es, fresult);
 		}
 	}
-	qInfo("VWExtractML Extract finished, left ga=%d, gt=%d, gc=%d, gp=%d, gr=%d", RegionEdge::global_atoms,
-		RegionEdge::global_tiles, RegionEdge::global_connects, RegionEdge::global_tps, Region::global_region_cnt);
+    qInfo("VWExtractML Extract finished, left ga=%d, gt=%d, gc=%d, gp=%d, gr=%d", RegionEdge::global_atoms,
+    	RegionEdge::global_tiles, RegionEdge::global_connects, RegionEdge::global_tps, Region::global_region_cnt);
 	fclose(fresult);
 	if (notify) {
 		MarkObj o;

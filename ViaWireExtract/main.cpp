@@ -516,7 +516,9 @@ void test_ml_extract()
 {
 	BkImgRoMgr bkimg_faty;
 #ifdef WIN32
-	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/B06210101/chip.prj", "", 0);
+	//QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/B06210101/chip.prj", "", 0);
+	//2 QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/A22200954/chip.prj", "", 0);
+	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("C:/chenyu/data/B05200701/chip.prj", "", 0);
 #else
 	QSharedPointer<BkImgInterface> bk_img = bkimg_faty.open("/home/chenyu/work/share/imgdb/chip_enc.prj", 0);
 #endif
@@ -527,10 +529,11 @@ void test_ml_extract()
 	}
 	QScopedPointer<VWExtract> vwe(VWExtract::create_extract(2));
 	vector<MarkObj> objs;
-	vwe->set_extract_param(2, POINT_WIRE_INSU << 8 | OBJ_POINT, 0x050503, 0, 0, 0, 0, 0, 0, 0);
+	vwe->set_extract_param(0, POINT_WIRE_INSU << 8 | OBJ_POINT, 0x080803, 0, 0, 0, 0, 0, 0, 0);
 	vector<SearchArea> areas;
-	areas.push_back(SearchArea(QRect(90000, 100000, 2700000, 2000000), 1));
-	//areas.push_back(SearchArea(QRect(2680000, 1720000, 120000, 90000), 0));
+	//2 areas.push_back(SearchArea(QRect(90000, 90000, 2600000, 1860000), 1));
+	//areas.push_back(SearchArea(QRect(1930000, 1810000, 120000, 120000), 0));
+	areas.push_back(SearchArea(QRect(QPoint(125604, 180251), QPoint(2853420, 2675009)), 1));
 	//QPoint tl(135680, 19968), rb(597505, 517121);
 	//QPoint tl(135680, 369968), rb(397505, 517121);
 	/*areas.push_back(SearchArea(QRect(128000, 128000, 256000, 128000), OPT_POLYGON_SEARCH));
@@ -638,7 +641,7 @@ int main(int argc, char *argv[])
 	SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
 #endif
 	qInstallMessageHandler(myMessageOutput);
-#if 1
+#if 0
 	
 	//wire_extract_test_pipeprocess();
 	//cell_extract_test();
